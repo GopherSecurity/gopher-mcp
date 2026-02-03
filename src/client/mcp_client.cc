@@ -882,23 +882,46 @@ McpConnectionConfig McpClient::createConnectionConfig(TransportType transport) {
       http_config.mode = transport::HttpSseTransportSocketConfig::Mode::CLIENT;
 
       // Extract server address from URI
-      // URI format: http://host:port or https://host:port
+      // URI format: http://host:port/path or https://host:port/path
       std::string server_addr;
+      bool is_https = false;
       if (current_uri_.find("http://") == 0) {
         server_addr = current_uri_.substr(7);  // Remove "http://"
       } else if (current_uri_.find("https://") == 0) {
         server_addr = current_uri_.substr(8);  // Remove "https://"
+        is_https = true;
       } else {
         server_addr = current_uri_;
       }
 
-      // Remove any path component (everything after first /)
+      // Extract path component (e.g., /sse from https://host/sse)
+      std::string http_path = "/";
       size_t slash_pos = server_addr.find('/');
       if (slash_pos != std::string::npos) {
+        http_path = server_addr.substr(slash_pos);
         server_addr = server_addr.substr(0, slash_pos);
       }
 
       http_config.server_address = server_addr;
+      config.http_path = http_path;
+      config.http_host = server_addr;
+
+      // Set SSL transport for HTTPS URLs
+      if (is_https) {
+        http_config.underlying_transport =
+            transport::HttpSseTransportSocketConfig::UnderlyingTransport::SSL;
+        transport::HttpSseTransportSocketConfig::SslConfig ssl_cfg;
+        ssl_cfg.verify_peer = false;
+        ssl_cfg.alpn_protocols = std::vector<std::string>{"http/1.1"};
+        std::string sni_host = server_addr;
+        size_t colon_pos = sni_host.find(':');
+        if (colon_pos != std::string::npos) {
+          sni_host = sni_host.substr(0, colon_pos);
+        }
+        ssl_cfg.sni_hostname = mcp::make_optional(sni_host);
+        http_config.ssl_config = mcp::make_optional(ssl_cfg);
+      }
+
       config.http_sse_config = mcp::make_optional(http_config);
       break;
     }
