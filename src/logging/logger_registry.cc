@@ -11,7 +11,7 @@ LoggerRegistry& LoggerRegistry::instance() {
   return instance;
 }
 
-LoggerRegistry::LoggerRegistry() : global_level_(LogLevel::Info) {
+LoggerRegistry::LoggerRegistry() : global_level_(LogLevel::Warning) {
   initializeDefaults();
 }
 
