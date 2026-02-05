@@ -107,8 +107,10 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
         add_compile_options(-O3)
     endif()
 elseif(MSVC)
-    add_compile_options(/W4 /WX)
-endif()
+    add_compile_options(/W3)
+    add_compile_definitions(NOMINMAX)
+    add_compile_definitions(WIN32_LEAN_AND_MEAN)
+    endif()
 
 # Memory sanitizer options for debugging
 option(ENABLE_ASAN "Enable AddressSanitizer for memory error detection" OFF)
@@ -222,7 +224,10 @@ if(MCP_USE_LLHTTP)
     )
     
     message(STATUS "Downloading llhttp... This may take a moment depending on your connection speed.")
-    FetchContent_MakeAvailable(llhttp)
+    FetchContent_GetProperties(llhttp)
+    if(NOT llhttp_POPULATED)
+        FetchContent_Populate(llhttp)
+    endif()
     message(STATUS "llhttp download complete.")
     
     # Build llhttp as a simple static library
@@ -230,15 +235,15 @@ if(MCP_USE_LLHTTP)
     file(GLOB LLHTTP_SOURCES ${llhttp_SOURCE_DIR}/src/*.c)
     
     if(NOT TARGET llhttp)
-        add_library(llhttp STATIC ${LLHTTP_SOURCES})
-        target_include_directories(llhttp PUBLIC ${llhttp_SOURCE_DIR}/include)
+    add_library(llhttp STATIC ${LLHTTP_SOURCES})
+    target_include_directories(llhttp PUBLIC ${llhttp_SOURCE_DIR}/include)
 
-        # Enable position-independent code for shared library linking
-        set_target_properties(llhttp PROPERTIES POSITION_INDEPENDENT_CODE ON)
+    # Enable position-independent code for shared library linking
+    set_target_properties(llhttp PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
-        # Disable warnings for third-party code
-        if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-            target_compile_options(llhttp PRIVATE -w)
+    # Disable warnings for third-party code
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(llhttp PRIVATE -w)
         endif()
     endif()
     
@@ -512,8 +517,12 @@ set(MCP_SDK_SOURCES ${MCP_CORE_SOURCES} ${MCP_CLIENT_SERVER_SOURCES} ${MCP_EVENT
 
 if(BUILD_STATIC_LIBS)
     add_library(gopher-mcp-static STATIC ${MCP_SDK_SOURCES} ${MCP_HTTP_SOURCES})
+    if(WIN32)
+        set_target_properties(gopher-mcp-static PROPERTIES OUTPUT_NAME gopher-mcp-static)
+    else()
+        set_target_properties(gopher-mcp-static PROPERTIES OUTPUT_NAME gopher-mcp)
+    endif()
     set_target_properties(gopher-mcp-static PROPERTIES
-        OUTPUT_NAME gopher-mcp
         POSITION_INDEPENDENT_CODE ON
         VERSION ${GOPHER_MCP_VERSION}
         SOVERSION ${GOPHER_MCP_VERSION_MAJOR}
@@ -654,8 +663,12 @@ endif()
 # Create Gopher MCP Echo Advanced libraries
 if(BUILD_STATIC_LIBS)
     add_library(gopher-mcp-echo-advanced-static STATIC ${MCP_ECHO_ADVANCED_SOURCES})
+    if(WIN32)
+        set_target_properties(gopher-mcp-echo-advanced-static PROPERTIES OUTPUT_NAME gopher-mcp-echo-advanced-static)
+    else()
+        set_target_properties(gopher-mcp-echo-advanced-static PROPERTIES OUTPUT_NAME gopher-mcp-echo-advanced)
+    endif()
     set_target_properties(gopher-mcp-echo-advanced-static PROPERTIES
-        OUTPUT_NAME gopher-mcp-echo-advanced
         POSITION_INDEPENDENT_CODE ON
     )
 endif()
@@ -666,6 +679,7 @@ if(BUILD_SHARED_LIBS)
         VERSION ${GOPHER_MCP_VERSION}
         SOVERSION ${GOPHER_MCP_VERSION_MAJOR}
         POSITION_INDEPENDENT_CODE ON
+        WINDOWS_EXPORT_ALL_SYMBOLS ON
     )
 else()
     add_library(gopher-mcp-echo-advanced ALIAS gopher-mcp-echo-advanced-static)
@@ -704,8 +718,12 @@ endforeach()
 # Create Gopher MCP Event libraries
 if(BUILD_STATIC_LIBS)
     add_library(gopher-mcp-event-static STATIC ${MCP_EVENT_SOURCES})
+    if(WIN32)
+        set_target_properties(gopher-mcp-event-static PROPERTIES OUTPUT_NAME gopher-mcp-event-static)
+    else()
+        set_target_properties(gopher-mcp-event-static PROPERTIES OUTPUT_NAME gopher-mcp-event)
+    endif()
     set_target_properties(gopher-mcp-event-static PROPERTIES
-        OUTPUT_NAME gopher-mcp-event
         POSITION_INDEPENDENT_CODE ON
     )
 endif()
@@ -716,6 +734,7 @@ if(BUILD_SHARED_LIBS)
         VERSION ${GOPHER_MCP_VERSION}
         SOVERSION ${GOPHER_MCP_VERSION_MAJOR}
         POSITION_INDEPENDENT_CODE ON
+        WINDOWS_EXPORT_ALL_SYMBOLS ON
     )
 else()
     add_library(gopher-mcp-event ALIAS gopher-mcp-event-static)
@@ -754,6 +773,9 @@ foreach(lib_target ${EVENT_REAL_TARGETS})
                 target_link_directories(${lib_target} PUBLIC ${LIBEVENT_LIBRARY_DIRS})
             endif()
             target_link_libraries(${lib_target} PUBLIC ${LIBEVENT_LIBRARIES})
+            if(WIN32)
+                target_link_libraries(${lib_target} PUBLIC ws2_32)
+            endif()
         endif()
     endif()
 endforeach()

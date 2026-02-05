@@ -181,6 +181,8 @@ void setupLogging(bool verbose) {
 #ifdef _WIN32
 // Windows Console Control Handler
 BOOL WINAPI ConsoleCtrlHandler(DWORD ctrlType) {
+  static std::atomic<int> signal_count(0);
+
   switch (ctrlType) {
     case CTRL_C_EVENT:
     case CTRL_BREAK_EVENT:
@@ -196,7 +198,6 @@ BOOL WINAPI ConsoleCtrlHandler(DWORD ctrlType) {
       g_shutdown_cv.notify_all();
 
       // For safety, if we receive multiple signals, force exit
-      static std::atomic<int> signal_count(0);
       signal_count++;
       if (signal_count > 1) {
         std::cerr << "\n[INFO] Force shutdown after multiple signals..."

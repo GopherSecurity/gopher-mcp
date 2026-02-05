@@ -182,11 +182,14 @@ option(BUILD_C_API_STATIC "Build static C API library" ON)
 
 if(BUILD_C_API_STATIC)
     add_library(gopher_mcp_c_static STATIC ${MCP_C_API_SOURCES})
-    
-    set_target_properties(gopher_mcp_c_static PROPERTIES
-        OUTPUT_NAME gopher_mcp_c
-        POSITION_INDEPENDENT_CODE ON
-    )
+        if(WIN32)
+            set_target_properties(gopher_mcp_c_static PROPERTIES OUTPUT_NAME gopher_mcp_c_static-static)
+        else()
+            set_target_properties(gopher_mcp_c_static PROPERTIES OUTPUT_NAME gopher_mcp_c_static)
+        endif()
+        set_target_properties(gopher_mcp_c_static PROPERTIES
+            POSITION_INDEPENDENT_CODE ON
+        )
     
     target_include_directories(gopher_mcp_c_static
         PUBLIC

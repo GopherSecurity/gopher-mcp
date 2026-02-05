@@ -14,6 +14,7 @@
 #include <mutex>
 #include <ostream>
 #include <string>
+#include <optional>
 
 #include "mcp/core/compat.h"
 #include "mcp/json/json_serialization.h"

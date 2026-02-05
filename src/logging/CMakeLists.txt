@@ -13,10 +13,14 @@ set(MCP_LOGGING_SOURCES
 
 # Create static library
 add_library(gopher-mcp-logging-static STATIC ${MCP_LOGGING_SOURCES})
-set_target_properties(gopher-mcp-logging-static PROPERTIES
-  OUTPUT_NAME gopher-mcp-logging
-  POSITION_INDEPENDENT_CODE ON
-)
+  if(WIN32)
+    set_target_properties(gopher-mcp-logging-static PROPERTIES OUTPUT_NAME gopher-mcp-logging-static)
+  else()
+    set_target_properties(gopher-mcp-logging-static PROPERTIES OUTPUT_NAME gopher-mcp-logging)
+  endif()
+  set_target_properties(gopher-mcp-logging-static PROPERTIES
+    POSITION_INDEPENDENT_CODE ON
+  )
 
 target_include_directories(gopher-mcp-logging-static PUBLIC
   $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>
@@ -38,7 +42,7 @@ target_compile_definitions(gopher-mcp-logging-static PUBLIC
 # Create shared library
 if(BUILD_SHARED_LIBS)
   add_library(gopher-mcp-logging SHARED ${MCP_LOGGING_SOURCES})
-  
+
   target_include_directories(gopher-mcp-logging PUBLIC
     $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>
@@ -53,6 +57,10 @@ if(BUILD_SHARED_LIBS)
   
   target_compile_definitions(gopher-mcp-logging PUBLIC
     $<$<CONFIG:Debug>:MCP_DEBUG_LOGGING>
+  )
+  
+  set_target_properties(gopher-mcp-logging PROPERTIES
+    WINDOWS_EXPORT_ALL_SYMBOLS ON
   )
 else()
   add_library(gopher-mcp-logging ALIAS gopher-mcp-logging-static)

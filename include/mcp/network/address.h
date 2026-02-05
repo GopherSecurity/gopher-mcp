@@ -17,6 +17,10 @@
 #define _SOCKLEN_T_DEFINED
 typedef int socklen_t;
 #endif
+#ifndef _MODE_T_DEFINED
+#define _MODE_T_DEFINED
+typedef int mode_t;
+#endif
 #else
 #include <netinet/in.h>
 #include <sys/socket.h>

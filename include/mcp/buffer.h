@@ -12,6 +12,12 @@
 
 #include "mcp/core/compat.h"
 
+// msvc does not define ssize_t by default
+#if defined(_MSC_VER)
+#include <BaseTsd.h>
+typedef SSIZE_T ssize_t;
+#endif
+
 namespace mcp {
 
 // Forward declarations

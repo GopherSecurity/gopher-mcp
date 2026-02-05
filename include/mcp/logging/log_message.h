@@ -4,7 +4,14 @@
 #include <map>
 #include <string>
 #include <thread>
+
+#if defined(_WIN32)
+#include <process.h>
+using pid_t = int;
+inline pid_t getpid() { return _getpid(); }
+#else
 #include <unistd.h>
+#endif
 
 #include "mcp/logging/log_level.h"
 

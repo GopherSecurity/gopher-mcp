@@ -12,6 +12,7 @@
 #ifdef _WIN32
 #include <io.h>
 #include <winsock2.h>
+typedef SSIZE_T ssize_t;
 #define read(fd, buf, len) _read(fd, buf, static_cast<unsigned int>(len))
 #define write(fd, buf, len) _write(fd, buf, static_cast<unsigned int>(len))
 #ifndef STDIN_FILENO
