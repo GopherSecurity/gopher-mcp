@@ -691,11 +691,13 @@ else()
     endforeach()
 endif()
 
-# Add Windows-specific socket libraries
+# Add Windows-specific socket libraries and definitions
 if(WIN32)
     foreach(lib_target ${REAL_TARGETS})
         if(TARGET ${lib_target})
             target_link_libraries(${lib_target} PRIVATE ws2_32 crypt32 iphlpapi)
+            # Require Windows Vista or later for inet_ntop/inet_pton
+            target_compile_definitions(${lib_target} PRIVATE _WIN32_WINNT=0x0600)
         endif()
     endforeach()
 endif()
