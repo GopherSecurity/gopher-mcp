@@ -208,13 +208,13 @@ class ObjectBuilder {
   ObjectBuilder() = default;
 
   template <typename U>
-  ObjectBuilder& set(U T::*member, U&& value) {
+  ObjectBuilder& set(U T::* member, U&& value) {
     object.*member = std::forward<U>(value);
     return *this;
   }
 
   template <typename U>
-  ObjectBuilder& set_optional(optional<U> T::*member, U&& value) {
+  ObjectBuilder& set_optional(optional<U> T::* member, U&& value) {
     object.*member = mcp::make_optional(std::forward<U>(value));
     return *this;
   }
