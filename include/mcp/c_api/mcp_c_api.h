@@ -1038,7 +1038,7 @@ MCP_API void mcp_print_leak_report(void) MCP_NOEXCEPT;
 #define MCP_ENSURE_CLEANUP(resource, cleanup_fn)             \
   std::unique_ptr<std::remove_pointer_t<decltype(resource)>, \
                   decltype(cleanup_fn)>                      \
-      _cleanup_##__LINE__(resource, cleanup_fn)
+  _cleanup_##__LINE__(resource, cleanup_fn)
 
 #endif /* __cplusplus */
 
