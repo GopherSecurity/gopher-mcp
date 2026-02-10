@@ -11,11 +11,11 @@
  */
 export enum CircuitBreakerState {
   /**  Circuit is operating normally */
-  CLOSED = 'CLOSED',
+  CLOSED = "CLOSED",
   /** Circuit has opened due to failures */
-  OPEN = 'OPEN',
+  OPEN = "OPEN",
   /** Circuit is testing if service has recovered */
-  HALF_OPEN = 'HALF_OPEN',
+  HALF_OPEN = "HALF_OPEN",
 }
 
 /**

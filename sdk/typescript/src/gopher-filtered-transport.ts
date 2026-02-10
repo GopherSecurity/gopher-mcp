@@ -130,22 +130,16 @@ export class GopherFilteredTransport implements Transport {
    * @param config - Filter configuration and options
    * @throws Error if dispatcher handle is invalid or filter chain creation fails
    */
-  constructor(
-    sdkTransport: Transport,
-    config: GopherFilteredTransportConfig
-  ) {
+  constructor(sdkTransport: Transport, config: GopherFilteredTransportConfig) {
     this.sdkTransport = sdkTransport;
     this.config = {
       queueSize: 1000,
       debugLogging: false,
-      ...config
+      ...config,
     };
 
     // Create filter chain (this validates config and creates C++ chain)
-    this.filterChain = new FilterChain(
-      config.dispatcherHandle,
-      config.filterConfig
-    );
+    this.filterChain = new FilterChain(config.dispatcherHandle, config.filterConfig);
 
     // Create message queue for delayed/queued messages
     this.messageQueue = new MessageQueue(this.config.queueSize || 1000);
@@ -251,7 +245,7 @@ export class GopherFilteredTransport implements Transport {
     };
 
     // Propagate error events
-    this.sdkTransport.onerror = (error) => {
+    this.sdkTransport.onerror = error => {
       if (this.config.debugLogging) {
         console.error("❌ Transport error:", error);
       }
@@ -286,7 +280,7 @@ export class GopherFilteredTransport implements Transport {
       }
 
       // Start underlying transport if it has start method
-      if ('start' in this.sdkTransport && typeof this.sdkTransport.start === 'function') {
+      if ("start" in this.sdkTransport && typeof this.sdkTransport.start === "function") {
         await (this.sdkTransport as any).start();
       }
 
@@ -426,13 +420,16 @@ export class GopherFilteredTransport implements Transport {
    */
   async handleRequest(req: any, res: any): Promise<void> {
     // Check if the underlying transport has handleRequest method
-    if ('handleRequest' in this.sdkTransport && typeof (this.sdkTransport as any).handleRequest === 'function') {
+    if (
+      "handleRequest" in this.sdkTransport &&
+      typeof (this.sdkTransport as any).handleRequest === "function"
+    ) {
       if (this.config.debugLogging) {
         console.log("🌐 [GopherFilteredTransport] Proxying handleRequest to wrapped transport");
       }
 
       // For HTTP POST requests, intercept and filter BEFORE passing to SDK
-      if (req.method === 'POST') {
+      if (req.method === "POST") {
         const bodyBuffer = await this.readRequestBody(req);
         const forwardOriginal = async () => {
           return await this.forwardHttpRequestWithBody(req, res, bodyBuffer);
@@ -443,7 +440,7 @@ export class GopherFilteredTransport implements Transport {
         }
 
         try {
-          const bodyString = bodyBuffer.toString('utf-8');
+          const bodyString = bodyBuffer.toString("utf-8");
           const message = JSON.parse(bodyString) as JSONRPCMessage;
 
           const result = await this.filterChain.processIncoming(message);
@@ -452,7 +449,7 @@ export class GopherFilteredTransport implements Transport {
             res,
             bodyBuffer,
             message,
-            result,
+            result
           );
 
           if (handled) {
@@ -460,7 +457,7 @@ export class GopherFilteredTransport implements Transport {
           }
         } catch (error) {
           if (this.config.debugLogging) {
-            console.warn('⚠️  Failed to parse/filter request (falling back to SDK):', error);
+            console.warn("⚠️  Failed to parse/filter request (falling back to SDK):", error);
           }
         }
 
@@ -470,7 +467,7 @@ export class GopherFilteredTransport implements Transport {
       // Proxy to underlying transport
       return await (this.sdkTransport as any).handleRequest(req, res);
     } else {
-      throw new Error('Underlying transport does not support handleRequest method');
+      throw new Error("Underlying transport does not support handleRequest method");
     }
   }
 
@@ -479,7 +476,7 @@ export class GopherFilteredTransport implements Transport {
     for await (const chunk of req) {
       if (Buffer.isBuffer(chunk)) {
         chunks.push(chunk);
-      } else if (typeof chunk === 'string') {
+      } else if (typeof chunk === "string") {
         chunks.push(Buffer.from(chunk));
       } else {
         chunks.push(Buffer.from(chunk));
@@ -493,7 +490,7 @@ export class GopherFilteredTransport implements Transport {
     res: any,
     originalBody: Buffer,
     message: JSONRPCMessage,
-    result: FilterResult,
+    result: FilterResult
   ): Promise<boolean> {
     switch (result.decision) {
       case FilterDecision.DENY: {
@@ -503,18 +500,20 @@ export class GopherFilteredTransport implements Transport {
 
         const retryAfterMs = result.delayMs || 1000;
         res.writeHead(429, {
-          'Content-Type': 'application/json',
-          'Retry-After': Math.ceil(retryAfterMs / 1000).toString(),
+          "Content-Type": "application/json",
+          "Retry-After": Math.ceil(retryAfterMs / 1000).toString(),
         });
-        res.end(JSON.stringify({
-          jsonrpc: '2.0',
-          id: (message as any)?.id ?? null,
-          error: {
-            code: -32003,
-            message: result.reason || 'Rate limit exceeded',
-            data: { retryAfterMs },
-          },
-        }));
+        res.end(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: (message as any)?.id ?? null,
+            error: {
+              code: -32003,
+              message: result.reason || "Rate limit exceeded",
+              data: { retryAfterMs },
+            },
+          })
+        );
         return true;
       }
 
@@ -524,14 +523,16 @@ export class GopherFilteredTransport implements Transport {
           req,
           res,
           this.serializeFilteredBody(message, result),
-          { preFiltered: true, filteredMessage: this.getForwardedMessage(message, result) },
+          { preFiltered: true, filteredMessage: this.getForwardedMessage(message, result) }
         );
         return true;
       }
 
       case FilterDecision.QUEUE: {
         if (this.config.debugLogging) {
-          console.warn('⚠️  Filter requested queueing for HTTP request - forwarding immediately (queue unsupported for HTTP).');
+          console.warn(
+            "⚠️  Filter requested queueing for HTTP request - forwarding immediately (queue unsupported for HTTP)."
+          );
         }
         await this.forwardHttpRequestWithBody(req, res, originalBody);
         return true;
@@ -543,7 +544,7 @@ export class GopherFilteredTransport implements Transport {
           req,
           res,
           this.serializeFilteredBody(message, result),
-          { preFiltered: true, filteredMessage: this.getForwardedMessage(message, result) },
+          { preFiltered: true, filteredMessage: this.getForwardedMessage(message, result) }
         );
         return true;
       }
@@ -555,7 +556,7 @@ export class GopherFilteredTransport implements Transport {
 
   private serializeFilteredBody(message: JSONRPCMessage, result: FilterResult): Buffer {
     const payload = result.transformedMessage ?? JSON.stringify(message);
-    return Buffer.from(payload, 'utf-8');
+    return Buffer.from(payload, "utf-8");
   }
 
   private getForwardedMessage(message: JSONRPCMessage, result: FilterResult): JSONRPCMessage {
@@ -563,7 +564,10 @@ export class GopherFilteredTransport implements Transport {
       try {
         return JSON.parse(result.transformedMessage) as JSONRPCMessage;
       } catch (error) {
-        console.warn('⚠️  Failed to parse transformed message JSON (falling back to original message):', error);
+        console.warn(
+          "⚠️  Failed to parse transformed message JSON (falling back to original message):",
+          error
+        );
       }
     }
     return message;
@@ -573,9 +577,9 @@ export class GopherFilteredTransport implements Transport {
     req: any,
     res: any,
     body: Buffer,
-    options?: { preFiltered?: boolean; filteredMessage?: JSONRPCMessage },
+    options?: { preFiltered?: boolean; filteredMessage?: JSONRPCMessage }
   ): Promise<void> {
-    const { Readable } = await import('stream');
+    const { Readable } = await import("stream");
     const bodyStream = Readable.from([body]);
 
     // Copy HTTP request metadata so downstream consumers behave as if using original IncomingMessage
@@ -689,7 +693,7 @@ export class GopherFilteredTransport implements Transport {
       size: this.messageQueue.size(),
       capacity: this.messageQueue.capacity(),
       isFull: this.messageQueue.isFull(),
-      oldestAge: this.messageQueue.oldestMessageAge()
+      oldestAge: this.messageQueue.oldestMessageAge(),
     };
   }
 

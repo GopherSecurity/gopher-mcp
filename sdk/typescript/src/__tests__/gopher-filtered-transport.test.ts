@@ -73,16 +73,16 @@ describe("GopherFilteredTransport", () => {
                     name: "rate",
                     config: {
                       requests_per_second: 10,
-                      burst_size: 5
-                    }
-                  }
-                ]
-              }
-            ]
-          }
-        ]
+                      burst_size: 5,
+                    },
+                  },
+                ],
+              },
+            ],
+          },
+        ],
       },
-      debugLogging: false
+      debugLogging: false,
     });
 
     await filteredTransport.start();
@@ -121,7 +121,7 @@ describe("GopherFilteredTransport", () => {
           filteredTransport.send({
             jsonrpc: "2.0",
             method: "test",
-            id: i
+            id: i,
           })
         );
       }
@@ -139,7 +139,7 @@ describe("GopherFilteredTransport", () => {
         filteredTransport.send({
           jsonrpc: "2.0",
           method: "test",
-          id: 1
+          id: 1,
         })
       ).rejects.toThrow("Mock send error");
     });
@@ -148,29 +148,33 @@ describe("GopherFilteredTransport", () => {
       const newTransport = new GopherFilteredTransport(new MockTransport(), {
         dispatcherHandle: dispatcher,
         filterConfig: {
-          listeners: [{
-            name: "test",
-            filter_chains: [{
-              name: "default",
-              filters: []
-            }]
-          }]
-        }
+          listeners: [
+            {
+              name: "test",
+              filter_chains: [
+                {
+                  name: "default",
+                  filters: [],
+                },
+              ],
+            },
+          ],
+        },
       });
 
       await expect(
         newTransport.send({
           jsonrpc: "2.0",
           method: "test",
-          id: 1
+          id: 1,
         })
       ).rejects.toThrow("not connected");
     });
   });
 
   describe("Incoming Messages", () => {
-    it("should intercept and deliver incoming messages", (done) => {
-      filteredTransport.onmessage = (message) => {
+    it("should intercept and deliver incoming messages", done => {
+      filteredTransport.onmessage = message => {
         expect((message as any).method).toBe("test");
         expect((message as any).id).toBe(42);
         done();
@@ -179,14 +183,14 @@ describe("GopherFilteredTransport", () => {
       mockTransport.simulateIncoming({
         jsonrpc: "2.0",
         method: "test",
-        id: 42
+        id: 42,
       });
     });
 
-    it("should process multiple incoming messages", (done) => {
+    it("should process multiple incoming messages", done => {
       const receivedIds: number[] = [];
 
-      filteredTransport.onmessage = (message) => {
+      filteredTransport.onmessage = message => {
         receivedIds.push((message as any).id);
 
         if (receivedIds.length === 3) {
@@ -199,13 +203,13 @@ describe("GopherFilteredTransport", () => {
         mockTransport.simulateIncoming({
           jsonrpc: "2.0",
           method: "test",
-          id: i
+          id: i,
         });
       }
     });
 
-    it("should handle incoming messages", (done) => {
-      filteredTransport.onmessage = (message) => {
+    it("should handle incoming messages", done => {
+      filteredTransport.onmessage = message => {
         expect((message as any).method).toBe("test");
         done();
       };
@@ -213,13 +217,13 @@ describe("GopherFilteredTransport", () => {
       mockTransport.simulateIncoming({
         jsonrpc: "2.0",
         method: "test",
-        id: 1
+        id: 1,
       });
     });
   });
 
   describe("Event Propagation", () => {
-    it("should propagate close events", (done) => {
+    it("should propagate close events", done => {
       filteredTransport.onclose = () => {
         done();
       };
@@ -227,10 +231,10 @@ describe("GopherFilteredTransport", () => {
       mockTransport.close();
     });
 
-    it("should propagate error events", (done) => {
+    it("should propagate error events", done => {
       const testError = new Error("Test error");
 
-      filteredTransport.onerror = (error) => {
+      filteredTransport.onerror = error => {
         expect(error).toBe(testError);
         done();
       };
@@ -245,7 +249,7 @@ describe("GopherFilteredTransport", () => {
     it("should provide metrics", async () => {
       const metrics = await filteredTransport.getMetrics();
       expect(metrics).toBeDefined();
-      expect(metrics['chain']).toBeDefined();
+      expect(metrics["chain"]).toBeDefined();
     });
 
     it("should provide queue stats", () => {
@@ -268,15 +272,11 @@ describe("GopherFilteredTransport", () => {
 
   describe("Dynamic Filter Control", () => {
     it("should enable filter", async () => {
-      await expect(
-        filteredTransport.setFilterEnabled("rate", true)
-      ).resolves.not.toThrow();
+      await expect(filteredTransport.setFilterEnabled("rate", true)).resolves.not.toThrow();
     });
 
     it("should disable filter", async () => {
-      await expect(
-        filteredTransport.setFilterEnabled("rate", false)
-      ).resolves.not.toThrow();
+      await expect(filteredTransport.setFilterEnabled("rate", false)).resolves.not.toThrow();
     });
 
     it("should toggle filter multiple times", async () => {
@@ -291,9 +291,9 @@ describe("GopherFilteredTransport", () => {
   });
 
   describe("Error Handling", () => {
-    it("should fail-open on filter processing errors", (done) => {
+    it("should fail-open on filter processing errors", done => {
       // Simulate filter error by sending malformed data
-      filteredTransport.onmessage = (message) => {
+      filteredTransport.onmessage = message => {
         // Should still receive message despite error
         expect(message).toBeDefined();
         done();
@@ -302,7 +302,7 @@ describe("GopherFilteredTransport", () => {
       mockTransport.simulateIncoming({
         jsonrpc: "2.0",
         method: "test",
-        id: 1
+        id: 1,
       });
     });
   });
@@ -347,16 +347,16 @@ describe("GopherFilteredTransport with Circuit Breaker", () => {
                     config: {
                       failure_threshold: 5,
                       timeout_ms: 30000,
-                      half_open_requests: 3
-                    }
-                  }
-                ]
-              }
-            ]
-          }
-        ]
+                      half_open_requests: 3,
+                    },
+                  },
+                ],
+              },
+            ],
+          },
+        ],
       },
-      debugLogging: false
+      debugLogging: false,
     });
 
     await filteredTransport.start();
@@ -371,7 +371,7 @@ describe("GopherFilteredTransport with Circuit Breaker", () => {
     await filteredTransport.send({
       jsonrpc: "2.0",
       method: "test",
-      id: 1
+      id: 1,
     });
 
     expect(mockTransport.sentMessages.length).toBe(1);
@@ -405,25 +405,25 @@ describe("GopherFilteredTransport with Multiple Filters", () => {
                   {
                     type: "rate_limiter",
                     name: "rate",
-                    config: { requests_per_second: 100, burst_size: 10 }
+                    config: { requests_per_second: 100, burst_size: 10 },
                   },
                   {
                     type: "circuit_breaker",
                     name: "breaker",
-                    config: { failure_threshold: 5, timeout_ms: 30000 }
+                    config: { failure_threshold: 5, timeout_ms: 30000 },
                   },
                   {
                     type: "metrics",
                     name: "metrics",
-                    config: { export_port: 9090 }
-                  }
-                ]
-              }
-            ]
-          }
-        ]
+                    config: { export_port: 9090 },
+                  },
+                ],
+              },
+            ],
+          },
+        ],
       },
-      debugLogging: false
+      debugLogging: false,
     });
 
     await filteredTransport.start();
@@ -438,7 +438,7 @@ describe("GopherFilteredTransport with Multiple Filters", () => {
     await filteredTransport.send({
       jsonrpc: "2.0",
       method: "test",
-      id: 1
+      id: 1,
     });
 
     expect(mockTransport.sentMessages.length).toBe(1);
@@ -447,7 +447,7 @@ describe("GopherFilteredTransport with Multiple Filters", () => {
   it("should get metrics from all filters", async () => {
     const metrics = await filteredTransport.getMetrics();
     expect(metrics).toBeDefined();
-    expect(metrics['chain']).toBeDefined();
+    expect(metrics["chain"]).toBeDefined();
   });
 
   it("should control individual filters", async () => {
@@ -459,7 +459,7 @@ describe("GopherFilteredTransport with Multiple Filters", () => {
     await filteredTransport.send({
       jsonrpc: "2.0",
       method: "test",
-      id: 1
+      id: 1,
     });
 
     expect(mockTransport.sentMessages.length).toBe(1);

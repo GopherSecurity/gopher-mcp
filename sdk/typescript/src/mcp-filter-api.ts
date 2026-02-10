@@ -27,7 +27,7 @@ function startDispatcherPump(dispatcher: pointer): void {
       // Run dispatcher loop with zero timeout to process pending events
       mcpFilterLib.mcp_dispatcher_run_timeout(dispatcher, 0);
     } catch (error) {
-      console.error('Dispatcher pump error:', error);
+      console.error("Dispatcher pump error:", error);
       state.active = false;
       return;
     }
@@ -57,7 +57,7 @@ let globalCallbackStore: Set<any> | null = null;
  */
 export function ensureMcpInitialized(): void {
   if (!mcpFilterLib) {
-    throw new Error('MCP native library is not loaded');
+    throw new Error("MCP native library is not loaded");
   }
 
   // console.log('🔍 [ensureMcpInitialized] Checking if library is initialized...');
@@ -72,7 +72,7 @@ export function ensureMcpInitialized(): void {
   }
 
   if (!mcpFilterLib.mcp_init) {
-    throw new Error('mcp_init symbol not available in native library');
+    throw new Error("mcp_init symbol not available in native library");
   }
 
   // console.log('🔍 [ensureMcpInitialized] Calling mcp_init(null)...');
@@ -277,7 +277,9 @@ export function createBuiltinFilter(
 export function createDispatcher(): number {
   // Legacy function kept for backward compatibility
   // Will be removed in future version
-  console.warn('createDispatcher() is deprecated. Use createRealDispatcher() or createStubDispatcher()');
+  console.warn(
+    "createDispatcher() is deprecated. Use createRealDispatcher() or createStubDispatcher()"
+  );
   return 1; // Stub value for backward compatibility
 }
 
@@ -837,7 +839,7 @@ export function resetFilterStats(filter: number): number {
  * Detect if running in test environment
  */
 export const isTestEnvironment = (): boolean => {
-  return process.env['NODE_ENV'] === 'test' && !process.env['USE_REAL_HANDLES'];
+  return process.env["NODE_ENV"] === "test" && !process.env["USE_REAL_HANDLES"];
 };
 
 /**
@@ -850,17 +852,17 @@ export const isProductionMode = (): boolean => {
 /**
  * Get current handle mode
  */
-export const getHandleMode = (): 'real' | 'stub' => {
-  return isProductionMode() ? 'real' : 'stub';
+export const getHandleMode = (): "real" | "stub" => {
+  return isProductionMode() ? "real" : "stub";
 };
 
 /**
  * Feature flags for gradual rollout
  */
 export const FEATURE_FLAGS = {
-  USE_REAL_HANDLES: process.env['USE_REAL_HANDLES'] !== 'false',
-  ENABLE_HANDLE_VALIDATION: process.env['VALIDATE_HANDLES'] === 'true',
-  VERBOSE_HANDLE_LOGGING: process.env['DEBUG_HANDLES'] === 'true',
+  USE_REAL_HANDLES: process.env["USE_REAL_HANDLES"] !== "false",
+  ENABLE_HANDLE_VALIDATION: process.env["VALIDATE_HANDLES"] === "true",
+  VERBOSE_HANDLE_LOGGING: process.env["DEBUG_HANDLES"] === "true",
 };
 
 // ============================================================================
@@ -889,10 +891,10 @@ export function createRealDispatcher(): pointer {
   // Check if native library is available
   if (!mcpFilterLib || !mcpFilterLib.mcp_dispatcher_create) {
     throw new Error(
-      'Native library not available. Either:\n' +
-      '1. Build the C++ library with "make build"\n' +
-      '2. Use stubHandleFactory for testing\n' +
-      'DO NOT return stub handles from this function!'
+      "Native library not available. Either:\n" +
+        '1. Build the C++ library with "make build"\n' +
+        "2. Use stubHandleFactory for testing\n" +
+        "DO NOT return stub handles from this function!"
     );
   }
 
@@ -914,12 +916,13 @@ export function createRealDispatcher(): pointer {
     //   // console.log(`🔍 [createRealDispatcher] Error pointer: ${errorPtr}`);
     // }
 
-    throw new Error('Failed to create dispatcher - native library returned null');
+    throw new Error("Failed to create dispatcher - native library returned null");
   }
 
   // Dispatcher is valid - now we can log it safely
   // console.log('🔍 [createRealDispatcher] mcp_dispatcher_create succeeded');
-  if (FEATURE_FLAGS.VERBOSE_HANDLE_LOGGING || true) {  // Always log for debugging
+  if (FEATURE_FLAGS.VERBOSE_HANDLE_LOGGING || true) {
+    // Always log for debugging
     try {
       // console.log(`Created real dispatcher handle (pointer object): ${typeof dispatcher}`);
     } catch (e) {
@@ -942,8 +945,8 @@ export function createRealDispatcher(): pointer {
     // console.log('🔍 [createRealDispatcher] dispatcher buffer property:', dispatcher && (dispatcher as any).buffer ? 'present' : 'missing');
     try {
       // eslint-disable-next-line @typescript-eslint/no-var-requires
-      const koffiModule = require('koffi');
-      if (typeof koffiModule.addressOf === 'function') {
+      const koffiModule = require("koffi");
+      if (typeof koffiModule.addressOf === "function") {
         // console.log('🔍 [createRealDispatcher] dispatcher addressOf:', koffiModule.addressOf(dispatcher));
       } else {
         // console.log('🔍 [createRealDispatcher] koffi.addressOf not available');
@@ -971,7 +974,7 @@ export function destroyDispatcher(dispatcher: pointer): void {
   }
 
   if (dispatcher === 1 || dispatcher === 2) {
-    console.warn('Warning: Attempted to destroy stub handle - ignoring');
+    console.warn("Warning: Attempted to destroy stub handle - ignoring");
     return;
   }
 
@@ -1000,26 +1003,29 @@ export function destroyDispatcher(dispatcher: pointer): void {
  * Create a real connection handle using the native C++ library
  * This function ALWAYS creates real handles, never stubs
  */
-export function createConnection(dispatcher: pointer, transportType: TransportType = TransportType.MCP_TRANSPORT_HTTP_SSE): pointer {
+export function createConnection(
+  dispatcher: pointer,
+  transportType: TransportType = TransportType.MCP_TRANSPORT_HTTP_SSE
+): pointer {
   // Validate dispatcher handle
   if (!dispatcher || dispatcher === 0) {
-    throw new Error('Invalid dispatcher handle');
+    throw new Error("Invalid dispatcher handle");
   }
 
   // Check if native library is available
   if (!mcpFilterLib || !mcpFilterLib.mcp_connection_create_client) {
     throw new Error(
-      'Native library not available for connection creation. Either:\n' +
-      '1. Build the C++ library with "make build"\n' +
-      '2. Use stubHandleFactory for testing\n' +
-      'DO NOT return stub handles from this function!'
+      "Native library not available for connection creation. Either:\n" +
+        '1. Build the C++ library with "make build"\n' +
+        "2. Use stubHandleFactory for testing\n" +
+        "DO NOT return stub handles from this function!"
     );
   }
 
   // Create client connection with specified transport type
   const connection = mcpFilterLib.mcp_connection_create_client(dispatcher, transportType);
   if (!connection || connection === 0) {
-    throw new Error('Failed to create connection - native library returned null');
+    throw new Error("Failed to create connection - native library returned null");
   }
 
   if (FEATURE_FLAGS.VERBOSE_HANDLE_LOGGING) {
@@ -1038,7 +1044,7 @@ export function destroyConnection(connection: pointer): void {
 
   // Check if this is a stub handle (should never be passed here)
   if (connection === 1 || connection === 2) {
-    console.warn('Warning: Attempted to destroy stub connection handle - ignoring');
+    console.warn("Warning: Attempted to destroy stub connection handle - ignoring");
     return;
   }
 
@@ -1063,7 +1069,7 @@ export function configureConnection(
   sslConfig: pointer = null
 ): number {
   if (!connection || connection === 0) {
-    throw new Error('Invalid connection handle');
+    throw new Error("Invalid connection handle");
   }
 
   return mcpFilterLib.mcp_connection_configure(connection, address, options, sslConfig) as number;
@@ -1076,7 +1082,7 @@ export function configureConnection(
  */
 export function runDispatcher(dispatcher: pointer): number {
   if (!dispatcher || dispatcher === 0) {
-    throw new Error('Invalid dispatcher handle');
+    throw new Error("Invalid dispatcher handle");
   }
 
   return mcpFilterLib.mcp_dispatcher_run(dispatcher) as number;
@@ -1090,7 +1096,7 @@ export function runDispatcher(dispatcher: pointer): number {
  */
 export function runDispatcherWithTimeout(dispatcher: pointer, timeoutMs: number): number {
   if (!dispatcher || dispatcher === 0) {
-    throw new Error('Invalid dispatcher handle');
+    throw new Error("Invalid dispatcher handle");
   }
 
   return mcpFilterLib.mcp_dispatcher_run_timeout(dispatcher, timeoutMs) as number;
@@ -1148,20 +1154,20 @@ export const defaultHandleFactory: HandleFactory = {
 export const stubHandleFactory: HandleFactory = {
   createDispatcher: () => {
     throw new Error(
-      'Stub dispatcher handles cannot be used with native C++ code.\n' +
-      'Either:\n' +
-      '1. Build the native library (make build) and use real handles\n' +
-      '2. Use Jest mocks to intercept FFI calls in tests\n' +
-      'Stub handles returning literal integers will crash when passed to C++.'
+      "Stub dispatcher handles cannot be used with native C++ code.\n" +
+        "Either:\n" +
+        "1. Build the native library (make build) and use real handles\n" +
+        "2. Use Jest mocks to intercept FFI calls in tests\n" +
+        "Stub handles returning literal integers will crash when passed to C++."
     );
   },
   createConnection: (_dispatcher: pointer, _transportType?: TransportType) => {
     throw new Error(
-      'Stub connection handles cannot be used with native C++ code.\n' +
-      'Either:\n' +
-      '1. Build the native library (make build) and use real handles\n' +
-      '2. Use Jest mocks to intercept FFI calls in tests\n' +
-      'Stub handles returning literal integers will crash when passed to C++.'
+      "Stub connection handles cannot be used with native C++ code.\n" +
+        "Either:\n" +
+        "1. Build the native library (make build) and use real handles\n" +
+        "2. Use Jest mocks to intercept FFI calls in tests\n" +
+        "Stub handles returning literal integers will crash when passed to C++."
     );
   },
   destroyDispatcher: (_dispatcher: pointer) => {

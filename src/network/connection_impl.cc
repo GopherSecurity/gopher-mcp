@@ -1440,7 +1440,8 @@ void ConnectionImpl::doWrite() {
       if (socket_) {
 #ifdef _WIN32
         u_long bytes_available = 0;
-        if (ioctlsocket(socket_->ioHandle().fd(), FIONREAD, &bytes_available) == 0) {
+        if (ioctlsocket(socket_->ioHandle().fd(), FIONREAD, &bytes_available) ==
+            0) {
 #else
         int bytes_available = 0;
         if (ioctl(socket_->ioHandle().fd(), FIONREAD, &bytes_available) == 0) {

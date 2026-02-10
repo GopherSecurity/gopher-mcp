@@ -21,7 +21,7 @@
  * ```
  */
 
-import { createRealDispatcher, destroyDispatcher } from './mcp-filter-api';
+import { createRealDispatcher, destroyDispatcher } from "./mcp-filter-api";
 
 /**
  * Create a new dispatcher for hybrid SDK filter chains
@@ -47,7 +47,7 @@ export function createHybridDispatcher(): number {
   const handle = createRealDispatcher();
 
   if (!handle || handle === 0) {
-    throw new Error('Failed to create hybrid dispatcher');
+    throw new Error("Failed to create hybrid dispatcher");
   }
 
   return handle;
@@ -71,7 +71,7 @@ export function createHybridDispatcher(): number {
  */
 export function destroyHybridDispatcher(handle: number): void {
   if (!handle || handle === 0) {
-    console.warn('Attempted to destroy invalid dispatcher handle');
+    console.warn("Attempted to destroy invalid dispatcher handle");
     return;
   }
 

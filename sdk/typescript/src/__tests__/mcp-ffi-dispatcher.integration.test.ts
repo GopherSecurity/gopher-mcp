@@ -3,33 +3,33 @@
  * These tests require the C++ library to be built and available
  */
 
-import { existsSync } from 'fs';
-import { TransportType } from '../mcp-ffi-bindings';
+import { existsSync } from "fs";
+import { TransportType } from "../mcp-ffi-bindings";
 
-describe('FFI Bindings - Integration Tests (Real Library)', () => {
+describe("FFI Bindings - Integration Tests (Real Library)", () => {
   let libraryAvailable = false;
-  let lib: any = null;  // Declare lib at describe scope
+  let lib: any = null; // Declare lib at describe scope
 
   beforeAll(() => {
     try {
       // Attempt to load real library
-      const koffi = require('koffi');
-      const libPath = process.env['MCP_LIB_PATH'] ||
-        '../../build/src/c_api/libgopher_mcp_c.0.1.0.dylib';
+      const koffi = require("koffi");
+      const libPath =
+        process.env["MCP_LIB_PATH"] || "../../build/src/c_api/libgopher_mcp_c.0.1.0.dylib";
 
       // Check multiple possible paths
       const searchPaths = [
         libPath,
-        './build/libgopher_mcp_c.so',
-        './build/libgopher_mcp_c.dylib',
-        './build/gopher_mcp_c.dll',
-        '../../build/src/c_api/libgopher_mcp_c.so',
-        '../../build/src/c_api/libgopher_mcp_c.dylib',
-        '../../../build/src/c_api/libgopher_mcp_c.0.1.0.dylib',
-        '../../../../build/src/c_api/libgopher_mcp_c.0.1.0.dylib',
+        "./build/libgopher_mcp_c.so",
+        "./build/libgopher_mcp_c.dylib",
+        "./build/gopher_mcp_c.dll",
+        "../../build/src/c_api/libgopher_mcp_c.so",
+        "../../build/src/c_api/libgopher_mcp_c.dylib",
+        "../../../build/src/c_api/libgopher_mcp_c.0.1.0.dylib",
+        "../../../../build/src/c_api/libgopher_mcp_c.0.1.0.dylib",
       ];
 
-      let foundPath = '';
+      let foundPath = "";
       for (const path of searchPaths) {
         if (existsSync(path)) {
           foundPath = path;
@@ -38,25 +38,36 @@ describe('FFI Bindings - Integration Tests (Real Library)', () => {
       }
 
       if (foundPath) {
-        lib = koffi.load(foundPath);  // Assign to outer scope variable
+        lib = koffi.load(foundPath); // Assign to outer scope variable
 
         // Bind the dispatcher functions
-        lib.mcp_dispatcher_create = lib.func('mcp_dispatcher_create', 'pointer', []);
-        lib.mcp_dispatcher_run = lib.func('mcp_dispatcher_run', 'int', ['pointer']);
-        lib.mcp_dispatcher_run_timeout = lib.func('mcp_dispatcher_run_timeout', 'int', ['pointer', 'int']);
-        lib.mcp_dispatcher_stop = lib.func('mcp_dispatcher_stop', 'void', ['pointer']);
-        lib.mcp_dispatcher_destroy = lib.func('mcp_dispatcher_destroy', 'void', ['pointer']);
+        lib.mcp_dispatcher_create = lib.func("mcp_dispatcher_create", "pointer", []);
+        lib.mcp_dispatcher_run = lib.func("mcp_dispatcher_run", "int", ["pointer"]);
+        lib.mcp_dispatcher_run_timeout = lib.func("mcp_dispatcher_run_timeout", "int", [
+          "pointer",
+          "int",
+        ]);
+        lib.mcp_dispatcher_stop = lib.func("mcp_dispatcher_stop", "void", ["pointer"]);
+        lib.mcp_dispatcher_destroy = lib.func("mcp_dispatcher_destroy", "void", ["pointer"]);
 
         // Bind the connection functions
-        lib.mcp_connection_create_client = lib.func('mcp_connection_create_client', 'pointer', ['pointer', 'int']);
-        lib.mcp_connection_configure = lib.func('mcp_connection_configure', 'int', ['pointer', 'pointer', 'pointer', 'pointer']);
-        lib.mcp_connection_destroy = lib.func('mcp_connection_destroy', 'void', ['pointer']);
+        lib.mcp_connection_create_client = lib.func("mcp_connection_create_client", "pointer", [
+          "pointer",
+          "int",
+        ]);
+        lib.mcp_connection_configure = lib.func("mcp_connection_configure", "int", [
+          "pointer",
+          "pointer",
+          "pointer",
+          "pointer",
+        ]);
+        lib.mcp_connection_destroy = lib.func("mcp_connection_destroy", "void", ["pointer"]);
 
         libraryAvailable = true;
         console.log(`✅ Native library loaded successfully from: ${foundPath}`);
       } else {
-        console.log('⚠️  Native library not found - skipping integration tests');
-        console.log('   Searched paths:', searchPaths);
+        console.log("⚠️  Native library not found - skipping integration tests");
+        console.log("   Searched paths:", searchPaths);
       }
     } catch (error: any) {
       console.log(`⚠️  Cannot load native library: ${error.message}`);
@@ -67,26 +78,26 @@ describe('FFI Bindings - Integration Tests (Real Library)', () => {
   // Use conditional test/test.skip pattern instead of non-existent it.skipIf
   const conditionalTest = libraryAvailable ? test : test.skip;
 
-  conditionalTest('should load native library symbols', () => {
+  conditionalTest("should load native library symbols", () => {
     // Test that all 8 new functions are available
     const functions = [
-      'mcp_dispatcher_create',
-      'mcp_dispatcher_run',
-      'mcp_dispatcher_run_timeout',
-      'mcp_dispatcher_stop',
-      'mcp_dispatcher_destroy',
-      'mcp_connection_create_client',
-      'mcp_connection_configure',
-      'mcp_connection_destroy'
+      "mcp_dispatcher_create",
+      "mcp_dispatcher_run",
+      "mcp_dispatcher_run_timeout",
+      "mcp_dispatcher_stop",
+      "mcp_dispatcher_destroy",
+      "mcp_connection_create_client",
+      "mcp_connection_configure",
+      "mcp_connection_destroy",
     ];
 
     for (const fn of functions) {
       expect(lib[fn]).toBeDefined();
-      expect(typeof lib[fn]).toBe('function');
+      expect(typeof lib[fn]).toBe("function");
     }
   });
 
-  conditionalTest('should create and destroy dispatcher', () => {
+  conditionalTest("should create and destroy dispatcher", () => {
     const dispatcher = lib.mcp_dispatcher_create();
     expect(dispatcher).toBeTruthy();
     expect(dispatcher).not.toBe(0);
@@ -98,7 +109,7 @@ describe('FFI Bindings - Integration Tests (Real Library)', () => {
     // Should not crash
   });
 
-  conditionalTest('should create and destroy connection', () => {
+  conditionalTest("should create and destroy connection", () => {
     // First create a dispatcher
     const dispatcher = lib.mcp_dispatcher_create();
     expect(dispatcher).toBeTruthy();
@@ -118,7 +129,7 @@ describe('FFI Bindings - Integration Tests (Real Library)', () => {
     lib.mcp_dispatcher_destroy(dispatcher);
   });
 
-  conditionalTest('should configure connection', () => {
+  conditionalTest("should configure connection", () => {
     const dispatcher = lib.mcp_dispatcher_create();
     const connection = lib.mcp_connection_create_client(
       dispatcher,
@@ -133,7 +144,7 @@ describe('FFI Bindings - Integration Tests (Real Library)', () => {
     lib.mcp_dispatcher_destroy(dispatcher);
   });
 
-  conditionalTest('should run dispatcher with timeout', () => {
+  conditionalTest("should run dispatcher with timeout", () => {
     const dispatcher = lib.mcp_dispatcher_create();
 
     // Run with 10ms timeout (should return immediately)
@@ -145,7 +156,7 @@ describe('FFI Bindings - Integration Tests (Real Library)', () => {
     lib.mcp_dispatcher_destroy(dispatcher);
   });
 
-  conditionalTest('should handle multiple dispatcher instances', () => {
+  conditionalTest("should handle multiple dispatcher instances", () => {
     const dispatcher1 = lib.mcp_dispatcher_create();
     const dispatcher2 = lib.mcp_dispatcher_create();
 
@@ -157,7 +168,7 @@ describe('FFI Bindings - Integration Tests (Real Library)', () => {
     lib.mcp_dispatcher_destroy(dispatcher2);
   });
 
-  conditionalTest('should create connections with different transport types', () => {
+  conditionalTest("should create connections with different transport types", () => {
     const dispatcher = lib.mcp_dispatcher_create();
 
     // Test creating connections with different transport types
@@ -186,21 +197,21 @@ describe('FFI Bindings - Integration Tests (Real Library)', () => {
     lib.mcp_dispatcher_destroy(dispatcher);
   });
 
-  test('should gracefully skip when library is missing', () => {
+  test("should gracefully skip when library is missing", () => {
     if (libraryAvailable) {
-      console.log('Library available - test not applicable');
+      console.log("Library available - test not applicable");
       return;
     }
 
     // Ensure the system doesn't crash when library is missing
     expect(() => {
-      require('../mcp-ffi-bindings');
+      require("../mcp-ffi-bindings");
     }).not.toThrow(); // Should handle missing library gracefully
   });
 
-  conditionalTest('should verify library exports all expected functions', () => {
+  conditionalTest("should verify library exports all expected functions", () => {
     // Try to import the actual module
-    const { mcpFilterLib } = require('../mcp-ffi-bindings');
+    const { mcpFilterLib } = require("../mcp-ffi-bindings");
 
     // Verify the new functions exist
     expect(mcpFilterLib.mcp_dispatcher_create).toBeDefined();

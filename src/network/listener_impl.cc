@@ -106,8 +106,9 @@ ActiveListener::ActiveListener(event::Dispatcher& dispatcher,
 ActiveListener::~ActiveListener() { disable(); }
 
 VoidResult ActiveListener::listen() {
-  GOPHER_LOG_DEBUG("ActiveListener::listen() called: bind_to_port={} address={}",
-                   config_.bind_to_port, config_.address->asStringView());
+  GOPHER_LOG_DEBUG(
+      "ActiveListener::listen() called: bind_to_port={} address={}",
+      config_.bind_to_port, config_.address->asStringView());
   // Create socket
   if (config_.bind_to_port) {
     // Use the global createListenSocket function
@@ -188,7 +189,8 @@ VoidResult ActiveListener::listen() {
 void ActiveListener::disable() {
   enabled_ = false;
   if (file_event_) {
-    GOPHER_LOG_DEBUG("ActiveListener::disable() fd={}", socket_->ioHandle().fd());
+    GOPHER_LOG_DEBUG("ActiveListener::disable() fd={}",
+                     socket_->ioHandle().fd());
     file_event_->setEnabled(0);
   }
 }
@@ -196,7 +198,8 @@ void ActiveListener::disable() {
 void ActiveListener::enable() {
   enabled_ = true;
   if (file_event_) {
-    GOPHER_LOG_DEBUG("ActiveListener::enable() fd={}", socket_->ioHandle().fd());
+    GOPHER_LOG_DEBUG("ActiveListener::enable() fd={}",
+                     socket_->ioHandle().fd());
     file_event_->setEnabled(static_cast<uint32_t>(event::FileReadyType::Read));
   }
 }

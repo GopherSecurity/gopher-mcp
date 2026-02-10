@@ -6,12 +6,9 @@
  * in both canonical (listener-based) and assembler formats.
  */
 
-import * as fs from 'fs';
-import * as path from 'path';
-import {
-  CanonicalConfig,
-  FilterSpec,
-} from './mcp-filter-chain';
+import * as fs from "fs";
+import * as path from "path";
+import { CanonicalConfig, FilterSpec } from "./mcp-filter-chain";
 
 /**
  * Load configuration from a JSON file
@@ -19,7 +16,7 @@ import {
 export function loadConfigFromFile(filePath: string): CanonicalConfig {
   try {
     const absolutePath = path.resolve(filePath);
-    const configData = fs.readFileSync(absolutePath, 'utf-8');
+    const configData = fs.readFileSync(absolutePath, "utf-8");
     const config = JSON.parse(configData);
 
     // Validate that it's in canonical format
@@ -39,7 +36,7 @@ export function loadConfigFromFile(filePath: string): CanonicalConfig {
  */
 export function convertNestedToCanonical(
   nestedConfig: any,
-  listenerName: string = 'default_listener',
+  listenerName: string = "default_listener",
   port: number = 8080
 ): CanonicalConfig {
   const filters: FilterSpec[] = [];
@@ -47,56 +44,56 @@ export function convertNestedToCanonical(
   // Extract filters from nested configuration
   if (nestedConfig.security?.authentication) {
     filters.push({
-      name: 'auth',
-      type: 'security.authentication',
+      name: "auth",
+      type: "security.authentication",
       config: nestedConfig.security.authentication,
     });
   }
 
   if (nestedConfig.security?.authorization) {
     filters.push({
-      name: 'authz',
-      type: 'security.authorization',
+      name: "authz",
+      type: "security.authorization",
       config: nestedConfig.security.authorization,
     });
   }
 
   if (nestedConfig.observability?.accessLog) {
     filters.push({
-      name: 'access_log',
-      type: 'observability.access_log',
+      name: "access_log",
+      type: "observability.access_log",
       config: nestedConfig.observability.accessLog,
     });
   }
 
   if (nestedConfig.observability?.metrics) {
     filters.push({
-      name: 'metrics',
-      type: 'observability.metrics',
+      name: "metrics",
+      type: "observability.metrics",
       config: nestedConfig.observability.metrics,
     });
   }
 
   if (nestedConfig.observability?.tracing) {
     filters.push({
-      name: 'tracing',
-      type: 'observability.tracing',
+      name: "tracing",
+      type: "observability.tracing",
       config: nestedConfig.observability.tracing,
     });
   }
 
   if (nestedConfig.trafficManagement?.rateLimit) {
     filters.push({
-      name: 'rate_limit',
-      type: 'traffic.rate_limit',
+      name: "rate_limit",
+      type: "traffic.rate_limit",
       config: nestedConfig.trafficManagement.rateLimit,
     });
   }
 
   if (nestedConfig.trafficManagement?.circuitBreaker) {
     filters.push({
-      name: 'circuit_breaker',
-      type: 'traffic.circuit_breaker',
+      name: "circuit_breaker",
+      type: "traffic.circuit_breaker",
       config: nestedConfig.trafficManagement.circuitBreaker,
     });
   }
@@ -106,7 +103,7 @@ export function convertNestedToCanonical(
     for (const [name, config] of Object.entries(nestedConfig.customFilters)) {
       filters.push({
         name,
-        type: 'custom',
+        type: "custom",
         config,
       });
     }
@@ -118,7 +115,7 @@ export function convertNestedToCanonical(
         name: listenerName,
         address: {
           socket_address: {
-            address: '127.0.0.1',
+            address: "127.0.0.1",
             port_value: port,
           },
         },
@@ -150,7 +147,7 @@ export function validateCanonicalConfig(config: CanonicalConfig): {
   }
 
   if (config.listeners.length === 0) {
-    errors.push('At least one listener must be defined');
+    errors.push("At least one listener must be defined");
     return { valid: false, errors, warnings };
   }
 
@@ -161,14 +158,20 @@ export function validateCanonicalConfig(config: CanonicalConfig): {
     }
 
     if (!listener.address?.socket_address) {
-      errors.push(`Listener ${listener.name || listenerIndex} must have an address with socket_address`);
+      errors.push(
+        `Listener ${listener.name || listenerIndex} must have an address with socket_address`
+      );
     } else {
       const { socket_address } = listener.address;
       if (!socket_address.address) {
-        errors.push(`Listener ${listener.name || listenerIndex} socket_address must have an address`);
+        errors.push(
+          `Listener ${listener.name || listenerIndex} socket_address must have an address`
+        );
       }
-      if (typeof socket_address.port_value !== 'number') {
-        errors.push(`Listener ${listener.name || listenerIndex} socket_address must have a numeric port_value`);
+      if (typeof socket_address.port_value !== "number") {
+        errors.push(
+          `Listener ${listener.name || listenerIndex} socket_address must have a numeric port_value`
+        );
       }
     }
 
@@ -180,14 +183,18 @@ export function validateCanonicalConfig(config: CanonicalConfig): {
       // Validate filter chains
       listener.filter_chains.forEach((chain, chainIndex) => {
         if (!chain.filters || !Array.isArray(chain.filters)) {
-          errors.push(`Filter chain ${chainIndex} in listener ${listener.name} must have a filters array`);
+          errors.push(
+            `Filter chain ${chainIndex} in listener ${listener.name} must have a filters array`
+          );
         } else if (chain.filters.length === 0) {
           warnings.push(`Filter chain ${chainIndex} in listener ${listener.name} has no filters`);
         } else {
           // Validate individual filters
           chain.filters.forEach((filter, filterIndex) => {
             if (!filter.name) {
-              errors.push(`Filter ${filterIndex} in chain ${chainIndex} of listener ${listener.name} must have a name`);
+              errors.push(
+                `Filter ${filterIndex} in chain ${chainIndex} of listener ${listener.name} must have a name`
+              );
             }
             if (!filter.type) {
               errors.push(`Filter ${filter.name || filterIndex} must have a type`);
@@ -208,24 +215,26 @@ export function validateCanonicalConfig(config: CanonicalConfig): {
 /**
  * Create default canonical configuration for common scenarios
  */
-export function createDefaultConfig(scenario: 'http' | 'tcp' | 'mcp-server' | 'mcp-client'): CanonicalConfig {
+export function createDefaultConfig(
+  scenario: "http" | "tcp" | "mcp-server" | "mcp-client"
+): CanonicalConfig {
   switch (scenario) {
-    case 'http':
+    case "http":
       return {
         listeners: [
           {
-            name: 'http_listener',
+            name: "http_listener",
             address: {
               socket_address: {
-                address: '127.0.0.1',
+                address: "127.0.0.1",
                 port_value: 8080,
               },
             },
             filter_chains: [
               {
                 filters: [
-                  { name: 'http_codec', type: 'http.codec' },
-                  { name: 'router', type: 'http.router' },
+                  { name: "http_codec", type: "http.codec" },
+                  { name: "router", type: "http.router" },
                 ],
               },
             ],
@@ -233,21 +242,43 @@ export function createDefaultConfig(scenario: 'http' | 'tcp' | 'mcp-server' | 'm
         ],
       };
 
-    case 'tcp':
+    case "tcp":
       return {
         listeners: [
           {
-            name: 'tcp_listener',
+            name: "tcp_listener",
             address: {
               socket_address: {
-                address: '127.0.0.1',
+                address: "127.0.0.1",
+                port_value: 9090,
+              },
+            },
+            filter_chains: [
+              {
+                filters: [{ name: "tcp_proxy", type: "tcp.proxy" }],
+              },
+            ],
+          },
+        ],
+      };
+
+    case "mcp-server":
+      return {
+        listeners: [
+          {
+            name: "mcp_server_listener",
+            address: {
+              socket_address: {
+                address: "127.0.0.1",
                 port_value: 9090,
               },
             },
             filter_chains: [
               {
                 filters: [
-                  { name: 'tcp_proxy', type: 'tcp.proxy' },
+                  { name: "http.codec", type: "http.codec" },
+                  { name: "sse.codec", type: "sse.codec" },
+                  { name: "json_rpc.dispatcher", type: "json_rpc.dispatcher" },
                 ],
               },
             ],
@@ -255,47 +286,23 @@ export function createDefaultConfig(scenario: 'http' | 'tcp' | 'mcp-server' | 'm
         ],
       };
 
-    case 'mcp-server':
+    case "mcp-client":
       return {
         listeners: [
           {
-            name: 'mcp_server_listener',
+            name: "mcp_client_listener",
             address: {
               socket_address: {
-                address: '127.0.0.1',
-                port_value: 9090,
-              },
-            },
-            filter_chains: [
-              {
-                filters: [
-                  { name: 'http.codec', type: 'http.codec' },
-                  { name: 'sse.codec', type: 'sse.codec' },
-                  { name: 'json_rpc.dispatcher', type: 'json_rpc.dispatcher' },
-                ],
-              },
-            ],
-          },
-        ],
-      };
-
-    case 'mcp-client':
-      return {
-        listeners: [
-          {
-            name: 'mcp_client_listener',
-            address: {
-              socket_address: {
-                address: '127.0.0.1',
+                address: "127.0.0.1",
                 port_value: 0, // Client uses ephemeral port
               },
             },
             filter_chains: [
               {
                 filters: [
-                  { name: 'http.codec', type: 'http.codec' },
-                  { name: 'sse.codec', type: 'sse.codec' },
-                  { name: 'json_rpc.client', type: 'json_rpc.client' },
+                  { name: "http.codec", type: "http.codec" },
+                  { name: "sse.codec", type: "sse.codec" },
+                  { name: "json_rpc.client", type: "json_rpc.client" },
                 ],
               },
             ],
@@ -323,4 +330,3 @@ export function mergeCanonicalConfigs(...configs: CanonicalConfig[]): CanonicalC
 
   return merged;
 }
-

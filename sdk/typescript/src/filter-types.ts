@@ -14,7 +14,7 @@ export type {
   FilterSpec,
   Address,
   SocketAddress,
-} from './mcp-filter-chain';
+} from "./mcp-filter-chain";
 
 /**
  * Filter operation result codes (matching mcp_c_types.h)
@@ -32,11 +32,11 @@ export enum FilterResultCode {
  * Filter decisions for message processing
  */
 export enum FilterDecision {
-  ALLOW = 0,      // Continue processing
-  DENY = 1,       // Reject the message
-  DELAY = 2,      // Delay processing
-  QUEUE = 3,      // Queue for later
-  TRANSFORM = 4,  // Message was transformed
+  ALLOW = 0, // Continue processing
+  DENY = 1, // Reject the message
+  DELAY = 2, // Delay processing
+  QUEUE = 3, // Queue for later
+  TRANSFORM = 4, // Message was transformed
 }
 
 /**
@@ -82,13 +82,13 @@ export interface FilterMetrics {
     requests_delayed?: number;
     current_rate?: number;
     tokens_available?: number;
-    state?: string;  // e.g., "OPEN", "CLOSED", "HALF_OPEN" for circuit breaker
+    state?: string; // e.g., "OPEN", "CLOSED", "HALF_OPEN" for circuit breaker
     failure_count?: number;
     success_count?: number;
     avg_latency_ms?: number;
     p95_latency_ms?: number;
     p99_latency_ms?: number;
-    [key: string]: any;  // Allow additional filter-specific metrics
+    [key: string]: any; // Allow additional filter-specific metrics
   };
 }
 
@@ -119,7 +119,7 @@ export interface ValidationResult {
  */
 export interface AssemblyResult {
   success: boolean;
-  chain?: number;  // Filter chain handle if successful
+  chain?: number; // Filter chain handle if successful
   errorMessage?: string;
   createdFilters: string[];
   warnings: string[];

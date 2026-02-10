@@ -13,9 +13,9 @@ import { join } from "path";
 
 // Transport type enum matching C API
 export enum TransportType {
-  MCP_TRANSPORT_HTTP_SSE = 0,  // HTTP with Server-Sent Events
-  MCP_TRANSPORT_STDIO = 1,     // Standard input/output
-  MCP_TRANSPORT_PIPE = 2       // Named pipe
+  MCP_TRANSPORT_HTTP_SSE = 0, // HTTP with Server-Sent Events
+  MCP_TRANSPORT_STDIO = 1, // Standard input/output
+  MCP_TRANSPORT_PIPE = 2, // Named pipe
 }
 
 // Library configuration for different platforms and architectures
@@ -235,12 +235,12 @@ try {
     {
       name: "mcp_chain_assemble_from_json",
       signature: "int",
-      args: ["void*", "void*", "void*"],  // dispatcher is mcp_dispatcher_t (pointer)
+      args: ["void*", "void*", "void*"], // dispatcher is mcp_dispatcher_t (pointer)
     },
     {
       name: "mcp_chain_assemble_from_config",
       signature: "int",
-      args: ["void*", "void*", "void*"],  // dispatcher is mcp_dispatcher_t (pointer)
+      args: ["void*", "void*", "void*"], // dispatcher is mcp_dispatcher_t (pointer)
     },
     {
       name: "mcp_chain_assembly_result_free",
@@ -250,17 +250,17 @@ try {
     {
       name: "mcp_chain_create_from_json",
       signature: "uint64_t",
-      args: ["void*", "void*"],  // dispatcher is mcp_dispatcher_t (pointer), not uint64_t
+      args: ["void*", "void*"], // dispatcher is mcp_dispatcher_t (pointer), not uint64_t
     },
     {
       name: "mcp_chain_create_from_json_async",
       signature: "void",
       args: [
-        "void*",   // mcp_dispatcher_t
-        "void*",   // mcp_json_value_t
-        "void*",   // callback function pointer
-        "void*"    // user_data
-      ]
+        "void*", // mcp_dispatcher_t
+        "void*", // mcp_json_value_t
+        "void*", // callback function pointer
+        "void*", // user_data
+      ],
     },
     { name: "mcp_filter_chain_retain", signature: "void", args: ["uint64_t"] },
     { name: "mcp_filter_chain_release", signature: "void", args: ["uint64_t"] },
@@ -273,17 +273,17 @@ try {
     {
       name: "mcp_chain_set_filter_enabled",
       signature: "int",
-      args: ["uint64_t", "string", "int"]  // chain, filter_name, enabled
+      args: ["uint64_t", "string", "int"], // chain, filter_name, enabled
     },
     {
       name: "mcp_chain_get_stats",
       signature: "int",
-      args: ["uint64_t", "void*"]  // chain, stats pointer
+      args: ["uint64_t", "void*"], // chain, stats pointer
     },
     {
       name: "mcp_chain_export_to_json",
-      signature: "void*",  // returns mcp_json_value_t
-      args: ["uint64_t"]  // chain
+      signature: "void*", // returns mcp_json_value_t
+      args: ["uint64_t"], // chain
     },
     {
       name: "mcp_filter_chain_set_metrics_callbacks",
@@ -471,7 +471,7 @@ try {
     {
       name: "mcp_filter_manager_create",
       signature: "uint64_t",
-      args: ["void*", "void*"],  // Changed from uint64_t to void* to accept opaque handles
+      args: ["void*", "void*"], // Changed from uint64_t to void* to accept opaque handles
     },
     {
       name: "mcp_filter_manager_add_filter",
@@ -579,62 +579,62 @@ try {
     // Async Filter Processing
     {
       name: "mcp_filter_chain_initialize",
-      signature: "int",           // mcp_result_t
-      args: ["uint64_t"]          // chain handle
+      signature: "int", // mcp_result_t
+      args: ["uint64_t"], // chain handle
     },
     {
       name: "mcp_filter_chain_shutdown",
-      signature: "int",           // mcp_result_t
-      args: ["uint64_t"]          // chain handle
+      signature: "int", // mcp_result_t
+      args: ["uint64_t"], // chain handle
     },
     {
       name: "mcp_chain_submit_incoming",
-      signature: "int",           // mcp_status_t return
+      signature: "int", // mcp_status_t return
       args: [
-        "uint64_t",              // chain handle
-        "string",                // message_json
-        "void*",                 // user_data (Buffer with callback ID)
-        "void*",                 // callback function pointer
-        "void*"                  // error pointer
-      ]
+        "uint64_t", // chain handle
+        "string", // message_json
+        "void*", // user_data (Buffer with callback ID)
+        "void*", // callback function pointer
+        "void*", // error pointer
+      ],
     },
     {
       name: "mcp_chain_submit_outgoing",
-      signature: "int",           // mcp_status_t return
+      signature: "int", // mcp_status_t return
       args: [
-        "uint64_t",              // chain handle
-        "string",                // message_json
-        "void*",                 // user_data
-        "void*",                 // callback function pointer
-        "void*"                  // error pointer
-      ]
+        "uint64_t", // chain handle
+        "string", // message_json
+        "void*", // user_data
+        "void*", // callback function pointer
+        "void*", // error pointer
+      ],
     },
 
     // Error handling functions (from mcp_c_types_api.h)
     {
       name: "mcp_error_create",
-      signature: "void*",  // returns mcp_error_t
-      args: ["int32_t", "string"]  // code, message
+      signature: "void*", // returns mcp_error_t
+      args: ["int32_t", "string"], // code, message
     },
     {
       name: "mcp_error_free",
       signature: "void",
-      args: ["void*"]  // error handle
+      args: ["void*"], // error handle
     },
     {
       name: "mcp_error_get_code",
       signature: "int32_t",
-      args: ["void*"]  // error handle
+      args: ["void*"], // error handle
     },
     {
       name: "mcp_error_get_message",
       signature: "string",
-      args: ["void*"]  // error handle
+      args: ["void*"], // error handle
     },
     {
       name: "mcp_error_get_data",
       signature: "string",
-      args: ["void*"]  // error handle
+      args: ["void*"], // error handle
     },
 
     // Core MCP functions (from mcp_c_api.h)
@@ -656,29 +656,33 @@ try {
 
     // Connection lifecycle functions
     { name: "mcp_connection_create_client", signature: "void*", args: ["void*", "int"] },
-    { name: "mcp_connection_configure", signature: "int", args: ["void*", "void*", "void*", "void*"] },
+    {
+      name: "mcp_connection_configure",
+      signature: "int",
+      args: ["void*", "void*", "void*", "void*"],
+    },
     { name: "mcp_connection_destroy", signature: "void", args: ["void*"] },
 
     // Chain-level filter event callbacks (from mcp_c_filter_events.h)
     {
       name: "mcp_filter_chain_set_event_callback",
       signature: "int",
-      args: ["void*", "void*", "void*"]  // chain handle, callback function pointer, user_data
+      args: ["void*", "void*", "void*"], // chain handle, callback function pointer, user_data
     },
     {
       name: "mcp_filter_chain_clear_event_callback",
       signature: "int",
-      args: ["void*"]  // chain handle
+      args: ["void*"], // chain handle
     },
     {
       name: "mcp_filter_event_type_to_string",
       signature: "string",
-      args: ["int"]  // mcp_filter_event_type_t
+      args: ["int"], // mcp_filter_event_type_t
     },
     {
       name: "mcp_filter_event_severity_to_string",
       signature: "string",
-      args: ["int"]  // mcp_filter_event_severity_t
+      args: ["int"], // mcp_filter_event_severity_t
     },
   ];
 

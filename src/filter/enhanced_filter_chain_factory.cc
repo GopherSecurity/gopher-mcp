@@ -351,8 +351,8 @@ class EnhancedProtocolFilter : public network::Filter,
   void onRequestThrottled(const std::string& method,
                           size_t current_rate,
                           size_t max_rate) override {
-    GOPHER_LOG_WARN("Rate Limiter: Request throttled: {} (rate: {}/{})",
-                    method, current_rate, max_rate);
+    GOPHER_LOG_WARN("Rate Limiter: Request throttled: {} (rate: {}/{})", method,
+                    current_rate, max_rate);
   }
 
   void onRateLimitExceeded(const std::string& bucket_name) override {

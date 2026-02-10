@@ -42,15 +42,8 @@ export * from "./types";
 export { FilterChain } from "./filter-chain-ffi";
 
 // Metrics callbacks bridge
-export {
-  registerMetricsCallbacks,
-  unregisterMetricsCallbacks,
-} from "./metrics-callbacks";
-export type {
-  MetricsCallbacks,
-  MetricsSnapshot,
-  MetricsThresholdEvent,
-} from "./types/metrics";
+export { registerMetricsCallbacks, unregisterMetricsCallbacks } from "./metrics-callbacks";
+export type { MetricsCallbacks, MetricsSnapshot, MetricsThresholdEvent } from "./types/metrics";
 
 // Filter event types and callbacks bridge
 export {
@@ -59,11 +52,7 @@ export {
   filterEventTypeToString,
   filterEventSeverityToString,
 } from "./filter-events";
-export type {
-  FilterEvent,
-  FilterEventContext,
-  FilterEventHandler,
-} from "./filter-events";
+export type { FilterEvent, FilterEventContext, FilterEventHandler } from "./filter-events";
 export {
   registerFilterEventCallback,
   unregisterFilterEventCallback,

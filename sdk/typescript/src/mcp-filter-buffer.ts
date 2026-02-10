@@ -678,12 +678,16 @@ export function destroyBufferPool(_pool: any): void {
  * Create buffer pool with simple parameters
  * This overloads the existing createBufferPoolEx with simple numeric parameters
  */
-export function createBufferPoolSimple(bufferSize: number, maxBuffers: number, preallocCount: number): any {
+export function createBufferPoolSimple(
+  bufferSize: number,
+  maxBuffers: number,
+  preallocCount: number
+): any {
   return createBufferPoolEx({
     bufferSize,
     maxBuffers,
     preallocCount,
     useThreadLocal: false,
-    zeroOnAlloc: false
+    zeroOnAlloc: false,
   });
 }
