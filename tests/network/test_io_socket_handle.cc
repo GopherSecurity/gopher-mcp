@@ -53,9 +53,11 @@ class IoSocketHandleTest : public Test {
     auto client_handle = createIoSocketHandle(*client_socket);
     auto connect_addr = Address::loopbackAddress(Address::IpVersion::v4, port);
 
-    // Non-blocking connect
+    // Non-blocking connect - may succeed immediately or return EINPROGRESS
+    // On macOS/BSD, sockets are always non-blocking, so EINPROGRESS is expected
     auto connect_result = client_handle->connect(connect_addr);
-    EXPECT_TRUE(connect_result.ok());
+    EXPECT_TRUE(connect_result.ok() ||
+                connect_result.error_code() == SOCKET_ERROR_INPROGRESS);
 
     // Accept connection with retry for non-blocking socket
     IoResult<IoHandlePtr> accept_result;
