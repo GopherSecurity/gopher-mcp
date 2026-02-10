@@ -538,9 +538,9 @@ TEST_F(MergeSemanticsTest, ConflictResolution) {
   auto result = merger_->merge(sources);
 
   // Verify the merge result is correct (functional test)
-  EXPECT_EQ(result["a"].getInt(), 100);        // Overlay wins
-  EXPECT_EQ(result["b"].getInt(), 200);        // Overlay wins
-  EXPECT_EQ(result["c"].getInt(), 3);          // Same value
+  EXPECT_EQ(result["a"].getInt(), 100);             // Overlay wins
+  EXPECT_EQ(result["b"].getInt(), 200);             // Overlay wins
+  EXPECT_EQ(result["c"].getInt(), 3);               // Same value
   EXPECT_EQ(result["nested"]["x"].getInt(), 1000);  // Overlay wins
   EXPECT_EQ(result["nested"]["y"].getInt(), 20);    // Preserved from base
   EXPECT_EQ(result["nested"]["z"].getInt(), 30);    // Added from overlay

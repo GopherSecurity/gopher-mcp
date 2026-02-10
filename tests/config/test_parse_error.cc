@@ -230,7 +230,8 @@ TEST_F(ParseErrorTest, FilterConfigEnhancedWithConfig) {
 
   auto config = FilterConfigEnhanced::fromJson(buffer, ctx);
   EXPECT_EQ(config.type, "buffer");
-  EXPECT_EQ(config.config["max_size"].getInt(), 2 * 1024 * 1024);  // 2MB in binary
+  EXPECT_EQ(config.config["max_size"].getInt(),
+            2 * 1024 * 1024);  // 2MB in binary
 
   // Rate limit with duration
   JsonValue rate_limit = makeJsonObject(
