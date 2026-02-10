@@ -386,9 +386,9 @@ class AsyncRequestQueue {
               << ", current size: " << queue_.size() << std::endl;
 
     if (queue_.empty()) {
-      std::cout
-          << "⚠️  [AsyncRequestQueue::dequeue] Queue is EMPTY, returning nullopt"
-          << std::endl;
+      std::cout << "⚠️  [AsyncRequestQueue::dequeue] Queue is EMPTY, "
+                   "returning nullopt"
+                << std::endl;
       return std::nullopt;
     }
 
@@ -965,8 +965,7 @@ class AdvancedFilterChain {
       std::cout << "🔹 [processNextRequest] Invoking callback with ERROR..."
                 << std::endl;
       req.callback(req.user_data, nullptr, nullptr);
-      std::cout << "✅ [processNextRequest] Error callback invoked"
-                << std::endl;
+      std::cout << "✅ [processNextRequest] Error callback invoked" << std::endl;
     } catch (...) {
       // On unknown exception, log and invoke callback with nullptr
       std::cout << "❌ [processNextRequest] UNKNOWN EXCEPTION" << std::endl;
@@ -978,8 +977,7 @@ class AdvancedFilterChain {
       std::cout << "🔹 [processNextRequest] Invoking callback with ERROR..."
                 << std::endl;
       req.callback(req.user_data, nullptr, nullptr);
-      std::cout << "✅ [processNextRequest] Error callback invoked"
-                << std::endl;
+      std::cout << "✅ [processNextRequest] Error callback invoked" << std::endl;
     }
   }
 
@@ -1704,8 +1702,7 @@ mcp_status_t submit_message_internal(mcp_filter_chain_t chain_handle,
   }
 
   // Schedule processing on dispatcher thread
-  std::cout << "⚡ [C-API] Posting to dispatcher for processing..."
-            << std::endl;
+  std::cout << "⚡ [C-API] Posting to dispatcher for processing..." << std::endl;
   std::cout << "   Chain handle: " << chain_handle << std::endl;
   std::cout << "   Chain ptr: " << chain_ptr.get() << std::endl;
   std::cout << "   Queue addr in submit: " << &chain_ptr->getRequestQueue()

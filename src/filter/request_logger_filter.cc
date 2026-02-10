@@ -124,7 +124,8 @@ void RequestLoggerFilter::onRequest(const jsonrpc::Request& request) {
   if (next_callbacks_) {
     next_callbacks_->onRequest(request);
   } else {
-    std::cout << "⚠️  [RequestLogger] No next handler registered!" << std::endl;
+    std::cout << "⚠️  [RequestLogger] No next handler registered!"
+              << std::endl;
   }
 }
 
@@ -167,7 +168,8 @@ void RequestLoggerFilter::onResponse(const jsonrpc::Response& response) {
   if (next_callbacks_) {
     next_callbacks_->onResponse(response);
   } else {
-    std::cout << "⚠️  [RequestLogger] No next handler registered!" << std::endl;
+    std::cout << "⚠️  [RequestLogger] No next handler registered!"
+              << std::endl;
   }
 }
 
@@ -191,7 +193,8 @@ void RequestLoggerFilter::onProtocolError(const Error& error) {
   if (next_callbacks_) {
     next_callbacks_->onProtocolError(error);
   } else {
-    std::cout << "⚠️  [RequestLogger] No next handler registered!" << std::endl;
+    std::cout << "⚠️  [RequestLogger] No next handler registered!"
+              << std::endl;
   }
 }
 
