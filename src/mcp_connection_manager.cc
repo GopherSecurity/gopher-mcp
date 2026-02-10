@@ -876,12 +876,15 @@ void McpConnectionManager::onConnectionEvent(network::ConnectionEvent event) {
   }
 
   // Forward event to upper layer callbacks
-  GOPHER_LOG_DEBUG("McpConnectionManager forwarding event to protocol_callbacks_={}",
-                   (protocol_callbacks_ ? "set" : "NULL"));
+  GOPHER_LOG_DEBUG(
+      "McpConnectionManager forwarding event to protocol_callbacks_={}",
+      (protocol_callbacks_ ? "set" : "NULL"));
   if (protocol_callbacks_) {
-    GOPHER_LOG_DEBUG("McpConnectionManager calling protocol_callbacks_->onConnectionEvent");
+    GOPHER_LOG_DEBUG(
+        "McpConnectionManager calling protocol_callbacks_->onConnectionEvent");
     protocol_callbacks_->onConnectionEvent(event);
-    GOPHER_LOG_DEBUG("McpConnectionManager protocol_callbacks_->onConnectionEvent returned");
+    GOPHER_LOG_DEBUG(
+        "McpConnectionManager protocol_callbacks_->onConnectionEvent returned");
 
     // Ensure protocol callbacks are processed before any requests
     if (event == network::ConnectionEvent::Connected) {

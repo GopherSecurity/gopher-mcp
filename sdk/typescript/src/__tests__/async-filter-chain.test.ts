@@ -6,31 +6,31 @@
  * through FFI to C++ implementation.
  */
 
-import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
-import { FilterChain } from '../filter-chain-ffi';
-import { mcpFilterLib } from '../mcp-ffi-bindings';
-import { FilterResult, CanonicalConfig } from '../filter-types';
+import { describe, it, expect, beforeEach, afterEach } from "@jest/globals";
+import { FilterChain } from "../filter-chain-ffi";
+import { mcpFilterLib } from "../mcp-ffi-bindings";
+import { FilterResult, CanonicalConfig } from "../filter-types";
 
-describe('Async Filter Chain Integration', () => {
+describe("Async Filter Chain Integration", () => {
   let dispatcher: any;
   let chain: FilterChain;
 
   const testConfig: CanonicalConfig = {
     listeners: [
       {
-        name: 'test_listener',
+        name: "test_listener",
         address: {
           socket_address: {
-            address: '127.0.0.1',
+            address: "127.0.0.1",
             port_value: 9090,
           },
         },
         filter_chains: [
           {
             filters: [
-              { name: 'http', type: 'http.codec' },
-              { name: 'sse', type: 'sse.codec' },
-              { name: 'dispatcher', type: 'json_rpc.dispatcher' },
+              { name: "http", type: "http.codec" },
+              { name: "sse", type: "sse.codec" },
+              { name: "dispatcher", type: "json_rpc.dispatcher" },
             ],
           },
         ],
@@ -64,46 +64,46 @@ describe('Async Filter Chain Integration', () => {
     mcpFilterLib.mcp_shutdown();
   });
 
-  it('should process incoming message', async () => {
-    const result = await chain.processIncoming({ method: 'test' });
+  it("should process incoming message", async () => {
+    const result = await chain.processIncoming({ method: "test" });
 
     expect(result).toBeDefined();
     expect(result.decision).toBeDefined();
-    expect(typeof result.decision).toBe('number');
+    expect(typeof result.decision).toBe("number");
     // Note: Actual decision depends on filters in chain
   });
 
-  it('should process outgoing message', async () => {
-    const result = await chain.processOutgoing({ method: 'test' });
+  it("should process outgoing message", async () => {
+    const result = await chain.processOutgoing({ method: "test" });
 
     expect(result).toBeDefined();
     expect(result.decision).toBeDefined();
-    expect(typeof result.decision).toBe('number');
+    expect(typeof result.decision).toBe("number");
     // Note: Actual decision depends on filters in chain
   });
 
-  it('should handle multiple concurrent requests', async () => {
+  it("should handle multiple concurrent requests", async () => {
     const promises: Promise<FilterResult>[] = [];
     for (let i = 0; i < 10; i++) {
-      promises.push(chain.processIncoming({ method: 'test', id: i }));
+      promises.push(chain.processIncoming({ method: "test", id: i }));
     }
 
     const results = await Promise.all(promises);
 
     expect(results).toHaveLength(10);
-    results.forEach((result) => {
+    results.forEach(result => {
       expect(result.decision).toBeDefined();
-      expect(typeof result.decision).toBe('number');
+      expect(typeof result.decision).toBe("number");
     });
   });
 
-  it('should process incoming and outgoing concurrently', async () => {
+  it("should process incoming and outgoing concurrently", async () => {
     const incomingPromises: Promise<FilterResult>[] = [];
     const outgoingPromises: Promise<FilterResult>[] = [];
 
     for (let i = 0; i < 5; i++) {
-      incomingPromises.push(chain.processIncoming({ method: 'test_in', id: i }));
-      outgoingPromises.push(chain.processOutgoing({ method: 'test_out', id: i }));
+      incomingPromises.push(chain.processIncoming({ method: "test_in", id: i }));
+      outgoingPromises.push(chain.processOutgoing({ method: "test_out", id: i }));
     }
 
     const [incomingResults, outgoingResults] = await Promise.all([
@@ -114,16 +114,16 @@ describe('Async Filter Chain Integration', () => {
     expect(incomingResults).toHaveLength(5);
     expect(outgoingResults).toHaveLength(5);
 
-    [...incomingResults, ...outgoingResults].forEach((result) => {
+    [...incomingResults, ...outgoingResults].forEach(result => {
       expect(result.decision).toBeDefined();
     });
   });
 
-  it('should handle error responses from filters', async () => {
+  it("should handle error responses from filters", async () => {
     // This test depends on how the C++ implementation handles invalid messages
     // For now, we verify the API doesn't crash
     try {
-      const result = await chain.processIncoming({ invalid: 'data' });
+      const result = await chain.processIncoming({ invalid: "data" });
       expect(result).toBeDefined();
     } catch (error) {
       // Error handling is also acceptable
@@ -131,7 +131,7 @@ describe('Async Filter Chain Integration', () => {
     }
   });
 
-  it('should maintain separate callback registries for each message', async () => {
+  it("should maintain separate callback registries for each message", async () => {
     // Submit multiple messages and verify each gets its own callback
     const message1 = chain.processIncoming({ id: 1 });
     const message2 = chain.processIncoming({ id: 2 });
@@ -140,15 +140,15 @@ describe('Async Filter Chain Integration', () => {
     const results = await Promise.all([message1, message2, message3]);
 
     expect(results).toHaveLength(3);
-    results.forEach((result) => {
+    results.forEach(result => {
       expect(result).toBeDefined();
       expect(result.decision).toBeDefined();
     });
   });
 
-  it('should clean up resources on shutdown', async () => {
+  it("should clean up resources on shutdown", async () => {
     // Submit a message
-    await chain.processIncoming({ method: 'test' });
+    await chain.processIncoming({ method: "test" });
 
     // Destroy the chain
     chain.destroy();
@@ -157,17 +157,15 @@ describe('Async Filter Chain Integration', () => {
     expect(chain.isDestroyed()).toBe(true);
 
     // Subsequent calls should throw
-    await expect(chain.processIncoming({ method: 'test' })).rejects.toThrow(
-      /destroyed/i
-    );
+    await expect(chain.processIncoming({ method: "test" })).rejects.toThrow(/destroyed/i);
   });
 
-  it('should reject pending requests on shutdown', async () => {
+  it("should reject pending requests on shutdown", async () => {
     // This test verifies that pending callbacks are properly rejected
     // when the chain is destroyed
 
     // Start processing
-    const promise = chain.processIncoming({ method: 'long_running' });
+    const promise = chain.processIncoming({ method: "long_running" });
 
     // Immediately destroy (before callback completes)
     chain.destroy();
@@ -176,7 +174,7 @@ describe('Async Filter Chain Integration', () => {
     await expect(promise).rejects.toThrow(/shutdown/i);
   });
 
-  it('should handle rapid successive requests', async () => {
+  it("should handle rapid successive requests", async () => {
     const results: FilterResult[] = [];
 
     // Submit 20 requests rapidly in sequence
@@ -186,42 +184,42 @@ describe('Async Filter Chain Integration', () => {
     }
 
     expect(results).toHaveLength(20);
-    results.forEach((result) => {
+    results.forEach(result => {
       expect(result.decision).toBeDefined();
     });
   });
 
-  it('should return FilterResult with correct structure', async () => {
-    const result = await chain.processIncoming({ method: 'test' });
+  it("should return FilterResult with correct structure", async () => {
+    const result = await chain.processIncoming({ method: "test" });
 
     // Verify FilterResult structure
-    expect(result).toHaveProperty('decision');
-    expect(typeof result.decision).toBe('number');
+    expect(result).toHaveProperty("decision");
+    expect(typeof result.decision).toBe("number");
 
     // Optional fields may or may not be present
     if (result.transformedMessage !== undefined) {
-      expect(typeof result.transformedMessage).toBe('string');
+      expect(typeof result.transformedMessage).toBe("string");
     }
     if (result.reason !== undefined) {
-      expect(typeof result.reason).toBe('string');
+      expect(typeof result.reason).toBe("string");
     }
     if (result.delayMs !== undefined) {
-      expect(typeof result.delayMs).toBe('number');
+      expect(typeof result.delayMs).toBe("number");
     }
     if (result.metadata !== undefined) {
-      expect(typeof result.metadata).toBe('object');
+      expect(typeof result.metadata).toBe("object");
     }
   });
 
-  it('should handle JSON serialization of complex messages', async () => {
+  it("should handle JSON serialization of complex messages", async () => {
     const complexMessage = {
-      method: 'complex_test',
+      method: "complex_test",
       params: {
         nested: {
           data: [1, 2, 3],
           flag: true,
         },
-        array: ['a', 'b', 'c'],
+        array: ["a", "b", "c"],
       },
       metadata: {
         timestamp: Date.now(),
@@ -233,35 +231,35 @@ describe('Async Filter Chain Integration', () => {
     expect(result.decision).toBeDefined();
   });
 
-  it('should support getting chain statistics', async () => {
+  it("should support getting chain statistics", async () => {
     // Process some messages
-    await chain.processIncoming({ method: 'test1' });
-    await chain.processIncoming({ method: 'test2' });
-    await chain.processOutgoing({ method: 'test3' });
+    await chain.processIncoming({ method: "test1" });
+    await chain.processIncoming({ method: "test2" });
+    await chain.processOutgoing({ method: "test3" });
 
     // Get statistics
     const stats = await chain.getChainStats();
 
     expect(stats).toBeDefined();
-    expect(stats).toHaveProperty('total_processed');
-    expect(stats).toHaveProperty('total_errors');
-    expect(stats).toHaveProperty('avg_latency_ms');
-    expect(typeof stats.total_processed).toBe('number');
+    expect(stats).toHaveProperty("total_processed");
+    expect(stats).toHaveProperty("total_errors");
+    expect(stats).toHaveProperty("avg_latency_ms");
+    expect(typeof stats.total_processed).toBe("number");
   });
 
-  it('should support getting metrics', async () => {
+  it("should support getting metrics", async () => {
     // Process some messages
-    await chain.processIncoming({ method: 'test' });
+    await chain.processIncoming({ method: "test" });
 
     // Get metrics
     const metrics = await chain.getMetrics();
 
     expect(metrics).toBeDefined();
-    expect(typeof metrics).toBe('object');
+    expect(typeof metrics).toBe("object");
   });
 });
 
-describe('Async Filter Chain Error Handling', () => {
+describe("Async Filter Chain Error Handling", () => {
   let dispatcher: any;
 
   beforeEach(() => {
@@ -276,19 +274,17 @@ describe('Async Filter Chain Error Handling', () => {
     mcpFilterLib.mcp_shutdown();
   });
 
-  it('should throw on invalid dispatcher', () => {
+  it("should throw on invalid dispatcher", () => {
     const invalidConfig: CanonicalConfig = {
       listeners: [
         {
-          name: 'test',
+          name: "test",
           address: {
-            socket_address: { address: '127.0.0.1', port_value: 9090 },
+            socket_address: { address: "127.0.0.1", port_value: 9090 },
           },
           filter_chains: [
             {
-              filters: [
-                { name: 'http', type: 'http.codec' },
-              ],
+              filters: [{ name: "http", type: "http.codec" }],
             },
           ],
         },
@@ -300,7 +296,7 @@ describe('Async Filter Chain Error Handling', () => {
     }).toThrow(/dispatcher/i);
   });
 
-  it('should throw on invalid configuration', () => {
+  it("should throw on invalid configuration", () => {
     const invalidConfig = {
       listeners: [],
     } as CanonicalConfig;
@@ -310,19 +306,17 @@ describe('Async Filter Chain Error Handling', () => {
     }).toThrow();
   });
 
-  it('should handle operations on destroyed chain', async () => {
+  it("should handle operations on destroyed chain", async () => {
     const config: CanonicalConfig = {
       listeners: [
         {
-          name: 'test',
+          name: "test",
           address: {
-            socket_address: { address: '127.0.0.1', port_value: 9090 },
+            socket_address: { address: "127.0.0.1", port_value: 9090 },
           },
           filter_chains: [
             {
-              filters: [
-                { name: 'http', type: 'http.codec' },
-              ],
+              filters: [{ name: "http", type: "http.codec" }],
             },
           ],
         },
@@ -332,29 +326,23 @@ describe('Async Filter Chain Error Handling', () => {
     const chain = new FilterChain(dispatcher, config);
     chain.destroy();
 
-    await expect(chain.processIncoming({ method: 'test' })).rejects.toThrow(
-      /destroyed/i
-    );
-    await expect(chain.processOutgoing({ method: 'test' })).rejects.toThrow(
-      /destroyed/i
-    );
+    await expect(chain.processIncoming({ method: "test" })).rejects.toThrow(/destroyed/i);
+    await expect(chain.processOutgoing({ method: "test" })).rejects.toThrow(/destroyed/i);
     await expect(chain.getChainStats()).rejects.toThrow(/destroyed/i);
     await expect(chain.getMetrics()).rejects.toThrow(/destroyed/i);
   });
 
-  it('should allow idempotent destroy calls', () => {
+  it("should allow idempotent destroy calls", () => {
     const config: CanonicalConfig = {
       listeners: [
         {
-          name: 'test',
+          name: "test",
           address: {
-            socket_address: { address: '127.0.0.1', port_value: 9090 },
+            socket_address: { address: "127.0.0.1", port_value: 9090 },
           },
           filter_chains: [
             {
-              filters: [
-                { name: 'http', type: 'http.codec' },
-              ],
+              filters: [{ name: "http", type: "http.codec" }],
             },
           ],
         },

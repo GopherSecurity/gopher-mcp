@@ -6,21 +6,21 @@
  * with real dispatcher handles and the native library.
  */
 
-import { FilterChain } from '../filter-chain-ffi';
-import { createRealDispatcher, destroyDispatcher, ensureMcpInitialized } from '../mcp-filter-api';
-import type { CanonicalConfig } from '../filter-types';
+import { FilterChain } from "../filter-chain-ffi";
+import { createRealDispatcher, destroyDispatcher, ensureMcpInitialized } from "../mcp-filter-api";
+import type { CanonicalConfig } from "../filter-types";
 
-describe('FilterChain FFI Integration', () => {
+describe("FilterChain FFI Integration", () => {
   let dispatcher: any;
 
   // Simple test configuration with http.codec filter
   const simpleConfig: CanonicalConfig = {
     listeners: [
       {
-        name: 'test_listener',
+        name: "test_listener",
         address: {
           socket_address: {
-            address: '127.0.0.1',
+            address: "127.0.0.1",
             port_value: 9090,
           },
         },
@@ -28,8 +28,8 @@ describe('FilterChain FFI Integration', () => {
           {
             filters: [
               {
-                name: 'http_codec',
-                type: 'http.codec',
+                name: "http_codec",
+                type: "http.codec",
               },
             ],
           },
@@ -42,10 +42,10 @@ describe('FilterChain FFI Integration', () => {
   const multiFilterConfig: CanonicalConfig = {
     listeners: [
       {
-        name: 'multi_test_listener',
+        name: "multi_test_listener",
         address: {
           socket_address: {
-            address: '127.0.0.1',
+            address: "127.0.0.1",
             port_value: 9091,
           },
         },
@@ -53,16 +53,16 @@ describe('FilterChain FFI Integration', () => {
           {
             filters: [
               {
-                name: 'http_codec',
-                type: 'http.codec',
+                name: "http_codec",
+                type: "http.codec",
               },
               {
-                name: 'sse_codec',
-                type: 'sse.codec',
+                name: "sse_codec",
+                type: "sse.codec",
               },
               {
-                name: 'json_rpc',
-                type: 'json_rpc.dispatcher',
+                name: "json_rpc",
+                type: "json_rpc.dispatcher",
               },
             ],
           },
@@ -89,8 +89,8 @@ describe('FilterChain FFI Integration', () => {
     }
   });
 
-  describe('Construction', () => {
-    it('should create a filter chain from canonical config', async () => {
+  describe("Construction", () => {
+    it("should create a filter chain from canonical config", async () => {
       const chain = new FilterChain(dispatcher, simpleConfig);
       await chain.initialize();
 
@@ -101,13 +101,13 @@ describe('FilterChain FFI Integration', () => {
       chain.destroy();
     });
 
-    it('should throw error for invalid dispatcher', () => {
+    it("should throw error for invalid dispatcher", () => {
       expect(() => {
         new FilterChain(0, simpleConfig);
-      }).toThrow('Invalid dispatcher handle');
+      }).toThrow("Invalid dispatcher handle");
     });
 
-    it('should create chain with multiple filters', async () => {
+    it("should create chain with multiple filters", async () => {
       const chain = new FilterChain(dispatcher, multiFilterConfig);
       await chain.initialize();
 
@@ -118,37 +118,37 @@ describe('FilterChain FFI Integration', () => {
     });
   });
 
-  describe('Metrics and Statistics', () => {
-    it('should retrieve chain statistics', async () => {
+  describe("Metrics and Statistics", () => {
+    it("should retrieve chain statistics", async () => {
       const chain = new FilterChain(dispatcher, simpleConfig);
       await chain.initialize();
 
       const stats = await chain.getChainStats();
 
       expect(stats).toBeDefined();
-      expect(typeof stats.total_processed).toBe('number');
-      expect(typeof stats.total_errors).toBe('number');
-      expect(typeof stats.avg_latency_ms).toBe('number');
-      expect(typeof stats.active_filters).toBe('number');
+      expect(typeof stats.total_processed).toBe("number");
+      expect(typeof stats.total_errors).toBe("number");
+      expect(typeof stats.avg_latency_ms).toBe("number");
+      expect(typeof stats.active_filters).toBe("number");
 
       chain.destroy();
     });
 
-    it('should retrieve filter metrics', async () => {
+    it("should retrieve filter metrics", async () => {
       const chain = new FilterChain(dispatcher, simpleConfig);
       await chain.initialize();
 
       const metrics = await chain.getMetrics();
 
       expect(metrics).toBeDefined();
-      expect(typeof metrics).toBe('object');
+      expect(typeof metrics).toBe("object");
       // Metrics should have at least chain-wide stats
-      expect(metrics['chain']).toBeDefined();
+      expect(metrics["chain"]).toBeDefined();
 
       chain.destroy();
     });
 
-    it('should throw error when getting stats from uninitialized chain', async () => {
+    it("should throw error when getting stats from uninitialized chain", async () => {
       const chain = new FilterChain(dispatcher, simpleConfig);
       chain.destroy(); // Destroy immediately
 
@@ -156,28 +156,28 @@ describe('FilterChain FFI Integration', () => {
     });
   });
 
-  describe('Configuration Management', () => {
-    it('should export chain configuration', async () => {
+  describe("Configuration Management", () => {
+    it("should export chain configuration", async () => {
       const chain = new FilterChain(dispatcher, simpleConfig);
       await chain.initialize();
 
       const exported = await chain.exportConfig();
 
       expect(exported).toBeDefined();
-      expect(typeof exported).toBe('object');
+      expect(typeof exported).toBe("object");
       // Exported config should have internal chain structure (name, mode, routing, filters)
       // Not the canonical listener-based format
-      expect(exported).toHaveProperty('name');
-      expect(exported).toHaveProperty('filters');
+      expect(exported).toHaveProperty("name");
+      expect(exported).toHaveProperty("filters");
 
       chain.destroy();
     });
 
-    it('should enable a filter by name', async () => {
+    it("should enable a filter by name", async () => {
       const chain = new FilterChain(dispatcher, multiFilterConfig);
       await chain.initialize();
 
-      const warnings = await chain.enableFilter('http_codec');
+      const warnings = await chain.enableFilter("http_codec");
 
       expect(Array.isArray(warnings)).toBe(true);
       // No errors should be thrown
@@ -185,11 +185,11 @@ describe('FilterChain FFI Integration', () => {
       chain.destroy();
     });
 
-    it('should disable a filter by name', async () => {
+    it("should disable a filter by name", async () => {
       const chain = new FilterChain(dispatcher, multiFilterConfig);
       await chain.initialize();
 
-      const warnings = await chain.disableFilter('sse_codec');
+      const warnings = await chain.disableFilter("sse_codec");
 
       expect(Array.isArray(warnings)).toBe(true);
       // No errors should be thrown
@@ -197,21 +197,21 @@ describe('FilterChain FFI Integration', () => {
       chain.destroy();
     });
 
-    it('should throw error for invalid filter name', async () => {
+    it("should throw error for invalid filter name", async () => {
       const chain = new FilterChain(dispatcher, simpleConfig);
       await chain.initialize();
 
       // enableFilter may return empty warnings array for nonexistent filters
       // instead of throwing, depending on C API behavior
-      const result = await chain.enableFilter('nonexistent_filter');
+      const result = await chain.enableFilter("nonexistent_filter");
       expect(Array.isArray(result)).toBe(true);
 
       chain.destroy();
     });
   });
 
-  describe('Lifecycle Management', () => {
-    it('should properly destroy chain', async () => {
+  describe("Lifecycle Management", () => {
+    it("should properly destroy chain", async () => {
       const chain = new FilterChain(dispatcher, simpleConfig);
       await chain.initialize();
       const handle = chain.getHandle();
@@ -222,17 +222,17 @@ describe('FilterChain FFI Integration', () => {
       chain.destroy();
 
       expect(chain.isDestroyed()).toBe(true);
-      expect(() => chain.getHandle()).toThrow('destroyed');
+      expect(() => chain.getHandle()).toThrow("destroyed");
     });
 
-    it('should be safe to destroy chain multiple times', () => {
+    it("should be safe to destroy chain multiple times", () => {
       const chain = new FilterChain(dispatcher, simpleConfig);
 
       chain.destroy();
       expect(() => chain.destroy()).not.toThrow();
     });
 
-    it('should throw error when using destroyed chain', async () => {
+    it("should throw error when using destroyed chain", async () => {
       const chain = new FilterChain(dispatcher, simpleConfig);
       chain.destroy();
 
@@ -240,14 +240,14 @@ describe('FilterChain FFI Integration', () => {
       await expect(chain.getMetrics()).rejects.toThrow(/destroyed|error code -4/i);
       // exportConfig may return null for destroyed chains instead of throwing
       const exported = await chain.exportConfig();
-      expect(exported === null || typeof exported === 'object').toBe(true);
+      expect(exported === null || typeof exported === "object").toBe(true);
     });
   });
 
-  describe('Error Handling', () => {
-    it('should handle malformed configuration gracefully', async () => {
+  describe("Error Handling", () => {
+    it("should handle malformed configuration gracefully", async () => {
       const badConfig: any = {
-        listeners: [] // Empty listeners array
+        listeners: [], // Empty listeners array
       };
 
       const chain = new FilterChain(dispatcher, badConfig);
@@ -255,14 +255,14 @@ describe('FilterChain FFI Integration', () => {
       await expect(chain.initialize()).rejects.toThrow();
     });
 
-    it('should handle missing filter chains', async () => {
+    it("should handle missing filter chains", async () => {
       const badConfig: any = {
         listeners: [
           {
-            name: 'bad_listener',
+            name: "bad_listener",
             address: {
               socket_address: {
-                address: '127.0.0.1',
+                address: "127.0.0.1",
                 port_value: 9092,
               },
             },
@@ -276,7 +276,7 @@ describe('FilterChain FFI Integration', () => {
       await expect(chain.initialize()).rejects.toThrow();
     });
 
-    it('should handle MCP_STATUS_NOT_INITIALIZED error', async () => {
+    it("should handle MCP_STATUS_NOT_INITIALIZED error", async () => {
       const chain = new FilterChain(dispatcher, simpleConfig);
       // Don't initialize the chain
       chain.destroy(); // Destroy without initializing
@@ -284,17 +284,17 @@ describe('FilterChain FFI Integration', () => {
       // Attempting to use destroyed chain should throw or reject
       // The current implementation may return a default result for destroyed chains
       try {
-        const result = await chain.processIncoming({ test: 'data' });
+        const result = await chain.processIncoming({ test: "data" });
         // If it doesn't throw, verify we get a result
         expect(result).toBeDefined();
-        expect(result).toHaveProperty('decision');
+        expect(result).toHaveProperty("decision");
       } catch (error) {
         // If it does throw, that's also acceptable
         expect(error).toBeDefined();
       }
     });
 
-    it('should handle processing timeout', async () => {
+    it("should handle processing timeout", async () => {
       const chain = new FilterChain(dispatcher, simpleConfig);
       await chain.initialize();
 
@@ -306,31 +306,29 @@ describe('FilterChain FFI Integration', () => {
       chain.destroy();
     }, 35000); // Set test timeout higher than default
 
-    it('should handle callback errors gracefully', async () => {
+    it("should handle callback errors gracefully", async () => {
       const chain = new FilterChain(dispatcher, simpleConfig);
       await chain.initialize();
 
       // Submit a message that might cause callback errors
       try {
-        await chain.processIncoming({ invalid: 'structure' });
+        await chain.processIncoming({ invalid: "structure" });
         // If no error, that's fine - filter might allow it
       } catch (error) {
         // Error should be properly formatted
         expect(error).toBeInstanceOf(Error);
-        expect(error).toHaveProperty('message');
+        expect(error).toHaveProperty("message");
       }
 
       chain.destroy();
     });
 
-    it('should handle queue full scenarios', async () => {
+    it("should handle queue full scenarios", async () => {
       const chain = new FilterChain(dispatcher, simpleConfig);
       await chain.initialize();
 
       // Try to flood the queue with many rapid requests
-      const promises = Array.from({ length: 100 }, (_, i) =>
-        chain.processIncoming({ index: i })
-      );
+      const promises = Array.from({ length: 100 }, (_, i) => chain.processIncoming({ index: i }));
 
       try {
         await Promise.all(promises);
@@ -343,7 +341,7 @@ describe('FilterChain FFI Integration', () => {
       chain.destroy();
     });
 
-    it('should propagate C API error codes correctly', async () => {
+    it("should propagate C API error codes correctly", async () => {
       const chain = new FilterChain(dispatcher, simpleConfig);
       // Intentionally NOT calling initialize() to test error handling
 
@@ -359,8 +357,8 @@ describe('FilterChain FFI Integration', () => {
     });
   });
 
-  describe('Memory Management', () => {
-    it('should not leak memory when creating and destroying multiple chains', async () => {
+  describe("Memory Management", () => {
+    it("should not leak memory when creating and destroying multiple chains", async () => {
       // Create and destroy chains in a loop
       for (let i = 0; i < 10; i++) {
         const chain = new FilterChain(dispatcher, simpleConfig);
@@ -375,7 +373,7 @@ describe('FilterChain FFI Integration', () => {
       expect(true).toBe(true);
     });
 
-    it('should handle rapid create/destroy cycles', async () => {
+    it("should handle rapid create/destroy cycles", async () => {
       const chains: FilterChain[] = [];
 
       // Create multiple chains

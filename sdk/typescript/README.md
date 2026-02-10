@@ -138,7 +138,7 @@ The SDK supports the canonical listener-based configuration format that matches 
 import {
   createRealDispatcher,
   createFilterChainFromConfig,
-  CanonicalConfig
+  CanonicalConfig,
 } from "@mcp/filter-sdk";
 
 // Create dispatcher
@@ -152,20 +152,20 @@ const config: CanonicalConfig = {
       address: {
         socket_address: {
           address: "127.0.0.1",
-          port_value: 9090
-        }
+          port_value: 9090,
+        },
       },
       filter_chains: [
         {
           filters: [
             { name: "http.codec", type: "http.codec" },
             { name: "sse.codec", type: "sse.codec" },
-            { name: "json_rpc.dispatcher", type: "json_rpc.dispatcher" }
-          ]
-        }
-      ]
-    }
-  ]
+            { name: "json_rpc.dispatcher", type: "json_rpc.dispatcher" },
+          ],
+        },
+      ],
+    },
+  ],
 };
 
 // Create filter chain from configuration
@@ -450,6 +450,7 @@ The SDK uses the canonical listener-based configuration format that matches the 
 ```
 
 This format provides:
+
 - Clear separation of network configuration (listeners) from processing logic (filter chains)
 - Support for multiple listeners on different ports
 - Consistent structure across C++ and TypeScript implementations
@@ -502,32 +503,36 @@ The `FilterChain` class provides a Koffi-based FFI bridge to C++ filter implemen
 #### **Quick Start**
 
 ```typescript
-import { FilterChain } from './filter-chain-ffi';
-import { createRealDispatcher } from './mcp-filter-api';
+import { FilterChain } from "./filter-chain-ffi";
+import { createRealDispatcher } from "./mcp-filter-api";
 
 // Create dispatcher
 const dispatcher = createRealDispatcher();
 
 // Define filter configuration
 const config = {
-  listeners: [{
-    name: 'filters',
-    filter_chains: [{
-      filters: [
-        { type: 'rate_limiter', name: 'limiter', config: { rps: 100 } },
-        { type: 'circuit_breaker', name: 'breaker', config: { threshold: 5 } },
-        { type: 'metrics', name: 'metrics' }
-      ]
-    }]
-  }]
+  listeners: [
+    {
+      name: "filters",
+      filter_chains: [
+        {
+          filters: [
+            { type: "rate_limiter", name: "limiter", config: { rps: 100 } },
+            { type: "circuit_breaker", name: "breaker", config: { threshold: 5 } },
+            { type: "metrics", name: "metrics" },
+          ],
+        },
+      ],
+    },
+  ],
 };
 
 // Create and use filter chain
 const chain = new FilterChain(dispatcher, config);
 await chain.initialize();
 
-const result = await chain.processIncoming({ method: 'test' });
-console.log('Filter decision:', result.decision); // 0=ALLOW, 1=DENY
+const result = await chain.processIncoming({ method: "test" });
+console.log("Filter decision:", result.decision); // 0=ALLOW, 1=DENY
 
 await chain.shutdown();
 chain.destroy();
@@ -551,35 +556,40 @@ chain.destroy();
 #### **API Reference**
 
 **Lifecycle:**
+
 ```typescript
-constructor(dispatcher, config)  // Create chain
-await initialize()               // Start processing
-await shutdown()                 // Stop gracefully
-destroy()                        // Release resources
+constructor(dispatcher, config); // Create chain
+await initialize(); // Start processing
+await shutdown(); // Stop gracefully
+destroy(); // Release resources
 ```
 
 **Message Processing:**
+
 ```typescript
-await processIncoming(message)   // Filter incoming message
-await processOutgoing(message)   // Filter outgoing message
+await processIncoming(message); // Filter incoming message
+await processOutgoing(message); // Filter outgoing message
 ```
 
 **Metrics & Stats:**
+
 ```typescript
 await getChainStats()            // Get chain statistics
 await getMetrics(filterName?)    // Get filter metrics
 ```
 
 **Dynamic Configuration:**
+
 ```typescript
-await enableFilter(name)         // Enable a filter
-await disableFilter(name)        // Disable a filter
-await exportConfig()             // Export current config
+await enableFilter(name); // Enable a filter
+await disableFilter(name); // Disable a filter
+await exportConfig(); // Export current config
 ```
 
 **Validation:**
+
 ```typescript
-FilterChain.validateConfig(config)  // Validate before creation
+FilterChain.validateConfig(config); // Validate before creation
 ```
 
 #### **Usage with Official MCP SDK**
@@ -587,8 +597,8 @@ FilterChain.validateConfig(config)  // Validate before creation
 The FilterChain can be wrapped in a custom transport to use with the official MCP SDK:
 
 ```typescript
-import { FilterChain } from './filter-chain-ffi';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { FilterChain } from "./filter-chain-ffi";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 
 class FilteredTransport {
   constructor(baseTransport, filterChain) {
@@ -598,16 +608,18 @@ class FilteredTransport {
 
   async send(message) {
     const result = await this.filterChain.processOutgoing(message);
-    if (result.decision === 0) { // ALLOW
+    if (result.decision === 0) {
+      // ALLOW
       return this.baseTransport.send(result.transformedMessage || message);
     }
     throw new Error(`Message blocked: ${result.reason}`);
   }
 
   onMessage(handler) {
-    this.baseTransport.onMessage(async (message) => {
+    this.baseTransport.onMessage(async message => {
       const result = await this.filterChain.processIncoming(message);
-      if (result.decision === 0) { // ALLOW
+      if (result.decision === 0) {
+        // ALLOW
         handler(result.transformedMessage || message);
       }
     });
@@ -652,18 +664,22 @@ const stdioTransport = new StdioServerTransport();
 const transport = new GopherFilteredTransport(stdioTransport, {
   dispatcherHandle: dispatcher,
   filterConfig: {
-    listeners: [{
-      name: "hybrid_filters",
-      filter_chains: [{
-        filters: [
-          { type: "rate_limiter", name: "limiter", config: { rps: 100 } },
-          { type: "circuit_breaker", name: "breaker", config: { threshold: 5 } },
-          { type: "metrics", name: "metrics", config: { export_port: 9090 } }
-        ]
-      }]
-    }]
+    listeners: [
+      {
+        name: "hybrid_filters",
+        filter_chains: [
+          {
+            filters: [
+              { type: "rate_limiter", name: "limiter", config: { rps: 100 } },
+              { type: "circuit_breaker", name: "breaker", config: { threshold: 5 } },
+              { type: "metrics", name: "metrics", config: { export_port: 9090 } },
+            ],
+          },
+        ],
+      },
+    ],
   },
-  debugLogging: false
+  debugLogging: false,
 });
 
 // Use with MCP SDK server
@@ -705,30 +721,34 @@ Note: In hybrid SDK mode, the `address` field is **optional** since the SDK tran
 
 ```json
 {
-  "listeners": [{
-    "name": "hybrid_filters",
-    "filter_chains": [{
-      "name": "default",
-      "filters": [
+  "listeners": [
+    {
+      "name": "hybrid_filters",
+      "filter_chains": [
         {
-          "name": "rate_limiter",
-          "type": "rate_limiter",
-          "config": {
-            "requests_per_second": 100,
-            "burst_size": 20
-          }
-        },
-        {
-          "name": "circuit_breaker",
-          "type": "circuit_breaker",
-          "config": {
-            "failure_threshold": 5,
-            "timeout_ms": 60000
-          }
+          "name": "default",
+          "filters": [
+            {
+              "name": "rate_limiter",
+              "type": "rate_limiter",
+              "config": {
+                "requests_per_second": 100,
+                "burst_size": 20
+              }
+            },
+            {
+              "name": "circuit_breaker",
+              "type": "circuit_breaker",
+              "config": {
+                "failure_threshold": 5,
+                "timeout_ms": 60000
+              }
+            }
+          ]
         }
       ]
-    }]
-  }]
+    }
+  ]
 }
 ```
 
@@ -737,18 +757,18 @@ Note: In hybrid SDK mode, the `address` field is **optional** since the SDK tran
 ```typescript
 // Get metrics
 const metrics = await transport.getMetrics();
-console.log('Total processed:', metrics.chain.requests_total);
+console.log("Total processed:", metrics.chain.requests_total);
 
 // Enable/disable filters
-await transport.setFilterEnabled('limiter', false); // Disable rate limiter
-await transport.setFilterEnabled('breaker', true);  // Enable circuit breaker
+await transport.setFilterEnabled("limiter", false); // Disable rate limiter
+await transport.setFilterEnabled("breaker", true); // Enable circuit breaker
 
 // Export current configuration
 const config = await transport.exportFilterConfig();
 
 // Get queue stats (for backpressure monitoring)
 const queueStats = transport.getQueueStats();
-console.log('Queued messages:', queueStats.size);
+console.log("Queued messages:", queueStats.size);
 ```
 
 #### **Error Handling**
@@ -758,10 +778,10 @@ try {
   await transport.send(message);
 } catch (error) {
   if (error instanceof FilterDeniedError) {
-    console.log('Message blocked by filter:', error.reason);
+    console.log("Message blocked by filter:", error.reason);
     // Handle rate limiting, circuit breaker open, etc.
   } else {
-    console.error('Transport error:', error);
+    console.error("Transport error:", error);
   }
 }
 ```
@@ -783,18 +803,22 @@ app.post("/sse", async (req, res) => {
   const transport = new GopherFilteredTransport(sseTransport, {
     dispatcherHandle: dispatcher,
     filterConfig: {
-      listeners: [{
-        name: "http_filters",
-        filter_chains: [{
-          filters: [
-            { type: "rate_limiter", name: "limiter", config: { rps: 50 } },
-            { type: "circuit_breaker", name: "breaker", config: { threshold: 3 } },
-            { type: "metrics", name: "metrics" }
-          ]
-        }]
-      }]
+      listeners: [
+        {
+          name: "http_filters",
+          filter_chains: [
+            {
+              filters: [
+                { type: "rate_limiter", name: "limiter", config: { rps: 50 } },
+                { type: "circuit_breaker", name: "breaker", config: { threshold: 3 } },
+                { type: "metrics", name: "metrics" },
+              ],
+            },
+          ],
+        },
+      ],
     },
-    onValidationWarning: (warnings) => console.warn('Filter warnings:', warnings)
+    onValidationWarning: warnings => console.warn("Filter warnings:", warnings),
   });
 
   const server = new Server({ name: "http-server", version: "1.0.0" });
@@ -807,17 +831,19 @@ app.listen(3000);
 #### **Migration from Pure SDK**
 
 **Before (Pure SDK):**
+
 ```typescript
 const transport = new StdioServerTransport();
 await server.connect(transport);
 ```
 
 **After (With Gopher Filters - One Line Change!):**
+
 ```typescript
-const transport = new GopherFilteredTransport(
-  new StdioServerTransport(),
-  { dispatcherHandle: dispatcher, filterConfig: config }
-);
+const transport = new GopherFilteredTransport(new StdioServerTransport(), {
+  dispatcherHandle: dispatcher,
+  filterConfig: config,
+});
 await server.connect(transport);
 ```
 
@@ -831,14 +857,14 @@ await server.connect(transport);
 
 #### **Comparison: Native vs Hybrid Approach**
 
-| Aspect | Native C++ | Hybrid SDK |
-|--------|---------------------|---------------------|
-| Protocol | Custom C++ | Official SDK |
-| Filters | C++ | C++ (via wrapper) |
-| Overhead | ~0.5ms | ~0.66ms |
-| SDK Updates | Manual | Automatic |
-| Complexity | High | Low |
-| Use Case | Full control | Quick adoption |
+| Aspect      | Native C++   | Hybrid SDK        |
+| ----------- | ------------ | ----------------- |
+| Protocol    | Custom C++   | Official SDK      |
+| Filters     | C++          | C++ (via wrapper) |
+| Overhead    | ~0.5ms       | ~0.66ms           |
+| SDK Updates | Manual       | Automatic         |
+| Complexity  | High         | Low               |
+| Use Case    | Full control | Quick adoption    |
 
 See `examples/configs/hybrid-wrapper-config.json` for complete configuration examples.
 

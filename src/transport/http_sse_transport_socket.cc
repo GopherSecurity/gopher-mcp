@@ -15,8 +15,8 @@
 #include <iostream>
 
 #include "mcp/filter/http_codec_filter.h"
-#include "mcp/logging/log_macros.h"
 #include "mcp/filter/sse_codec_filter.h"
+#include "mcp/logging/log_macros.h"
 #include "mcp/network/address_impl.h"
 #include "mcp/network/connection_impl.h"
 #include "mcp/transport/ssl_context.h"

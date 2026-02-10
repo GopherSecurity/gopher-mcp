@@ -105,12 +105,12 @@ export type FilterEventHandler = (event: FilterEvent) => void;
  * Get string representation of event type
  */
 export function filterEventTypeToString(type: FilterEventType): string {
-  return FilterEventType[type] ?? 'UNKNOWN';
+  return FilterEventType[type] ?? "UNKNOWN";
 }
 
 /**
  * Get string representation of event severity
  */
 export function filterEventSeverityToString(severity: FilterEventSeverity): string {
-  return FilterEventSeverity[severity] ?? 'UNKNOWN';
+  return FilterEventSeverity[severity] ?? "UNKNOWN";
 }

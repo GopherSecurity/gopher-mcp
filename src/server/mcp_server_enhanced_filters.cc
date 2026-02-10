@@ -193,8 +193,8 @@ void McpServer::setupEnhancedFilterChain(
         void onRequestRejected(const std::string& method,
                                const std::string& reason) override {
           server_.server_stats_.requests_invalid++;
-          GOPHER_LOG_WARN("Validation: Request rejected: {} Reason: {}",
-                          method, reason);
+          GOPHER_LOG_WARN("Validation: Request rejected: {} Reason: {}", method,
+                          reason);
         }
 
         void onRateLimitExceeded(const std::string& method) override {

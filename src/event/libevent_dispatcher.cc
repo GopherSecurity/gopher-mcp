@@ -77,7 +77,8 @@ uint32_t fromLibeventEvents(short events) {
 // Early initialization for libevent threading support
 // CRITICAL: This must run BEFORE any other libevent functions or libraries
 // that might use libevent (like curl with libevent support).
-// evthread_use_pthreads() is safe to call multiple times - it returns 0 after first call
+// evthread_use_pthreads() is safe to call multiple times - it returns 0 after
+// first call
 struct LibeventEarlyInit {
   LibeventEarlyInit() {
 #ifdef _WIN32

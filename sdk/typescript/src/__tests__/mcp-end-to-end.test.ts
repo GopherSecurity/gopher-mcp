@@ -79,9 +79,7 @@ describe("FilterManager end-to-end behaviour", () => {
 
     bufferMocks.getBufferLength.mockImplementation(() => successBytes.length);
     bufferMocks.readBufferData.mockImplementation(() => successBytes);
-    filterApiMocks.postDataToFilter.mockImplementation(
-      () => FilterApi.FilterStatus.CONTINUE
-    );
+    filterApiMocks.postDataToFilter.mockImplementation(() => FilterApi.FilterStatus.CONTINUE);
 
     manager = new FilterManager({
       mcp: { jsonRpcProtocol: true, sseCodec: true },
@@ -154,8 +152,8 @@ describe("FilterManager end-to-end behaviour", () => {
   it("throws when processing after destruction", async () => {
     manager.destroy();
 
-    await expect(
-      manager.processMessage({ jsonrpc: "2.0", method: "test" })
-    ).rejects.toThrow(/destroyed/);
+    await expect(manager.processMessage({ jsonrpc: "2.0", method: "test" })).rejects.toThrow(
+      /destroyed/
+    );
   });
 });

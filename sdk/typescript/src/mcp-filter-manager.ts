@@ -17,7 +17,6 @@ import {
   releaseFilterManager,
 } from "./mcp-filter-api";
 
-
 // Import the three filter modules as requested
 import {
   ChainExecutionMode,
@@ -27,7 +26,6 @@ import {
 } from "./mcp-filter-chain";
 
 import * as BufferModule from "./mcp-filter-buffer";
-
 
 /**
  * JSON-RPC Message interface (compatible with MCP)
@@ -51,84 +49,102 @@ export interface JSONRPCMessage {
 export interface FilterManagerConfig {
   // Network filters
   network?: {
-    tcpProxy?: boolean | {
-      enabled: boolean;
-      upstreamHost?: string;
-      upstreamPort?: number;
-      bindAddress?: string;
-      bindPort?: number;
-    };
+    tcpProxy?:
+      | boolean
+      | {
+          enabled: boolean;
+          upstreamHost?: string;
+          upstreamPort?: number;
+          bindAddress?: string;
+          bindPort?: number;
+        };
     udpProxy?: boolean;
   };
 
   // HTTP filters
   http?: {
-    codec?: boolean | {
-      enabled: boolean;
-      compressionLevel?: number;
-      maxRequestSize?: number;
-      maxResponseSize?: number;
-    };
+    codec?:
+      | boolean
+      | {
+          enabled: boolean;
+          compressionLevel?: number;
+          maxRequestSize?: number;
+          maxResponseSize?: number;
+        };
     routing?: boolean;
   };
 
   // Security filters
   security?: {
-    authentication?: boolean | {
-      method?: string;
-      secret?: string;
-      issuer?: string;
-      audience?: string;
-    };
-    authorization?: boolean | {
-      enabled: boolean;
-      policy?: string;
-      rules?: Array<{
-        resource: string;
-        action: string;
-        conditions?: any;
-      }>;
-    };
+    authentication?:
+      | boolean
+      | {
+          method?: string;
+          secret?: string;
+          issuer?: string;
+          audience?: string;
+        };
+    authorization?:
+      | boolean
+      | {
+          enabled: boolean;
+          policy?: string;
+          rules?: Array<{
+            resource: string;
+            action: string;
+            conditions?: any;
+          }>;
+        };
     rateLimiting?: boolean;
   };
 
   // Observability filters
   observability?: {
-    accessLog?: boolean | {
-      enabled: boolean;
-      format?: string;
-      fields?: string[];
-      output?: string;
-    };
-    metrics?: boolean | {
-      enabled: boolean;
-      endpoint?: string;
-      interval?: number;
-      labels?: Record<string, string>;
-    };
-    tracing?: boolean | {
-      enabled: boolean;
-      serviceName?: string;
-      endpoint?: string;
-      samplingRate?: number;
-    };
+    accessLog?:
+      | boolean
+      | {
+          enabled: boolean;
+          format?: string;
+          fields?: string[];
+          output?: string;
+        };
+    metrics?:
+      | boolean
+      | {
+          enabled: boolean;
+          endpoint?: string;
+          interval?: number;
+          labels?: Record<string, string>;
+        };
+    tracing?:
+      | boolean
+      | {
+          enabled: boolean;
+          serviceName?: string;
+          endpoint?: string;
+          samplingRate?: number;
+        };
   };
 
   // Traffic management
   trafficManagement?: {
-    circuitBreaker?: boolean | {
-      enabled: boolean;
-      failureThreshold?: number;
-      timeout?: number;
-      resetTimeout?: number;
-    };
-    retry?: boolean | {
-      enabled: boolean;
-      maxAttempts?: number;
-      backoffStrategy?: string;
-      baseDelay?: number;
-      maxDelay?: number;
-    };
+    circuitBreaker?:
+      | boolean
+      | {
+          enabled: boolean;
+          failureThreshold?: number;
+          timeout?: number;
+          resetTimeout?: number;
+        };
+    retry?:
+      | boolean
+      | {
+          enabled: boolean;
+          maxAttempts?: number;
+          backoffStrategy?: string;
+          baseDelay?: number;
+          maxDelay?: number;
+        };
     timeout?: boolean;
   };
 
@@ -152,7 +168,7 @@ export interface FilterManagerConfig {
     stopOnError?: boolean;
     retryAttempts?: number;
     retryDelayMs?: number;
-    fallbackBehavior?: 'passthrough' | 'default' | 'error';
+    fallbackBehavior?: "passthrough" | "default" | "error";
   };
 
   // Custom filters
@@ -163,32 +179,40 @@ export interface FilterManagerConfig {
   }>;
 
   // Top-level shortcuts for common filters (for backward compatibility)
-  auth?: boolean | {
-    method?: string;
-    secret?: string;
-    issuer?: string;
-    audience?: string;
-  };
-  rateLimit?: boolean | {
-    requestsPerSecond?: number;
-    burstSize?: number;
-  };
-  logging?: boolean | {
-    level?: string;
-    format?: string;
-  };
-  metrics?: boolean | {
-    enabled?: boolean;
-    endpoint?: string;
-  };
+  auth?:
+    | boolean
+    | {
+        method?: string;
+        secret?: string;
+        issuer?: string;
+        audience?: string;
+      };
+  rateLimit?:
+    | boolean
+    | {
+        requestsPerSecond?: number;
+        burstSize?: number;
+      };
+  logging?:
+    | boolean
+    | {
+        level?: string;
+        format?: string;
+      };
+  metrics?:
+    | boolean
+    | {
+        enabled?: boolean;
+        endpoint?: string;
+      };
 }
 
 /**
  * Options for FilterManager initialization
  */
 export interface FilterManagerOptions {
-  dispatcherHandle?: any;  // Opaque dispatcher handle
-  connectionHandle?: any;  // Opaque connection handle
+  dispatcherHandle?: any; // Opaque dispatcher handle
+  connectionHandle?: any; // Opaque connection handle
 }
 
 /**

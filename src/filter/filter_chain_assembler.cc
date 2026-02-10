@@ -130,8 +130,8 @@ network::FilterSharedPtr FilterChainAssembler::createSingleFilter(
             std::shared_ptr<void>(emitter, emitter.get());
       }
     } catch (const std::exception& ex) {
-      GOPHER_LOG_ERROR("FilterChainAssembler failed to create event emitter: {}",
-                       ex.what());
+      GOPHER_LOG_ERROR(
+          "FilterChainAssembler failed to create event emitter: {}", ex.what());
     }
   }
 

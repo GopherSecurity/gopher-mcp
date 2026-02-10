@@ -3,12 +3,12 @@
  * These tests verify function definitions and signatures without requiring the C++ library
  */
 
-import { TransportType } from '../mcp-ffi-bindings';
+import { TransportType } from "../mcp-ffi-bindings";
 
-describe('FFI Bindings - Unit Tests (Mocked)', () => {
+describe("FFI Bindings - Unit Tests (Mocked)", () => {
   beforeAll(() => {
     // Mock koffi to avoid needing C++ library for unit tests
-    jest.mock('koffi', () => ({
+    jest.mock("koffi", () => ({
       load: jest.fn().mockReturnValue({
         mcp_dispatcher_create: jest.fn().mockReturnValue(BigInt(0x7f8000000001)),
         mcp_dispatcher_run: jest.fn().mockReturnValue(0),
@@ -23,38 +23,38 @@ describe('FFI Bindings - Unit Tests (Mocked)', () => {
   });
 
   afterAll(() => {
-    jest.unmock('koffi');
+    jest.unmock("koffi");
   });
 
-  describe('Transport Type Enum', () => {
-    it('should define correct transport type values', () => {
+  describe("Transport Type Enum", () => {
+    it("should define correct transport type values", () => {
       expect(TransportType.MCP_TRANSPORT_HTTP_SSE).toBe(0);
       expect(TransportType.MCP_TRANSPORT_STDIO).toBe(1);
       expect(TransportType.MCP_TRANSPORT_PIPE).toBe(2);
     });
   });
 
-  describe('Dispatcher FFI Functions', () => {
-    it('should define all 5 dispatcher FFI functions', () => {
+  describe("Dispatcher FFI Functions", () => {
+    it("should define all 5 dispatcher FFI functions", () => {
       // Import after mocking
-      const { mcpFilterLib } = require('../mcp-ffi-bindings');
+      const { mcpFilterLib } = require("../mcp-ffi-bindings");
 
       const dispatcherFunctions = [
-        'mcp_dispatcher_create',
-        'mcp_dispatcher_run',
-        'mcp_dispatcher_run_timeout',
-        'mcp_dispatcher_stop',
-        'mcp_dispatcher_destroy'
+        "mcp_dispatcher_create",
+        "mcp_dispatcher_run",
+        "mcp_dispatcher_run_timeout",
+        "mcp_dispatcher_stop",
+        "mcp_dispatcher_destroy",
       ];
 
       for (const funcName of dispatcherFunctions) {
         expect(mcpFilterLib[funcName]).toBeDefined();
-        expect(typeof mcpFilterLib[funcName]).toBe('function');
+        expect(typeof mcpFilterLib[funcName]).toBe("function");
       }
     });
 
-    it('should have correct function signatures for dispatcher functions', () => {
-      const { mcpFilterLib } = require('../mcp-ffi-bindings');
+    it("should have correct function signatures for dispatcher functions", () => {
+      const { mcpFilterLib } = require("../mcp-ffi-bindings");
 
       // Test that functions can be called with expected parameters
       const dispatcher = mcpFilterLib.mcp_dispatcher_create();
@@ -72,24 +72,24 @@ describe('FFI Bindings - Unit Tests (Mocked)', () => {
     });
   });
 
-  describe('Connection FFI Functions', () => {
-    it('should define all 3 connection FFI functions', () => {
-      const { mcpFilterLib } = require('../mcp-ffi-bindings');
+  describe("Connection FFI Functions", () => {
+    it("should define all 3 connection FFI functions", () => {
+      const { mcpFilterLib } = require("../mcp-ffi-bindings");
 
       const connectionFunctions = [
-        'mcp_connection_create_client',
-        'mcp_connection_configure',
-        'mcp_connection_destroy'
+        "mcp_connection_create_client",
+        "mcp_connection_configure",
+        "mcp_connection_destroy",
       ];
 
       for (const funcName of connectionFunctions) {
         expect(mcpFilterLib[funcName]).toBeDefined();
-        expect(typeof mcpFilterLib[funcName]).toBe('function');
+        expect(typeof mcpFilterLib[funcName]).toBe("function");
       }
     });
 
-    it('should have correct function signatures for connection functions', () => {
-      const { mcpFilterLib } = require('../mcp-ffi-bindings');
+    it("should have correct function signatures for connection functions", () => {
+      const { mcpFilterLib } = require("../mcp-ffi-bindings");
 
       const dispatcher = mcpFilterLib.mcp_dispatcher_create();
 
@@ -105,7 +105,7 @@ describe('FFI Bindings - Unit Tests (Mocked)', () => {
         connection,
         0, // null address
         0, // null options
-        0  // null ssl config
+        0 // null ssl config
       );
       expect(configResult).toBe(0); // MCP_OK
 
@@ -114,13 +114,13 @@ describe('FFI Bindings - Unit Tests (Mocked)', () => {
     });
   });
 
-  describe('Total Function Count', () => {
-    it('should have 101 total functions (93 original + 8 new)', () => {
-      const { mcpFilterLib } = require('../mcp-ffi-bindings');
+  describe("Total Function Count", () => {
+    it("should have 101 total functions (93 original + 8 new)", () => {
+      const { mcpFilterLib } = require("../mcp-ffi-bindings");
 
       // Count all functions in mcpFilterLib
       const functionCount = Object.keys(mcpFilterLib).filter(
-        key => typeof mcpFilterLib[key] === 'function'
+        key => typeof mcpFilterLib[key] === "function"
       ).length;
 
       // We added 8 new functions (5 dispatcher + 3 connection)
@@ -128,9 +128,9 @@ describe('FFI Bindings - Unit Tests (Mocked)', () => {
     });
   });
 
-  describe('Error Handling', () => {
-    it('should handle invalid parameters gracefully', () => {
-      const { mcpFilterLib } = require('../mcp-ffi-bindings');
+  describe("Error Handling", () => {
+    it("should handle invalid parameters gracefully", () => {
+      const { mcpFilterLib } = require("../mcp-ffi-bindings");
 
       // Test with null/invalid handles
       expect(() => mcpFilterLib.mcp_dispatcher_run(null)).not.toThrow();
