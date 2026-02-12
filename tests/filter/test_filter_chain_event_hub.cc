@@ -4,6 +4,7 @@
  */
 
 #include <atomic>
+#include <mutex>
 #include <thread>
 #include <vector>
 
@@ -295,6 +296,7 @@ TEST_F(FilterChainEventHubTest, ThreadSafety) {
       callbacks_list;
   std::vector<FilterChainEventHub::ObserverHandle> handles;
   std::atomic<int> total_events_received{0};
+  std::mutex list_mutex;
 
   // Register observers from multiple threads
   std::vector<std::thread> registration_threads;
@@ -309,9 +311,12 @@ TEST_F(FilterChainEventHubTest, ThreadSafety) {
 
       auto handle = hub_->registerObserver(callbacks);
 
-      // Store safely (in test main thread context after join)
-      callbacks_list.push_back(callbacks);
-      handles.push_back(std::move(handle));
+      // Store safely with mutex protection
+      {
+        std::lock_guard<std::mutex> lock(list_mutex);
+        callbacks_list.push_back(callbacks);
+        handles.push_back(std::move(handle));
+      }
     });
   }
 
