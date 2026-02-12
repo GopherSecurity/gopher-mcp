@@ -318,6 +318,7 @@ add_executable(test_filter_chain_assembler
 target_link_libraries(test_filter_chain_assembler
   PRIVATE
   gopher-mcp
+  gopher-mcp-logging
   gtest
   gtest_main
   gmock
