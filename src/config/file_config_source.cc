@@ -268,8 +268,8 @@ class FileConfigSource : public ConfigSource {
                    int priority,
                    const Options& opts = Options{})
       : name_(name), priority_(priority), options_(opts) {
-    GOPHER_LOG(Info, "FileConfigSource created: name=%s priority=%d",
-               name_.c_str(), static_cast<int>(priority_));
+    GOPHER_LOG(Info, "FileConfigSource created: name={} priority={}",
+               name_, priority_);
   }
 
   std::string getName() const override { return name_; }
@@ -285,22 +285,22 @@ class FileConfigSource : public ConfigSource {
   mcp::json::JsonValue loadConfiguration() override {
     // Keep logs under config.file so tests that attach a sink to
     // "config.file" see discovery start/end messages.
-    GOPHER_LOG(Info, "Starting configuration discovery for source: %s%s",
-               name_.c_str(),
+    GOPHER_LOG(Info, "Starting configuration discovery for source: {}{}",
+               name_,
                (options_.trace_id.empty()
                     ? ""
-                    : (" trace_id=" + options_.trace_id).c_str()));
+                    : (" trace_id=" + options_.trace_id)));
 
     // Determine the config file path using deterministic search order
     std::string config_path = findConfigFile();
 
     if (config_path.empty()) {
-      GOPHER_LOG(Warning, "No configuration file found for source: %s",
-                 name_.c_str());
+      GOPHER_LOG(Warning, "No configuration file found for source: {}",
+                 name_);
       return mcp::json::JsonValue::object();
     }
 
-    GOPHER_LOG(Info, "Base configuration file chosen: %s", config_path.c_str());
+    GOPHER_LOG(Info, "Base configuration file chosen: {}", config_path);
 
     // Load and parse the main configuration file
     ParseContext context;
@@ -323,8 +323,8 @@ class FileConfigSource : public ConfigSource {
     // Emit a brief summary and also dump top-level keys/types to aid debugging
     GOPHER_LOG(
         Info,
-        "Configuration discovery completed: files_parsed=%zu "
-        "includes_processed=%zu env_vars_expanded=%zu overlays_applied=%zu",
+        "Configuration discovery completed: files_parsed={} "
+        "includes_processed={} env_vars_expanded={} overlays_applied={}",
         context.files_parsed_count, context.includes_processed_count,
         context.env_vars_expanded_count, context.overlays_applied.size());
 
@@ -346,11 +346,11 @@ class FileConfigSource : public ConfigSource {
           t = "array";
         else if (v.isObject())
           t = "object";
-        GOPHER_LOG(Debug, "  key='%s' type=%s", key.c_str(), t);
+        GOPHER_LOG(Debug, "  key='{}' type={}", key, t);
       }
       // Emit compact JSON for quick inspection
-      GOPHER_LOG(Info, "Top-level configuration JSON: %s",
-                 config.toString(false).c_str());
+      GOPHER_LOG(Info, "Top-level configuration JSON: {}",
+                 config.toString(false));
       // Also print to stderr for test visibility when sinks are not attached
       fprintf(stderr, "[config.file] Top-level JSON: %s\n",
               config.toString(false).c_str());
@@ -364,7 +364,7 @@ class FileConfigSource : public ConfigSource {
     if (!context.overlays_applied.empty()) {
       GOPHER_LOG(Debug, "Overlays applied in order:");
       for (const auto& overlay : context.overlays_applied) {
-        GOPHER_LOG(Debug, "  - %s", overlay.c_str());
+        GOPHER_LOG(Debug, "  - {}", overlay);
       }
     }
 
@@ -443,7 +443,7 @@ class FileConfigSource : public ConfigSource {
     search_paths.push_back("/etc/gopher-mcp/config.yaml");
     search_paths.push_back("/etc/gopher-mcp/config.json");
 
-    GOPHER_LOG(Debug, "Configuration search order: %zu paths to check",
+    GOPHER_LOG(Debug, "Configuration search order: {} paths to check",
                search_paths.size());
 
     for (size_t i = 0; i < search_paths.size(); ++i) {
@@ -451,19 +451,19 @@ class FileConfigSource : public ConfigSource {
       if (exists(path)) {
         // Determine which source won
         if (i == 0 && !explicit_config_path_.empty()) {
-          GOPHER_LOG(Info, "Configuration source won: CLI --config=%s",
-                     path.c_str());
+          GOPHER_LOG(Info, "Configuration source won: CLI --config={}",
+                     path);
         } else if ((i == 0 || i == 1) && env_config) {
           GOPHER_LOG(
               Info,
               "Configuration source won: MCP_CONFIG environment variable");
         } else if (path.find("./config") != std::string::npos ||
                    path.find("./config.") != std::string::npos) {
-          GOPHER_LOG(Info, "Configuration source won: local directory at %s",
-                     path.c_str());
+          GOPHER_LOG(Info, "Configuration source won: local directory at {}",
+                     path);
         } else {
-          GOPHER_LOG(Info, "Configuration source won: system directory at %s",
-                     path.c_str());
+          GOPHER_LOG(Info, "Configuration source won: system directory at {}",
+                     path);
         }
         return path;
       }
@@ -484,8 +484,8 @@ class FileConfigSource : public ConfigSource {
     size_t file_size = st.st_size;
     if (file_size > options_.max_file_size) {
       GOPHER_LOG(Error,
-                 "File exceeds maximum size limit: %s size=%zu limit=%zu",
-                 filepath.c_str(), file_size, options_.max_file_size);
+                 "File exceeds maximum size limit: {} size={} limit={}",
+                 filepath, file_size, options_.max_file_size);
       throw std::runtime_error("File too large: " + filepath + " (" +
                                std::to_string(file_size) + " bytes)");
     }
@@ -500,13 +500,13 @@ class FileConfigSource : public ConfigSource {
     }
 
     GOPHER_LOG(Debug,
-               "Loading configuration file: %s size=%zu last_modified=%ld",
-               filepath.c_str(), file_size, static_cast<long>(last_modified));
+               "Loading configuration file: {} size={} last_modified={}",
+               filepath, file_size, last_modified);
 
     std::ifstream file(filepath);
     if (!file.is_open()) {
-      GOPHER_LOG(Error, "Failed to open configuration file: %s",
-                 filepath.c_str());
+      GOPHER_LOG(Error, "Failed to open configuration file: {}",
+                 filepath);
       throw std::runtime_error("Cannot open config file: " + filepath);
     }
 
@@ -543,8 +543,8 @@ class FileConfigSource : public ConfigSource {
         }
       }
     } catch (const std::exception& e) {
-      GOPHER_LOG(Error, "Failed to parse configuration file: %s reason=%s",
-                 filepath.c_str(), e.what());
+      GOPHER_LOG(Error, "Failed to parse configuration file: {} reason={}",
+                 filepath, e.what());
       throw;
     }
 
@@ -696,8 +696,8 @@ class FileConfigSource : public ConfigSource {
 
       if (!env_value && !has_default) {
         GOPHER_LOG(Error,
-                   "Undefined environment variable without default: ${%s}",
-                   var_name.c_str());
+                   "Undefined environment variable without default: ${{{}}}",
+                   var_name);
         throw std::runtime_error("Undefined environment variable: " + var_name);
       }
 
@@ -725,7 +725,7 @@ class FileConfigSource : public ConfigSource {
 
     context.env_vars_expanded_count += vars_expanded;
     if (vars_expanded > 0) {
-      GOPHER_LOG(Debug, "Expanded %zu environment variables", vars_expanded);
+      GOPHER_LOG(Debug, "Expanded {} environment variables", vars_expanded);
     }
 
     return result;
@@ -734,7 +734,7 @@ class FileConfigSource : public ConfigSource {
   mcp::json::JsonValue processIncludes(const mcp::json::JsonValue& config,
                                        ParseContext& context) {
     if (++context.include_depth > context.max_include_depth) {
-      GOPHER_LOG(Error, "Maximum include depth exceeded: %d at depth %d",
+      GOPHER_LOG(Error, "Maximum include depth exceeded: {} at depth {}",
                  context.max_include_depth, context.include_depth);
       throw std::runtime_error("Maximum include depth (" +
                                std::to_string(context.max_include_depth) +
@@ -756,22 +756,22 @@ class FileConfigSource : public ConfigSource {
           const auto& include = includes[i];
           if (include.isString()) {
             std::string include_path = include.getString();
-            GOPHER_LOG(Debug, "Processing include: %s from base_dir=%s",
-                       include_path.c_str(), context.base_dir.string().c_str());
+            GOPHER_LOG(Debug, "Processing include: {} from base_dir={}",
+                       include_path, context.base_dir.string());
 
             path resolved_path = resolveIncludePath(include_path, context);
 
             if (context.processed_files.count(resolved_path.string()) > 0) {
-              GOPHER_LOG(Warning, "Circular include detected, skipping: %s",
-                         resolved_path.string().c_str());
+              GOPHER_LOG(Warning, "Circular include detected, skipping: {}",
+                         resolved_path.string());
               continue;
             }
 
             context.processed_files.insert(resolved_path.string());
             context.includes_processed_count++;
 
-            GOPHER_LOG(Info, "Including configuration from: %s",
-                       resolved_path.string().c_str());
+            GOPHER_LOG(Info, "Including configuration from: {}",
+                       resolved_path.string());
 
             ParseContext include_context = context;
             include_context.base_dir = resolved_path.parent_path();
@@ -809,8 +809,8 @@ class FileConfigSource : public ConfigSource {
       std::string dir_pattern = config["include_dir"].getString();
       path dir_path = resolveIncludePath(dir_pattern, context);
 
-      GOPHER_LOG(Info, "Scanning directory for configurations: %s",
-                 dir_path.string().c_str());
+      GOPHER_LOG(Info, "Scanning directory for configurations: {}",
+                 dir_path.string());
 
       if (exists(dir_path.string()) && is_directory(dir_path.string())) {
         std::vector<path> config_files;
@@ -830,7 +830,7 @@ class FileConfigSource : public ConfigSource {
         // Sort for deterministic order
         std::sort(config_files.begin(), config_files.end());
 
-        GOPHER_LOG(Debug, "Found %zu configuration files in directory",
+        GOPHER_LOG(Debug, "Found {} configuration files in directory",
                    config_files.size());
 
         for (const auto& file : config_files) {
@@ -841,8 +841,8 @@ class FileConfigSource : public ConfigSource {
           context.processed_files.insert(canonical(file.string()));
           context.includes_processed_count++;
 
-          GOPHER_LOG(Info, "Including configuration from directory: %s",
-                     file.string().c_str());
+          GOPHER_LOG(Info, "Including configuration from directory: {}",
+                     file.string());
 
           ParseContext include_context = context;
           include_context.base_dir = file.parent_path();
@@ -860,8 +860,8 @@ class FileConfigSource : public ConfigSource {
         }
       } else {
         GOPHER_LOG(Warning,
-                   "Include directory does not exist or is not a directory: %s",
-                   dir_path.string().c_str());
+                   "Include directory does not exist or is not a directory: {}",
+                   dir_path.string());
       }
 
       result.erase("include_dir");
@@ -886,8 +886,8 @@ class FileConfigSource : public ConfigSource {
           }
         }
         if (!allowed) {
-          GOPHER_LOG(Error, "Absolute include path not under allowed roots: %s",
-                     filepath.c_str());
+          GOPHER_LOG(Error, "Absolute include path not under allowed roots: {}",
+                     filepath);
           throw std::runtime_error("Include path not allowed: " + filepath);
         }
       }
@@ -932,8 +932,8 @@ class FileConfigSource : public ConfigSource {
       const mcp::json::JsonValue& base_config,
       const path& overlay_dir,
       ParseContext& context) {
-    GOPHER_LOG(Info, "Scanning config.d directory: %s",
-               overlay_dir.string().c_str());
+    GOPHER_LOG(Info, "Scanning config.d directory: {}",
+               overlay_dir.string());
 
     mcp::json::JsonValue result = base_config;
     std::vector<path> overlay_files;
@@ -954,28 +954,28 @@ class FileConfigSource : public ConfigSource {
     std::sort(overlay_files.begin(), overlay_files.end());
 
     GOPHER_LOG(Info,
-               "Directory scan results: found %zu configuration overlay files",
+               "Directory scan results: found {} configuration overlay files",
                overlay_files.size());
 
     // Log overlay list in order
     if (!overlay_files.empty()) {
       GOPHER_LOG(Info, "Overlay files in lexicographic order:");
       for (const auto& file : overlay_files) {
-        GOPHER_LOG(Info, "  - %s", file.filename().string().c_str());
+        GOPHER_LOG(Info, "  - {}", file.filename().string());
       }
     }
 
     for (const auto& overlay_file : overlay_files) {
       if (context.processed_files.count(canonical(overlay_file.string())) > 0) {
-        GOPHER_LOG(Debug, "Skipping already processed overlay: %s",
-                   overlay_file.string().c_str());
+        GOPHER_LOG(Debug, "Skipping already processed overlay: {}",
+                   overlay_file.string());
         continue;
       }
 
       context.processed_files.insert(canonical(overlay_file.string()));
 
-      GOPHER_LOG(Debug, "Applying overlay: %s",
-                 overlay_file.filename().string().c_str());
+      GOPHER_LOG(Debug, "Applying overlay: {}",
+                 overlay_file.filename().string());
 
       ParseContext overlay_context = context;
       overlay_context.base_dir = overlay_file.parent_path();
@@ -995,8 +995,8 @@ class FileConfigSource : public ConfigSource {
           context.latest_mtime = overlay_context.latest_mtime;
         }
       } catch (const std::exception& e) {
-        GOPHER_LOG(Error, "Failed to process overlay %s: %s",
-                   overlay_file.string().c_str(), e.what());
+        GOPHER_LOG(Error, "Failed to process overlay {}: {}",
+                   overlay_file.string(), e.what());
         // Continue with other overlays
       }
     }
