@@ -253,15 +253,15 @@ TEST_F(HttpSseTransportSocketTest, FactoryWithSsl) {
   HttpSseTransportSocketConfig::SslConfig ssl_config;
   ssl_config.verify_peer = false;
 
-  // Building factory should succeed, but creating transport will fail
-  EXPECT_THROW(
-      {
-        executeInDispatcher([this, &ssl_config]() {
-          HttpSseTransportBuilder builder(*dispatcher_);
-          return builder.withSsl(ssl_config).buildFactory();
-        });
-      },
-      std::runtime_error);
+  // Building factory should succeed (validation happens at connect time)
+  EXPECT_NO_THROW({
+    executeInDispatcher([this, &ssl_config]() {
+      HttpSseTransportBuilder builder(*dispatcher_);
+      auto factory = builder.withSsl(ssl_config).buildFactory();
+      EXPECT_NE(factory, nullptr);
+      return factory;
+    });
+  });
 }
 
 // ===== Statistics Tests =====

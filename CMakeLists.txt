@@ -83,8 +83,10 @@ if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Debug)
 endif()
 
-# Set custom install prefix
-set(CMAKE_INSTALL_PREFIX "${CMAKE_CURRENT_SOURCE_DIR}/install_prefix_dir")
+# Set custom install prefix (only if not specified by user)
+if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
+    set(CMAKE_INSTALL_PREFIX "${CMAKE_CURRENT_SOURCE_DIR}/install_prefix_dir" CACHE PATH "Install prefix" FORCE)
+endif()
 
 #Compiler flags
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
@@ -332,6 +334,11 @@ else()
 endif()
 
 # fmt library for formatting - download and build
+# Force fmt to build as static library regardless of BUILD_SHARED_LIBS
+# This ensures fmt symbols are embedded when linking statically into bundled shared libs
+set(BUILD_SHARED_LIBS_SAVED ${BUILD_SHARED_LIBS})
+set(BUILD_SHARED_LIBS OFF)
+
 FetchContent_Declare(
     fmt
     GIT_REPOSITORY https://github.com/fmtlib/fmt.git
@@ -339,6 +346,9 @@ FetchContent_Declare(
 )
 message(STATUS "Downloading fmt... This may take a moment depending on your connection speed.")
 FetchContent_MakeAvailable(fmt)
+
+# Restore BUILD_SHARED_LIBS
+set(BUILD_SHARED_LIBS ${BUILD_SHARED_LIBS_SAVED})
 # Enable position-independent code for shared library linking
 if(TARGET fmt)
     set_target_properties(fmt PROPERTIES POSITION_INDEPENDENT_CODE ON)
@@ -387,17 +397,19 @@ if(NOT TARGET nlohmann_json_schema_validator)
     message(STATUS "json-schema-validator download complete.")
 endif()
 
-# Google Test
-FetchContent_Declare(
-    googletest
-    GIT_REPOSITORY https://github.com/google/googletest.git
-    GIT_TAG release-1.12.1
-)
-# For Windows: Prevent overriding the parent project's compiler/linker settings
-set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
-message(STATUS "Downloading Google Test... This may take a moment depending on your connection speed.")
-FetchContent_MakeAvailable(googletest)
-message(STATUS "Google Test download complete.")
+# Google Test - only fetch when tests are enabled
+if(BUILD_TESTS)
+    FetchContent_Declare(
+        googletest
+        GIT_REPOSITORY https://github.com/google/googletest.git
+        GIT_TAG release-1.12.1
+    )
+    # For Windows: Prevent overriding the parent project's compiler/linker settings
+    set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+    message(STATUS "Downloading Google Test... This may take a moment depending on your connection speed.")
+    FetchContent_MakeAvailable(googletest)
+    message(STATUS "Google Test download complete.")
+endif()
 
 message(STATUS "")
 message(STATUS "==================================================")
@@ -434,7 +446,6 @@ set(MCP_CORE_SOURCES
     src/transport/ssl_context.cc
     src/transport/ssl_state_machine.cc
     src/transport/ssl_transport_socket.cc
-    src/transport/https_sse_transport_factory.cc
     src/transport/transport_socket_state_machine.cc
     src/transport/tcp_transport_socket_state_machine.cc
     src/transport/tcp_transport_socket.cc
@@ -479,16 +490,17 @@ set(MCP_CLIENT_SERVER_SOURCES
     src/server/mcp_server.cc
 )
 
-# HTTP parser sources (conditional on llhttp)
+# HTTP parser sources (some conditional on llhttp)
 set(MCP_HTTP_SOURCES
     src/http/http_parser.cc
     src/http/sse_parser.cc
+    src/transport/http_sse_transport_socket.cc  # HTTP+SSE with layered architecture
+    src/transport/https_sse_transport_factory.cc  # HTTPS+SSE factory
 )
 
 if(LLHTTP_FOUND)
     list(APPEND MCP_HTTP_SOURCES
         src/http/llhttp_parser.cc
-        src/transport/http_sse_transport_socket.cc  # HTTP+SSE with layered architecture
     )
 endif()
 
@@ -510,6 +522,11 @@ set(MCP_EVENT_SOURCES
     src/event/libevent_dispatcher.cc
     src/event/worker.cc
 )
+
+# Add logging subdirectory BEFORE main library configuration
+# This ensures gopher-mcp-logging target exists when gopher-mcp links against it
+add_subdirectory(src/logging)
+message(STATUS "Building logging framework")
 
 # Create Gopher MCP libraries (both static and shared)
 # Combine all sources for the main library (including event sources)
@@ -572,25 +589,48 @@ endif()
 foreach(lib_target ${REAL_TARGETS})
     if(TARGET ${lib_target})
         target_include_directories(${lib_target}
-            PUBLIC 
+            PUBLIC
                 $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
                 $<INSTALL_INTERFACE:include/gopher-mcp>
             PRIVATE
                 $<BUILD_INTERFACE:$<TARGET_PROPERTY:nlohmann_json::nlohmann_json,INTERFACE_INCLUDE_DIRECTORIES>>
                 ${LIBEVENT_INCLUDE_DIRS}
         )
-        target_link_libraries(${lib_target} 
-            PUBLIC 
-                Threads::Threads 
-                OpenSSL::SSL 
+
+        # Determine if this is a static library target
+        set(_is_static_target FALSE)
+        if("${lib_target}" MATCHES "-static$")
+            set(_is_static_target TRUE)
+        endif()
+
+        # Base libraries for all targets
+        target_link_libraries(${lib_target}
+            PUBLIC
+                Threads::Threads
+                OpenSSL::SSL
                 OpenSSL::Crypto
             PRIVATE
                 nlohmann_json::nlohmann_json
                 ${LIBEVENT_LIBRARIES}
                 yaml-cpp::yaml-cpp
-                $<$<TARGET_EXISTS:gopher-mcp-logging>:gopher-mcp-logging>
-                $<$<AND:$<NOT:$<TARGET_EXISTS:gopher-mcp-logging>>,$<TARGET_EXISTS:gopher-mcp-logging-static>>:gopher-mcp-logging-static>
         )
+
+        # Link logging library - static targets prefer static version to avoid transitive deps
+        if(_is_static_target)
+            if(TARGET gopher-mcp-logging-static)
+                target_link_libraries(${lib_target} PRIVATE gopher-mcp-logging-static)
+            elseif(TARGET gopher-mcp-logging)
+                target_link_libraries(${lib_target} PRIVATE gopher-mcp-logging)
+            endif()
+        else()
+            # Shared library can use shared logging
+            if(TARGET gopher-mcp-logging)
+                target_link_libraries(${lib_target} PRIVATE gopher-mcp-logging)
+            elseif(TARGET gopher-mcp-logging-static)
+                target_link_libraries(${lib_target} PRIVATE gopher-mcp-logging-static)
+            endif()
+        endif()
+
         # Disable json-schema-validator by default to avoid export/link issues
         target_compile_definitions(${lib_target} PUBLIC MCP_HAS_JSON_SCHEMA_VALIDATOR=0)
         if(LIBEVENT_LIBRARY_DIRS)
@@ -660,6 +700,17 @@ else()
     endforeach()
 endif()
 
+# Add Windows-specific socket libraries and definitions
+if(WIN32)
+    foreach(lib_target ${REAL_TARGETS})
+        if(TARGET ${lib_target})
+            target_link_libraries(${lib_target} PRIVATE ws2_32 crypt32 iphlpapi)
+            # Require Windows Vista or later for inet_ntop/inet_pton
+            target_compile_definitions(${lib_target} PRIVATE _WIN32_WINNT=0x0600)
+        endif()
+    endforeach()
+endif()
+
 # Create Gopher MCP Echo Advanced libraries
 if(BUILD_STATIC_LIBS)
     add_library(gopher-mcp-echo-advanced-static STATIC ${MCP_ECHO_ADVANCED_SOURCES})
@@ -697,21 +748,48 @@ endif()
 foreach(lib_target ${ECHO_REAL_TARGETS})
     if(TARGET ${lib_target})
         target_include_directories(${lib_target}
-            PUBLIC 
+            PUBLIC
                 $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
                 $<INSTALL_INTERFACE:include/gopher-mcp>
         )
-        # Link to appropriate main library
-        if(TARGET gopher-mcp)
-            target_link_libraries(${lib_target} PUBLIC gopher-mcp)
-        elseif(TARGET gopher-mcp-static)
-            target_link_libraries(${lib_target} PUBLIC gopher-mcp-static)
+
+        # Determine if this is a static or shared library target
+        set(_is_static_target FALSE)
+        if("${lib_target}" MATCHES "-static$")
+            set(_is_static_target TRUE)
         endif()
-        target_link_libraries(${lib_target} PUBLIC
-            Threads::Threads
-            gopher-mcp-logging
-            fmt::fmt
-        )
+
+        # Link to appropriate main library based on target type
+        if(_is_static_target)
+            # Static library: prefer static dependencies
+            if(TARGET gopher-mcp-static)
+                target_link_libraries(${lib_target} PUBLIC gopher-mcp-static)
+            elseif(TARGET gopher-mcp)
+                target_link_libraries(${lib_target} PUBLIC gopher-mcp)
+            endif()
+            target_link_libraries(${lib_target} PUBLIC Threads::Threads)
+            # Link logging and fmt as PRIVATE to avoid transitive shared lib deps
+            if(TARGET gopher-mcp-logging-static)
+                target_link_libraries(${lib_target} PRIVATE gopher-mcp-logging-static)
+            elseif(TARGET gopher-mcp-logging)
+                target_link_libraries(${lib_target} PRIVATE gopher-mcp-logging)
+            endif()
+            if(TARGET fmt)
+                target_link_libraries(${lib_target} PRIVATE fmt)
+            endif()
+        else()
+            # Shared library: use PUBLIC dependencies normally
+            if(TARGET gopher-mcp)
+                target_link_libraries(${lib_target} PUBLIC gopher-mcp)
+            elseif(TARGET gopher-mcp-static)
+                target_link_libraries(${lib_target} PUBLIC gopher-mcp-static)
+            endif()
+            target_link_libraries(${lib_target} PUBLIC
+                Threads::Threads
+                gopher-mcp-logging
+                fmt::fmt
+            )
+        endif()
     endif()
 endforeach()
 
@@ -757,16 +835,45 @@ foreach(lib_target ${EVENT_REAL_TARGETS})
                 $<BUILD_INTERFACE:${LIBEVENT_INCLUDE_DIRS}>
                 $<INSTALL_INTERFACE:include/gopher-mcp>
         )
-        # Link to appropriate main library
-        if(TARGET gopher-mcp)
-            target_link_libraries(${lib_target} PUBLIC gopher-mcp)
-        elseif(TARGET gopher-mcp-static)
-            target_link_libraries(${lib_target} PUBLIC gopher-mcp-static)
-        endif()
-        target_link_libraries(${lib_target} PUBLIC Threads::Threads)
 
-        # Link logging library for GOPHER_LOG macros
-        target_link_libraries(${lib_target} PUBLIC gopher-mcp-logging fmt::fmt)
+        # Determine if this is a static or shared library target
+        set(_is_static_target FALSE)
+        if("${lib_target}" MATCHES "-static$")
+            set(_is_static_target TRUE)
+        endif()
+
+        # Link to appropriate main library based on target type
+        # Static targets should link to static dependencies to avoid shared lib transitive deps
+        if(_is_static_target)
+            # Static library: use static dependencies with PRIVATE to embed symbols
+            if(TARGET gopher-mcp-static)
+                target_link_libraries(${lib_target} PUBLIC gopher-mcp-static)
+            elseif(TARGET gopher-mcp)
+                target_link_libraries(${lib_target} PUBLIC gopher-mcp)
+            endif()
+            target_link_libraries(${lib_target} PUBLIC Threads::Threads)
+
+            # Link logging library - use static version with PRIVATE to embed
+            if(TARGET gopher-mcp-logging-static)
+                target_link_libraries(${lib_target} PRIVATE gopher-mcp-logging-static)
+            elseif(TARGET gopher-mcp-logging)
+                target_link_libraries(${lib_target} PRIVATE gopher-mcp-logging)
+            endif()
+            # Link fmt as PRIVATE to avoid transitive dependency
+            if(TARGET fmt)
+                target_link_libraries(${lib_target} PRIVATE fmt)
+            endif()
+        else()
+            # Shared library: use PUBLIC dependencies normally
+            if(TARGET gopher-mcp)
+                target_link_libraries(${lib_target} PUBLIC gopher-mcp)
+            elseif(TARGET gopher-mcp-static)
+                target_link_libraries(${lib_target} PUBLIC gopher-mcp-static)
+            endif()
+            target_link_libraries(${lib_target} PUBLIC Threads::Threads)
+            # Link logging library for GOPHER_LOG macros
+            target_link_libraries(${lib_target} PUBLIC gopher-mcp-logging fmt::fmt)
+        endif()
 
         if(LIBEVENT_FOUND)
             if(LIBEVENT_LIBRARY_DIRS)
@@ -776,6 +883,11 @@ foreach(lib_target ${EVENT_REAL_TARGETS})
             if(WIN32)
                 target_link_libraries(${lib_target} PUBLIC ws2_32)
             endif()
+        endif()
+
+        # Add Windows-specific socket libraries for event library
+        if(WIN32)
+            target_link_libraries(${lib_target} PRIVATE ws2_32)
         endif()
     endif()
 endforeach()
@@ -797,9 +909,8 @@ if(NOT GOPHER_MCP_IS_SUBMODULE OR GOPHER_MCP_BUILD_TESTS)
     endif()
 endif()
 
-# Add logging subdirectory
-add_subdirectory(src/logging)
-message(STATUS "Building logging framework")
+# NOTE: Logging subdirectory moved earlier in the file (before gopher-mcp linking)
+# to ensure gopher-mcp-logging target exists when gopher-mcp links against it.
 
 # Add C API subdirectory (if enabled)
 if(BUILD_C_API)

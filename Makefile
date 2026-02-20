@@ -108,24 +108,26 @@ verbose:
 
 # Format all source files (C++ and TypeScript)
 format-cpp:
-	@echo "Formatting C++ files with clang-format..."
-	@if command -v clang-format >/dev/null 2>&1; then \
-	        find . -path "./build*" -prune -o \( -name "*.h" -o -name "*.cpp" -o -name "*.cc" \) -print | xargs clang-format -i; \
+	@echo "Formatting C++ files with clang-format-14..."
+	@export PATH="$$HOME/bin:$$PATH"; \
+	if command -v clang-format-14 >/dev/null 2>&1; then \
+	        find . -path "./build*" -prune -o \( -name "*.h" -o -name "*.cpp" -o -name "*.cc" \) -print | xargs clang-format-14 -i; \
 	        echo "C++ formatting complete."; \
 	else \
-	        echo "Warning: clang-format not found, skipping C++ formatting."; \
-	        echo "Install clang-format to format C++ files: brew install clang-format (macOS) or apt-get install clang-format (Ubuntu)"; \
+	        echo "Warning: clang-format-14 not found, skipping C++ formatting."; \
+	        echo "Install clang-format-14: brew install llvm@14 && ln -sf /usr/local/opt/llvm@14/bin/clang-format ~/bin/clang-format-14"; \
 	fi
 
 format:
 	@echo "Formatting all source files..."
-	@echo "Formatting C++ files with clang-format..."
-	@if command -v clang-format >/dev/null 2>&1; then \
-	        find . -path "./build*" -prune -o \( -name "*.h" -o -name "*.cpp" -o -name "*.cc" \) -print | xargs clang-format -i; \
+	@echo "Formatting C++ files with clang-format-14..."
+	@export PATH="$$HOME/bin:$$PATH"; \
+	if command -v clang-format-14 >/dev/null 2>&1; then \
+	        find . -path "./build*" -prune -o \( -name "*.h" -o -name "*.cpp" -o -name "*.cc" \) -print | xargs clang-format-14 -i; \
 	        echo "C++ formatting complete."; \
 	else \
-	        echo "Warning: clang-format not found, skipping C++ formatting."; \
-	        echo "Install clang-format to format C++ files: brew install clang-format (macOS) or apt-get install clang-format (Ubuntu)"; \
+	        echo "Warning: clang-format-14 not found, skipping C++ formatting."; \
+	        echo "Install clang-format-14: brew install llvm@14 && ln -sf /usr/local/opt/llvm@14/bin/clang-format ~/bin/clang-format-14"; \
 	fi
 	@echo "Formatting TypeScript files with prettier..."
 	@if [ -d "sdk/typescript" ]; then \

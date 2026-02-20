@@ -68,17 +68,12 @@ describe("Filter chain helpers", () => {
 
     expect(handle).toBe(101);
     expect(mockedLib.mcp_json_parse).toHaveBeenCalledTimes(1);
-    expect(mockedLib.mcp_chain_create_from_json).toHaveBeenCalledWith(
-      7,
-      expect.any(Object)
-    );
+    expect(mockedLib.mcp_chain_create_from_json).toHaveBeenCalledWith(7, expect.any(Object));
     expect(mockedLib.mcp_json_free).toHaveBeenCalledTimes(1);
   });
 
   it("throws for non-canonical configuration", () => {
-    expect(() => createFilterChainFromConfig(0, {} as CanonicalConfig)).toThrow(
-      /canonical format/
-    );
+    expect(() => createFilterChainFromConfig(0, {} as CanonicalConfig)).toThrow(/canonical format/);
   });
 
   it("proxies chain state helpers to the FFI bindings", () => {

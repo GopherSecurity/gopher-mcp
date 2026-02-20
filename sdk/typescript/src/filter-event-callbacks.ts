@@ -3,19 +3,15 @@
  * @brief Koffi bridge for unified chain-level filter event callbacks
  */
 
-import * as koffi from 'koffi';
-import { mcpFilterLib } from './mcp-ffi-bindings';
-import type {
-  FilterEvent,
-  FilterEventHandler,
-  FilterEventContext,
-} from './filter-events';
-import { FilterEventType, FilterEventSeverity } from './filter-events';
+import * as koffi from "koffi";
+import { mcpFilterLib } from "./mcp-ffi-bindings";
+import type { FilterEvent, FilterEventHandler, FilterEventContext } from "./filter-events";
+import { FilterEventType, FilterEventSeverity } from "./filter-events";
 
-const EventContextStruct = koffi.struct('mcp_filter_event_context_t', {
-  chain_id: 'char*',
-  stream_id: 'char*',
-  correlation_id: 'char*',
+const EventContextStruct = koffi.struct("mcp_filter_event_context_t", {
+  chain_id: "char*",
+  stream_id: "char*",
+  correlation_id: "char*",
 });
 
 /**
@@ -29,7 +25,7 @@ export class FilterEventCallbackHandle {
 
   register(): koffi.IKoffiRegisteredCallback {
     if (this.destroyed) {
-      throw new Error('FilterEventCallbackHandle has been destroyed');
+      throw new Error("FilterEventCallbackHandle has been destroyed");
     }
 
     // Create unique prototype name to avoid conflicts
@@ -46,15 +42,15 @@ export class FilterEventCallbackHandle {
     //                  void* user_data)
     const EventCallbackProto = koffi.proto(
       `void filter_event_callback_${suffix}(` +
-        'const char*, ' +      // filter_name
-        'const char*, ' +      // filter_instance_id
-        'int32_t, ' +          // event_type
-        'int32_t, ' +          // severity
-        'const char*, ' +      // event_data_json
-        'void*, ' +            // context pointer
-        'int64_t, ' +          // timestamp_ms
-        'void*' +              // user_data
-      ')'
+        "const char*, " + // filter_name
+        "const char*, " + // filter_instance_id
+        "int32_t, " + // event_type
+        "int32_t, " + // severity
+        "const char*, " + // event_data_json
+        "void*, " + // context pointer
+        "int64_t, " + // timestamp_ms
+        "void*" + // user_data
+        ")"
     );
 
     // Register the callback with koffi
@@ -65,9 +61,9 @@ export class FilterEventCallbackHandle {
         eventType: number,
         severity: number,
         eventDataJson: string | null,
-        contextPtr: any,  // Pointer to context struct
+        contextPtr: any, // Pointer to context struct
         timestampMs: bigint,
-        _userData: unknown,
+        _userData: unknown
       ) => {
         try {
           // Parse event data JSON
@@ -76,7 +72,7 @@ export class FilterEventCallbackHandle {
             try {
               eventData = JSON.parse(eventDataJson);
             } catch (err) {
-              console.error('Failed to parse event data JSON:', err);
+              console.error("Failed to parse event data JSON:", err);
             }
           }
 
@@ -91,7 +87,7 @@ export class FilterEventCallbackHandle {
                 correlationId: ctx.correlation_id || undefined,
               };
             } catch (err) {
-              console.error('Failed to decode context struct:', err);
+              console.error("Failed to decode context struct:", err);
             }
           }
 
@@ -103,7 +99,7 @@ export class FilterEventCallbackHandle {
           // Use spread operator to only include optional fields if defined (for exactOptionalPropertyTypes)
           const event: FilterEvent = {
             ...(context && { context }),
-            filterName: filterName ?? '<unknown>',
+            filterName: filterName ?? "<unknown>",
             ...(filterInstanceId && { filterInstanceId }),
             eventType: eventType as FilterEventType,
             severity: severity as FilterEventSeverity,
@@ -114,7 +110,7 @@ export class FilterEventCallbackHandle {
           // Invoke user's TypeScript handler
           this.jsHandler(event);
         } catch (err) {
-          console.error('Error in filter event callback:', err);
+          console.error("Error in filter event callback:", err);
         }
       },
       koffi.pointer(EventCallbackProto)
@@ -132,7 +128,7 @@ export class FilterEventCallbackHandle {
       try {
         koffi.unregister(this.callback);
       } catch (err) {
-        console.error('Failed to unregister filter event callback:', err);
+        console.error("Failed to unregister filter event callback:", err);
       }
       this.callback = null;
     }
@@ -159,7 +155,7 @@ export function registerFilterEventCallback(
   const result = mcpFilterLib.mcp_filter_chain_set_event_callback(
     BigInt(chainHandle),
     callback,
-    null  // user_data
+    null // user_data
   ) as number;
 
   if (result === 0) {
@@ -169,9 +165,7 @@ export function registerFilterEventCallback(
   // Registration failed, clean up
   handle.destroy();
 
-  throw new Error(
-    `Failed to register filter event callback (error code ${result})`
-  );
+  throw new Error(`Failed to register filter event callback (error code ${result})`);
 }
 
 /**
@@ -184,9 +178,7 @@ export function unregisterFilterEventCallback(
   chainHandle: number,
   callbackHandle: FilterEventCallbackHandle
 ): void {
-  const result = mcpFilterLib.mcp_filter_chain_clear_event_callback(
-    BigInt(chainHandle)
-  ) as number;
+  const result = mcpFilterLib.mcp_filter_chain_clear_event_callback(BigInt(chainHandle)) as number;
 
   if (result !== 0) {
     console.error(`Failed to unregister filter event callback (error code ${result})`);

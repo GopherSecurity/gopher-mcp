@@ -9,6 +9,7 @@
 
 #include "mcp/filter/filter_chain_event_hub.h"
 #include "mcp/filter/filter_event_emitter.h"
+#include "mcp/logging/log_macros.h"
 
 namespace mcp {
 namespace filter {
@@ -129,8 +130,8 @@ network::FilterSharedPtr FilterChainAssembler::createSingleFilter(
             std::shared_ptr<void>(emitter, emitter.get());
       }
     } catch (const std::exception& ex) {
-      std::cerr << "[FilterChainAssembler] Failed to create event emitter: "
-                << ex.what() << std::endl;
+      GOPHER_LOG_ERROR(
+          "FilterChainAssembler failed to create event emitter: {}", ex.what());
     }
   }
 
@@ -222,17 +223,16 @@ ConfigurableFilterChainFactory::~ConfigurableFilterChainFactory() {
 bool ConfigurableFilterChainFactory::createFilterChain(
     const FilterCreationContext& context,
     network::FilterManager& filter_manager) {
-  std::cerr << "Creating filter chain from configuration" << std::endl;
+  GOPHER_LOG_DEBUG("Creating filter chain from configuration");
 
   auto result = assembler_->assembleFilterChain(filter_chain_config_, context,
                                                 filter_manager);
 
   if (!result.success) {
-    std::cerr << "Failed to create filter chain: " << result.error_message
-              << std::endl;
+    GOPHER_LOG_ERROR("Failed to create filter chain: {}", result.error_message);
   } else {
-    std::cerr << "Successfully created filter chain with "
-              << result.created_filters.size() << " filters" << std::endl;
+    GOPHER_LOG_DEBUG("Successfully created filter chain with {} filters",
+                     result.created_filters.size());
   }
 
   return result.success;

@@ -702,6 +702,16 @@ void ConnectionImpl::setTransportSocketIsReadable() {
 }
 
 void ConnectionImpl::raiseEvent(ConnectionEvent event) {
+  // When transport socket (e.g., SSL) raises Connected event after handshake,
+  // we need to mark socket as write-ready and flush any pending data
+  if (event == ConnectionEvent::Connected ||
+      event == ConnectionEvent::ConnectedZeroRtt) {
+    write_ready_ = true;
+    // If there's pending data in write buffer, flush it now
+    if (write_buffer_.length() > 0) {
+      doWrite();
+    }
+  }
   raiseConnectionEvent(event);
 }
 
@@ -778,13 +788,9 @@ void ConnectionImpl::onFileEvent(uint32_t events) {
   // This prevents processing events after closeSocket() has been called
   // Events may still fire from libevent queue even after file_event_ is reset
   if (state_ == ConnectionState::Closed || state_ == ConnectionState::Closing) {
-#ifndef NDEBUG
-    std::cerr
-        << "[CONN] onFileEvent(): ignoring events on closed connection, fd="
-        << (socket_ ? socket_->ioHandle().fd() : -1)
-        << " state=" << static_cast<int>(state_)
-        << " (0=Open, 1=Closing, 2=Closed)" << std::endl;
-#endif
+    GOPHER_LOG_DEBUG(
+        "onFileEvent(): ignoring events on closed connection, fd={} state={}",
+        (socket_ ? socket_->ioHandle().fd() : -1), static_cast<int>(state_));
     return;
   }
 
@@ -917,7 +923,11 @@ void ConnectionImpl::onWriteReady() {
     // Notify transport socket (reference pattern)
     onConnected();
 
-    raiseConnectionEvent(ConnectionEvent::Connected);
+    // Only raise Connected if transport doesn't defer it (e.g., SSL defers
+    // until handshake completes)
+    if (!transport_socket_->defersConnectedEvent()) {
+      raiseConnectionEvent(ConnectionEvent::Connected);
+    }
 
     // Flush any pending write data (reference pattern)
     // Transport may have queued data during handshake
@@ -1049,11 +1059,10 @@ void ConnectionImpl::closeSocket(ConnectionEvent close_type) {
     try {
       transport_socket_->closeSocket(close_type);
     } catch (const std::exception& e) {
-      std::cerr << "[ERROR] Exception in transport_socket_->closeSocket: "
-                << e.what() << std::endl;
+      GOPHER_LOG_ERROR("Exception in transport_socket_->closeSocket: {}",
+                       e.what());
     } catch (...) {
-      std::cerr << "[ERROR] Unknown exception in transport_socket_->closeSocket"
-                << std::endl;
+      GOPHER_LOG_ERROR("Unknown exception in transport_socket_->closeSocket");
     }
   }
 
@@ -1137,7 +1146,10 @@ void ConnectionImpl::doConnect() {
     // Notify transport socket (must be before raising event)
     onConnected();
 
-    raiseConnectionEvent(ConnectionEvent::Connected);
+    // Only raise Connected if transport doesn't defer it
+    if (!transport_socket_->defersConnectedEvent()) {
+      raiseConnectionEvent(ConnectionEvent::Connected);
+    }
     // CRITICAL FIX: Only enable Read events initially.
     // Write events should only be enabled when there's data to send.
     // Enabling both causes busy loop on macOS/kqueue.
@@ -1177,7 +1189,10 @@ void ConnectionImpl::doConnect() {
                   ConnectionStateMachineEvent::SocketConnected);
             }
             onConnected();
-            raiseConnectionEvent(ConnectionEvent::Connected);
+            // Only raise Connected if transport doesn't defer it
+            if (!transport_socket_->defersConnectedEvent()) {
+              raiseConnectionEvent(ConnectionEvent::Connected);
+            }
 
             // Enable read events for normal operation
             enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Read));
@@ -1424,8 +1439,9 @@ void ConnectionImpl::doWrite() {
       // Debug: Check if socket has pending data
       if (socket_) {
 #ifdef _WIN32
-        unsigned long bytes_available = 0;
-        if (ioctlsocket(socket_->ioHandle().fd(), FIONREAD, &bytes_available) == 0) {
+        u_long bytes_available = 0;
+        if (ioctlsocket(socket_->ioHandle().fd(), FIONREAD, &bytes_available) ==
+            0) {
 #else
         int bytes_available = 0;
         if (ioctl(socket_->ioHandle().fd(), FIONREAD, &bytes_available) == 0) {

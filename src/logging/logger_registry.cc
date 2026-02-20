@@ -16,11 +16,10 @@ LoggerRegistry::LoggerRegistry() : global_level_(LogLevel::Info) {
 }
 
 void LoggerRegistry::initializeDefaults() {
-  // Create default logger without sink initially to avoid initialization issues
+  // Create default logger with stderr sink
   default_logger_ = std::make_shared<Logger>("default", LogMode::Sync);
-  // Don't create sink during static initialization to avoid potential deadlock
-  // default_sink_ = std::make_shared<StdioSink>(StdioSink::Stderr);
-  // default_logger_->setSink(default_sink_);
+  default_sink_ = std::make_shared<StdioSink>(StdioSink::Stderr);
+  default_logger_->setSink(default_sink_);
   default_logger_->setLevel(global_level_);
 
   // Initialize bloom filter
@@ -52,10 +51,10 @@ std::shared_ptr<Logger> LoggerRegistry::getOrCreateLogger(
   LogLevel effective_level = getEffectiveLevelLocked(name);
   logger->setLevel(effective_level);
 
-  // Don't try to use default sink to avoid potential issues
-  // if (default_logger_ && default_sink_) {
-  //   logger->setSink(default_sink_);
-  // }
+  // Use default sink for all loggers
+  if (default_sink_) {
+    logger->setSink(default_sink_);
+  }
 
   // Set bloom filter hint
   bloom_filter_.add(name);
@@ -145,7 +144,9 @@ void LoggerRegistry::registerComponentLogger(Component component,
 bool LoggerRegistry::shouldLog(const std::string& name, LogLevel level) {
   // Fast path with bloom filter
   if (!bloom_filter_.mayContain(name)) {
-    return false;
+    // Logger doesn't exist yet, fall back to global level check
+    // This allows new component loggers to work without pre-registration
+    return level >= global_level_;
   }
 
   std::lock_guard<std::mutex> lock(mutex_);

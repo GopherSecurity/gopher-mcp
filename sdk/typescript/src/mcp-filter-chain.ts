@@ -289,10 +289,9 @@ function canonicalToAssemblerConfig(config: CanonicalConfig): FilterChainConfig 
  * Check if configuration is in canonical format
  */
 function isCanonicalConfig(config: any): config is CanonicalConfig {
-  return config &&
-         typeof config === 'object' &&
-         'listeners' in config &&
-         Array.isArray(config.listeners);
+  return (
+    config && typeof config === "object" && "listeners" in config && Array.isArray(config.listeners)
+  );
 }
 
 function createJsonHandleFromConfig(config: FilterChainConfig): JsonHandle {
@@ -355,7 +354,8 @@ export function assembleFilterChain(dispatcher: any, config: FilterChainConfig):
     let errorMessage: string | undefined;
 
     if (!success) {
-      errorMessage = status !== MCP_OK ? `Assembly failed with code: ${status}` : "Assembler reported failure";
+      errorMessage =
+        status !== MCP_OK ? `Assembly failed with code: ${status}` : "Assembler reported failure";
     }
 
     const assemblyResult: AssemblyResult = {
@@ -390,7 +390,7 @@ export function canonicalConfigToNormalizedJson(config: CanonicalConfig): string
 }
 
 export function createFilterChainFromConfig(
-  dispatcher: any,  // mcp_dispatcher_t (pointer type)
+  dispatcher: any, // mcp_dispatcher_t (pointer type)
   config: CanonicalConfig
 ): number {
   if (!isCanonicalConfig(config)) {
@@ -402,7 +402,7 @@ export function createFilterChainFromConfig(
   try {
     const rawHandle = mcpFilterLib.mcp_chain_create_from_json(dispatcher, jsonHandle);
     // Convert koffi pointer/uint64_t to number
-    const handle = typeof rawHandle === 'number' ? rawHandle : Number(rawHandle);
+    const handle = typeof rawHandle === "number" ? rawHandle : Number(rawHandle);
     if (!handle) {
       throw new Error("Failed to create filter chain from configuration");
     }
@@ -411,7 +411,6 @@ export function createFilterChainFromConfig(
     mcpFilterLib.mcp_json_free(jsonHandle);
   }
 }
-
 
 // ============================================================================
 // Chain Management
@@ -650,7 +649,7 @@ export function validateChain(chain: number, errors: any): number {
  * Create a simple sequential chain using canonical configuration
  */
 export function createSimpleChain(
-  dispatcher: any,  // mcp_dispatcher_t (pointer type)
+  dispatcher: any, // mcp_dispatcher_t (pointer type)
   filterTypes: string[],
   name: string = "simple-chain",
   port: number = 8080
@@ -686,7 +685,7 @@ export function createSimpleChain(
  * Note: Parallel execution is handled by the filter chain implementation
  */
 export function createParallelChain(
-  dispatcher: any,  // mcp_dispatcher_t (pointer type)
+  dispatcher: any, // mcp_dispatcher_t (pointer type)
   filterTypes: string[],
   maxParallel: number = 4,
   name: string = "parallel-chain",
@@ -728,7 +727,7 @@ export function createParallelChain(
  * Note: Conditional routing would be implemented via filter configuration
  */
 export function createConditionalChain(
-  dispatcher: any,  // mcp_dispatcher_t (pointer type)
+  dispatcher: any, // mcp_dispatcher_t (pointer type)
   filterConfigs: Array<{ type: string; condition?: any }>,
   name: string = "conditional-chain",
   port: number = 8080

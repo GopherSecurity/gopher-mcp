@@ -140,11 +140,19 @@ target_include_directories(gopher_mcp_c
         ${CMAKE_BINARY_DIR}/_deps/fmt-src/include
 )
 
-# Link with shared libraries 
+# Link with shared libraries
 # The shared library already contains all needed dependencies
-# When gopher-mcp is built as static only, link to static version
-if(TARGET gopher-mcp AND NOT TARGET gopher-mcp-shared)
-    # gopher-mcp exists but no shared version - it's an alias to static
+# Prefer shared libraries when available, fall back to static
+if(BUILD_SHARED_LIBS AND TARGET gopher-mcp)
+    # Shared libraries are being built - use them
+    target_link_libraries(gopher_mcp_c
+        PRIVATE
+            gopher-mcp
+            gopher-mcp-event
+            gopher-mcp-logging
+    )
+elseif(TARGET gopher-mcp-static)
+    # Only static libraries available
     target_link_libraries(gopher_mcp_c
         PRIVATE
             gopher-mcp-static
@@ -152,13 +160,7 @@ if(TARGET gopher-mcp AND NOT TARGET gopher-mcp-shared)
             gopher-mcp-logging-static
     )
 else()
-    # Normal case - shared libraries exist
-    target_link_libraries(gopher_mcp_c
-        PRIVATE
-            gopher-mcp
-            gopher-mcp-event
-            gopher-mcp-logging
-    )
+    message(FATAL_ERROR "No gopher-mcp library target found")
 endif()
 
 # Add nghttp2 linking if needed

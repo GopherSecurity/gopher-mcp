@@ -910,7 +910,7 @@ class ApplicationBase {
 
   ApplicationBase(const Config& config)
       : config_(config), shutdown_requested_(false), workers_started_(false) {
-    GOPHER_LOG_INFO("Initializing application: {}", config_.name);
+    GOPHER_LOG_DEBUG("Initializing application: {}", config_.name);
   }
 
   virtual ~ApplicationBase() { shutdown(); }
@@ -930,11 +930,11 @@ class ApplicationBase {
       main_dispatcher_owned_ =
           std::make_unique<event::LibeventDispatcher>("main");
       main_dispatcher_ = main_dispatcher_owned_.get();
-      GOPHER_LOG_INFO("Created main dispatcher");
+      GOPHER_LOG_DEBUG("Created main dispatcher");
     }
 
-    GOPHER_LOG_INFO("Initializing application with {} workers",
-                    config_.worker_threads);
+    GOPHER_LOG_DEBUG("Initializing application with {} workers",
+                     config_.worker_threads);
 
     // Create worker threads
     for (size_t i = 0; i < config_.worker_threads; ++i) {
@@ -964,7 +964,7 @@ class ApplicationBase {
       return true;
     }
 
-    GOPHER_LOG_INFO("Starting application workers");
+    GOPHER_LOG_DEBUG("Starting application workers");
 
     // Start worker threads
     for (size_t i = 0; i < workers_.size(); ++i) {
@@ -993,7 +993,7 @@ class ApplicationBase {
    * Run the main event loop
    */
   virtual void run() {
-    GOPHER_LOG_INFO("Running main event loop");
+    GOPHER_LOG_DEBUG("Running main event loop");
 
     // Main dispatcher should already be created in initialize()
     if (!main_dispatcher_) {
@@ -1020,7 +1020,7 @@ class ApplicationBase {
       return;
     }
 
-    GOPHER_LOG_INFO("Shutting down application");
+    GOPHER_LOG_DEBUG("Shutting down application");
     shutdown_requested_ = true;
     running_ = false;      // Legacy API compatibility
     initialized_ = false;  // Legacy API compatibility
@@ -1058,7 +1058,7 @@ class ApplicationBase {
       main_dispatcher_owned_.reset();
     }
 
-    GOPHER_LOG_INFO("Application shutdown complete");
+    GOPHER_LOG_DEBUG("Application shutdown complete");
   }
 
   /**
@@ -1202,7 +1202,7 @@ class ApplicationBase {
 
    private:
     void run() {
-      GOPHER_LOG_INFO("Worker {} starting", name_);
+      GOPHER_LOG_DEBUG("Worker {} starting", name_);
 
       // Create dispatcher for this thread
       dispatcher_ = std::make_unique<event::LibeventDispatcher>(name_);
@@ -1213,7 +1213,7 @@ class ApplicationBase {
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
       }
 
-      GOPHER_LOG_INFO("Worker {} stopped", name_);
+      GOPHER_LOG_DEBUG("Worker {} stopped", name_);
     }
 
     std::string name_;

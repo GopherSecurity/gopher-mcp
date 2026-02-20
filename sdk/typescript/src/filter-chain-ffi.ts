@@ -7,18 +7,22 @@
  * SDK handles protocol, and this layer injects Gopher-MCP filters.
  */
 
-import * as koffi from 'koffi';
-import { mcpFilterLib } from './mcp-ffi-bindings';
-import { canonicalConfigToNormalizedJson } from './mcp-filter-chain';
+import * as koffi from "koffi";
+import { mcpFilterLib } from "./mcp-ffi-bindings";
+import { canonicalConfigToNormalizedJson } from "./mcp-filter-chain";
 import type {
   CanonicalConfig,
   FilterMetrics,
   ChainStats,
   FilterDecision,
   FilterResult,
-} from './filter-types';
-import type { FilterEventHandler } from './filter-events';
-import { FilterEventCallbackHandle, registerFilterEventCallback, unregisterFilterEventCallback } from './filter-event-callbacks';
+} from "./filter-types";
+import type { FilterEventHandler } from "./filter-events";
+import {
+  FilterEventCallbackHandle,
+  registerFilterEventCallback,
+  unregisterFilterEventCallback,
+} from "./filter-event-callbacks";
 
 const MCP_OK = 0;
 
@@ -46,49 +50,46 @@ type CallbackEntry = {
 /**
  * C struct definition for mcp_error_t
  */
-const ErrorStruct = koffi.struct('mcp_error_t', {
-  code: 'int32_t',
-  message: 'char*',
+const ErrorStruct = koffi.struct("mcp_error_t", {
+  code: "int32_t",
+  message: "char*",
 });
 
 /**
  * C struct definition for mcp_filter_result_t
  */
-const FilterResultStruct = koffi.struct('mcp_filter_result_t', {
-  decision: 'int32_t',
-  transformed_message: 'char*',
-  reason: 'char*',
-  delay_ms: 'uint32_t',
-  metadata: 'void*',
+const FilterResultStruct = koffi.struct("mcp_filter_result_t", {
+  decision: "int32_t",
+  transformed_message: "char*",
+  reason: "char*",
+  delay_ms: "uint32_t",
+  metadata: "void*",
 });
 
 /**
  * Decode chain statistics from C struct
  */
-function decodeChainStats(
-  statsPtr: any,
-  structType: any
-): ChainStats {
+function decodeChainStats(statsPtr: any, structType: any): ChainStats {
   const decoded = koffi.decode(statsPtr, structType) as Record<string, any>;
 
   const asNumber = (value: unknown) => {
-    if (typeof value === 'bigint') {
+    if (typeof value === "bigint") {
       return Number(value);
     }
-    if (typeof value === 'number') {
+    if (typeof value === "number") {
       return value;
     }
     return Number(value ?? 0);
   };
 
   return {
-    total_processed: asNumber(decoded['total_processed']),
-    total_errors: asNumber(decoded['total_errors']),
-    total_bypassed: asNumber(decoded['total_bypassed']),
-    avg_latency_ms: asNumber(decoded['avg_latency_ms']),
-    max_latency_ms: asNumber(decoded['max_latency_ms']),
-    throughput_mbps: asNumber(decoded['throughput_mbps']),
-    active_filters: asNumber(decoded['active_filters']),
+    total_processed: asNumber(decoded["total_processed"]),
+    total_errors: asNumber(decoded["total_errors"]),
+    total_bypassed: asNumber(decoded["total_bypassed"]),
+    avg_latency_ms: asNumber(decoded["avg_latency_ms"]),
+    max_latency_ms: asNumber(decoded["max_latency_ms"]),
+    throughput_mbps: asNumber(decoded["throughput_mbps"]),
+    active_filters: asNumber(decoded["active_filters"]),
   };
 }
 
@@ -169,7 +170,7 @@ export class FilterChain {
 
   // Async queue support
   private callbackRegistry = new Map<bigint, CallbackEntry>();
-  private nextCallbackId = BigInt(1);  // Start at 1 to avoid NULL (0x0) pointer issues
+  private nextCallbackId = BigInt(1); // Start at 1 to avoid NULL (0x0) pointer issues
   private nativeCallbackPtr: koffi.IKoffiRegisteredCallback | null = null;
 
   // Callback for async chain creation
@@ -190,12 +191,12 @@ export class FilterChain {
    */
   constructor(dispatcher: any, config: CanonicalConfig) {
     if (!dispatcher) {
-      throw new Error('Invalid dispatcher handle');
+      throw new Error("Invalid dispatcher handle");
     }
 
     this.dispatcherHandle = dispatcher;
     this.config = config;
-    this.handle = 0;  // Not created yet - deferred to initialize()
+    this.handle = 0; // Not created yet - deferred to initialize()
 
     // Set up async callback handler for message processing
     this.setupAsyncCallbackHandler();
@@ -206,7 +207,7 @@ export class FilterChain {
    */
   getHandle(): number {
     if (this.destroyed) {
-      throw new Error('FilterChain has been destroyed');
+      throw new Error("FilterChain has been destroyed");
     }
     return this.handle;
   }
@@ -225,19 +226,19 @@ export class FilterChain {
    */
   async getChainStats(): Promise<ChainStats> {
     if (this.destroyed) {
-      throw new Error('FilterChain has been destroyed');
+      throw new Error("FilterChain has been destroyed");
     }
 
     // Allocate space for mcp_chain_stats_t struct
     const uniqueId = Math.random().toString(36).substring(2, 15);
     const ChainStatsStruct = koffi.struct(`mcp_chain_stats_t_${uniqueId}`, {
-      total_processed: 'uint64',
-      total_errors: 'uint64',
-      total_bypassed: 'uint64',
-      avg_latency_ms: 'double',
-      max_latency_ms: 'double',
-      throughput_mbps: 'double',
-      active_filters: 'uint32',
+      total_processed: "uint64",
+      total_errors: "uint64",
+      total_bypassed: "uint64",
+      avg_latency_ms: "double",
+      max_latency_ms: "double",
+      throughput_mbps: "double",
+      active_filters: "uint32",
     });
 
     const statsPtr = koffi.alloc(ChainStatsStruct, 1);
@@ -245,7 +246,7 @@ export class FilterChain {
     try {
       const rc = mcpFilterLib.mcp_chain_get_stats(
         this.handle,
-        koffi.as(statsPtr, 'void*')
+        koffi.as(statsPtr, "void*")
       ) as number;
 
       if (rc !== MCP_OK) {
@@ -269,7 +270,7 @@ export class FilterChain {
    */
   async getMetrics(_filterName?: string): Promise<FilterMetrics> {
     if (this.destroyed) {
-      throw new Error('FilterChain has been destroyed');
+      throw new Error("FilterChain has been destroyed");
     }
 
     // For now, get chain stats as a proxy for metrics
@@ -277,12 +278,12 @@ export class FilterChain {
     const stats = await this.getChainStats();
 
     const metrics: FilterMetrics = {
-      'chain': {
+      chain: {
         requests_total: stats.total_processed,
         requests_denied: stats.total_errors,
         avg_latency_ms: stats.avg_latency_ms,
         p99_latency_ms: stats.max_latency_ms,
-      }
+      },
     };
 
     return metrics;
@@ -295,20 +296,20 @@ export class FilterChain {
    */
   async exportConfig(): Promise<CanonicalConfig> {
     if (this.destroyed) {
-      throw new Error('FilterChain has been destroyed');
+      throw new Error("FilterChain has been destroyed");
     }
 
     const jsonHandle = mcpFilterLib.mcp_chain_export_to_json(this.handle);
 
     if (!jsonHandle) {
-      throw new Error('Failed to export chain configuration');
+      throw new Error("Failed to export chain configuration");
     }
 
     const jsonStr = mcpFilterLib.mcp_json_stringify(jsonHandle);
     mcpFilterLib.mcp_json_free(jsonHandle);
 
     if (!jsonStr) {
-      throw new Error('Failed to stringify chain configuration');
+      throw new Error("Failed to stringify chain configuration");
     }
 
     try {
@@ -326,13 +327,13 @@ export class FilterChain {
    */
   async enableFilter(name: string): Promise<string[]> {
     if (this.destroyed) {
-      throw new Error('FilterChain has been destroyed');
+      throw new Error("FilterChain has been destroyed");
     }
 
     const rc = mcpFilterLib.mcp_chain_set_filter_enabled(
       this.handle,
       name,
-      1  // true
+      1 // true
     ) as number;
 
     if (rc !== MCP_OK) {
@@ -351,13 +352,13 @@ export class FilterChain {
    */
   async disableFilter(name: string): Promise<string[]> {
     if (this.destroyed) {
-      throw new Error('FilterChain has been destroyed');
+      throw new Error("FilterChain has been destroyed");
     }
 
     const rc = mcpFilterLib.mcp_chain_set_filter_enabled(
       this.handle,
       name,
-      0  // false
+      0 // false
     ) as number;
 
     if (rc !== MCP_OK) {
@@ -378,13 +379,13 @@ export class FilterChain {
    */
   async reconfigure(_config: CanonicalConfig): Promise<string[]> {
     if (this.destroyed) {
-      throw new Error('FilterChain has been destroyed');
+      throw new Error("FilterChain has been destroyed");
     }
 
     // For now, this is not fully implemented as mcp_chain_merge
     // requires two chain handles. A full implementation would require
     // creating a new chain and merging, or a dedicated reconfigure API.
-    throw new Error('Reconfigure not yet implemented - use disable/enable filters instead');
+    throw new Error("Reconfigure not yet implemented - use disable/enable filters instead");
   }
 
   /**
@@ -399,12 +400,12 @@ export class FilterChain {
     _filter: { name: string; type: string; config?: any }
   ): Promise<string[]> {
     if (this.destroyed) {
-      throw new Error('FilterChain has been destroyed');
+      throw new Error("FilterChain has been destroyed");
     }
 
     // This would require exporting config, modifying it, and re-creating the chain
     // For now, not implemented as it requires more complex chain rebuilding
-    throw new Error('addFilter not yet implemented - create a new FilterChain instead');
+    throw new Error("addFilter not yet implemented - create a new FilterChain instead");
   }
 
   /**
@@ -427,7 +428,9 @@ export class FilterChain {
    * }
    * ```
    */
-  static async validateConfig(config: CanonicalConfig): Promise<{ valid: boolean; errors: string[]; warnings: string[] }> {
+  static async validateConfig(
+    config: CanonicalConfig
+  ): Promise<{ valid: boolean; errors: string[]; warnings: string[] }> {
     // Convert config to JSON
     const configJson = JSON.stringify(config);
     const jsonHandle = mcpFilterLib.mcp_json_parse(configJson);
@@ -435,14 +438,14 @@ export class FilterChain {
     if (!jsonHandle) {
       return {
         valid: false,
-        errors: ['Failed to parse configuration JSON'],
-        warnings: []
+        errors: ["Failed to parse configuration JSON"],
+        warnings: [],
       };
     }
 
     try {
       // Allocate validation result structure
-      const resultPtr = koffi.alloc('void*', 1);
+      const resultPtr = koffi.alloc("void*", 1);
 
       const rc = mcpFilterLib.mcp_chain_validate_json(jsonHandle, resultPtr);
 
@@ -450,7 +453,7 @@ export class FilterChain {
         return {
           valid: false,
           errors: [`Validation failed with error code ${rc}`],
-          warnings: []
+          warnings: [],
         };
       }
 
@@ -459,7 +462,7 @@ export class FilterChain {
       return {
         valid: true,
         errors: [],
-        warnings: []
+        warnings: [],
       };
     } finally {
       mcpFilterLib.mcp_json_free(jsonHandle);
@@ -487,20 +490,16 @@ export class FilterChain {
    */
   async mergeWith(otherChain: FilterChain, mode: number = 0): Promise<FilterChain> {
     if (this.destroyed) {
-      throw new Error('FilterChain has been destroyed');
+      throw new Error("FilterChain has been destroyed");
     }
     if (otherChain.destroyed) {
-      throw new Error('Other FilterChain has been destroyed');
+      throw new Error("Other FilterChain has been destroyed");
     }
 
-    const mergedHandle = mcpFilterLib.mcp_chain_merge(
-      this.handle,
-      otherChain.handle,
-      mode
-    );
+    const mergedHandle = mcpFilterLib.mcp_chain_merge(this.handle, otherChain.handle, mode);
 
     if (!mergedHandle || mergedHandle === 0) {
-      throw new Error('Failed to merge filter chains');
+      throw new Error("Failed to merge filter chains");
     }
 
     // Create a new FilterChain instance wrapping the merged handle
@@ -527,7 +526,7 @@ export class FilterChain {
    */
   async initialize(): Promise<void> {
     if (this.destroyed) {
-      throw new Error('FilterChain has been destroyed');
+      throw new Error("FilterChain has been destroyed");
     }
 
     if (this.initialized) {
@@ -565,14 +564,14 @@ export class FilterChain {
         jsonHandle = mcpFilterLib.mcp_json_parse(normalizedJson);
 
         if (!jsonHandle) {
-          reject(new Error('Failed to parse config JSON'));
+          reject(new Error("Failed to parse config JSON"));
           return;
         }
 
         // Register callback for async chain creation
         // Signature: void callback(uint64_t chain_handle, int32_t error_code, const char* error_msg, void* user_data)
         const ChainCreationCallbackType = koffi.pointer(
-          koffi.proto('void(uint64_t, int32_t, string, void*)')
+          koffi.proto("void(uint64_t, int32_t, string, void*)")
         );
 
         this.creationCallback = koffi.register(
@@ -587,8 +586,10 @@ export class FilterChain {
 
               // Check for errors
               if (errorCode !== 0 || !chainHandle || chainHandle === 0) {
-                const message = errorMsg || 'Failed to create filter chain from configuration';
-                console.error(`[createChainAsync] Chain creation FAILED - errorCode=${errorCode}, message="${message}"`);
+                const message = errorMsg || "Failed to create filter chain from configuration";
+                console.error(
+                  `[createChainAsync] Chain creation FAILED - errorCode=${errorCode}, message="${message}"`
+                );
                 reject(new Error(`Chain creation failed (${errorCode}): ${message}`));
                 return;
               }
@@ -608,7 +609,6 @@ export class FilterChain {
 
               this.initialized = true;
               resolve();
-
             } catch (err) {
               reject(err instanceof Error ? err : new Error(String(err)));
             } finally {
@@ -623,15 +623,12 @@ export class FilterChain {
         );
 
         // Call async chain creation (posts to dispatcher thread)
-            mcpFilterLib.mcp_chain_create_from_json_async(
-                this.dispatcherHandle,
-                jsonHandle,
-                this.creationCallback
-                  ? koffi.as(this.creationCallback, 'void*')
-                  : null,
-                null  // user_data
-            );
-
+        mcpFilterLib.mcp_chain_create_from_json_async(
+          this.dispatcherHandle,
+          jsonHandle,
+          this.creationCallback ? koffi.as(this.creationCallback, "void*") : null,
+          null // user_data
+        );
       } catch (error) {
         // Synchronous error before async call
         if (jsonHandle) {
@@ -663,11 +660,11 @@ export class FilterChain {
     }
 
     // Clean up pending callbacks
-    this.callbackRegistry.forEach((entry) => {
+    this.callbackRegistry.forEach(entry => {
       if (entry.timeoutId) {
         clearTimeout(entry.timeoutId);
       }
-      entry.reject(new Error('Filter chain shutdown'));
+      entry.reject(new Error("Filter chain shutdown"));
     });
     this.callbackRegistry.clear();
 
@@ -686,7 +683,7 @@ export class FilterChain {
    */
   private async ensureInitialized(): Promise<void> {
     if (this.destroyed) {
-      throw new Error('FilterChain has been destroyed');
+      throw new Error("FilterChain has been destroyed");
     }
 
     if (this.initialized) {
@@ -706,12 +703,13 @@ export class FilterChain {
     }
 
     const CallbackType = koffi.pointer(
-      koffi.proto('void(void *user_data, void *result, void *error)')
+      koffi.proto("void(void *user_data, void *result, void *error)")
     );
 
     this.nativeCallbackPtr = koffi.register(
-      (userData: any, resultPtr: any, errorPtr: any) => this.handleAsyncCallback(userData as Buffer, resultPtr, errorPtr),
-      CallbackType,
+      (userData: any, resultPtr: any, errorPtr: any) =>
+        this.handleAsyncCallback(userData as Buffer, resultPtr, errorPtr),
+      CallbackType
     );
   }
 
@@ -784,13 +782,15 @@ export class FilterChain {
       if (errorPtr !== null && errorPtr !== undefined) {
         // console.log("❌ [TS-handleAsyncCallback] Error pointer is set, rejecting");
         const { code, message } = koffi.decode(errorPtr, ErrorStruct);
-        entry.reject(new Error(message ? `Filter error (${code}): ${message}` : `Filter error (${code})`));
+        entry.reject(
+          new Error(message ? `Filter error (${code}): ${message}` : `Filter error (${code})`)
+        );
         return;
       }
 
       if (resultPtr === null || resultPtr === undefined) {
         // console.log("❌ [TS-handleAsyncCallback] Result pointer is null, rejecting");
-        entry.reject(new Error('Filter callback returned no result or error'));
+        entry.reject(new Error("Filter callback returned no result or error"));
         return;
       }
 
@@ -821,16 +821,18 @@ export class FilterChain {
   /**
    * Submit an async message for processing
    */
-  private submitAsyncMessage(direction: 'incoming' | 'outgoing', message: unknown): Promise<FilterResult> {
-    const fnName = direction === 'incoming'
-      ? 'mcp_chain_submit_incoming'
-      : 'mcp_chain_submit_outgoing';
+  private submitAsyncMessage(
+    direction: "incoming" | "outgoing",
+    message: unknown
+  ): Promise<FilterResult> {
+    const fnName =
+      direction === "incoming" ? "mcp_chain_submit_incoming" : "mcp_chain_submit_outgoing";
 
     return new Promise((resolve, reject) => {
       const callbackId = this.nextCallbackId++;
       const userDataBuffer = Buffer.alloc(8);
       userDataBuffer.writeBigUInt64LE(callbackId);
-      const userDataPtr = koffi.as(userDataBuffer, 'void*');
+      const userDataPtr = koffi.as(userDataBuffer, "void*");
 
       // console.log("📤 [submitAsyncMessage] ENTRY");
       // console.log("   Direction:", direction);
@@ -850,7 +852,7 @@ export class FilterChain {
 
       // Allocate space for mcp_error_t* (pointer to opaque error handle)
       // This is an OUTPUT parameter where C side can store an error object
-      const errorPtrPtr = koffi.alloc('void*', 1);
+      const errorPtrPtr = koffi.alloc("void*", 1);
 
       try {
         // console.log("   Calling C API function:", fnName);
@@ -859,11 +861,9 @@ export class FilterChain {
         const status = mcpFilterLib[fnName](
           this.handle,
           JSON.stringify(message),
-          userDataPtr,  // Cast Buffer to void* so C reads callback ID
-          this.nativeCallbackPtr
-            ? koffi.as(this.nativeCallbackPtr, 'void*')
-            : null,
-          errorPtrPtr,
+          userDataPtr, // Cast Buffer to void* so C reads callback ID
+          this.nativeCallbackPtr ? koffi.as(this.nativeCallbackPtr, "void*") : null,
+          errorPtrPtr
         );
 
         // console.log("   C API returned status:", status);
@@ -873,7 +873,7 @@ export class FilterChain {
 
           // Check if C side populated the error pointer
           // Read the pointer value from the allocated memory
-          const errorPtrArray = koffi.decode(errorPtrPtr, 'void*');
+          const errorPtrArray = koffi.decode(errorPtrPtr, "void*");
           const errorPtr = errorPtrArray;
           let errorMsg = `Submit failed with status ${status}`;
 
@@ -903,7 +903,7 @@ export class FilterChain {
       if (entry) {
         entry.timeoutId = setTimeout(() => {
           if (this.callbackRegistry.delete(callbackId)) {
-            reject(new Error('Filter request timed out after 30s'));
+            reject(new Error("Filter request timed out after 30s"));
           }
         }, 30_000);
       }
@@ -918,7 +918,7 @@ export class FilterChain {
    */
   async processIncoming(message: unknown): Promise<FilterResult> {
     await this.ensureInitialized();
-    return this.submitAsyncMessage('incoming', message);
+    return this.submitAsyncMessage("incoming", message);
   }
 
   /**
@@ -950,7 +950,7 @@ export class FilterChain {
    */
   setEventCallback(handler: FilterEventHandler): void {
     if (this.destroyed) {
-      throw new Error('FilterChain has been destroyed');
+      throw new Error("FilterChain has been destroyed");
     }
 
     // Unregister previous callback if any
@@ -958,7 +958,7 @@ export class FilterChain {
       try {
         unregisterFilterEventCallback(this.handle, this.eventCallbackHandle);
       } catch (error) {
-        console.error('Error unregistering previous event callback:', error);
+        console.error("Error unregistering previous event callback:", error);
       }
       this.eventCallbackHandle = null;
     }
@@ -983,7 +983,7 @@ export class FilterChain {
       try {
         unregisterFilterEventCallback(this.handle, this.eventCallbackHandle);
       } catch (error) {
-        console.error('Error unregistering event callback:', error);
+        console.error("Error unregistering event callback:", error);
       }
       this.eventCallbackHandle = null;
     }
@@ -997,7 +997,7 @@ export class FilterChain {
    */
   async processOutgoing(message: unknown): Promise<FilterResult> {
     await this.ensureInitialized();
-    return this.submitAsyncMessage('outgoing', message);
+    return this.submitAsyncMessage("outgoing", message);
   }
 
   /**
@@ -1023,16 +1023,16 @@ export class FilterChain {
         mcpFilterLib.mcp_filter_chain_shutdown(this.handle);
         this.initialized = false;
       } catch (error) {
-        console.error('Error shutting down filter chain:', error);
+        console.error("Error shutting down filter chain:", error);
       }
     }
 
     // Clean up any remaining pending callbacks
-    this.callbackRegistry.forEach((entry) => {
+    this.callbackRegistry.forEach(entry => {
       if (entry.timeoutId) {
         clearTimeout(entry.timeoutId);
       }
-      entry.reject(new Error('Filter chain destroyed'));
+      entry.reject(new Error("Filter chain destroyed"));
     });
     this.callbackRegistry.clear();
 

@@ -52,7 +52,7 @@ export class MessageQueue {
 
     this.queue.push({
       message,
-      timestamp: Date.now()
+      timestamp: Date.now(),
     });
   }
 

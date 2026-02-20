@@ -16,7 +16,9 @@
 #include <sstream>
 #include <string_view>
 
+#if MCP_HAS_LLHTTP
 #include "mcp/http/llhttp_parser.h"
+#endif
 #include "mcp/logging/log_macros.h"
 #include "mcp/network/connection.h"
 
@@ -81,16 +83,24 @@ HttpCodecFilter::HttpCodecFilter(MessageCallbacks& callbacks,
     : message_callbacks_(&callbacks),
       dispatcher_(dispatcher),
       is_server_(is_server) {
+  GOPHER_LOG_DEBUG("HttpCodecFilter CONSTRUCTOR is_server={}", is_server_);
   // Initialize HTTP parser callbacks
   parser_callbacks_ = std::make_unique<ParserCallbacks>(*this);
 
   // Create HTTP/1.1 parser using llhttp
   // Parser type depends on mode: REQUEST for server, RESPONSE for client
+#if MCP_HAS_LLHTTP
   http::HttpParserType parser_type = is_server_
                                          ? http::HttpParserType::REQUEST
                                          : http::HttpParserType::RESPONSE;
   parser_ = std::make_unique<http::LLHttpParser>(
       parser_type, parser_callbacks_.get(), http::HttpVersion::HTTP_1_1);
+#else
+  // llhttp not available - parser will be null
+  // HTTP codec operations will fail at runtime
+  GOPHER_LOG_WARN(
+      "HttpCodecFilter created without llhttp support - HTTP parsing disabled");
+#endif
 
   // Initialize message encoder
   message_encoder_ = std::make_unique<MessageEncoderImpl>(*this);
@@ -131,11 +141,17 @@ HttpCodecFilter::HttpCodecFilter(const filter::FilterCreationContext& context,
   parser_callbacks_ = std::make_unique<ParserCallbacks>(*this);
 
   // Create HTTP/1.1 parser using llhttp
+#if MCP_HAS_LLHTTP
   http::HttpParserType parser_type = is_server_
                                          ? http::HttpParserType::REQUEST
                                          : http::HttpParserType::RESPONSE;
   parser_ = std::make_unique<http::LLHttpParser>(
       parser_type, parser_callbacks_.get(), http::HttpVersion::HTTP_1_1);
+#else
+  // llhttp not available - parser will be null
+  GOPHER_LOG_WARN(
+      "HttpCodecFilter created without llhttp support - HTTP parsing disabled");
+#endif
 
   // Initialize message encoder
   message_encoder_ = std::make_unique<MessageEncoderImpl>(*this);
@@ -211,7 +227,8 @@ network::FilterStatus HttpCodecFilter::onWrite(Buffer& data, bool end_stream) {
       data.length(), is_server_);
 
   // Following production pattern: format HTTP message in-place
-  if (data.length() == 0) {
+  // Don't early return for empty data in client mode - SSE GET has no body
+  if (data.length() == 0 && (is_server_ || !use_sse_get_ || sse_get_sent_)) {
     return network::FilterStatus::Continue;
   }
 
@@ -295,36 +312,87 @@ network::FilterStatus HttpCodecFilter::onWrite(Buffer& data, bool end_stream) {
       }
     }
   } else {
-    // Client mode: format as HTTP POST request
+    // Client mode: format as HTTP request (GET for SSE init, POST for messages)
     auto current_state = state_machine_->currentState();
 
-    GOPHER_LOG_DEBUG("HttpCodecFilter::onWrite client state={}, data_len={}",
-                     HttpCodecStateMachine::getStateName(current_state),
-                     data.length());
+    GOPHER_LOG_DEBUG(
+        "HttpCodecFilter::onWrite client state={}, data_len={}, "
+        "use_sse_get={}, sse_get_sent={}",
+        HttpCodecStateMachine::getStateName(current_state), data.length(),
+        use_sse_get_, sse_get_sent_);
 
     // Check if we can send a request
     // Client can send when idle or while waiting for response (HTTP pipelining)
     // HTTP/1.1 allows multiple requests to be sent before receiving responses
+    // Also allow sending while receiving SSE response body - SSE is a
+    // continuous stream and we need to be able to POST to message endpoint on
+    // same connection
     if (current_state == HttpCodecState::Idle ||
-        current_state == HttpCodecState::WaitingForResponse) {
-      // Save the original request body (JSON-RPC)
+        current_state == HttpCodecState::WaitingForResponse ||
+        current_state == HttpCodecState::ReceivingResponseBody) {
+      // Check if this is an SSE GET initialization request
+      // SSE GET is triggered by empty data with use_sse_get_ flag
+      bool is_sse_get = use_sse_get_ && !sse_get_sent_ && data.length() == 0;
+      GOPHER_LOG_DEBUG("HttpCodecFilter is_sse_get={}", is_sse_get);
+
+      // Save the original request body (JSON-RPC) if any
       size_t body_length = data.length();
-      std::string body_data(
-          static_cast<const char*>(data.linearize(body_length)), body_length);
+      std::string body_data;
+      if (body_length > 0) {
+        body_data = std::string(
+            static_cast<const char*>(data.linearize(body_length)), body_length);
+        // Clear the buffer to build formatted HTTP request
+        data.drain(body_length);
+      }
 
-      // Clear the buffer to build formatted HTTP request
-      data.drain(body_length);
-
-      // Build HTTP POST request
+      // Build HTTP request
       std::ostringstream request;
-      request << "POST /rpc HTTP/1.1\r\n";
-      request << "Host: localhost\r\n";
-      request << "Content-Type: application/json\r\n";
-      request << "Content-Length: " << body_length << "\r\n";
-      request << "Accept: text/event-stream\r\n";  // Support SSE responses
-      request << "Connection: keep-alive\r\n";
-      request << "\r\n";
-      request << body_data;
+
+      if (is_sse_get) {
+        // SSE initialization: GET request with no body
+        request << "GET " << client_path_ << " HTTP/1.1\r\n";
+        request << "Host: " << client_host_ << "\r\n";
+        request << "Accept: text/event-stream\r\n";
+        request << "Cache-Control: no-cache\r\n";
+        request << "Connection: keep-alive\r\n";
+        request << "User-Agent: gopher-mcp/1.0\r\n";
+        request << "\r\n";
+
+        sse_get_sent_ = true;
+        GOPHER_LOG_DEBUG("HttpCodecFilter sending SSE GET request to {}",
+                         client_path_);
+      } else {
+        // Regular POST request with JSON-RPC body
+        // Use message_endpoint_ if available (from SSE endpoint event)
+        std::string post_path = client_path_;
+        if (has_message_endpoint_) {
+          // Extract path from full URL (message_endpoint_ is a full URL)
+          // Find the path after the host (after :// and the first /)
+          size_t proto_pos = message_endpoint_.find("://");
+          if (proto_pos != std::string::npos) {
+            size_t path_pos = message_endpoint_.find('/', proto_pos + 3);
+            if (path_pos != std::string::npos) {
+              post_path = message_endpoint_.substr(path_pos);
+            }
+          } else {
+            // No protocol, assume it's already a path
+            post_path = message_endpoint_;
+          }
+        }
+        GOPHER_LOG_DEBUG("HttpCodecFilter POST path: {}", post_path);
+
+        request << "POST " << post_path << " HTTP/1.1\r\n";
+        request << "Host: " << client_host_ << "\r\n";
+        request << "Content-Type: application/json\r\n";
+        request << "Content-Length: " << body_length << "\r\n";
+        // MCP servers may require both Accept types
+        // Always include both to maximize compatibility
+        request << "Accept: application/json, text/event-stream\r\n";
+        request << "Connection: keep-alive\r\n";
+        request << "User-Agent: gopher-mcp/1.0\r\n";
+        request << "\r\n";
+        request << body_data;
+      }
 
       // Add formatted request to buffer
       std::string request_str = request.str();
@@ -572,6 +640,17 @@ HttpCodecFilter::ParserCallbacks::onHeadersComplete() {
 http::ParserCallbackResult HttpCodecFilter::ParserCallbacks::onBody(
     const char* data, size_t length) {
   GOPHER_LOG_DEBUG("ParserCallbacks::onBody - received {} bytes", length);
+
+  // For client mode (receiving responses), forward body data immediately
+  // This is critical for SSE streams which never complete
+  if (!parent_.is_server_ && parent_.message_callbacks_) {
+    std::string body_chunk(data, length);
+    GOPHER_LOG_DEBUG(
+        "HttpCodecFilter forwarding body chunk: {}...",
+        body_chunk.substr(0, std::min(body_chunk.length(), (size_t)100)));
+    parent_.message_callbacks_->onBody(body_chunk, false);
+  }
+
   if (parent_.current_stream_) {
     parent_.current_stream_->body.append(data, length);
     GOPHER_LOG_DEBUG("ParserCallbacks::onBody - total body now {} bytes",

@@ -37,20 +37,20 @@ async function createHttpPipeline() {
           address: {
             socket_address: {
               address: "127.0.0.1",
-              port_value: 8080
-            }
+              port_value: 8080,
+            },
           },
           filter_chains: [
             {
               filters: [
                 { name: "auth", type: "auth" },
                 { name: "rate_limiter", type: "rate_limiter" },
-                { name: "access_log", type: "access_log" }
-              ]
-            }
-          ]
-        }
-      ]
+                { name: "access_log", type: "access_log" },
+              ],
+            },
+          ],
+        },
+      ],
     };
 
     const filterChain = new FilterChain(dispatcher, config);
@@ -77,20 +77,20 @@ async function createMonitoringPipeline() {
           address: {
             socket_address: {
               address: "127.0.0.1",
-              port_value: 9090
-            }
+              port_value: 9090,
+            },
           },
           filter_chains: [
             {
               filters: [
                 { name: "metrics", type: "metrics" },
                 { name: "tracing", type: "tracing" },
-                { name: "access_log", type: "access_log" }
-              ]
-            }
-          ]
-        }
-      ]
+                { name: "access_log", type: "access_log" },
+              ],
+            },
+          ],
+        },
+      ],
     };
 
     const dispatcher = createRealDispatcher();
@@ -144,8 +144,8 @@ async function demonstrateProtocolStack() {
           address: {
             socket_address: {
               address: "127.0.0.1",
-              port_value: 8443
-            }
+              port_value: 8443,
+            },
           },
           filter_chains: [
             {
@@ -153,12 +153,12 @@ async function demonstrateProtocolStack() {
                 { name: "tcp_proxy", type: "tcp_proxy" },
                 { name: "tls", type: "tls" },
                 { name: "http_codec", type: "http.codec" },
-                { name: "json_rpc", type: "json_rpc.dispatcher" }
-              ]
-            }
-          ]
-        }
-      ]
+                { name: "json_rpc", type: "json_rpc.dispatcher" },
+              ],
+            },
+          ],
+        },
+      ],
     };
 
     const dispatcher = createRealDispatcher();

@@ -21,6 +21,7 @@ typedef int socklen_t;
 #define _MODE_T_DEFINED
 typedef int mode_t;
 #endif
+// mode_t and other POSIX types are defined in mcp/core/compat.h
 #else
 #include <netinet/in.h>
 #include <sys/socket.h>

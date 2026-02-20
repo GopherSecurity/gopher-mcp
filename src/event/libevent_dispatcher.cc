@@ -74,22 +74,36 @@ uint32_t fromLibeventEvents(short events) {
   return result;
 }
 
-// Lazy initialization for libevent threading support
-// Uses std::call_once to ensure thread-safe one-time initialization
-// This avoids blocking in static initialization which was causing hangs
-void ensureLibeventThreadingInitialized() {
-  static std::once_flag init_flag;
-  std::call_once(init_flag, []() {
+// Early initialization for libevent threading support
+// CRITICAL: This must run BEFORE any other libevent functions or libraries
+// that might use libevent (like curl with libevent support).
+// evthread_use_pthreads() is safe to call multiple times - it returns 0 after
+// first call
+struct LibeventEarlyInit {
+  LibeventEarlyInit() {
 #ifdef _WIN32
     evthread_use_windows_threads();
 #else
     evthread_use_pthreads();
 #endif
-    // Enable debug mode in debug builds
-#ifndef NDEBUG
-    event_enable_debug_mode();
+    // NOTE: event_enable_debug_mode() is NOT called here because:
+    // 1. It can only be called once across the entire process
+    // 2. With shared libraries, this code may run from multiple TUs
+    // 3. Debug mode is only needed for debugging libevent internals
+  }
+};
+
+// Single static instance ensures initialization at program startup
+static LibeventEarlyInit s_libevent_early_init;
+
+// This function is kept for compatibility
+void ensureLibeventThreadingInitialized() {
+  // evthread functions are safe to call multiple times
+#ifdef _WIN32
+  evthread_use_windows_threads();
+#else
+  evthread_use_pthreads();
 #endif
-  });
 }
 
 }  // namespace
@@ -98,6 +112,10 @@ void ensureLibeventThreadingInitialized() {
 LibeventDispatcher::LibeventDispatcher(const std::string& name) : name_(name) {
   // Initialize libevent threading support on first use (lazy initialization)
   ensureLibeventThreadingInitialized();
+
+  // Initialize shared validity flag - timers use this to safely check if
+  // the dispatcher is still valid without accessing dispatcher members
+  dispatcher_valid_ = std::make_shared<std::atomic<bool>>(true);
 
   // Don't set thread_id_ here - it should only be set when run() is called
   initializeLibevent();
@@ -248,11 +266,14 @@ void LibeventDispatcher::registerWatchdog(
   watchdog_registration_->interval = min_touch_interval;
 
   // Create timer to touch watchdog periodically
-  watchdog_registration_->timer = std::make_unique<TimerImpl>(*this, [this]() {
-    touchWatchdog();
-    watchdog_registration_->timer->enableTimer(
-        watchdog_registration_->interval);
-  });
+  watchdog_registration_->timer = std::make_unique<TimerImpl>(
+      *this,
+      [this]() {
+        touchWatchdog();
+        watchdog_registration_->timer->enableTimer(
+            watchdog_registration_->interval);
+      },
+      dispatcher_valid_);
 
   // Start the timer
   watchdog_registration_->timer->enableTimer(min_touch_interval);
@@ -280,7 +301,7 @@ FileEventPtr LibeventDispatcher::createFileEvent(os_fd_t fd,
 
 TimerPtr LibeventDispatcher::createTimer(TimerCb cb) {
   assert(thread_id_ == std::thread::id() || isThreadSafe());
-  return std::make_unique<TimerImpl>(*this, std::move(cb));
+  return std::make_unique<TimerImpl>(*this, std::move(cb), dispatcher_valid_);
 }
 
 TimerPtr LibeventDispatcher::createScaledTimer(ScaledTimerType /*timer_type*/,
@@ -317,8 +338,9 @@ void LibeventDispatcher::exit() {
   exit_requested_ = true;
 
   if (!isThreadSafe()) {
-    // Wake up the event loop
-    post([]() {});  // Empty callback just to wake up
+    // Wake up the event loop and break it
+    // In Block mode, the loop won't exit until event_base_loopbreak is called
+    post([this]() { event_base_loopbreak(base_); });
   } else {
     event_base_loopbreak(base_);
   }
@@ -412,18 +434,37 @@ void LibeventDispatcher::initializeStats(DispatcherStats& stats) {
 }
 
 void LibeventDispatcher::shutdown() {
+  // IMPORTANT: Always clear callbacks even when called from another thread.
+  // When the dispatcher is being destroyed (e.g., after
+  // dispatcher_thread_.join()), isThreadSafe() returns false but we still need
+  // to clear pending callbacks BEFORE the event_base is freed. Otherwise, the
+  // callback destructors (e.g., FileEvent destructor calling event_del) will
+  // access freed memory.
+
+  // CRITICAL FIX: Set exit_requested_ to prevent callbacks (like touchWatchdog)
+  // from accessing resources that are about to be destroyed. This must be set
+  // before clearing any resources.
+  exit_requested_.store(true, std::memory_order_release);
+
+  // CRITICAL FIX: Mark dispatcher as invalid so timer callbacks can safely
+  // check this flag without accessing potentially destroyed dispatcher members.
+  // This shared_ptr is held by all timers created by this dispatcher.
+  if (dispatcher_valid_) {
+    dispatcher_valid_->store(false, std::memory_order_release);
+  }
+
+  // Clear all pending work - must happen before event_base_free
+  deferred_delete_list_.clear();
+
+  // Clear post callbacks - must happen before event_base_free
+  {
+    std::lock_guard<std::mutex> lock(post_mutex_);
+    std::queue<PostCb> empty;
+    post_callbacks_.swap(empty);
+  }
+
+  // Stop watchdog (only if on same thread to avoid thread safety issues)
   if (isThreadSafe()) {
-    // Clear all pending work
-    clearDeferredDeleteList();
-
-    // Clear post callbacks
-    {
-      std::lock_guard<std::mutex> lock(post_mutex_);
-      std::queue<PostCb> empty;
-      post_callbacks_.swap(empty);
-    }
-
-    // Stop watchdog
     watchdog_registration_.reset();
   }
 }
@@ -487,6 +528,15 @@ void LibeventDispatcher::runDeferredDeletes() {
 }
 
 void LibeventDispatcher::touchWatchdog() {
+  // CRITICAL FIX: Guard against accessing watchdog_registration_ during or
+  // after shutdown. When the dispatcher is being destroyed,
+  // watchdog_registration_ may have been reset or is in the process of being
+  // destroyed. Timer callbacks that fire during shutdown may call
+  // touchWatchdog() after the registration is destroyed, causing a
+  // use-after-free crash.
+  if (exit_requested_.load(std::memory_order_acquire)) {
+    return;
+  }
   if (watchdog_registration_ && watchdog_registration_->watchdog) {
     watchdog_registration_->watchdog->touch();
   }
@@ -733,9 +783,14 @@ void LibeventDispatcher::FileEventImpl::registerEventIfEmulatedEdge(
 }
 
 // TimerImpl implementation
-LibeventDispatcher::TimerImpl::TimerImpl(LibeventDispatcher& dispatcher,
-                                         TimerCb cb)
-    : dispatcher_(dispatcher), cb_(std::move(cb)), enabled_(false) {
+LibeventDispatcher::TimerImpl::TimerImpl(
+    LibeventDispatcher& dispatcher,
+    TimerCb cb,
+    std::shared_ptr<std::atomic<bool>> dispatcher_valid)
+    : dispatcher_(dispatcher),
+      cb_(std::move(cb)),
+      enabled_(false),
+      dispatcher_valid_(std::move(dispatcher_valid)) {
   event_ = evtimer_new(
       dispatcher_.base(),
       reinterpret_cast<event_callback_fn>(&TimerImpl::timerCallback), this);
@@ -787,13 +842,28 @@ void LibeventDispatcher::TimerImpl::timerCallback(libevent_socket_t /*fd*/,
 
   timer->enabled_ = false;
 
+  // CRITICAL FIX: Check dispatcher validity using shared flag BEFORE accessing
+  // any dispatcher members. The shared_ptr allows us to check validity without
+  // dereferencing the potentially dangling dispatcher_ reference.
+  if (!timer->dispatcher_valid_ ||
+      !timer->dispatcher_valid_->load(std::memory_order_acquire)) {
+    // Dispatcher is destroyed or shutting down - do not access it
+    return;
+  }
+
   // Update approximate time before callback
   timer->dispatcher_.updateApproximateMonotonicTime();
 
+  // Run the user callback. This callback might cause the dispatcher to be
+  // destroyed (e.g., if it completes a future that unblocks cleanup code).
+  // After cb_() returns, we MUST NOT access dispatcher_ as it may be freed.
   timer->cb_();
 
-  // Touch watchdog after callback
-  timer->dispatcher_.touchWatchdog();
+  // CRITICAL FIX: Do NOT access dispatcher_ after the callback.
+  // The callback may have triggered destruction of the dispatcher.
+  // Watchdog touching is a non-essential optimization that can be skipped
+  // to avoid use-after-free crashes.
+  // timer->dispatcher_.touchWatchdog();  // Removed - unsafe after cb_()
 }
 
 // SchedulableCallbackImpl implementation
@@ -801,10 +871,13 @@ LibeventDispatcher::SchedulableCallbackImpl::SchedulableCallbackImpl(
     LibeventDispatcher& dispatcher, std::function<void()> cb)
     : dispatcher_(dispatcher), cb_(std::move(cb)), scheduled_(false) {
   // Use a timer with 0 delay for scheduling
-  timer_ = std::make_unique<TimerImpl>(dispatcher_, [this]() {
-    scheduled_ = false;
-    cb_();
-  });
+  timer_ = std::make_unique<TimerImpl>(
+      dispatcher_,
+      [this]() {
+        scheduled_ = false;
+        cb_();
+      },
+      dispatcher_.dispatcher_valid_);
 }
 
 LibeventDispatcher::SchedulableCallbackImpl::~SchedulableCallbackImpl() {

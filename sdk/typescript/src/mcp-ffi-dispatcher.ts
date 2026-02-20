@@ -6,7 +6,7 @@
  * handle for easier use in tests and examples.
  */
 
-import { createHybridDispatcher, destroyHybridDispatcher } from './filter-dispatcher';
+import { createHybridDispatcher, destroyHybridDispatcher } from "./filter-dispatcher";
 
 /**
  * Dispatcher class for managing C++ filter chain dispatchers
@@ -44,7 +44,7 @@ export class Dispatcher {
    */
   get handle(): number {
     if (this._destroyed) {
-      throw new Error('Cannot access handle of destroyed dispatcher');
+      throw new Error("Cannot access handle of destroyed dispatcher");
     }
     return this._handle;
   }

@@ -285,12 +285,12 @@ TEST_F(TransportSocketTest, ConnectionLifecycle) {
   // Test onConnected callback
   socket.onConnected();
 
-  // Test close socket with different events
-  EXPECT_CALL(callbacks, raiseEvent(ConnectionEvent::RemoteClose));
+  // closeSocket should NOT call raiseEvent (to avoid circular callbacks)
+  // It just sets shutdown flags and clears callbacks
+  EXPECT_CALL(callbacks, raiseEvent(_)).Times(0);
   socket.closeSocket(ConnectionEvent::RemoteClose);
 
-  EXPECT_CALL(callbacks, raiseEvent(ConnectionEvent::LocalClose));
-  socket.closeSocket(ConnectionEvent::LocalClose);
+  // After closeSocket, callbacks are cleared so socket can be safely destroyed
 }
 
 // Test read operations
@@ -466,26 +466,25 @@ TEST_F(TransportSocketTest, ErrorHandling) {
 // Test shutdown behavior
 TEST_F(TransportSocketTest, ShutdownBehavior) {
   RawBufferTransportSocket socket;
-  MockTransportSocketCallbacks callbacks;
+  NiceMock<MockTransportSocketCallbacks> callbacks;
   MockIoHandle io_handle;
 
   socket.setTransportSocketCallbacks(callbacks);
   EXPECT_CALL(callbacks, ioHandle()).WillRepeatedly(ReturnRef(io_handle));
 
-  // Close for reading
-  EXPECT_CALL(callbacks, raiseEvent(ConnectionEvent::RemoteClose));
+  // closeSocket does NOT call raiseEvent (to avoid circular callbacks)
+  // It just sets shutdown flags and clears callbacks
+  EXPECT_CALL(callbacks, raiseEvent(_)).Times(0);
+
+  // Close the socket
   socket.closeSocket(ConnectionEvent::RemoteClose);
 
-  // Attempt to read after shutdown - should return immediately
+  // After closeSocket, callbacks are cleared, so doRead/doWrite return stop()
+  // which has action_ = CONTINUE and bytes_processed_ = 0
   auto result = socket.doRead(*buffer_);
   EXPECT_EQ(result.action_, TransportIoResult::CONTINUE);
   EXPECT_EQ(result.bytes_processed_, 0);
 
-  // Close for writing
-  EXPECT_CALL(callbacks, raiseEvent(ConnectionEvent::LocalClose));
-  socket.closeSocket(ConnectionEvent::LocalClose);
-
-  // Attempt to write after shutdown - should return immediately
   buffer_->add("test", 4);
   result = socket.doWrite(*buffer_, false);
   EXPECT_EQ(result.action_, TransportIoResult::CONTINUE);

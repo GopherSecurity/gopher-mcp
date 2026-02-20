@@ -436,9 +436,10 @@ network::FilterSharedPtr createRateLimitFilter(
   }
 
   if (!event_emitter) {
-    GOPHER_LOG(Warning,
-               "[RATE_LIMIT] ⚠️  Filter created WITHOUT event emitter - events "
-               "will NOT be emitted");
+    GOPHER_LOG(
+        Warning,
+        "[RATE_LIMIT] ⚠️  Filter created WITHOUT event emitter - events "
+        "will NOT be emitted");
   }
 
   return std::make_shared<RateLimitFilter>(event_emitter, rl_config);

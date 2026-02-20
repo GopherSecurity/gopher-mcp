@@ -194,6 +194,10 @@ class ConfigValidatorTest : public ::testing::Test {
 
 // Test schema validation
 TEST_F(ConfigValidatorTest, SchemaValidation) {
+#if !MCP_HAS_JSON_SCHEMA_VALIDATOR
+  GTEST_SKIP() << "Schema validation not available (json-schema-validator not "
+                  "linked)";
+#else
   // Create a simple schema
   JsonValue schema = JsonValue::object();
   schema["type"] = "object";
@@ -245,6 +249,7 @@ TEST_F(ConfigValidatorTest, SchemaValidation) {
     EXPECT_FALSE(result.is_valid);
     EXPECT_GT(result.getErrorCount(), 0);
   }
+#endif
 }
 
 // Test range validator
@@ -304,6 +309,10 @@ TEST_F(ConfigValidatorTest, RangeValidation) {
 
 // Test validation modes
 TEST_F(ConfigValidatorTest, ValidationModes) {
+#if !MCP_HAS_JSON_SCHEMA_VALIDATOR
+  GTEST_SKIP() << "Schema validation not available (json-schema-validator not "
+                  "linked)";
+#else
   // Create schema that doesn't include "extra" field
   JsonValue schema = JsonValue::object();
   schema["type"] = "object";
@@ -347,10 +356,15 @@ TEST_F(ConfigValidatorTest, ValidationModes) {
     EXPECT_EQ(result.getWarningCount(), 0);
     EXPECT_TRUE(result.unknown_fields.empty());
   }
+#endif
 }
 
 // Test composite validator
 TEST_F(ConfigValidatorTest, CompositeValidation) {
+#if !MCP_HAS_JSON_SCHEMA_VALIDATOR
+  GTEST_SKIP() << "Schema validation not available (json-schema-validator not "
+                  "linked)";
+#else
   auto composite = createCompositeValidator("full-validation");
 
   // Add schema validator
@@ -393,6 +407,7 @@ TEST_F(ConfigValidatorTest, CompositeValidation) {
     EXPECT_TRUE(result.failing_categories.find("server") !=
                 result.failing_categories.end());
   }
+#endif
 }
 
 }  // namespace test

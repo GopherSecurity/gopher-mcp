@@ -16,6 +16,10 @@ cmake_install.cmake
 CTestTestfile.cmake
 Testing/
 _deps/
+_deps-arm64/
+_deps-x64/
+install_prefix_dir/
+
 # Note: We have a hand-written Makefile at root, so only ignore generated ones in subdirs
 */Makefile
 

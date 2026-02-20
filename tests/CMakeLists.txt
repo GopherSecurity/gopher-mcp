@@ -20,6 +20,7 @@ add_executable(test_template_serialization json/test_template_serialization.cc)
 add_executable(test_short_json_api json/test_short_json_api.cc)
 # Event tests
 add_executable(test_event_loop event/test_event_loop.cc)
+add_executable(test_timer_lifetime event/test_timer_lifetime.cc)
 
 # Network tests
 add_executable(test_io_socket_handle network/test_io_socket_handle.cc)
@@ -54,6 +55,7 @@ add_executable(test_ssl_transport_socket transport/test_ssl_transport_socket.cc)
 add_executable(test_ssl_state_machine transport/test_ssl_state_machine.cc)
 add_executable(test_https_sse_factory transport/test_https_sse_factory.cc)
 add_executable(test_ssl_integration transport/test_ssl_integration.cc)
+add_executable(test_ssl_transport transport/test_ssl_transport.cc)
 
 # TCP transport tests
 add_executable(test_tcp_transport_socket transport/test_tcp_transport_socket.cc)
@@ -87,10 +89,12 @@ add_executable(test_tcp_echo_server_basic test_tcp_echo_server_basic.cc)
 
 # MCP tests
 add_executable(test_mcp_connection_manager network/test_mcp_connection_manager.cc)
+add_executable(test_connection_manager connection/test_connection_manager.cc)
 add_executable(test_client_disconnect_fixes client/test_client_disconnect_fixes.cc)
 add_executable(test_client_reconnection_and_logging client/test_client_reconnection_and_logging.cc)
 add_executable(test_client_idle_timeout client/test_client_idle_timeout.cc)
 add_executable(test_client_connection_check_threading client/test_client_connection_check_threading.cc)
+add_executable(test_streamable_http_transport client/test_streamable_http_transport.cc)
 add_executable(test_builders core/test_builders.cc)
 
 # MCP Client threading tests 
@@ -241,7 +245,15 @@ target_link_libraries(test_template_serialization
 target_link_libraries(test_event_loop
     gopher-mcp-event
     gopher-mcp
-    gtest 
+    gtest
+    gtest_main
+    Threads::Threads
+)
+
+target_link_libraries(test_timer_lifetime
+    gopher-mcp-event
+    gopher-mcp
+    gtest
     gtest_main
     Threads::Threads
 )
@@ -492,6 +504,17 @@ target_link_libraries(test_ssl_integration
     OpenSSL::Crypto
 )
 
+target_link_libraries(test_ssl_transport
+    gopher-mcp
+    gopher-mcp-event
+    gtest
+    gmock
+    gtest_main
+    Threads::Threads
+    OpenSSL::SSL
+    OpenSSL::Crypto
+)
+
 target_link_libraries(test_tcp_transport_socket
     gopher-mcp
     gopher-mcp-event
@@ -645,6 +668,14 @@ target_link_libraries(test_mcp_connection_manager
     Threads::Threads
 )
 
+target_link_libraries(test_connection_manager
+    gopher-mcp
+    gopher-mcp-event
+    gmock
+    gtest_main
+    Threads::Threads
+)
+
 target_link_libraries(test_client_disconnect_fixes
     gopher-mcp
     gopher-mcp-event
@@ -676,6 +707,14 @@ target_link_libraries(test_client_connection_check_threading
     gopher-mcp-event
     gtest
     gmock
+    gtest_main
+    Threads::Threads
+)
+
+target_link_libraries(test_streamable_http_transport
+    gopher-mcp
+    gopher-mcp-event
+    gtest
     gtest_main
     Threads::Threads
 )
@@ -1166,6 +1205,7 @@ add_test(NAME McpSerializationTest COMMAND test_mcp_serialization)
 add_test(NAME McpSerializationExtensiveTest COMMAND test_mcp_serialization_extensive)
 add_test(NAME TemplateSerializationTest COMMAND test_template_serialization)
 add_test(NAME EventLoopTest COMMAND test_event_loop)
+add_test(NAME TimerLifetimeTest COMMAND test_timer_lifetime)
 
 # Network tests
 add_test(NAME IoSocketHandleTest COMMAND test_io_socket_handle)
@@ -1195,6 +1235,7 @@ add_test(NAME SslTransportSocketTest COMMAND test_ssl_transport_socket)
 add_test(NAME SslStateMachineTest COMMAND test_ssl_state_machine)
 add_test(NAME HttpsSseFactoryTest COMMAND test_https_sse_factory)
 add_test(NAME SslIntegrationTest COMMAND test_ssl_integration)
+add_test(NAME SslTransportTest COMMAND test_ssl_transport)
 
 # HTTP SSE state machine test
 
@@ -1226,6 +1267,7 @@ add_test(NAME FullStackTransportTest COMMAND test_full_stack_transport)
 
 # MCP tests
 add_test(NAME McpConnectionManagerTest COMMAND test_mcp_connection_manager)
+add_test(NAME ConnectionManagerTest COMMAND test_connection_manager)
 add_test(NAME BuildersTest COMMAND test_builders)
 add_test(NAME McpClientThreadingTest COMMAND test_mcp_client_threading)
 add_test(NAME McpClientMemoryTest COMMAND test_mcp_client_memory)
@@ -1386,6 +1428,37 @@ target_link_libraries(test_http_sse_filter_chain_factory
     Threads::Threads
 )
 add_test(NAME HttpSseFilterChainFactoryTest COMMAND test_http_sse_filter_chain_factory)
+
+add_executable(test_http_sse_filter_chain_mode filter/test_http_sse_filter_chain_mode.cc)
+target_link_libraries(test_http_sse_filter_chain_mode
+    gopher-mcp
+    gopher-mcp-event
+    gtest
+    gtest_main
+    Threads::Threads
+)
+add_test(NAME HttpSseFilterChainModeTest COMMAND test_http_sse_filter_chain_mode)
+
+# MCP Initialize Request Tests (Section 3 & 4)
+add_executable(test_mcp_initialize_request client/test_mcp_initialize_request.cc)
+target_link_libraries(test_mcp_initialize_request
+    gopher-mcp
+    gtest
+    gtest_main
+    Threads::Threads
+)
+add_test(NAME McpInitializeRequestTest COMMAND test_mcp_initialize_request)
+
+# HTTP Headers Compatibility Tests (Section 5)
+add_executable(test_http_headers_compatibility filter/test_http_headers_compatibility.cc)
+target_link_libraries(test_http_headers_compatibility
+    gopher-mcp
+    gopher-mcp-event
+    gtest
+    gtest_main
+    Threads::Threads
+)
+add_test(NAME HttpHeadersCompatibilityTest COMMAND test_http_headers_compatibility)
 
 # Set test properties
 set_tests_properties(VariantTest PROPERTIES

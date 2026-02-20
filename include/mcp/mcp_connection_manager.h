@@ -19,9 +19,10 @@ namespace mcp {
  * MCP transport type
  */
 enum class TransportType {
-  Stdio,     // Standard I/O transport
-  HttpSse,   // HTTP with Server-Sent Events
-  WebSocket  // WebSocket transport (future)
+  Stdio,           // Standard I/O transport
+  HttpSse,         // HTTP with Server-Sent Events
+  StreamableHttp,  // Streamable HTTP (simple POST request/response)
+  WebSocket        // WebSocket transport (future)
 };
 
 /**
@@ -44,6 +45,11 @@ struct McpConnectionConfig {
 
   // Protocol detection
   bool use_protocol_detection{false};  // Enable automatic protocol detection
+
+  // HTTP endpoint configuration (for HTTP/SSE transport)
+  std::string http_path{"/rpc"};  // Request path (e.g., /sse, /mcp)
+  std::string
+      http_host;  // Host header value (auto-set from server_address if empty)
 };
 
 /**
@@ -78,6 +84,24 @@ class McpProtocolCallbacks {
    * Called on connection error
    */
   virtual void onError(const Error& error) = 0;
+
+  /**
+   * Called when SSE endpoint is received (HTTP/SSE transport only)
+   * The endpoint is the URL to POST JSON-RPC messages to
+   */
+  virtual void onMessageEndpoint(const std::string& endpoint) {
+    (void)endpoint;  // Default implementation does nothing
+  }
+
+  /**
+   * Send a POST request to the message endpoint
+   * Used by HTTP/SSE transport to send messages on a separate connection
+   * Returns true if the POST was initiated successfully
+   */
+  virtual bool sendHttpPost(const std::string& json_body) {
+    (void)json_body;  // Default implementation does nothing
+    return false;
+  }
 };
 
 /**
@@ -142,6 +166,8 @@ class McpConnectionManager : public McpProtocolCallbacks,
   void onResponse(const jsonrpc::Response& response) override;
   void onConnectionEvent(network::ConnectionEvent event) override;
   void onError(const Error& error) override;
+  void onMessageEndpoint(const std::string& endpoint) override;
+  bool sendHttpPost(const std::string& json_body) override;
 
   // ListenerCallbacks interface
   void onAccept(network::ConnectionSocketPtr&& socket) override;
@@ -183,6 +209,16 @@ class McpConnectionManager : public McpProtocolCallbacks,
   // State
   bool is_server_{false};
   bool connected_{false};
+  bool processing_connected_event_{false};  // Guard against re-entrancy
+
+  // HTTP/SSE POST connection support
+  std::string
+      message_endpoint_;  // URL for POST requests (from SSE endpoint event)
+  bool has_message_endpoint_{false};
+
+  // Active POST connection (for sending messages in HTTP/SSE mode)
+  std::unique_ptr<network::ClientConnection> post_connection_;
+  std::unique_ptr<network::ConnectionCallbacks> post_callbacks_;
 };
 
 /**

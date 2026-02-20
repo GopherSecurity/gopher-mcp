@@ -1,0 +1,197 @@
+# Dockerfile for cross-compiling libgopher-mcp for Windows x86_64
+# Uses MinGW-w64 for cross-compilation
+FROM ubuntu:22.04
+
+# Prevent interactive prompts during package installation
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install build dependencies and MinGW-w64 for cross-compilation
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    build-essential \
+    cmake \
+    gcc-mingw-w64-x86-64 \
+    g++-mingw-w64-x86-64 \
+    wget \
+    unzip \
+    git \
+    pkg-config \
+    ca-certificates \
+    curl \
+    perl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Configure MinGW to use POSIX threading model (required for std::thread, std::mutex)
+RUN update-alternatives --set x86_64-w64-mingw32-gcc /usr/bin/x86_64-w64-mingw32-gcc-posix && \
+    update-alternatives --set x86_64-w64-mingw32-g++ /usr/bin/x86_64-w64-mingw32-g++-posix
+
+# Create directories
+WORKDIR /deps
+
+# Build OpenSSL from source for MinGW-w64
+# Note: Do NOT set CC/CXX env vars here as OpenSSL configure adds cross-compile prefix itself
+RUN wget -q https://www.openssl.org/source/openssl-1.1.1w.tar.gz && \
+    tar xzf openssl-1.1.1w.tar.gz && \
+    cd openssl-1.1.1w && \
+    ./Configure mingw64 \
+        --cross-compile-prefix=x86_64-w64-mingw32- \
+        --prefix=/deps/openssl \
+        no-asm \
+        shared && \
+    make -j$(nproc) && \
+    make install_sw && \
+    cd .. && rm -rf openssl-1.1.1w*
+
+# Download and cross-compile llhttp for Windows
+RUN git clone --depth 1 --branch release/v9.2.1 https://github.com/nodejs/llhttp.git && \
+    cd llhttp && \
+    mkdir build && cd build && \
+    cmake .. \
+        -DCMAKE_SYSTEM_NAME=Windows \
+        -DCMAKE_C_COMPILER=x86_64-w64-mingw32-gcc \
+        -DCMAKE_CXX_COMPILER=x86_64-w64-mingw32-g++ \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DBUILD_SHARED_LIBS=OFF \
+        -DBUILD_STATIC_LIBS=ON \
+        -DCMAKE_INSTALL_PREFIX=/deps/llhttp && \
+    make -j$(nproc) && \
+    make install && \
+    cd ../.. && rm -rf llhttp
+
+# Download and cross-compile libevent for Windows
+RUN wget -q https://github.com/libevent/libevent/releases/download/release-2.1.12-stable/libevent-2.1.12-stable.tar.gz && \
+    tar xzf libevent-2.1.12-stable.tar.gz && \
+    cd libevent-2.1.12-stable && \
+    mkdir build && cd build && \
+    cmake .. \
+        -DCMAKE_SYSTEM_NAME=Windows \
+        -DCMAKE_C_COMPILER=x86_64-w64-mingw32-gcc \
+        -DCMAKE_CXX_COMPILER=x86_64-w64-mingw32-g++ \
+        -DCMAKE_RC_COMPILER=x86_64-w64-mingw32-windres \
+        -DCMAKE_FIND_ROOT_PATH=/usr/x86_64-w64-mingw32 \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DEVENT__DISABLE_OPENSSL=ON \
+        -DEVENT__DISABLE_BENCHMARK=ON \
+        -DEVENT__DISABLE_TESTS=ON \
+        -DEVENT__DISABLE_SAMPLES=ON \
+        -DEVENT__LIBRARY_TYPE=STATIC \
+        -DCMAKE_INSTALL_PREFIX=/deps/libevent && \
+    make -j$(nproc) && \
+    make install && \
+    cd ../.. && rm -rf libevent-2.1.12-stable*
+
+# Verify dependencies are built
+RUN echo "=== Checking dependencies ===" && \
+    ls -la /deps/openssl/lib/ && \
+    ls -la /deps/openssl/bin/ && \
+    ls -la /deps/libevent/lib/
+
+# Set working directory for main build
+WORKDIR /build
+
+# Copy the entire project
+COPY . /build/
+
+# Copy Windows-specific CMake toolchain and files
+COPY docker-mcp/windows-x64 /docker/windows-x64
+
+# Create CMake toolchain file for MinGW cross-compilation
+RUN echo 'set(CMAKE_SYSTEM_NAME Windows)' > /build/toolchain.cmake && \
+    echo 'set(CMAKE_SYSTEM_PROCESSOR x86_64)' >> /build/toolchain.cmake && \
+    echo 'set(CMAKE_C_COMPILER x86_64-w64-mingw32-gcc)' >> /build/toolchain.cmake && \
+    echo 'set(CMAKE_CXX_COMPILER x86_64-w64-mingw32-g++)' >> /build/toolchain.cmake && \
+    echo 'set(CMAKE_RC_COMPILER x86_64-w64-mingw32-windres)' >> /build/toolchain.cmake && \
+    echo 'set(CMAKE_FIND_ROOT_PATH /usr/x86_64-w64-mingw32 /deps/openssl /deps/libevent)' >> /build/toolchain.cmake && \
+    echo 'set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)' >> /build/toolchain.cmake && \
+    echo 'set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)' >> /build/toolchain.cmake && \
+    echo 'set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)' >> /build/toolchain.cmake && \
+    echo 'set(CMAKE_SHARED_LIBRARY_PREFIX "lib")' >> /build/toolchain.cmake && \
+    echo 'set(CMAKE_SHARED_LIBRARY_SUFFIX ".dll")' >> /build/toolchain.cmake && \
+    echo 'set(CMAKE_EXECUTABLE_SUFFIX ".exe")' >> /build/toolchain.cmake && \
+    echo '' >> /build/toolchain.cmake && \
+    echo '# Windows defines' >> /build/toolchain.cmake && \
+    echo 'add_definitions(-D_WIN32 -DWIN32 -D_WIN32_WINNT=0x0601 -DWINVER=0x0601)' >> /build/toolchain.cmake && \
+    echo '' >> /build/toolchain.cmake && \
+    echo '# OpenSSL paths' >> /build/toolchain.cmake && \
+    echo 'set(OPENSSL_ROOT_DIR /deps/openssl)' >> /build/toolchain.cmake && \
+    echo 'set(OPENSSL_INCLUDE_DIR /deps/openssl/include)' >> /build/toolchain.cmake && \
+    echo 'set(OPENSSL_CRYPTO_LIBRARY /deps/openssl/lib/libcrypto.dll.a)' >> /build/toolchain.cmake && \
+    echo 'set(OPENSSL_SSL_LIBRARY /deps/openssl/lib/libssl.dll.a)' >> /build/toolchain.cmake && \
+    echo 'set(OPENSSL_FOUND TRUE)' >> /build/toolchain.cmake && \
+    echo '' >> /build/toolchain.cmake && \
+    echo '# libevent paths' >> /build/toolchain.cmake && \
+    echo 'set(LIBEVENT_INCLUDE_DIRS /deps/libevent/include)' >> /build/toolchain.cmake && \
+    echo 'set(LIBEVENT_LIBRARIES /deps/libevent/lib/libevent_core.a /deps/libevent/lib/libevent_extra.a)' >> /build/toolchain.cmake && \
+    echo 'set(LIBEVENT_FOUND TRUE)' >> /build/toolchain.cmake && \
+    echo 'include_directories(/deps/libevent/include)' >> /build/toolchain.cmake && \
+    echo '' >> /build/toolchain.cmake && \
+    echo '# llhttp paths' >> /build/toolchain.cmake && \
+    echo 'set(LLHTTP_INCLUDE_DIR /deps/llhttp/include)' >> /build/toolchain.cmake && \
+    echo 'set(LLHTTP_LIBRARY /deps/llhttp/lib/libllhttp.a)' >> /build/toolchain.cmake && \
+    echo 'include_directories(/deps/llhttp/include)' >> /build/toolchain.cmake && \
+    echo '' >> /build/toolchain.cmake && \
+    echo '# Windows-specific linking - add socket libraries' >> /build/toolchain.cmake && \
+    echo 'link_libraries(ws2_32 crypt32 iphlpapi)' >> /build/toolchain.cmake && \
+    echo 'set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -lws2_32 -lcrypt32 -liphlpapi")' >> /build/toolchain.cmake && \
+    echo 'set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -lws2_32 -lcrypt32 -liphlpapi")' >> /build/toolchain.cmake
+
+# Build the library
+RUN mkdir -p cmake-build && cd cmake-build && \
+    cmake \
+        -DCMAKE_TOOLCHAIN_FILE=/build/toolchain.cmake \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_CXX_STANDARD=17 \
+        -DBUILD_SHARED_LIBS=ON \
+        -DBUILD_STATIC_LIBS=OFF \
+        -DBUILD_TESTS=OFF \
+        -DBUILD_C_API=ON \
+        -DBUILD_BINDINGS_EXAMPLES=OFF \
+        -DBUILD_EXAMPLES=OFF \
+        -DMCP_USE_LLHTTP=ON \
+        -DLLHTTP_INCLUDE_DIR=/deps/llhttp/include \
+        -DLLHTTP_LIBRARY=/deps/llhttp/lib/libllhttp.a \
+        -DMCP_USE_NGHTTP2=OFF \
+        -DCMAKE_INSTALL_PREFIX=/install \
+        -DCMAKE_SYSTEM_NAME=Windows \
+        /build 2>&1 | tee /tmp/cmake_output.log && \
+    make -j$(nproc) VERBOSE=1 2>&1 | tee /tmp/make_output.log || \
+    (echo "=== Build failed, showing logs ===" && cat /tmp/cmake_output.log && cat /tmp/make_output.log && make -j1 VERBOSE=1) && \
+    make install || true
+
+# Create output directory
+RUN mkdir -p /output
+
+# Copy library files
+RUN find /install -name "*.dll" -exec cp {} /output/ \; 2>/dev/null || true && \
+    find /build/cmake-build -name "*.dll" -exec cp {} /output/ \; 2>/dev/null || true && \
+    find /install -name "*.dll.a" -exec sh -c 'cp "$1" "/output/$(basename "$1" .dll.a).lib"' _ {} \; 2>/dev/null || true && \
+    find /build/cmake-build -name "*.dll.a" -exec sh -c 'cp "$1" "/output/$(basename "$1" .dll.a).lib"' _ {} \; 2>/dev/null || true
+
+# Copy OpenSSL DLLs (needed at runtime)
+RUN cp /deps/openssl/bin/*.dll /output/ 2>/dev/null || \
+    cp /deps/openssl/lib/*.dll /output/ 2>/dev/null || true
+
+# Copy headers
+RUN mkdir -p /output/include && \
+    cp -r /build/include/mcp /output/include/ 2>/dev/null || true
+
+# Build verification tool
+WORKDIR /output
+RUN x86_64-w64-mingw32-gcc -o verify_mcp.exe /docker/windows-x64/verify_mcp.c \
+    -O2 \
+    -lpsapi \
+    -static-libgcc \
+    -static || echo "Verification tool build skipped"
+
+# Strip symbols to reduce size
+RUN x86_64-w64-mingw32-strip --strip-unneeded *.dll 2>/dev/null || true && \
+    x86_64-w64-mingw32-strip --strip-unneeded *.exe 2>/dev/null || true
+
+# List final output
+RUN echo "=== Output files ===" && ls -la /output/
+
+# Keep logs for debugging
+RUN cp /tmp/*.log /output/ 2>/dev/null || true
+
+# Default command
+CMD ["/bin/bash"]
