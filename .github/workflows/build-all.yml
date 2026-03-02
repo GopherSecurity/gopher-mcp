@@ -2,7 +2,7 @@ name: Build All Platforms
 
 on:
   push:
-    branches: [ dev_cross_build, dev_improve_client_fetch_tools_cross_build ]
+    branches: [ br_release ]
   workflow_dispatch:
     inputs:
       build_type:
