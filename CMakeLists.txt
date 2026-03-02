@@ -15,7 +15,7 @@ Please create a build directory and run cmake from there:
 You may need to remove CMakeCache.txt and CMakeFiles/")
 endif()
 
-project(gopher-mcp VERSION 0.1.0 LANGUAGES C CXX)
+project(gopher-mcp VERSION 0.1.1 LANGUAGES C CXX)
 
 # Set library version for shared libraries
 set(GOPHER_MCP_VERSION_MAJOR ${PROJECT_VERSION_MAJOR})
