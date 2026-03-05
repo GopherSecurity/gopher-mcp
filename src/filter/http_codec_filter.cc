@@ -245,6 +245,16 @@ network::FilterStatus HttpCodecFilter::onWrite(Buffer& data, bool end_stream) {
       std::string body_data(
           static_cast<const char*>(data.linearize(body_length)), body_length);
 
+      // Check if data is already HTTP-formatted (from routing filter)
+      // If so, pass through without adding more HTTP framing
+      if (body_data.length() >= 5 &&
+          body_data.compare(0, 5, "HTTP/") == 0) {
+        GOPHER_LOG_DEBUG(
+            "HttpCodecFilter::onWrite - data already HTTP formatted, "
+            "passing through");
+        return network::FilterStatus::Continue;
+      }
+
       // Clear the buffer to build formatted HTTP response
       data.drain(body_length);
 
@@ -280,6 +290,10 @@ network::FilterStatus HttpCodecFilter::onWrite(Buffer& data, bool end_stream) {
         response << "Cache-Control: no-cache\r\n";
         response << "Connection: keep-alive\r\n";
         response << "X-Accel-Buffering: no\r\n";  // Disable proxy buffering
+        // CORS headers for browser-based clients (e.g., MCP Inspector)
+        response << "Access-Control-Allow-Origin: *\r\n";
+        response << "Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n";
+        response << "Access-Control-Allow-Headers: Content-Type, Authorization, Accept, Mcp-Session-Id, Mcp-Protocol-Version\r\n";
         response << "\r\n";
         // SSE data is already formatted by SSE filter
         response << body_data;
@@ -290,6 +304,10 @@ network::FilterStatus HttpCodecFilter::onWrite(Buffer& data, bool end_stream) {
         GOPHER_LOG_TRACE("onWrite: Content-Length={} body_preview={}...",
                          body_length, body_data.substr(0, 50));
         response << "Cache-Control: no-cache\r\n";
+        // CORS headers for browser-based clients (e.g., MCP Inspector)
+        response << "Access-Control-Allow-Origin: *\r\n";
+        response << "Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n";
+        response << "Access-Control-Allow-Headers: Content-Type, Authorization, Accept, Mcp-Session-Id, Mcp-Protocol-Version\r\n";
         if (current_stream_) {
           response << "Connection: "
                    << (current_stream_->keep_alive ? "keep-alive" : "close")
