@@ -303,6 +303,59 @@ TEST_F(MCPSerializationTest, JsonRpcNotification) {
   testRoundTrip(param_notif);
 }
 
+TEST_F(MCPSerializationTest, JsonRpcResponseWithJsonValue) {
+  // Test ResponseResult with JsonValue for nested JSON structures
+  // This is needed for MCP protocol compliance (e.g., initialize response)
+
+  // Simple nested object
+  JsonValue nested_result = JsonValue::object();
+  nested_result["protocolVersion"] = "2024-11-05";
+
+  JsonValue server_info = JsonValue::object();
+  server_info["name"] = "test-server";
+  server_info["version"] = "1.0.0";
+  nested_result["serverInfo"] = std::move(server_info);
+
+  JsonValue capabilities = JsonValue::object();
+  capabilities["tools"] = JsonValue::object();
+  capabilities["prompts"] = JsonValue::object();
+  nested_result["capabilities"] = std::move(capabilities);
+
+  auto json_resp = jsonrpc::Response::success(
+      make_request_id(1), jsonrpc::ResponseResult(nested_result));
+
+  // Serialize and verify structure
+  JsonValue serialized = to_json(json_resp);
+  std::string json_str = serialized.toString();
+
+  // Verify nested structure is preserved
+  EXPECT_TRUE(json_str.find("\"serverInfo\":{") != std::string::npos);
+  EXPECT_TRUE(json_str.find("\"capabilities\":{") != std::string::npos);
+  EXPECT_TRUE(json_str.find("\"protocolVersion\":\"2024-11-05\"") !=
+              std::string::npos);
+
+  // Test with array in JsonValue
+  JsonValue array_result = JsonValue::object();
+  JsonValue tools_array = JsonValue::array();
+
+  JsonValue tool1 = JsonValue::object();
+  tool1["name"] = "get-weather";
+  tool1["description"] = "Get weather info";
+  tools_array.push_back(std::move(tool1));
+
+  array_result["tools"] = std::move(tools_array);
+
+  auto array_resp = jsonrpc::Response::success(
+      make_request_id(2), jsonrpc::ResponseResult(array_result));
+
+  JsonValue array_serialized = to_json(array_resp);
+  std::string array_json = array_serialized.toString();
+
+  // Verify array structure
+  EXPECT_TRUE(array_json.find("\"tools\":[") != std::string::npos);
+  EXPECT_TRUE(array_json.find("\"name\":\"get-weather\"") != std::string::npos);
+}
+
 // =============================================================================
 // Protocol Request Types
 // =============================================================================
