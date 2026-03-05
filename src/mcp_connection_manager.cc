@@ -771,6 +771,7 @@ void McpConnectionManager::onNotification(
   if (protocol_callbacks_) {
     protocol_callbacks_->onNotification(notification);
   }
+  // HTTP 202 response is sent by HttpSseJsonRpcProtocolFilter::onNotification
 }
 
 void McpConnectionManager::onResponse(const jsonrpc::Response& response) {

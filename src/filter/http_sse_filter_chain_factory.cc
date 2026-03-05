@@ -670,6 +670,27 @@ class HttpSseJsonRpcProtocolFilter
 
   void onNotification(const jsonrpc::Notification& notification) override {
     mcp_callbacks_.onNotification(notification);
+
+    // For HTTP transport, send HTTP 202 Accepted response
+    // JSON-RPC notifications don't have responses, but HTTP requires one
+    if (is_server_ && write_callbacks_) {
+      // Build minimal HTTP 202 response
+      std::string http_response =
+          "HTTP/1.1 202 Accepted\r\n"
+          "Content-Length: 0\r\n"
+          "Access-Control-Allow-Origin: *\r\n"
+          "Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n"
+          "Access-Control-Allow-Headers: Content-Type, Authorization, Accept, "
+          "Mcp-Session-Id, Mcp-Protocol-Version\r\n"
+          "Connection: keep-alive\r\n"
+          "\r\n";
+
+      OwnedBuffer response_buffer;
+      response_buffer.add(http_response);
+      write_callbacks_->connection().write(response_buffer, false);
+      GOPHER_LOG_DEBUG(
+          "HttpSseJsonRpcProtocolFilter: Sent HTTP 202 for notification");
+    }
   }
 
   void onResponse(const jsonrpc::Response& response) override {
@@ -779,6 +800,27 @@ class HttpSseJsonRpcProtocolFilter
   }
 
   void setupRoutingHandlers() {
+    // Register CORS preflight handler for all paths
+    // Browser-based clients (like MCP Inspector) send OPTIONS before POST
+    auto corsHandler = [](const HttpRoutingFilter::RequestContext& req) {
+      HttpRoutingFilter::Response resp;
+      resp.status_code = 204;  // No Content
+      resp.headers["Access-Control-Allow-Origin"] = "*";
+      resp.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS";
+      resp.headers["Access-Control-Allow-Headers"] =
+          "Content-Type, Authorization, Accept, Mcp-Session-Id, Mcp-Protocol-Version";
+      resp.headers["Access-Control-Max-Age"] = "86400";  // Cache for 24 hours
+      resp.headers["Content-Length"] = "0";
+      return resp;
+    };
+
+    // Register OPTIONS for common MCP paths
+    routing_filter_->registerHandler("OPTIONS", "/mcp", corsHandler);
+    routing_filter_->registerHandler("OPTIONS", "/mcp/events", corsHandler);
+    routing_filter_->registerHandler("OPTIONS", "/rpc", corsHandler);
+    routing_filter_->registerHandler("OPTIONS", "/health", corsHandler);
+    routing_filter_->registerHandler("OPTIONS", "/info", corsHandler);
+
     // Register health endpoint
     routing_filter_->registerHandler(
         "GET", "/health", [](const HttpRoutingFilter::RequestContext& req) {
@@ -786,6 +828,7 @@ class HttpSseJsonRpcProtocolFilter
           resp.status_code = 200;
           resp.headers["content-type"] = "application/json";
           resp.headers["cache-control"] = "no-cache";
+          resp.headers["Access-Control-Allow-Origin"] = "*";
 
           resp.body = R"({"status":"healthy","timestamp":)" +
                       std::to_string(std::time(nullptr)) + "}";
@@ -803,6 +846,7 @@ class HttpSseJsonRpcProtocolFilter
           HttpRoutingFilter::Response resp;
           resp.status_code = 200;
           resp.headers["content-type"] = "application/json";
+          resp.headers["Access-Control-Allow-Origin"] = "*";
 
           resp.body = R"({
         "server": "MCP Server",
@@ -820,9 +864,22 @@ class HttpSseJsonRpcProtocolFilter
           return resp;
         });
 
-    // Default handler passes through to MCP protocol handling
+    // Default handler - handle OPTIONS for CORS preflight on any path,
+    // pass through other methods to MCP protocol handling
     routing_filter_->registerDefaultHandler(
         [](const HttpRoutingFilter::RequestContext& req) {
+          // Handle OPTIONS for CORS preflight on any path
+          if (req.method == "OPTIONS") {
+            HttpRoutingFilter::Response resp;
+            resp.status_code = 204;  // No Content
+            resp.headers["Access-Control-Allow-Origin"] = "*";
+            resp.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS";
+            resp.headers["Access-Control-Allow-Headers"] =
+                "Content-Type, Authorization, Accept, Mcp-Session-Id, Mcp-Protocol-Version";
+            resp.headers["Access-Control-Max-Age"] = "86400";
+            resp.headers["Content-Length"] = "0";
+            return resp;
+          }
           // Return status 0 to indicate pass-through for MCP endpoints
           HttpRoutingFilter::Response resp;
           resp.status_code = 0;
