@@ -268,8 +268,8 @@ class FileConfigSource : public ConfigSource {
                    int priority,
                    const Options& opts = Options{})
       : name_(name), priority_(priority), options_(opts) {
-    GOPHER_LOG(Info, "FileConfigSource created: name={} priority={}",
-               name_, priority_);
+    GOPHER_LOG(Info, "FileConfigSource created: name={} priority={}", name_,
+               priority_);
   }
 
   std::string getName() const override { return name_; }
@@ -285,18 +285,15 @@ class FileConfigSource : public ConfigSource {
   mcp::json::JsonValue loadConfiguration() override {
     // Keep logs under config.file so tests that attach a sink to
     // "config.file" see discovery start/end messages.
-    GOPHER_LOG(Info, "Starting configuration discovery for source: {}{}",
-               name_,
-               (options_.trace_id.empty()
-                    ? ""
-                    : (" trace_id=" + options_.trace_id)));
+    GOPHER_LOG(
+        Info, "Starting configuration discovery for source: {}{}", name_,
+        (options_.trace_id.empty() ? "" : (" trace_id=" + options_.trace_id)));
 
     // Determine the config file path using deterministic search order
     std::string config_path = findConfigFile();
 
     if (config_path.empty()) {
-      GOPHER_LOG(Warning, "No configuration file found for source: {}",
-                 name_);
+      GOPHER_LOG(Warning, "No configuration file found for source: {}", name_);
       return mcp::json::JsonValue::object();
     }
 
@@ -321,12 +318,12 @@ class FileConfigSource : public ConfigSource {
     base_config_path_ = config_path;
 
     // Emit a brief summary and also dump top-level keys/types to aid debugging
-    GOPHER_LOG(
-        Info,
-        "Configuration discovery completed: files_parsed={} "
-        "includes_processed={} env_vars_expanded={} overlays_applied={}",
-        context.files_parsed_count, context.includes_processed_count,
-        context.env_vars_expanded_count, context.overlays_applied.size());
+    GOPHER_LOG(Info,
+               "Configuration discovery completed: files_parsed={} "
+               "includes_processed={} env_vars_expanded={} overlays_applied={}",
+               context.files_parsed_count, context.includes_processed_count,
+               context.env_vars_expanded_count,
+               context.overlays_applied.size());
 
     if (config.isObject()) {
       for (const auto& key : config.keys()) {
@@ -451,8 +448,7 @@ class FileConfigSource : public ConfigSource {
       if (exists(path)) {
         // Determine which source won
         if (i == 0 && !explicit_config_path_.empty()) {
-          GOPHER_LOG(Info, "Configuration source won: CLI --config={}",
-                     path);
+          GOPHER_LOG(Info, "Configuration source won: CLI --config={}", path);
         } else if ((i == 0 || i == 1) && env_config) {
           GOPHER_LOG(
               Info,
@@ -483,8 +479,7 @@ class FileConfigSource : public ConfigSource {
     }
     size_t file_size = st.st_size;
     if (file_size > options_.max_file_size) {
-      GOPHER_LOG(Error,
-                 "File exceeds maximum size limit: {} size={} limit={}",
+      GOPHER_LOG(Error, "File exceeds maximum size limit: {} size={} limit={}",
                  filepath, file_size, options_.max_file_size);
       throw std::runtime_error("File too large: " + filepath + " (" +
                                std::to_string(file_size) + " bytes)");
@@ -499,14 +494,12 @@ class FileConfigSource : public ConfigSource {
       context.latest_mtime = file_mtime;
     }
 
-    GOPHER_LOG(Debug,
-               "Loading configuration file: {} size={} last_modified={}",
+    GOPHER_LOG(Debug, "Loading configuration file: {} size={} last_modified={}",
                filepath, file_size, last_modified);
 
     std::ifstream file(filepath);
     if (!file.is_open()) {
-      GOPHER_LOG(Error, "Failed to open configuration file: {}",
-                 filepath);
+      GOPHER_LOG(Error, "Failed to open configuration file: {}", filepath);
       throw std::runtime_error("Cannot open config file: " + filepath);
     }
 
@@ -932,8 +925,7 @@ class FileConfigSource : public ConfigSource {
       const mcp::json::JsonValue& base_config,
       const path& overlay_dir,
       ParseContext& context) {
-    GOPHER_LOG(Info, "Scanning config.d directory: {}",
-               overlay_dir.string());
+    GOPHER_LOG(Info, "Scanning config.d directory: {}", overlay_dir.string());
 
     mcp::json::JsonValue result = base_config;
     std::vector<path> overlay_files;

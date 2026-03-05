@@ -499,7 +499,8 @@ struct Request {
 // Generic result type for responses
 // Note: ListResourcesResult and ListToolsResult are defined outside jsonrpc
 // namespace but used here
-// json::JsonValue added to support arbitrary nested JSON responses (e.g., initialize)
+// json::JsonValue added to support arbitrary nested JSON responses (e.g.,
+// initialize)
 using ResponseResult = variant<std::nullptr_t,
                                bool,
                                int,

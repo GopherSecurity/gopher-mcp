@@ -808,7 +808,8 @@ class HttpSseJsonRpcProtocolFilter
       resp.headers["Access-Control-Allow-Origin"] = "*";
       resp.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS";
       resp.headers["Access-Control-Allow-Headers"] =
-          "Content-Type, Authorization, Accept, Mcp-Session-Id, Mcp-Protocol-Version";
+          "Content-Type, Authorization, Accept, Mcp-Session-Id, "
+          "Mcp-Protocol-Version";
       resp.headers["Access-Control-Max-Age"] = "86400";  // Cache for 24 hours
       resp.headers["Content-Length"] = "0";
       return resp;
@@ -875,7 +876,8 @@ class HttpSseJsonRpcProtocolFilter
             resp.headers["Access-Control-Allow-Origin"] = "*";
             resp.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS";
             resp.headers["Access-Control-Allow-Headers"] =
-                "Content-Type, Authorization, Accept, Mcp-Session-Id, Mcp-Protocol-Version";
+                "Content-Type, Authorization, Accept, Mcp-Session-Id, "
+                "Mcp-Protocol-Version";
             resp.headers["Access-Control-Max-Age"] = "86400";
             resp.headers["Content-Length"] = "0";
             return resp;

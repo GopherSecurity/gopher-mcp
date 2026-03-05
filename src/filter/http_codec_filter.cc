@@ -247,8 +247,7 @@ network::FilterStatus HttpCodecFilter::onWrite(Buffer& data, bool end_stream) {
 
       // Check if data is already HTTP-formatted (from routing filter)
       // If so, pass through without adding more HTTP framing
-      if (body_data.length() >= 5 &&
-          body_data.compare(0, 5, "HTTP/") == 0) {
+      if (body_data.length() >= 5 && body_data.compare(0, 5, "HTTP/") == 0) {
         GOPHER_LOG_DEBUG(
             "HttpCodecFilter::onWrite - data already HTTP formatted, "
             "passing through");
@@ -293,7 +292,9 @@ network::FilterStatus HttpCodecFilter::onWrite(Buffer& data, bool end_stream) {
         // CORS headers for browser-based clients (e.g., MCP Inspector)
         response << "Access-Control-Allow-Origin: *\r\n";
         response << "Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n";
-        response << "Access-Control-Allow-Headers: Content-Type, Authorization, Accept, Mcp-Session-Id, Mcp-Protocol-Version\r\n";
+        response
+            << "Access-Control-Allow-Headers: Content-Type, Authorization, "
+               "Accept, Mcp-Session-Id, Mcp-Protocol-Version\r\n";
         response << "\r\n";
         // SSE data is already formatted by SSE filter
         response << body_data;
@@ -307,7 +308,9 @@ network::FilterStatus HttpCodecFilter::onWrite(Buffer& data, bool end_stream) {
         // CORS headers for browser-based clients (e.g., MCP Inspector)
         response << "Access-Control-Allow-Origin: *\r\n";
         response << "Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n";
-        response << "Access-Control-Allow-Headers: Content-Type, Authorization, Accept, Mcp-Session-Id, Mcp-Protocol-Version\r\n";
+        response
+            << "Access-Control-Allow-Headers: Content-Type, Authorization, "
+               "Accept, Mcp-Session-Id, Mcp-Protocol-Version\r\n";
         if (current_stream_) {
           response << "Connection: "
                    << (current_stream_->keep_alive ? "keep-alive" : "close")

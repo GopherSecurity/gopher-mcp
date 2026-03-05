@@ -57,7 +57,8 @@ TEST_F(OptionsNotificationTest, OptionsPreflightResponseFormat) {
 // Test OPTIONS response includes required MCP headers
 TEST_F(OptionsNotificationTest, OptionsAllowsMcpHeaders) {
   std::string allowed_headers =
-      "Content-Type, Authorization, Accept, Mcp-Session-Id, Mcp-Protocol-Version";
+      "Content-Type, Authorization, Accept, Mcp-Session-Id, "
+      "Mcp-Protocol-Version";
 
   // MCP Inspector uses these headers
   EXPECT_TRUE(allowed_headers.find("Mcp-Session-Id") != std::string::npos)
@@ -117,13 +118,8 @@ TEST_F(OptionsNotificationTest, NotificationNoJsonRpcResponse) {
 // Test OPTIONS for common MCP paths
 TEST_F(OptionsNotificationTest, OptionsRegisteredPaths) {
   // These paths should all handle OPTIONS requests
-  std::vector<std::string> mcp_paths = {
-      "/mcp",
-      "/mcp/events",
-      "/rpc",
-      "/health",
-      "/info"
-  };
+  std::vector<std::string> mcp_paths = {"/mcp", "/mcp/events", "/rpc",
+                                        "/health", "/info"};
 
   for (const auto& path : mcp_paths) {
     // Each path should be registered for OPTIONS
