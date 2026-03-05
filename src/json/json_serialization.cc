@@ -130,6 +130,10 @@ JsonValue serialize_ResponseResult(const jsonrpc::ResponseResult& result) {
       [&json_result](const ListToolsResult& list_result) {
         // ListToolsResult is a full result object with tools array
         json_result = to_json(list_result);
+      },
+      [&json_result](const JsonValue& json_val) {
+        // Direct JsonValue passthrough for arbitrary nested JSON responses
+        json_result = json_val;
       });
 
   return json_result;
