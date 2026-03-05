@@ -812,63 +812,53 @@ jsonrpc::Response McpServer::handleInitialize(const jsonrpc::Request& request,
     // session.setClientInfo(...);
   }
 
-  // Build initialize result
-  InitializeResult result;
-  result.protocolVersion = config_.protocol_version;
-  result.capabilities = config_.capabilities;
-  result.serverInfo = mcp::make_optional(
-      Implementation(config_.server_name, config_.server_version));
+  // Build initialize result as proper nested JSON structure
+  // MCP protocol requires nested objects, not flattened dot notation
+  json::JsonValue result_json;
+  result_json["protocolVersion"] = config_.protocol_version;
 
-  if (!config_.instructions.empty()) {
-    result.instructions = mcp::make_optional(config_.instructions);
-  }
+  // Add serverInfo as nested object
+  json::JsonValue server_info;
+  server_info["name"] = config_.server_name;
+  server_info["version"] = config_.server_version;
+  result_json["serverInfo"] = std::move(server_info);
 
-  // Convert InitializeResult to Metadata for ResponseResult
-  // Since ResponseResult doesn't directly support InitializeResult,
-  // we need to convert it to a simplified Metadata object
-  // TODO: This is a temporary workaround until proper serialization is
-  // implemented
-  auto builder =
-      make<Metadata>().add("protocolVersion", result.protocolVersion);
-
-  // Add server info if present (flattened)
-  if (result.serverInfo.has_value()) {
-    builder.add("serverInfo.name", result.serverInfo->name)
-        .add("serverInfo.version", result.serverInfo->version);
-  }
-
-  // Add capabilities (flattened)
-  if (result.capabilities.resources.has_value()) {
-    if (holds_alternative<bool>(result.capabilities.resources.value())) {
-      builder.add("capabilities.resources",
-                  get<bool>(result.capabilities.resources.value()));
+  // Add capabilities as nested object with empty objects for enabled caps
+  json::JsonValue capabilities = json::JsonValue::object();
+  if (config_.capabilities.resources.has_value()) {
+    if (holds_alternative<bool>(config_.capabilities.resources.value())) {
+      if (get<bool>(config_.capabilities.resources.value())) {
+        capabilities["resources"] = json::JsonValue::object();
+      }
     } else {
-      // Handle ResourcesCapability struct
-      builder.add("capabilities.resources", true)
-          .add("capabilities.resources.subscribe", true)
-          .add("capabilities.resources.listChanged", true);
+      json::JsonValue resources_cap = json::JsonValue::object();
+      resources_cap["subscribe"] = true;
+      resources_cap["listChanged"] = true;
+      capabilities["resources"] = std::move(resources_cap);
     }
   }
-
-  if (result.capabilities.tools.has_value()) {
-    builder.add("capabilities.tools", result.capabilities.tools.value());
+  if (config_.capabilities.tools.has_value() &&
+      config_.capabilities.tools.value()) {
+    capabilities["tools"] = json::JsonValue::object();
   }
-  if (result.capabilities.prompts.has_value()) {
-    builder.add("capabilities.prompts", result.capabilities.prompts.value());
+  if (config_.capabilities.prompts.has_value() &&
+      config_.capabilities.prompts.value()) {
+    capabilities["prompts"] = json::JsonValue::object();
   }
-  if (result.capabilities.logging.has_value()) {
-    builder.add("capabilities.logging", result.capabilities.logging.value());
+  if (config_.capabilities.logging.has_value() &&
+      config_.capabilities.logging.value()) {
+    capabilities["logging"] = json::JsonValue::object();
   }
+  result_json["capabilities"] = std::move(capabilities);
 
   // Add instructions if present
-  if (result.instructions.has_value()) {
-    builder.add("instructions", result.instructions.value());
+  if (!config_.instructions.empty()) {
+    result_json["instructions"] = config_.instructions;
   }
 
-  auto response_metadata = builder.build();
-
+  // Return response with JSON result directly
   return jsonrpc::Response::success(request.id,
-                                    jsonrpc::ResponseResult(response_metadata));
+                                    jsonrpc::ResponseResult(result_json));
 }
 
 jsonrpc::Response McpServer::handlePing(const jsonrpc::Request& request,
@@ -986,11 +976,20 @@ jsonrpc::Response McpServer::handleUnsubscribe(const jsonrpc::Request& request,
 
 jsonrpc::Response McpServer::handleListTools(const jsonrpc::Request& request,
                                              SessionContext& session) {
-  // Get tools from tool registry and return tools vector directly
-  // ResponseResult variant supports std::vector<Tool>
+  // Get tools from tool registry
   auto result = tool_registry_->listTools();
+
+  // Build response as JsonValue with "tools" key per MCP spec
+  json::JsonValue tools_array = json::JsonValue::array();
+  for (const auto& tool : result.tools) {
+    tools_array.push_back(json::to_json(tool));
+  }
+
+  json::JsonValue response_obj = json::JsonValue::object();
+  response_obj["tools"] = std::move(tools_array);
+
   return jsonrpc::Response::success(request.id,
-                                    jsonrpc::ResponseResult(result.tools));
+                                    jsonrpc::ResponseResult(response_obj));
 }
 
 jsonrpc::Response McpServer::handleCallTool(const jsonrpc::Request& request,
@@ -1081,11 +1080,20 @@ jsonrpc::Response McpServer::handleListPrompts(const jsonrpc::Request& request,
     }
   }
 
-  // Get prompts from prompt registry and return prompts vector directly
-  // ResponseResult variant supports std::vector<Prompt>
+  // Get prompts from prompt registry
   auto result = prompt_registry_->listPrompts(cursor);
+
+  // Build response as JsonValue with "prompts" key per MCP spec
+  json::JsonValue prompts_array = json::JsonValue::array();
+  for (const auto& prompt : result.prompts) {
+    prompts_array.push_back(json::to_json(prompt));
+  }
+
+  json::JsonValue response_obj = json::JsonValue::object();
+  response_obj["prompts"] = std::move(prompts_array);
+
   return jsonrpc::Response::success(request.id,
-                                    jsonrpc::ResponseResult(result.prompts));
+                                    jsonrpc::ResponseResult(response_obj));
 }
 
 jsonrpc::Response McpServer::handleGetPrompt(const jsonrpc::Request& request,
