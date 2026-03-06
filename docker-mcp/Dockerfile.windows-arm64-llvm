@@ -117,7 +117,7 @@ RUN mkdir -p cmake-build && cd cmake-build && \
     cmake \
         -DCMAKE_TOOLCHAIN_FILE=/build/toolchain-win-arm64.cmake \
         -DCMAKE_BUILD_TYPE=Release \
-        -DCMAKE_CXX_STANDARD=17 \
+        -DCMAKE_CXX_STANDARD=14 \
         -DBUILD_SHARED_LIBS=ON \
         -DBUILD_STATIC_LIBS=OFF \
         -DBUILD_TESTS=OFF \

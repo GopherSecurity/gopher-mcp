@@ -2,7 +2,7 @@ name: Build All Platforms
 
 on:
   push:
-    branches: [ dev_cross_build, dev_improve_client_fetch_tools_cross_build ]
+    branches: [ br_release ]
   workflow_dispatch:
     inputs:
       build_type:
@@ -13,11 +13,6 @@ on:
         options:
           - Release
           - Debug
-      version:
-        description: 'Library version (e.g., 0.1.0)'
-        required: false
-        default: '0.1.0'
-        type: string
       create_release:
         description: 'Create GitHub Release'
         required: false
@@ -30,7 +25,6 @@ permissions:
 
 env:
   BUILD_TYPE: ${{ github.event.inputs.build_type || 'Release' }}
-  LIB_VERSION: ${{ github.event.inputs.version || '0.1.0' }}
 
 jobs:
   # Linux builds (x64 and ARM64)
@@ -215,12 +209,23 @@ jobs:
     runs-on: ubuntu-latest
     needs: [build-linux, build-windows, build-macos]
     if: |
-      (github.event_name == 'push' && (github.ref == 'refs/heads/dev_cross_build' || github.ref == 'refs/heads/dev_improve_client_fetch_tools_cross_build')) ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/br_release') ||
       (github.event_name == 'workflow_dispatch' && github.event.inputs.create_release == 'true')
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Extract version from CMakeLists.txt
+        id: version
+        run: |
+          VERSION=$(grep -E "^project\(gopher-mcp VERSION" CMakeLists.txt | sed -E 's/.*VERSION ([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
+          if [ -z "$VERSION" ]; then
+            echo "Error: Could not extract version from CMakeLists.txt"
+            exit 1
+          fi
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "Extracted version: ${VERSION}"
 
       - name: Download all artifacts
         uses: actions/download-artifact@v4
@@ -272,62 +277,63 @@ jobs:
           echo "=== Release Archives ==="
           ls -la *.tar.gz *.zip 2>/dev/null || true
 
-      - name: Generate build report
+      - name: Extract changelog for release
+        id: changelog
         run: |
-          cat > BUILD_REPORT.md << EOF
-          # Build Report - libgopher-mcp
+          VERSION="${{ steps.version.outputs.version }}"
+          # Extract the content of the latest version section from CHANGELOG.md
+          # Find the section starting with ## [VERSION] and ending before the next ## [
+          if [ -f "CHANGELOG.md" ]; then
+            # Extract content between ## [VERSION] and the next ## [
+            CHANGELOG_CONTENT=$(awk -v ver="$VERSION" '
+              /^## \[/ {
+                if (found) exit
+                if ($0 ~ "\\[" ver "\\]") found=1
+                next
+              }
+              found { print }
+            ' CHANGELOG.md)
 
+            if [ -z "$CHANGELOG_CONTENT" ]; then
+              CHANGELOG_CONTENT="No changelog entry found for version ${VERSION}"
+            fi
+          else
+            CHANGELOG_CONTENT="CHANGELOG.md not found"
+          fi
+
+          # Write to file for use in release notes
+          echo "$CHANGELOG_CONTENT" > CHANGELOG_SECTION.md
+
+      - name: Generate release notes
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          cat > RELEASE_NOTES.md << EOF
           ## Build Information
-          - **Date:** $(date -u +"%Y-%m-%d %H:%M:%S UTC")
-          - **Commit:** ${{ github.sha }}
-          - **Branch:** ${{ github.ref_name }}
-          - **Build Type:** ${{ env.BUILD_TYPE }}
-          - **Library Version:** ${{ env.LIB_VERSION }}
 
-          ## Platforms Built
+          | Field | Value |
+          |-------|-------|
+          | **Version** | ${VERSION} |
+          | **Date** | $(date -u +"%Y-%m-%d %H:%M:%S UTC") |
+          | **Commit** | ${{ github.sha }} |
+          | **Branch** | ${{ github.ref_name }} |
+          | **Build Type** | ${{ env.BUILD_TYPE }} |
 
-          ### Linux
-          - ✅ x64 (Ubuntu 20.04+, GLIBC 2.31+)
-          - ✅ ARM64 (Ubuntu 20.04+, GLIBC 2.31+)
+          ### Platforms
+          - Linux: x64, ARM64
+          - Windows: x64, ARM64
+          - macOS: x64, ARM64
 
-          ### Windows
-          - ✅ x64 (Windows 7+, MinGW-w64)
-          - ✅ ARM64 (Windows 10+, LLVM-MinGW)
+          ## What's Changed
 
-          ### macOS
-          - ✅ x64 (macOS 10.15+, Intel)
-          - ✅ ARM64 (macOS 11.0+, Apple Silicon)
-
-          ## Package Contents
-
-          Each platform package includes:
-          - Main library (\`.so\`, \`.dll\`, or \`.dylib\`)
-          - C API library for FFI bindings
-          - Import library (\`.lib\` for Windows)
-          - Header files (\`include/\`)
-          - Verification tool
-
-          ## Usage
-
-          ### Linux/macOS
-          \`\`\`bash
-          tar -xzf libgopher-mcp-<platform>.tar.gz
-          ./verify_mcp  # Test the library
-          \`\`\`
-
-          ### Windows
-          \`\`\`powershell
-          Expand-Archive libgopher-mcp-windows-<arch>.zip
-          .\verify_mcp.exe  # Test the library
-          \`\`\`
           EOF
+
+          cat CHANGELOG_SECTION.md >> RELEASE_NOTES.md
 
       - name: Generate release tag
         id: tag
         run: |
-          VERSION="${{ env.LIB_VERSION }}"
-          TIMESTAMP=$(date +%Y%m%d-%H%M%S)
-          TAG="v${VERSION}-${TIMESTAMP}"
+          VERSION="${{ steps.version.outputs.version }}"
+          TAG="v${VERSION}"
           echo "tag=${TAG}" >> $GITHUB_OUTPUT
           echo "Release tag: ${TAG}"
 
@@ -336,7 +342,7 @@ jobs:
         with:
           tag_name: ${{ steps.tag.outputs.tag }}
           name: libgopher-mcp ${{ steps.tag.outputs.tag }}
-          body_path: BUILD_REPORT.md
+          body_path: RELEASE_NOTES.md
           draft: false
           prerelease: false
           files: |
