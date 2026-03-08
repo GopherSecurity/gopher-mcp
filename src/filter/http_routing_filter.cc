@@ -65,7 +65,19 @@ void HttpRoutingFilter::onHeaders(
 
   // Server mode: route incoming requests
   std::string method = extractMethod(headers);
-  std::string path = extractPath(headers);
+  std::string path = extractPath(headers);  // Path without query string for routing
+
+  // Get full URL including query string for handler context
+  std::string full_url = path;
+  auto url_it = headers.find("url");
+  if (url_it != headers.end()) {
+    full_url = url_it->second;
+  } else {
+    auto path_it = headers.find(":path");
+    if (path_it != headers.end()) {
+      full_url = path_it->second;
+    }
+  }
 
   GOPHER_LOG_DEBUG("HttpRoutingFilter: method={} path={}", method, path);
 
@@ -74,14 +86,24 @@ void HttpRoutingFilter::onHeaders(
   auto handler_it = handlers_.find(key);
 
   if (handler_it != handlers_.end()) {
-    // We have a handler - execute it immediately with available info
+    // We have a handler
     RequestContext ctx;
     ctx.method = method;
-    ctx.path = path;
+    ctx.path = full_url;  // Full URL with query string for handler
     ctx.headers = headers;
     ctx.keep_alive = keep_alive;
     // Note: body not available yet in onHeaders
 
+    // For POST/PUT requests, defer handler until we have the body
+    if (method == "POST" || method == "PUT" || method == "PATCH") {
+      pending_post_request_ = true;
+      pending_context_ = ctx;
+      pending_handler_ = handler_it->second;
+      accumulated_body_.clear();
+      return;  // Wait for body
+    }
+
+    // For GET/OPTIONS etc, execute immediately
     Response resp = handler_it->second(ctx);
     if (resp.status_code != 0) {
       // Handler wants to handle this - send response immediately
@@ -98,8 +120,13 @@ void HttpRoutingFilter::onHeaders(
 }
 
 void HttpRoutingFilter::onBody(const std::string& data, bool end_stream) {
-  // Stateless - always pass through
-  // If we handled the request in onHeaders, this won't be called
+  // If we're accumulating body for a POST handler, buffer it
+  if (pending_post_request_) {
+    accumulated_body_ += data;
+    return;  // Don't forward - we'll handle in onMessageComplete
+  }
+
+  // Otherwise pass through
   if (next_callbacks_) {
     next_callbacks_->onBody(data, end_stream);
   }
@@ -108,8 +135,20 @@ void HttpRoutingFilter::onBody(const std::string& data, bool end_stream) {
 void HttpRoutingFilter::onMessageComplete() {
   GOPHER_LOG_DEBUG("HttpRoutingFilter::onMessageComplete called");
 
-  // Stateless - always pass through
-  // If we handled the request in onHeaders, this won't be called
+  // If we have a pending POST request, now we have the complete body
+  if (pending_post_request_) {
+    pending_context_.body = accumulated_body_;
+    Response resp = pending_handler_(pending_context_);
+    if (resp.status_code != 0) {
+      sendResponse(resp);
+    }
+    // Reset state
+    pending_post_request_ = false;
+    accumulated_body_.clear();
+    return;
+  }
+
+  // Otherwise pass through
   if (next_callbacks_) {
     next_callbacks_->onMessageComplete();
   }
@@ -211,20 +250,29 @@ std::string HttpRoutingFilter::extractMethod(
 
 std::string HttpRoutingFilter::extractPath(
     const std::map<std::string, std::string>& headers) {
+  std::string full_path;
+
   // Check for :path pseudo-header (HTTP/2 style)
   auto it = headers.find(":path");
   if (it != headers.end()) {
-    return it->second;
+    full_path = it->second;
+  } else {
+    // For HTTP/1.1, the codec stores the URL in a "url" header
+    it = headers.find("url");
+    if (it != headers.end()) {
+      full_path = it->second;
+    } else {
+      // Default to root if not found
+      return "/";
+    }
   }
 
-  // For HTTP/1.1, the codec stores the URL in a "url" header
-  it = headers.find("url");
-  if (it != headers.end()) {
-    return it->second;
+  // Strip query string for routing purposes
+  size_t query_pos = full_path.find('?');
+  if (query_pos != std::string::npos) {
+    return full_path.substr(0, query_pos);
   }
-
-  // Default to root if not found
-  return "/";
+  return full_path;
 }
 
 // Factory methods
