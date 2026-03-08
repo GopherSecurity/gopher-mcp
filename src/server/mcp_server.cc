@@ -1043,28 +1043,12 @@ jsonrpc::Response McpServer::handleCallTool(const jsonrpc::Request& request,
   auto result = tool_registry_->callTool(name, arguments, session);
   GOPHER_LOG_DEBUG("tool_registry_->callTool returned for: {}", name);
 
-  // Convert CallToolResult to proper response
-  // Extract text content from the result
-  std::string content_text;
-  if (!result.content.empty()) {
-    for (const auto& content_block : result.content) {
-      if (holds_alternative<TextContent>(content_block)) {
-        const auto& text_content = get<TextContent>(content_block);
-        content_text += text_content.text;
-      }
-    }
-  }
-
-  // Build response metadata with actual result
-  auto response_metadata =
-      make<Metadata>()
-          .add("content",
-               content_text.empty() ? std::string("No result") : content_text)
-          .add("isError", result.isError)
-          .build();
+  // Serialize CallToolResult to proper MCP format
+  // The result must have content as an array of content blocks per MCP spec
+  auto result_json = json::to_json(result);
 
   return jsonrpc::Response::success(request.id,
-                                    jsonrpc::ResponseResult(response_metadata));
+                                    jsonrpc::ResponseResult(result_json));
 }
 
 jsonrpc::Response McpServer::handleListPrompts(const jsonrpc::Request& request,

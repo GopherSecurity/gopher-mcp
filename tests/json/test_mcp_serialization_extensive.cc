@@ -926,6 +926,58 @@ TEST_F(MCPSerializationExtensiveTest, AllElicitationSchemas) {
   }
 }
 
+// Test CallToolResult serialization produces MCP-compliant format
+// MCP spec requires content to be an array of content blocks with type/text
+TEST_F(MCPSerializationExtensiveTest, CallToolResultMcpFormatCompliance) {
+  // Create a CallToolResult with text content
+  CallToolResult result;
+  result.content.push_back(ExtendedContentBlock(TextContent("Hello, World!")));
+  result.isError = false;
+
+  // Serialize to JSON
+  JsonValue json = to_json(result);
+
+  // Verify MCP format: content must be an array
+  ASSERT_TRUE(json.contains("content"));
+  ASSERT_TRUE(json["content"].isArray());
+
+  // Verify each content block has type and text fields
+  ASSERT_EQ(json["content"].size(), 1);
+  const auto& content_block = json["content"][0];
+  ASSERT_TRUE(content_block.contains("type"));
+  EXPECT_EQ(content_block["type"].getString(), "text");
+  ASSERT_TRUE(content_block.contains("text"));
+  EXPECT_EQ(content_block["text"].getString(), "Hello, World!");
+}
+
+// Test CallToolResult with multiple content blocks
+TEST_F(MCPSerializationExtensiveTest, CallToolResultMultipleContentBlocks) {
+  CallToolResult result;
+  result.content.push_back(ExtendedContentBlock(TextContent("First block")));
+  result.content.push_back(ExtendedContentBlock(TextContent("Second block")));
+  result.isError = false;
+
+  JsonValue json = to_json(result);
+
+  ASSERT_TRUE(json["content"].isArray());
+  ASSERT_EQ(json["content"].size(), 2);
+  EXPECT_EQ(json["content"][0]["text"].getString(), "First block");
+  EXPECT_EQ(json["content"][1]["text"].getString(), "Second block");
+}
+
+// Test CallToolResult with error flag
+TEST_F(MCPSerializationExtensiveTest, CallToolResultWithError) {
+  CallToolResult result;
+  result.content.push_back(ExtendedContentBlock(TextContent("Error message")));
+  result.isError = true;
+
+  JsonValue json = to_json(result);
+
+  ASSERT_TRUE(json.contains("content"));
+  ASSERT_TRUE(json.contains("isError"));
+  EXPECT_TRUE(json["isError"].getBool());
+}
+
 // Main function
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
