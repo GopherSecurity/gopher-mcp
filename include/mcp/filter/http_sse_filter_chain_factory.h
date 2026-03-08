@@ -1,5 +1,6 @@
 #pragma once
 
+#include <functional>
 #include <memory>
 #include <string>
 
@@ -22,6 +23,13 @@ class MetricsFilter;
 
 namespace mcp {
 namespace filter {
+
+/**
+ * Callback type for registering custom HTTP routes
+ * Called with the HttpRoutingFilter when setting up the filter chain.
+ * Use this to register custom endpoints (e.g., OAuth discovery, health checks).
+ */
+using HttpRouteRegistrationCallback = std::function<void(HttpRoutingFilter*)>;
 
 /**
  * MCP HTTP+SSE Filter Chain Factory
@@ -105,6 +113,48 @@ class HttpSseFilterChainFactory : public network::FilterChainFactory {
   void enableMetrics(bool enable = true) { enable_metrics_ = enable; }
 
   /**
+   * Add a filter factory that runs before protocol filters
+   * Filter factories are invoked in order during chain creation.
+   * The created filters process data before HTTP/SSE/JSON-RPC protocol filters.
+   * Useful for authentication, logging, or other cross-cutting concerns.
+   *
+   * This follows the existing FilterFactoryCb pattern used by
+   * FilterChainFactoryImpl and createNetworkFilterChain().
+   *
+   * @param factory Factory callback that creates a filter instance
+   */
+  void addFilterFactory(network::FilterFactoryCb factory) {
+    filter_factories_.push_back(std::move(factory));
+  }
+
+  /**
+   * Get the list of filter factories
+   * @return Vector of filter factories
+   */
+  const std::vector<network::FilterFactoryCb>& getFilterFactories() const {
+    return filter_factories_;
+  }
+
+  /**
+   * Set callback for registering custom HTTP routes
+   * The callback will be invoked when the filter chain is created,
+   * allowing registration of custom endpoints like OAuth discovery.
+   *
+   * @param callback Function to call with the HttpRoutingFilter
+   */
+  void setRouteRegistrationCallback(HttpRouteRegistrationCallback callback) {
+    route_registration_callback_ = std::move(callback);
+  }
+
+  /**
+   * Get the route registration callback
+   * @return The callback, or nullptr if not set
+   */
+  const HttpRouteRegistrationCallback& getRouteRegistrationCallback() const {
+    return route_registration_callback_;
+  }
+
+  /**
    * Send a response through the connection's filter chain
    * Following production pattern: connection context flows through
    * @param response The JSON-RPC response to send
@@ -124,6 +174,14 @@ class HttpSseFilterChainFactory : public network::FilterChainFactory {
 
   // Store filters for lifetime management
   mutable std::vector<network::FilterSharedPtr> filters_;
+
+  // Filter factories added by user (authentication, logging, etc.)
+  // These are invoked during chain creation to add filters before protocol filters
+  // Following the existing FilterFactoryCb pattern from FilterChainFactoryImpl
+  std::vector<network::FilterFactoryCb> filter_factories_;
+
+  // Callback for registering custom HTTP routes
+  HttpRouteRegistrationCallback route_registration_callback_;
 };
 
 }  // namespace filter

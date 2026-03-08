@@ -37,6 +37,7 @@
 #include "mcp/event/event_loop.h"
 #include "mcp/filter/filter_chain_callbacks.h"
 #include "mcp/filter/filter_chain_event_hub.h"
+#include "mcp/filter/http_sse_filter_chain_factory.h"
 #include "mcp/filter/metrics_filter.h"
 #include "mcp/json/json_bridge.h"
 #include "mcp/logging/log_macros.h"
@@ -112,6 +113,20 @@ struct McpServerConfig : public application::ApplicationBase::Config {
   // If provided, uses ConfigurableFilterChainFactory instead of hardcoded
   // factories
   optional<json::JsonValue> filter_chain_config;
+
+  // Filter factories for HTTP-level processing (optional)
+  // These factories are invoked during chain creation to add filters
+  // that run before protocol filters (HTTP/SSE/JSON-RPC).
+  // Useful for authentication, logging, or other cross-cutting concerns.
+  // This follows the existing FilterFactoryCb pattern used throughout gopher-mcp.
+  // Example: Add an OAuth auth filter factory to validate tokens before processing
+  std::vector<network::FilterFactoryCb> filter_factories;
+
+  // Callback for registering custom HTTP routes (optional)
+  // Called when filter chain is created, allowing registration of custom
+  // endpoints like OAuth discovery (/.well-known/oauth-protected-resource).
+  // Example: registerOAuthEndpoints(router, config);
+  filter::HttpRouteRegistrationCallback route_registration_callback;
 };
 
 /**
