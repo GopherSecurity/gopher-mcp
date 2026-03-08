@@ -216,9 +216,27 @@ void McpServer::performListen() {
         // backward compatibility
         GOPHER_LOG_INFO("Using default HTTP/SSE filter chain factory");
 
-        tcp_config.filter_chain_factory =
+        auto http_sse_factory =
             std::make_shared<filter::HttpSseFilterChainFactory>(
                 *main_dispatcher_, *protocol_callbacks_);
+
+        // Add filter factories from config (e.g., auth filters)
+        // This follows the existing FilterFactoryCb pattern
+        for (const auto& factory : config_.filter_factories) {
+          if (factory) {
+            http_sse_factory->addFilterFactory(factory);
+            GOPHER_LOG_DEBUG("Added filter factory to HTTP/SSE filter chain");
+          }
+        }
+
+        // Set route registration callback for custom HTTP endpoints
+        if (config_.route_registration_callback) {
+          http_sse_factory->setRouteRegistrationCallback(
+              config_.route_registration_callback);
+          GOPHER_LOG_DEBUG("Set route registration callback for custom endpoints");
+        }
+
+        tcp_config.filter_chain_factory = http_sse_factory;
 
         tcp_config.backlog = 128;
         tcp_config.per_connection_buffer_limit = config_.buffer_high_watermark;

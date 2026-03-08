@@ -13,6 +13,7 @@
 #include <sys/socket.h>
 
 #include "mcp/buffer.h"
+#include "mcp/filter/http_routing_filter.h"
 #include "mcp/filter/http_sse_filter_chain_factory.h"
 #include "mcp/json/json_serialization.h"
 #include "mcp/mcp_connection_manager.h"
@@ -28,6 +29,24 @@ namespace {
 using ::testing::_;
 using ::testing::NiceMock;
 using ::testing::Return;
+
+// Simple test filter for pre-filter tests
+class TestPreFilter : public network::Filter {
+ public:
+  network::FilterStatus onData(Buffer& data, bool end_stream) override {
+    return network::FilterStatus::Continue;
+  }
+  network::FilterStatus onWrite(Buffer& data, bool end_stream) override {
+    return network::FilterStatus::Continue;
+  }
+  network::FilterStatus onNewConnection() override {
+    return network::FilterStatus::Continue;
+  }
+  void initializeReadFilterCallbacks(
+      network::ReadFilterCallbacks& callbacks) override {}
+  void initializeWriteFilterCallbacks(
+      network::WriteFilterCallbacks& callbacks) override {}
+};
 
 /**
  * Mock MCP message callbacks for testing
@@ -339,6 +358,116 @@ TEST_F(HttpSseFilterChainFactoryTest, DISABLED_ProcessSseEvents) {
     OwnedBuffer buffer;
     buffer.add(http_response);
     connection->filterManager().onRead();
+  });
+}
+
+// Test filter factory support (following existing FilterFactoryCb pattern)
+TEST_F(HttpSseFilterChainFactoryTest, AddFilterFactory) {
+  executeInDispatcher([this]() {
+    HttpSseFilterChainFactory factory(*dispatcher_, *message_callbacks_, true);
+
+    // Initially no filter factories
+    EXPECT_TRUE(factory.getFilterFactories().empty());
+
+    // Create a filter factory
+    auto filter_factory = []() -> network::FilterSharedPtr {
+      return std::make_shared<TestPreFilter>();
+    };
+
+    // Add filter factory
+    factory.addFilterFactory(filter_factory);
+
+    // Verify filter factory was added
+    EXPECT_EQ(factory.getFilterFactories().size(), 1);
+  });
+}
+
+// Test multiple filter factories
+TEST_F(HttpSseFilterChainFactoryTest, MultipleFilterFactories) {
+  executeInDispatcher([this]() {
+    HttpSseFilterChainFactory factory(*dispatcher_, *message_callbacks_, true);
+
+    // Create multiple filter factories
+    auto factory1 = []() -> network::FilterSharedPtr {
+      return std::make_shared<TestPreFilter>();
+    };
+    auto factory2 = []() -> network::FilterSharedPtr {
+      return std::make_shared<TestPreFilter>();
+    };
+    auto factory3 = []() -> network::FilterSharedPtr {
+      return std::make_shared<TestPreFilter>();
+    };
+
+    factory.addFilterFactory(factory1);
+    factory.addFilterFactory(factory2);
+    factory.addFilterFactory(factory3);
+
+    // Verify order is preserved
+    EXPECT_EQ(factory.getFilterFactories().size(), 3);
+  });
+}
+
+// Test route registration callback
+TEST_F(HttpSseFilterChainFactoryTest, RouteRegistrationCallback) {
+  executeInDispatcher([this]() {
+    HttpSseFilterChainFactory factory(*dispatcher_, *message_callbacks_, true);
+
+    // Initially no callback
+    EXPECT_FALSE(factory.getRouteRegistrationCallback());
+
+    bool callback_invoked = false;
+    HttpRoutingFilter* received_router = nullptr;
+
+    // Set callback
+    factory.setRouteRegistrationCallback(
+        [&callback_invoked, &received_router](HttpRoutingFilter* router) {
+          callback_invoked = true;
+          received_router = router;
+        });
+
+    // Verify callback was set
+    EXPECT_TRUE(factory.getRouteRegistrationCallback() != nullptr);
+  });
+}
+
+// Test route callback is invoked during filter chain creation
+TEST_F(HttpSseFilterChainFactoryTest, RouteCallbackInvokedOnCreate) {
+  executeInDispatcher([this]() {
+    HttpSseFilterChainFactory factory(*dispatcher_, *message_callbacks_, true);
+
+    bool callback_invoked = false;
+
+    factory.setRouteRegistrationCallback(
+        [&callback_invoked](HttpRoutingFilter* router) {
+          callback_invoked = true;
+          // Register a custom route
+          router->registerHandler(
+              "GET", "/custom",
+              [](const HttpRoutingFilter::RequestContext&) {
+                HttpRoutingFilter::Response resp;
+                resp.status_code = 200;
+                resp.body = "Custom endpoint";
+                return resp;
+              });
+        });
+
+    // Create connection to trigger filter chain creation
+    int test_fd = ::socket(AF_UNIX, SOCK_STREAM, 0);
+    auto& socket_interface = network::socketInterface();
+    auto io_handle = socket_interface.ioHandleForFd(test_fd, true);
+
+    auto socket = std::make_unique<network::ConnectionSocketImpl>(
+        std::move(io_handle), network::Address::pipeAddress("test"),
+        network::Address::pipeAddress("test"));
+
+    auto connection = std::make_unique<network::ConnectionImpl>(
+        *dispatcher_, std::move(socket), network::TransportSocketPtr(nullptr),
+        true);
+
+    // Create filter chain - callback should be invoked
+    factory.createFilterChain(connection->filterManager());
+
+    EXPECT_TRUE(callback_invoked);
   });
 }
 
