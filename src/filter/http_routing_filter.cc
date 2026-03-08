@@ -65,7 +65,8 @@ void HttpRoutingFilter::onHeaders(
 
   // Server mode: route incoming requests
   std::string method = extractMethod(headers);
-  std::string path = extractPath(headers);  // Path without query string for routing
+  std::string path =
+      extractPath(headers);  // Path without query string for routing
 
   // Get full URL including query string for handler context
   std::string full_url = path;

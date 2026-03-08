@@ -176,8 +176,9 @@ class HttpSseFilterChainFactory : public network::FilterChainFactory {
   mutable std::vector<network::FilterSharedPtr> filters_;
 
   // Filter factories added by user (authentication, logging, etc.)
-  // These are invoked during chain creation to add filters before protocol filters
-  // Following the existing FilterFactoryCb pattern from FilterChainFactoryImpl
+  // These are invoked during chain creation to add filters before protocol
+  // filters Following the existing FilterFactoryCb pattern from
+  // FilterChainFactoryImpl
   std::vector<network::FilterFactoryCb> filter_factories_;
 
   // Callback for registering custom HTTP routes

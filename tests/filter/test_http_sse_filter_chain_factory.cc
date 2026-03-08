@@ -441,14 +441,13 @@ TEST_F(HttpSseFilterChainFactoryTest, RouteCallbackInvokedOnCreate) {
         [&callback_invoked](HttpRoutingFilter* router) {
           callback_invoked = true;
           // Register a custom route
-          router->registerHandler(
-              "GET", "/custom",
-              [](const HttpRoutingFilter::RequestContext&) {
-                HttpRoutingFilter::Response resp;
-                resp.status_code = 200;
-                resp.body = "Custom endpoint";
-                return resp;
-              });
+          router->registerHandler("GET", "/custom",
+                                  [](const HttpRoutingFilter::RequestContext&) {
+                                    HttpRoutingFilter::Response resp;
+                                    resp.status_code = 200;
+                                    resp.body = "Custom endpoint";
+                                    return resp;
+                                  });
         });
 
     // Create connection to trigger filter chain creation

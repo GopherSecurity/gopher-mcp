@@ -306,18 +306,18 @@ TEST_F(HttpRoutingFilterSimpleTest, PostBodyHandling) {
   std::string received_body;
 
   executeInDispatcher([this, &handler_called, &received_body]() {
-    filter_->registerHandler(
-        "POST", "/api/data",
-        [&handler_called, &received_body](
-            const HttpRoutingFilter::RequestContext& req) {
-          handler_called = true;
-          received_body = req.body;
-          HttpRoutingFilter::Response resp;
-          resp.status_code = 201;
-          resp.body = "Created";
-          resp.headers["content-length"] = std::to_string(resp.body.length());
-          return resp;
-        });
+    filter_->registerHandler("POST", "/api/data",
+                             [&handler_called, &received_body](
+                                 const HttpRoutingFilter::RequestContext& req) {
+                               handler_called = true;
+                               received_body = req.body;
+                               HttpRoutingFilter::Response resp;
+                               resp.status_code = 201;
+                               resp.body = "Created";
+                               resp.headers["content-length"] =
+                                   std::to_string(resp.body.length());
+                               return resp;
+                             });
 
     // Simulate POST request with headers
     std::map<std::string, std::string> headers;
@@ -339,16 +339,15 @@ TEST_F(HttpRoutingFilterSimpleTest, PostBodyAccumulation) {
   std::atomic<bool> handler_called(false);
 
   executeInDispatcher([this, &handler_called, &received_body]() {
-    filter_->registerHandler(
-        "POST", "/upload",
-        [&handler_called, &received_body](
-            const HttpRoutingFilter::RequestContext& req) {
-          handler_called = true;
-          received_body = req.body;
-          HttpRoutingFilter::Response resp;
-          resp.status_code = 200;
-          return resp;
-        });
+    filter_->registerHandler("POST", "/upload",
+                             [&handler_called, &received_body](
+                                 const HttpRoutingFilter::RequestContext& req) {
+                               handler_called = true;
+                               received_body = req.body;
+                               HttpRoutingFilter::Response resp;
+                               resp.status_code = 200;
+                               return resp;
+                             });
 
     std::map<std::string, std::string> headers;
     headers[":method"] = "POST";
@@ -376,16 +375,15 @@ TEST_F(HttpRoutingFilterSimpleTest, QueryStringRouting) {
 
   executeInDispatcher([this, &handler_called, &received_path]() {
     // Register handler for /search (without query string)
-    filter_->registerHandler(
-        "GET", "/search",
-        [&handler_called, &received_path](
-            const HttpRoutingFilter::RequestContext& req) {
-          handler_called = true;
-          received_path = req.path;
-          HttpRoutingFilter::Response resp;
-          resp.status_code = 200;
-          return resp;
-        });
+    filter_->registerHandler("GET", "/search",
+                             [&handler_called, &received_path](
+                                 const HttpRoutingFilter::RequestContext& req) {
+                               handler_called = true;
+                               received_path = req.path;
+                               HttpRoutingFilter::Response resp;
+                               resp.status_code = 200;
+                               return resp;
+                             });
 
     // Request with query string should still route to /search handler
     std::map<std::string, std::string> headers;
@@ -407,16 +405,15 @@ TEST_F(HttpRoutingFilterSimpleTest, PutBodyHandling) {
   std::atomic<bool> handler_called(false);
 
   executeInDispatcher([this, &handler_called, &received_body]() {
-    filter_->registerHandler(
-        "PUT", "/resource/123",
-        [&handler_called, &received_body](
-            const HttpRoutingFilter::RequestContext& req) {
-          handler_called = true;
-          received_body = req.body;
-          HttpRoutingFilter::Response resp;
-          resp.status_code = 200;
-          return resp;
-        });
+    filter_->registerHandler("PUT", "/resource/123",
+                             [&handler_called, &received_body](
+                                 const HttpRoutingFilter::RequestContext& req) {
+                               handler_called = true;
+                               received_body = req.body;
+                               HttpRoutingFilter::Response resp;
+                               resp.status_code = 200;
+                               return resp;
+                             });
 
     std::map<std::string, std::string> headers;
     headers[":method"] = "PUT";

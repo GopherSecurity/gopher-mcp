@@ -118,8 +118,9 @@ struct McpServerConfig : public application::ApplicationBase::Config {
   // These factories are invoked during chain creation to add filters
   // that run before protocol filters (HTTP/SSE/JSON-RPC).
   // Useful for authentication, logging, or other cross-cutting concerns.
-  // This follows the existing FilterFactoryCb pattern used throughout gopher-mcp.
-  // Example: Add an OAuth auth filter factory to validate tokens before processing
+  // This follows the existing FilterFactoryCb pattern used throughout
+  // gopher-mcp. Example: Add an OAuth auth filter factory to validate tokens
+  // before processing
   std::vector<network::FilterFactoryCb> filter_factories;
 
   // Callback for registering custom HTTP routes (optional)

@@ -134,9 +134,12 @@ class HttpSseJsonRpcProtocolFilter
       const jsonrpc::Response&, network::Connection&);
 
   HttpSseJsonRpcProtocolFilter(
-      event::Dispatcher& dispatcher, McpProtocolCallbacks& mcp_callbacks,
-      bool is_server, const std::string& http_path = "/rpc",
-      const std::string& http_host = "localhost", bool use_sse = true,
+      event::Dispatcher& dispatcher,
+      McpProtocolCallbacks& mcp_callbacks,
+      bool is_server,
+      const std::string& http_path = "/rpc",
+      const std::string& http_host = "localhost",
+      bool use_sse = true,
       const HttpRouteRegistrationCallback& route_callback = nullptr)
       : dispatcher_(dispatcher),
         mcp_callbacks_(mcp_callbacks),
@@ -1023,7 +1026,8 @@ bool HttpSseFilterChainFactory::createFilterChain(
   // No separate routing filter needed
 
   // Create the combined protocol filter
-  // Pass the route registration callback so custom HTTP routes can be registered
+  // Pass the route registration callback so custom HTTP routes can be
+  // registered
   auto combined_filter = std::make_shared<HttpSseJsonRpcProtocolFilter>(
       dispatcher_, message_callbacks_, is_server_, http_path_, http_host_,
       use_sse_, route_registration_callback_);
