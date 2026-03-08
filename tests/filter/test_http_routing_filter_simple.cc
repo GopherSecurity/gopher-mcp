@@ -299,6 +299,164 @@ TEST_F(HttpRoutingFilterSimpleTest, FilterInitialization) {
   });
 }
 
+// Test POST request body handling
+// POST handlers should receive the complete request body
+TEST_F(HttpRoutingFilterSimpleTest, PostBodyHandling) {
+  std::atomic<bool> handler_called(false);
+  std::string received_body;
+
+  executeInDispatcher([this, &handler_called, &received_body]() {
+    filter_->registerHandler(
+        "POST", "/api/data",
+        [&handler_called, &received_body](
+            const HttpRoutingFilter::RequestContext& req) {
+          handler_called = true;
+          received_body = req.body;
+          HttpRoutingFilter::Response resp;
+          resp.status_code = 201;
+          resp.body = "Created";
+          resp.headers["content-length"] = std::to_string(resp.body.length());
+          return resp;
+        });
+
+    // Simulate POST request with headers
+    std::map<std::string, std::string> headers;
+    headers[":method"] = "POST";
+    headers[":path"] = "/api/data";
+    headers["content-type"] = "application/json";
+
+    // Call onHeaders - should NOT call handler yet (waiting for body)
+    filter_->onHeaders(headers, true);
+  });
+
+  // Handler should not be called yet - waiting for body
+  EXPECT_FALSE(handler_called);
+}
+
+// Test POST body accumulation
+TEST_F(HttpRoutingFilterSimpleTest, PostBodyAccumulation) {
+  std::string received_body;
+  std::atomic<bool> handler_called(false);
+
+  executeInDispatcher([this, &handler_called, &received_body]() {
+    filter_->registerHandler(
+        "POST", "/upload",
+        [&handler_called, &received_body](
+            const HttpRoutingFilter::RequestContext& req) {
+          handler_called = true;
+          received_body = req.body;
+          HttpRoutingFilter::Response resp;
+          resp.status_code = 200;
+          return resp;
+        });
+
+    std::map<std::string, std::string> headers;
+    headers[":method"] = "POST";
+    headers[":path"] = "/upload";
+
+    filter_->onHeaders(headers, true);
+
+    // Accumulate body in chunks
+    filter_->onBody("chunk1", false);
+    filter_->onBody("chunk2", false);
+    filter_->onBody("chunk3", true);
+
+    // Complete the message - handler should be called with full body
+    filter_->onMessageComplete();
+  });
+
+  EXPECT_TRUE(handler_called);
+  EXPECT_EQ(received_body, "chunk1chunk2chunk3");
+}
+
+// Test query string handling - routing uses path without query string
+TEST_F(HttpRoutingFilterSimpleTest, QueryStringRouting) {
+  std::atomic<bool> handler_called(false);
+  std::string received_path;
+
+  executeInDispatcher([this, &handler_called, &received_path]() {
+    // Register handler for /search (without query string)
+    filter_->registerHandler(
+        "GET", "/search",
+        [&handler_called, &received_path](
+            const HttpRoutingFilter::RequestContext& req) {
+          handler_called = true;
+          received_path = req.path;
+          HttpRoutingFilter::Response resp;
+          resp.status_code = 200;
+          return resp;
+        });
+
+    // Request with query string should still route to /search handler
+    std::map<std::string, std::string> headers;
+    headers[":method"] = "GET";
+    headers[":path"] = "/search?q=test&page=1";
+    headers["url"] = "/search?q=test&page=1";
+
+    filter_->onHeaders(headers, true);
+  });
+
+  EXPECT_TRUE(handler_called);
+  // Handler should receive full URL with query string
+  EXPECT_EQ(received_path, "/search?q=test&page=1");
+}
+
+// Test PUT request body handling (similar to POST)
+TEST_F(HttpRoutingFilterSimpleTest, PutBodyHandling) {
+  std::string received_body;
+  std::atomic<bool> handler_called(false);
+
+  executeInDispatcher([this, &handler_called, &received_body]() {
+    filter_->registerHandler(
+        "PUT", "/resource/123",
+        [&handler_called, &received_body](
+            const HttpRoutingFilter::RequestContext& req) {
+          handler_called = true;
+          received_body = req.body;
+          HttpRoutingFilter::Response resp;
+          resp.status_code = 200;
+          return resp;
+        });
+
+    std::map<std::string, std::string> headers;
+    headers[":method"] = "PUT";
+    headers[":path"] = "/resource/123";
+
+    filter_->onHeaders(headers, true);
+    filter_->onBody("{\"updated\": true}", true);
+    filter_->onMessageComplete();
+  });
+
+  EXPECT_TRUE(handler_called);
+  EXPECT_EQ(received_body, "{\"updated\": true}");
+}
+
+// Test GET request does not wait for body
+TEST_F(HttpRoutingFilterSimpleTest, GetRequestImmediateExecution) {
+  std::atomic<bool> handler_called(false);
+
+  executeInDispatcher([this, &handler_called]() {
+    filter_->registerHandler(
+        "GET", "/immediate",
+        [&handler_called](const HttpRoutingFilter::RequestContext& req) {
+          handler_called = true;
+          HttpRoutingFilter::Response resp;
+          resp.status_code = 200;
+          return resp;
+        });
+
+    std::map<std::string, std::string> headers;
+    headers[":method"] = "GET";
+    headers[":path"] = "/immediate";
+
+    // GET should execute handler immediately in onHeaders
+    filter_->onHeaders(headers, true);
+  });
+
+  // Handler should be called immediately for GET
+  EXPECT_TRUE(handler_called);
+}
+
 }  // namespace
 }  // namespace filter
 }  // namespace mcp
