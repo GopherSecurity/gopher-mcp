@@ -233,7 +233,8 @@ void McpServer::performListen() {
         if (config_.route_registration_callback) {
           http_sse_factory->setRouteRegistrationCallback(
               config_.route_registration_callback);
-          GOPHER_LOG_DEBUG("Set route registration callback for custom endpoints");
+          GOPHER_LOG_DEBUG(
+              "Set route registration callback for custom endpoints");
         }
 
         tcp_config.filter_chain_factory = http_sse_factory;
