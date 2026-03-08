@@ -133,18 +133,18 @@ class HttpSseJsonRpcProtocolFilter
   friend void HttpSseFilterChainFactory::sendHttpResponse(
       const jsonrpc::Response&, network::Connection&);
 
-  HttpSseJsonRpcProtocolFilter(event::Dispatcher& dispatcher,
-                               McpProtocolCallbacks& mcp_callbacks,
-                               bool is_server,
-                               const std::string& http_path = "/rpc",
-                               const std::string& http_host = "localhost",
-                               bool use_sse = true)
+  HttpSseJsonRpcProtocolFilter(
+      event::Dispatcher& dispatcher, McpProtocolCallbacks& mcp_callbacks,
+      bool is_server, const std::string& http_path = "/rpc",
+      const std::string& http_host = "localhost", bool use_sse = true,
+      const HttpRouteRegistrationCallback& route_callback = nullptr)
       : dispatcher_(dispatcher),
         mcp_callbacks_(mcp_callbacks),
         is_server_(is_server),
         http_path_(http_path),
         http_host_(http_host),
-        use_sse_(use_sse) {
+        use_sse_(use_sse),
+        route_registration_callback_(route_callback) {
     // Following production pattern: all operations for this filter
     // happen in the single dispatcher thread
     // Create routing filter first (it will receive HTTP callbacks)
@@ -885,6 +885,12 @@ class HttpSseJsonRpcProtocolFilter
           resp.status_code = 0;
           return resp;
         });
+
+    // Call custom route registration callback if provided
+    // This allows users to register additional endpoints like OAuth discovery
+    if (route_registration_callback_) {
+      route_registration_callback_(routing_filter_.get());
+    }
   }
 
   event::Dispatcher& dispatcher_;
@@ -929,6 +935,9 @@ class HttpSseJsonRpcProtocolFilter
   // Buffered data
   OwnedBuffer pending_json_data_;
   OwnedBuffer pending_sse_data_;  // For accumulating SSE event stream data
+
+  // Custom route registration callback
+  HttpRouteRegistrationCallback route_registration_callback_;
 };
 
 // RequestStream method implementation (after HttpSseJsonRpcProtocolFilter
@@ -962,9 +971,23 @@ void HttpSseFilterChainFactory::sendHttpResponse(
 bool HttpSseFilterChainFactory::createFilterChain(
     network::FilterManager& filter_manager) const {
   // Following production pattern: create filters in order
-  // 1. HTTP Routing Filter (handles arbitrary HTTP endpoints)
-  // 2. Combined Protocol Filter (HTTP/SSE/JSON-RPC)
-  // 3. Metrics Filter (collects statistics)
+  // 1. Pre-filters (authentication, logging, etc.) - added by user
+  // 2. Metrics Filter (collects statistics)
+  // 3. Combined Protocol Filter (HTTP/SSE/JSON-RPC)
+
+  // Invoke user-provided filter factories first (e.g., auth filters)
+  // These filters run before protocol filters and can intercept/reject requests
+  // Following the existing FilterFactoryCb pattern from FilterChainFactoryImpl
+  for (const auto& factory : filter_factories_) {
+    if (factory) {
+      auto filter = factory();
+      if (filter) {
+        filter_manager.addReadFilter(filter);
+        filter_manager.addWriteFilter(filter);
+        filters_.push_back(filter);
+      }
+    }
+  }
 
   // Create metrics filter if enabled
   if (enable_metrics_) {
@@ -998,9 +1021,10 @@ bool HttpSseFilterChainFactory::createFilterChain(
   // No separate routing filter needed
 
   // Create the combined protocol filter
+  // Pass the route registration callback so custom HTTP routes can be registered
   auto combined_filter = std::make_shared<HttpSseJsonRpcProtocolFilter>(
       dispatcher_, message_callbacks_, is_server_, http_path_, http_host_,
-      use_sse_);
+      use_sse_, route_registration_callback_);
 
   // Add as both read and write filter
   filter_manager.addReadFilter(combined_filter);
