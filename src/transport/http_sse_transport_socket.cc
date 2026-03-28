@@ -49,18 +49,13 @@ HttpSseTransportSocket::~HttpSseTransportSocket() {
     idle_timer_->disableTimer();
   }
 
-  // Close underlying transport if still open
-  if (underlying_transport_) {
-    try {
-      underlying_transport_->closeSocket(network::ConnectionEvent::LocalClose);
-    } catch (const std::exception& e) {
-      // Log but don't propagate exception during destructor
-      GOPHER_LOG_ERROR("Exception during transport close: {}", e.what());
-    } catch (...) {
-      // Catch any other exception to prevent destructor crash
-      GOPHER_LOG_ERROR("Unknown exception during transport close");
-    }
-  }
+  // NOTE: Do NOT call closeSocket() on underlying_transport_ here.
+  // The transport socket's callbacks_ pointer points to the ConnectionImpl,
+  // which is already destroyed by the time this destructor runs (we're in
+  // ConnectionImplBase::~ConnectionImplBase). Calling closeSocket() would
+  // trigger raiseEvent() on a destroyed object, causing pure virtual calls.
+  // The ConnectionImpl::~ConnectionImpl already handles proper close operations
+  // before reaching this point.
 }
 
 void HttpSseTransportSocket::initialize() {

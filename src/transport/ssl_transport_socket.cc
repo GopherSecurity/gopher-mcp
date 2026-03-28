@@ -372,6 +372,13 @@ void SslTransportSocket::closeSocket(network::ConnectionEvent event) {
   auto state = state_machine_->getCurrentState();
   GOPHER_LOG_DEBUG("closeSocket current state={}", static_cast<int>(state));
 
+  // Guard: Don't process if already closed (prevents double-close issues
+  // when called from destructor chain)
+  if (state == SslSocketState::Closed) {
+    GOPHER_LOG_DEBUG("closeSocket: already closed, skipping");
+    return;
+  }
+
   // Cancel any pending timers that might reference this object
   if (handshake_timer_) {
     handshake_timer_->disableTimer();

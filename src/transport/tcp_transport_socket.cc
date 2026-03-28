@@ -86,6 +86,13 @@ void TcpTransportSocket::closeSocket(network::ConnectionEvent event) {
                    (void*)this, static_cast<int>(current_state),
                    static_cast<int>(event));
 
+  // Guard: Don't process if already closed (prevents double raiseEvent which
+  // can cause use-after-free when called from destructor chain)
+  if (current_state == TransportSocketState::Closed) {
+    GOPHER_LOG_DEBUG("closeSocket: already closed, skipping");
+    return;
+  }
+
   // Transition state machine to closing/closed
   if (state_machine_) {
     // Transition to shutting down first
