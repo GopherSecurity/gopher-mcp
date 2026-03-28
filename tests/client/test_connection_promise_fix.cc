@@ -10,8 +10,9 @@
  * (which returns EINPROGRESS). When initialize() was called, connected_=false
  * which triggered reconnection, closing the in-progress connection.
  *
- * Fix: Added pending_connect_promise_ that is fulfilled by handleConnectionEvent()
- * when the connection is actually established (after TCP+SSL handshake).
+ * Fix: Added pending_connect_promise_ that is fulfilled by
+ * handleConnectionEvent() when the connection is actually established (after
+ * TCP+SSL handshake).
  */
 
 #include <atomic>

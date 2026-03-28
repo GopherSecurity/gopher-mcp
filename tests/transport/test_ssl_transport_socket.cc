@@ -693,12 +693,11 @@ TEST_F(SslTransportSocketUnitTest, DoReadDuringHandshakeReadsFromInnerSocket) {
 
   // Verify we're in a handshaking state
   auto state = ssl_socket->getState();
-  bool is_handshaking =
-      (state == SslSocketState::ClientHandshakeInit ||
-       state == SslSocketState::ClientHelloSent ||
-       state == SslSocketState::TcpConnected ||
-       state == SslSocketState::HandshakeWantRead ||
-       state == SslSocketState::HandshakeWantWrite);
+  bool is_handshaking = (state == SslSocketState::ClientHandshakeInit ||
+                         state == SslSocketState::ClientHelloSent ||
+                         state == SslSocketState::TcpConnected ||
+                         state == SslSocketState::HandshakeWantRead ||
+                         state == SslSocketState::HandshakeWantWrite);
   EXPECT_TRUE(is_handshaking)
       << "Expected handshaking state, got: " << static_cast<int>(state);
 
@@ -755,12 +754,11 @@ TEST_F(SslTransportSocketUnitTest, DoReadDuringHandshakeNoDataReturnsStop) {
 
   // Verify we're in a handshaking state
   auto state = ssl_socket->getState();
-  bool is_handshaking =
-      (state == SslSocketState::ClientHandshakeInit ||
-       state == SslSocketState::ClientHelloSent ||
-       state == SslSocketState::TcpConnected ||
-       state == SslSocketState::HandshakeWantRead ||
-       state == SslSocketState::HandshakeWantWrite);
+  bool is_handshaking = (state == SslSocketState::ClientHandshakeInit ||
+                         state == SslSocketState::ClientHelloSent ||
+                         state == SslSocketState::TcpConnected ||
+                         state == SslSocketState::HandshakeWantRead ||
+                         state == SslSocketState::HandshakeWantWrite);
   EXPECT_TRUE(is_handshaking)
       << "Expected handshaking state, got: " << static_cast<int>(state);
 
@@ -827,12 +825,11 @@ TEST_F(SslTransportSocketUnitTest, MultipleDoReadCallsDuringHandshake) {
 
   // Verify we're in a handshaking state
   auto state = ssl_socket->getState();
-  bool is_handshaking =
-      (state == SslSocketState::ClientHandshakeInit ||
-       state == SslSocketState::ClientHelloSent ||
-       state == SslSocketState::TcpConnected ||
-       state == SslSocketState::HandshakeWantRead ||
-       state == SslSocketState::HandshakeWantWrite);
+  bool is_handshaking = (state == SslSocketState::ClientHandshakeInit ||
+                         state == SslSocketState::ClientHelloSent ||
+                         state == SslSocketState::TcpConnected ||
+                         state == SslSocketState::HandshakeWantRead ||
+                         state == SslSocketState::HandshakeWantWrite);
   EXPECT_TRUE(is_handshaking)
       << "Expected handshaking state, got: " << static_cast<int>(state);
 

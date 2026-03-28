@@ -225,8 +225,9 @@ VoidResult McpClient::connect(const std::string& uri) {
         }
       }
       // On success, DON'T fulfill the promise here!
-      // handleConnectionEvent will fulfill it when the connection is established
-      // This ensures connect() waits for the actual TCP+SSL handshake to complete
+      // handleConnectionEvent will fulfill it when the connection is
+      // established This ensures connect() waits for the actual TCP+SSL
+      // handshake to complete
       last_activity_time_ = std::chrono::steady_clock::now();
     } catch (const std::exception& e) {
       // Fulfill promise with error on exception
