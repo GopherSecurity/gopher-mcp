@@ -132,9 +132,16 @@ VoidResult McpClient::connect(const std::string& uri) {
   // Get socket interface after dispatcher is created
   socket_interface_ = std::make_unique<SocketInterfaceImpl>();
 
-  // Create connect promise
+  // Create connect promise - this will be fulfilled by handleConnectionEvent
+  // when the TCP+SSL handshake completes, not when connect() is initiated
   auto connect_promise = std::make_shared<std::promise<VoidResult>>();
   auto connect_future = connect_promise->get_future();
+
+  // Store the promise so handleConnectionEvent can fulfill it
+  {
+    std::lock_guard<std::mutex> lock(connect_promise_mutex_);
+    pending_connect_promise_ = connect_promise;
+  }
 
   main_dispatcher_->post([this, uri, connect_promise]() {
     try {
@@ -199,23 +206,36 @@ VoidResult McpClient::connect(const std::string& uri) {
       // The connection manager handles transport-specific details internally
       VoidResult result = connection_manager_->connect();
 
-      // Check connection result
+      // Check connection initiation result
       if (is_error<std::nullptr_t>(result)) {
         auto error = get_error<std::nullptr_t>(result);
-        connect_promise->set_value(makeVoidError(*error));
+
+        // Fulfill the promise with error immediately
+        {
+          std::lock_guard<std::mutex> lock(connect_promise_mutex_);
+          if (pending_connect_promise_) {
+            pending_connect_promise_->set_value(makeVoidError(*error));
+            pending_connect_promise_.reset();
+          }
+        }
 
         // Notify protocol state machine of failure
         if (protocol_state_machine_) {
           protocol_state_machine_->handleError(*error);
         }
-      } else {
-        // Connection initiated successfully
-        last_activity_time_ = std::chrono::steady_clock::now();
-        connect_promise->set_value(VoidResult(nullptr));
       }
+      // On success, DON'T fulfill the promise here!
+      // handleConnectionEvent will fulfill it when the connection is established
+      // This ensures connect() waits for the actual TCP+SSL handshake to complete
+      last_activity_time_ = std::chrono::steady_clock::now();
     } catch (const std::exception& e) {
-      connect_promise->set_value(
-          makeVoidError(Error(::mcp::jsonrpc::INTERNAL_ERROR, e.what())));
+      // Fulfill promise with error on exception
+      std::lock_guard<std::mutex> lock(connect_promise_mutex_);
+      if (pending_connect_promise_) {
+        pending_connect_promise_->set_value(
+            makeVoidError(Error(::mcp::jsonrpc::INTERNAL_ERROR, e.what())));
+        pending_connect_promise_.reset();
+      }
     }
   });
 
@@ -1761,6 +1781,16 @@ void McpClient::handleConnectionEvent(network::ConnectionEvent event) {
           std::chrono::steady_clock::now();  // Reset idle timer on connection
       client_stats_.connections_active++;
 
+      // Fulfill the pending connect promise - connection established!
+      {
+        std::lock_guard<std::mutex> lock(connect_promise_mutex_);
+        if (pending_connect_promise_) {
+          GOPHER_LOG_DEBUG("Fulfilling connect promise with success");
+          pending_connect_promise_->set_value(VoidResult(nullptr));
+          pending_connect_promise_.reset();
+        }
+      }
+
       // Notify protocol state machine of network connection
       // We're already in dispatcher thread from connection callback
       if (protocol_state_machine_) {
@@ -1773,6 +1803,18 @@ void McpClient::handleConnectionEvent(network::ConnectionEvent event) {
     case network::ConnectionEvent::LocalClose:
       connected_ = false;
       client_stats_.connections_active--;
+
+      // Fulfill the pending connect promise with error - connection failed
+      {
+        std::lock_guard<std::mutex> lock(connect_promise_mutex_);
+        if (pending_connect_promise_) {
+          GOPHER_LOG_DEBUG("Fulfilling connect promise with error");
+          pending_connect_promise_->set_value(
+              makeVoidError(Error(::mcp::jsonrpc::INTERNAL_ERROR,
+                                  "Connection closed before establishing")));
+          pending_connect_promise_.reset();
+        }
+      }
 
       // Notify protocol state machine of network disconnection (already in
       // dispatcher thread)
