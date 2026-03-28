@@ -621,6 +621,10 @@ class McpClient : public application::ApplicationBase {
   event::TimerPtr timeout_timer_;
   event::TimerPtr retry_timer_;
 
+  // Connection completion promise - set when handleConnectionEvent fires
+  std::shared_ptr<std::promise<VoidResult>> pending_connect_promise_;
+  std::mutex connect_promise_mutex_;
+
   // Protocol state coordination
   void coordinateProtocolState();
   void handleProtocolStateChange(

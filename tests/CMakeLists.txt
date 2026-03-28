@@ -108,6 +108,9 @@ add_executable(test_mcp_client_threading client/test_mcp_client_threading.cc)
 # MCP Client memory tests (leak detection, RAII verification)
 add_executable(test_mcp_client_memory client/test_mcp_client_memory.cc)
 
+# Connection promise fix tests
+add_executable(test_connection_promise_fix client/test_connection_promise_fix.cc)
+
 # C API tests
 if(BUILD_C_API)
     # Tests using new opaque handle API
@@ -772,6 +775,16 @@ target_link_libraries(test_mcp_client_memory
     gtest_main
     Threads::Threads
     fmt::fmt
+)
+
+# Connection promise fix tests
+target_link_libraries(test_connection_promise_fix
+    gopher-mcp
+    gopher-mcp-event
+    gtest
+    gmock
+    gtest_main
+    Threads::Threads
 )
 
 # Link libraries for C API tests
