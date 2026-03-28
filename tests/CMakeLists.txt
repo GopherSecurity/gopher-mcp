@@ -62,6 +62,7 @@ add_executable(test_https_sse_factory transport/test_https_sse_factory.cc)
 add_executable(test_ssl_integration transport/test_ssl_integration.cc)
 add_executable(test_ssl_transport transport/test_ssl_transport.cc)
 add_executable(test_close_socket_guard transport/test_close_socket_guard.cc)
+add_executable(test_ssl_handshake_timer_fix transport/test_ssl_handshake_timer_fix.cc)
 
 # TCP transport tests
 add_executable(test_tcp_transport_socket transport/test_tcp_transport_socket.cc)
@@ -550,6 +551,17 @@ target_link_libraries(test_close_socket_guard
     gmock
     gtest_main
     Threads::Threads
+)
+
+target_link_libraries(test_ssl_handshake_timer_fix
+    gopher-mcp
+    gopher-mcp-event
+    gtest
+    gmock
+    gtest_main
+    Threads::Threads
+    OpenSSL::SSL
+    OpenSSL::Crypto
 )
 
 target_link_libraries(test_tcp_transport_socket
