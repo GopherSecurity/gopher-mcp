@@ -849,9 +849,12 @@ void SslTransportSocket::onHandshakeComplete() {
 
   handshake_complete_ = true;
 
-  // Cancel handshake timer
+  // Cancel handshake timers
   if (handshake_timer_) {
     handshake_timer_->disableTimer();
+  }
+  if (handshake_retry_timer_) {
+    handshake_retry_timer_->disableTimer();
   }
 
   // Update statistics
