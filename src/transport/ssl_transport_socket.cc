@@ -465,30 +465,71 @@ TransportIoResult SslTransportSocket::doRead(Buffer& buffer) {
   /**
    * Read Flow (optimized):
    * 1. Check state
-   * 2. Perform optimized SSL read
-   * 3. Update statistics
-   * 4. Handle errors
+   * 2. If connected, perform optimized SSL read
+   * 3. If handshaking, read data from inner socket and feed to BIO
+   * 4. If pre-handshake (TcpConnected, etc.), return stop() to wait
+   * 5. If error/closed, return close()
+   *
+   * CRITICAL FIX: When a read event fires during SSL handshake, we must read
+   * data from the underlying TCP socket and feed it to the SSL BIO. Without
+   * this, handshake data (ServerHello, Certificate, etc.) never reaches the
+   * SSL state machine, causing the handshake to stall.
+   *
+   * The previous implementation returned stop() during handshake without
+   * reading, which caused the timer-based polling to see EAGAIN (no data)
+   * because the read event was already "consumed" by the event loop.
+   *
+   * ADDITIONAL FIX: Handle pre-handshake states (TcpConnected, Initialized,
+   * Connecting) by returning stop() instead of close(). These states occur
+   * briefly before the handshake starts and should not close the connection.
    */
   GOPHER_LOG_DEBUG("doRead called");
 
   auto state = state_machine_->getCurrentState();
 
-  if (state != SslSocketState::Connected) {
-    GOPHER_LOG_DEBUG("doRead: not connected, state={}",
-                     static_cast<int>(state));
-    if (state_machine_->isHandshaking()) {
-      // Still handshaking
-      return TransportIoResult::stop();
-    }
-    // Connection closed or error
-    return TransportIoResult::close();
+  // Fast path: if connected, do normal SSL read
+  if (state == SslSocketState::Connected) {
+    auto result = performOptimizedSslRead(buffer);
+    GOPHER_LOG_DEBUG("doRead result: bytes={}, action={}",
+                     result.bytes_processed_, static_cast<int>(result.action_));
+    return result;
   }
 
-  // Perform optimized SSL read
-  auto result = performOptimizedSslRead(buffer);
-  GOPHER_LOG_DEBUG("doRead result: bytes={}, action={}",
-                   result.bytes_processed_, static_cast<int>(result.action_));
-  return result;
+  GOPHER_LOG_DEBUG("doRead: not connected, state={}", static_cast<int>(state));
+
+  // Handle handshaking states - read from inner socket and continue handshake
+  if (state_machine_->isHandshaking()) {
+    // Still handshaking - read data from inner socket and continue handshake
+    // This is critical: when the event loop triggers a read event, we must
+    // actually read the data from the TCP socket into the SSL BIO
+    GOPHER_LOG_DEBUG("doRead: handshaking, reading data and continuing handshake");
+
+    // Read data from inner socket and feed to BIO
+    size_t bytes_read = moveToBio();
+    GOPHER_LOG_DEBUG("doRead: moveToBio read {} bytes during handshake", bytes_read);
+
+    if (bytes_read > 0) {
+      // New data available, continue handshake
+      performHandshakeStep();
+    }
+
+    // No application data yet during handshake
+    return TransportIoResult::stop();
+  }
+
+  // Handle pre-handshake states - return stop() to wait for handshake to start
+  // These states occur briefly after TCP connects but before SSL handshake begins
+  if (state == SslSocketState::TcpConnected ||
+      state == SslSocketState::Initialized ||
+      state == SslSocketState::Connecting ||
+      state == SslSocketState::Uninitialized) {
+    GOPHER_LOG_DEBUG("doRead: pre-handshake state, returning stop()");
+    return TransportIoResult::stop();
+  }
+
+  // Error or closed states - return close()
+  GOPHER_LOG_DEBUG("doRead: error/closed state, returning close()");
+  return TransportIoResult::close();
 }
 
 TransportIoResult SslTransportSocket::doWrite(Buffer& buffer, bool end_stream) {
@@ -770,6 +811,17 @@ void SslTransportSocket::performHandshakeStep() {
   // Move generated data to socket
   size_t bytes_from_bio = moveFromBio();
   GOPHER_LOG_DEBUG("moveFromBio returned {} bytes", bytes_from_bio);
+
+  // CRITICAL FIX: After sending data, signal that we want to read the response
+  // This triggers event_active() which ensures the read callback fires on the
+  // next event loop iteration, even if the data arrived while we were processing.
+  // Without this, level-triggered events might not fire for data that arrived
+  // during the current callback processing.
+  if (bytes_from_bio > 0 && transport_callbacks_) {
+    GOPHER_LOG_DEBUG("Signaling socket is readable after sending {} bytes",
+                     bytes_from_bio);
+    transport_callbacks_->setTransportSocketIsReadable();
+  }
 
   if (ret == 1) {
     // Handshake complete
@@ -1181,33 +1233,76 @@ TransportIoResult SslTransportSocket::performOptimizedSslWrite(
 
 size_t SslTransportSocket::moveToBio() {
   /**
-   * Move data from socket to BIO (optimized)
+   * Move data from socket to BIO
+   *
+   * IMPORTANT: This function must loop to drain all available data from the
+   * socket. A single doRead() may not return all pending data, especially for
+   * large TLS records (up to 16KB + headers). Without looping, SSL handshakes
+   * and data reads can stall waiting for data that's already in the TCP buffer.
+   *
+   * The loop continues until:
+   * - doRead() returns 0 bytes (EAGAIN/EWOULDBLOCK - socket buffer empty)
+   * - doRead() returns an error
+   * - BIO_write fails (BIO buffer full)
    */
 
-  // Read from inner socket
-  OwnedBuffer temp_buffer;
-  auto result = inner_socket_->doRead(temp_buffer);
-
-  if (temp_buffer.length() == 0) {
-    return 0;
-  }
-
-  // Write to network BIO
   size_t total_written = 0;
-  constexpr size_t max_slices = 16;
-  RawSlice slices[max_slices];
-  size_t num_slices = temp_buffer.getRawSlices(slices, max_slices);
+  constexpr int max_iterations = 100;  // Safety limit to prevent infinite loops
+  int iterations = 0;
 
-  for (size_t i = 0; i < num_slices; ++i) {
-    int written = BIO_write(network_bio_, slices[i].mem_, slices[i].len_);
-    if (written > 0) {
-      total_written += written;
-    } else {
-      // BIO full or error
+  while (iterations++ < max_iterations) {
+    // Read from inner socket
+    OwnedBuffer temp_buffer;
+    auto result = inner_socket_->doRead(temp_buffer);
+
+    // Check if we got any data
+    size_t bytes_read = temp_buffer.length();
+    if (bytes_read == 0) {
+      // No more data available (EAGAIN/EWOULDBLOCK or EOF)
+      // This is the normal exit condition - socket buffer is drained
+      break;
+    }
+
+    GOPHER_LOG_DEBUG("moveToBio: read {} bytes from socket (iteration {})",
+                     bytes_read, iterations);
+
+    // Write all data to network BIO
+    constexpr size_t max_slices = 16;
+    RawSlice slices[max_slices];
+    size_t num_slices = temp_buffer.getRawSlices(slices, max_slices);
+
+    bool bio_full = false;
+    for (size_t i = 0; i < num_slices; ++i) {
+      int written = BIO_write(network_bio_, slices[i].mem_, slices[i].len_);
+      if (written > 0) {
+        total_written += written;
+      } else {
+        // BIO full or error - stop writing but continue to drain socket
+        bio_full = true;
+        GOPHER_LOG_DEBUG("moveToBio: BIO_write returned {}, BIO may be full",
+                         written);
+        break;
+      }
+    }
+
+    // If BIO is full, we should stop - the SSL layer needs to consume data
+    if (bio_full) {
+      break;
+    }
+
+    // Check for read error (not EAGAIN)
+    if (result.action_ == TransportIoResult::CLOSE) {
+      GOPHER_LOG_DEBUG("moveToBio: socket read indicated close");
       break;
     }
   }
 
+  if (iterations >= max_iterations) {
+    GOPHER_LOG_WARN("moveToBio: reached max iterations ({}), total_written={}",
+                    max_iterations, total_written);
+  }
+
+  GOPHER_LOG_DEBUG("moveToBio: total {} bytes written to BIO", total_written);
   return total_written;
 }
 
