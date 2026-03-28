@@ -72,7 +72,8 @@
  *   ./mcp_client_sse_example https://mcp.example.com/v1/sse
  *
  *   # Connect to test server
- *   ./mcp_client_sse_example https://mcp-test.gopher.security/v1/mcp/servers/xxx/sse
+ *   ./mcp_client_sse_example
+ * https://mcp-test.gopher.security/v1/mcp/servers/xxx/sse
  */
 
 #include <chrono>
@@ -113,7 +114,8 @@ void setupLogging(bool verbose) {
   // Create application logger
   auto logger = registry.getOrCreateLogger("sse_example");
   logger->setSink(std::move(console_sink));
-  logger->setLevel(verbose ? logging::LogLevel::Debug : logging::LogLevel::Info);
+  logger->setLevel(verbose ? logging::LogLevel::Debug
+                           : logging::LogLevel::Info);
 }
 
 // =============================================================================
@@ -137,14 +139,17 @@ void printUsage(const char* program) {
   std::cerr << "  # List tools from local server\n";
   std::cerr << "  " << program << " http://localhost:8080/sse\n\n";
   std::cerr << "  # Call a specific tool with verbose output\n";
-  std::cerr << "  " << program << " https://mcp.example.com/sse --tool calculator --verbose\n";
+  std::cerr << "  " << program
+            << " https://mcp.example.com/sse --tool calculator --verbose\n";
 }
 
 void printSeparator(const std::string& title) {
   std::cout << "\n";
-  std::cout << "═══════════════════════════════════════════════════════════════\n";
+  std::cout
+      << "═══════════════════════════════════════════════════════════════\n";
   std::cout << "  " << title << "\n";
-  std::cout << "═══════════════════════════════════════════════════════════════\n";
+  std::cout
+      << "═══════════════════════════════════════════════════════════════\n";
 }
 
 void printToolResult(const CallToolResult& result) {
@@ -240,7 +245,8 @@ int main(int argc, char* argv[]) {
   config.circuit_breaker_threshold = 5;
   config.circuit_breaker_timeout = std::chrono::milliseconds(30000);
 
-  std::cout << "  Client: " << config.client_name << " v" << config.client_version << "\n";
+  std::cout << "  Client: " << config.client_name << " v"
+            << config.client_version << "\n";
   std::cout << "  Protocol: " << config.protocol_version << "\n";
   std::cout << "  Timeout: " << config.request_timeout.count() << "ms\n";
 
@@ -291,20 +297,24 @@ int main(int argc, char* argv[]) {
     std::cout << "  Protocol Version: " << init_result.protocolVersion << "\n";
 
     if (init_result.serverInfo.has_value()) {
-      std::cout << "  Server: " << init_result.serverInfo->name
-                << " v" << init_result.serverInfo->version << "\n";
+      std::cout << "  Server: " << init_result.serverInfo->name << " v"
+                << init_result.serverInfo->version << "\n";
     }
 
     // Display server capabilities
     std::cout << "  Capabilities:\n";
     if (init_result.capabilities.tools.has_value()) {
-      std::cout << "    - tools: " << (init_result.capabilities.tools.value() ? "yes" : "no") << "\n";
+      std::cout << "    - tools: "
+                << (init_result.capabilities.tools.value() ? "yes" : "no")
+                << "\n";
     }
     if (init_result.capabilities.resources.has_value()) {
       std::cout << "    - resources: yes\n";
     }
     if (init_result.capabilities.prompts.has_value()) {
-      std::cout << "    - prompts: " << (init_result.capabilities.prompts.value() ? "yes" : "no") << "\n";
+      std::cout << "    - prompts: "
+                << (init_result.capabilities.prompts.value() ? "yes" : "no")
+                << "\n";
     }
 
     // Store capabilities for later use
@@ -385,7 +395,8 @@ int main(int argc, char* argv[]) {
         std::cout << "  Arguments: (none)\n";
       }
 
-      auto call_future = client->callTool(tool_to_call, mcp::make_optional(args.build()));
+      auto call_future =
+          client->callTool(tool_to_call, mcp::make_optional(args.build()));
 
       auto status = call_future.wait_for(std::chrono::seconds(30));
 

@@ -44,7 +44,8 @@ class MockTimer : public event::Timer {
   void enableHRTimer(std::chrono::microseconds duration) override {
     enabled_ = true;
     enable_count_++;
-    last_timeout_ = std::chrono::duration_cast<std::chrono::milliseconds>(duration);
+    last_timeout_ =
+        std::chrono::duration_cast<std::chrono::milliseconds>(duration);
   }
 
   void disableTimer() override {
@@ -146,7 +147,8 @@ TEST(SslStateMachineHandshakeTest, TransitionToConnectedDisablesRetry) {
   event::LibeventDispatcher dispatcher("test");
 
   // Create state machine using factory
-  auto state_machine = SslStateMachineFactory::createClientStateMachine(dispatcher);
+  auto state_machine =
+      SslStateMachineFactory::createClientStateMachine(dispatcher);
 
   // Start in uninitialized state
   EXPECT_EQ(state_machine->getCurrentState(), SslSocketState::Uninitialized);
@@ -167,7 +169,8 @@ TEST(SslStateMachineHandshakeTest, TransitionToConnectedDisablesRetry) {
   state_machine->transition(SslSocketState::HandshakeWantRead, nullptr);
   dispatcher.run(event::RunType::NonBlock);
 
-  // Simulate handshake completion - use forceTransition to skip intermediate states
+  // Simulate handshake completion - use forceTransition to skip intermediate
+  // states
   state_machine->forceTransition(SslSocketState::Connected);
   dispatcher.run(event::RunType::NonBlock);
 
@@ -186,7 +189,8 @@ TEST(SslStateMachineHandshakeTest, TransitionToConnectedDisablesRetry) {
 TEST(SslStateMachineHandshakeTest, LateTimerFireAfterConnectedIsSafe) {
   event::LibeventDispatcher dispatcher("test");
 
-  auto state_machine = SslStateMachineFactory::createClientStateMachine(dispatcher);
+  auto state_machine =
+      SslStateMachineFactory::createClientStateMachine(dispatcher);
 
   // Get to Connected state using forceTransition (bypasses validation)
   state_machine->forceTransition(SslSocketState::Initialized);
@@ -199,10 +203,11 @@ TEST(SslStateMachineHandshakeTest, LateTimerFireAfterConnectedIsSafe) {
   // Attempting to transition to HandshakeWantRead from Connected should fail
   // (state machine should reject invalid transitions)
   bool transition_succeeded = false;
-  state_machine->transition(SslSocketState::HandshakeWantRead,
-                           [&transition_succeeded](bool success, const std::string&) {
-                             transition_succeeded = success;
-                           });
+  state_machine->transition(
+      SslSocketState::HandshakeWantRead,
+      [&transition_succeeded](bool success, const std::string&) {
+        transition_succeeded = success;
+      });
   dispatcher.run(event::RunType::NonBlock);
 
   // Transition should have failed
@@ -218,7 +223,8 @@ TEST(SslStateMachineHandshakeTest, LateTimerFireAfterConnectedIsSafe) {
 TEST(SslStateMachineHandshakeTest, LateTimerFromVariousStatesIsSafe) {
   event::LibeventDispatcher dispatcher("test");
 
-  auto state_machine = SslStateMachineFactory::createClientStateMachine(dispatcher);
+  auto state_machine =
+      SslStateMachineFactory::createClientStateMachine(dispatcher);
 
   // Get to Connected state
   state_machine->forceTransition(SslSocketState::Connected);
@@ -235,15 +241,15 @@ TEST(SslStateMachineHandshakeTest, LateTimerFromVariousStatesIsSafe) {
   for (auto target : invalid_targets) {
     bool succeeded = false;
     state_machine->transition(target,
-                             [&succeeded](bool success, const std::string&) {
-                               succeeded = success;
-                             });
+                              [&succeeded](bool success, const std::string&) {
+                                succeeded = success;
+                              });
     dispatcher.run(event::RunType::NonBlock);
 
     // All should fail
-    EXPECT_FALSE(succeeded) << "Transition to "
-                            << SslStateMachine::getStateName(target)
-                            << " should have failed";
+    EXPECT_FALSE(succeeded)
+        << "Transition to " << SslStateMachine::getStateName(target)
+        << " should have failed";
 
     // Should still be Connected
     EXPECT_EQ(state_machine->getCurrentState(), SslSocketState::Connected);

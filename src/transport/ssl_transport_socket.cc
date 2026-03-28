@@ -502,11 +502,13 @@ TransportIoResult SslTransportSocket::doRead(Buffer& buffer) {
     // Still handshaking - read data from inner socket and continue handshake
     // This is critical: when the event loop triggers a read event, we must
     // actually read the data from the TCP socket into the SSL BIO
-    GOPHER_LOG_DEBUG("doRead: handshaking, reading data and continuing handshake");
+    GOPHER_LOG_DEBUG(
+        "doRead: handshaking, reading data and continuing handshake");
 
     // Read data from inner socket and feed to BIO
     size_t bytes_read = moveToBio();
-    GOPHER_LOG_DEBUG("doRead: moveToBio read {} bytes during handshake", bytes_read);
+    GOPHER_LOG_DEBUG("doRead: moveToBio read {} bytes during handshake",
+                     bytes_read);
 
     if (bytes_read > 0) {
       // New data available, continue handshake
@@ -518,7 +520,8 @@ TransportIoResult SslTransportSocket::doRead(Buffer& buffer) {
   }
 
   // Handle pre-handshake states - return stop() to wait for handshake to start
-  // These states occur briefly after TCP connects but before SSL handshake begins
+  // These states occur briefly after TCP connects but before SSL handshake
+  // begins
   if (state == SslSocketState::TcpConnected ||
       state == SslSocketState::Initialized ||
       state == SslSocketState::Connecting ||
@@ -814,9 +817,9 @@ void SslTransportSocket::performHandshakeStep() {
 
   // CRITICAL FIX: After sending data, signal that we want to read the response
   // This triggers event_active() which ensures the read callback fires on the
-  // next event loop iteration, even if the data arrived while we were processing.
-  // Without this, level-triggered events might not fire for data that arrived
-  // during the current callback processing.
+  // next event loop iteration, even if the data arrived while we were
+  // processing. Without this, level-triggered events might not fire for data
+  // that arrived during the current callback processing.
   if (bytes_from_bio > 0 && transport_callbacks_) {
     GOPHER_LOG_DEBUG("Signaling socket is readable after sending {} bytes",
                      bytes_from_bio);

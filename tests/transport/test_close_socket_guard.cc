@@ -96,13 +96,15 @@ TEST_F(CloseSocketGuardTest, StateMachineBlocksDoubleClose) {
   state_machine.transitionTo(TransportSocketState::Uninitialized, "init");
   state_machine.transitionTo(TransportSocketState::Initialized, "initialized");
   state_machine.transitionTo(TransportSocketState::Connecting, "connecting");
-  state_machine.transitionTo(TransportSocketState::TcpConnected, "tcp connected");
+  state_machine.transitionTo(TransportSocketState::TcpConnected,
+                             "tcp connected");
   state_machine.transitionTo(TransportSocketState::Connected, "connected");
 
   EXPECT_EQ(state_machine.currentState(), TransportSocketState::Connected);
 
   // First close
-  state_machine.transitionTo(TransportSocketState::ShuttingDown, "shutting down");
+  state_machine.transitionTo(TransportSocketState::ShuttingDown,
+                             "shutting down");
   state_machine.transitionTo(TransportSocketState::Closed, "closed");
 
   EXPECT_EQ(state_machine.currentState(), TransportSocketState::Closed);
@@ -171,8 +173,8 @@ TEST_F(CloseSocketGuardTest, MultipleCloseAttemptsBlocked) {
     closeSocketWithGuard(ConnectionEvent::LocalClose);
   }
 
-  EXPECT_EQ(close_attempts, 5);           // All attempts made
-  EXPECT_EQ(callbacks_->event_count_, 1); // Only 1 event raised
+  EXPECT_EQ(close_attempts, 5);            // All attempts made
+  EXPECT_EQ(callbacks_->event_count_, 1);  // Only 1 event raised
 }
 
 /**
