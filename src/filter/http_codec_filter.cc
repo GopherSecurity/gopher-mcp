@@ -311,13 +311,6 @@ network::FilterStatus HttpCodecFilter::onWrite(Buffer& data, bool end_stream) {
         response
             << "Access-Control-Allow-Headers: Content-Type, Authorization, "
                "Accept, Mcp-Session-Id, Mcp-Protocol-Version\r\n";
-        if (current_stream_) {
-          response << "Connection: "
-                   << (current_stream_->keep_alive ? "keep-alive" : "close")
-                   << "\r\n";
-        } else {
-          response << "Connection: keep-alive\r\n";
-        }
         response << "\r\n";
         response << body_data;
       }
