@@ -50,7 +50,10 @@
 
 #include "mcp/filter/http_sse_filter_chain_factory.h"
 
+#include <atomic>
 #include <ctime>
+#include <map>
+#include <mutex>
 #include <sstream>
 
 #include "mcp/filter/http_codec_filter.h"
@@ -65,6 +68,85 @@
 
 namespace mcp {
 namespace filter {
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SSE Session Registry — routes JSON-RPC responses through SSE streams
+//
+// When an MCP client connects via SSE transport:
+//   1. GET /sse → server assigns session, sends endpoint: callback/{id}
+//   2. POST /callback/{id} → server sends 202, routes response via SSE
+//
+// This registry maps session IDs to their SSE connections so POST handlers
+// can route responses through the correct SSE stream.
+// ═══════════════════════════════════════════════════════════════════════════
+class SseSessionRegistry {
+ public:
+  static SseSessionRegistry& instance() {
+    static SseSessionRegistry registry;
+    return registry;
+  }
+
+  // Register an SSE connection and return its unique session ID
+  std::string registerSession(network::Connection* connection) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::string session_id = "client_" + std::to_string(counter_++);
+    sessions_[session_id] = connection;
+    GOPHER_LOG_INFO("SSE session registered: {} (total={})",
+                    session_id, sessions_.size());
+    return session_id;
+  }
+
+  // Remove an SSE session (called on connection close)
+  void removeSession(const std::string& session_id) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    sessions_.erase(session_id);
+    GOPHER_LOG_INFO("SSE session removed: {} (total={})",
+                    session_id, sessions_.size());
+  }
+
+  // Send a JSON-RPC response through an SSE session's stream
+  // Returns true if the session was found and data was written
+  bool sendResponse(const std::string& session_id,
+                    const std::string& json_data) {
+    network::Connection* conn = nullptr;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      auto it = sessions_.find(session_id);
+      if (it == sessions_.end()) {
+        GOPHER_LOG_ERROR("SSE session not found for response: {}", session_id);
+        return false;
+      }
+      conn = it->second;
+    }
+
+    // Write raw JSON to the SSE connection — the connection's onWrite filter
+    // will add SSE framing (data: {json}\n\n) automatically since
+    // is_sse_mode_ is true on that connection's filter instance.
+    try {
+      OwnedBuffer buffer;
+      buffer.add(json_data.c_str(), json_data.length());
+      conn->write(buffer, false);
+    } catch (...) {
+      GOPHER_LOG_ERROR("SSE write failed for session {}", session_id);
+      return false;
+    }
+    GOPHER_LOG_INFO("SSE response sent via session {} ({} bytes)",
+                    session_id, json_data.size());
+    return true;
+  }
+
+  // Check if a session exists
+  bool hasSession(const std::string& session_id) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return sessions_.find(session_id) != sessions_.end();
+  }
+
+ private:
+  SseSessionRegistry() = default;
+  std::mutex mutex_;
+  std::map<std::string, network::Connection*> sessions_;
+  std::atomic<uint64_t> counter_{1};
+};
 
 // Forward declaration
 class HttpSseJsonRpcProtocolFilter;
@@ -140,13 +222,19 @@ class HttpSseJsonRpcProtocolFilter
       const std::string& http_path = "/rpc",
       const std::string& http_host = "localhost",
       bool use_sse = true,
-      const HttpRouteRegistrationCallback& route_callback = nullptr)
+      const HttpRouteRegistrationCallback& route_callback = nullptr,
+      const std::string& sse_path = "/sse",
+      const std::string& rpc_path = "/mcp",
+      const std::string& external_url = "")
       : dispatcher_(dispatcher),
         mcp_callbacks_(mcp_callbacks),
         is_server_(is_server),
         http_path_(http_path),
         http_host_(http_host),
         use_sse_(use_sse),
+        configured_sse_path_(sse_path),
+        configured_rpc_path_(rpc_path),
+        configured_external_url_(external_url),
         route_registration_callback_(route_callback) {
     // Following production pattern: all operations for this filter
     // happen in the single dispatcher thread
@@ -188,7 +276,15 @@ class HttpSseJsonRpcProtocolFilter
         std::make_shared<JsonRpcProtocolFilter>(*this, dispatcher_, is_server_);
   }
 
-  ~HttpSseJsonRpcProtocolFilter() = default;
+  ~HttpSseJsonRpcProtocolFilter() {
+    // Clean up SSE session on connection close
+    // IMPORTANT: Remove from registry BEFORE connection is destroyed
+    // to prevent other threads from writing to a dead connection
+    if (!sse_session_id_.empty()) {
+      SseSessionRegistry::instance().removeSession(sse_session_id_);
+      sse_session_id_.clear();
+    }
+  }
 
   // ===== Network Filter Interface =====
 
@@ -295,6 +391,30 @@ class HttpSseJsonRpcProtocolFilter
    * recursion!
    */
   network::FilterStatus onWrite(Buffer& data, bool end_stream) override {
+    // SSE handshake bypass: pass raw HTTP+SSE response without any framing
+    if (sse_writing_handshake_) {
+      return network::FilterStatus::Continue;
+    }
+
+    // SSE transport: route response through SSE stream instead of POST connection
+    // When a POST came in on /callback/{session_id}, we already sent 202.
+    // Now intercept the JSON-RPC response and send it via the SSE stream.
+    if (is_server_ && !sse_callback_session_id_.empty() && data.length() > 0) {
+      size_t len = data.length();
+      std::string json_data(
+          static_cast<const char*>(data.linearize(len)), len);
+      data.drain(len);
+
+      GOPHER_LOG_INFO("Routing response via SSE session={} ({} bytes)",
+                      sse_callback_session_id_, json_data.size());
+
+      SseSessionRegistry::instance().sendResponse(
+          sse_callback_session_id_, json_data);
+
+      // Don't write anything to the POST connection (202 already sent)
+      return network::FilterStatus::StopIteration;
+    }
+
     GOPHER_LOG_DEBUG(
         "HttpSseJsonRpcProtocolFilter: onWrite called, data_len={}, "
         "is_server={}, is_sse_mode={}, waiting_for_endpoint={}, "
@@ -507,21 +627,129 @@ class HttpSseJsonRpcProtocolFilter
 
     // Determine transport mode based on headers
     if (is_server_) {
-      // Server: check Accept header for SSE - but DON'T enable SSE mode yet!
-      // The Accept header just indicates the client SUPPORTS SSE, not that we
-      // should use it. For JSON-RPC request/response (like initialize), we
-      // should use normal HTTP with Content-Length.
-      // SSE mode should only be enabled explicitly when the server wants to
-      // stream notifications. For now, always use normal HTTP for responses.
-      auto accept = headers.find("accept");
-      if (accept != headers.end() &&
-          accept->second.find("text/event-stream") != std::string::npos) {
-        client_accepts_sse_ = true;  // Track that client supports SSE
-        // But don't set is_sse_mode_ = true here - that would break JSON-RPC
-        GOPHER_LOG_DEBUG("HttpSseJsonRpcProtocolFilter: client accepts SSE");
+      // Extract method and path from headers
+      std::string method = "GET";
+      auto method_it = headers.find(":method");
+      if (method_it != headers.end()) {
+        method = method_it->second;
       }
-      // Always use normal HTTP mode for request/response pattern
-      is_sse_mode_ = false;
+
+      std::string path = "/";
+      auto path_it = headers.find(":path");
+      if (path_it != headers.end()) {
+        path = path_it->second;
+      } else {
+        auto url_it = headers.find("url");
+        if (url_it != headers.end()) {
+          path = url_it->second;
+        }
+      }
+      // Strip query string for comparison
+      size_t qpos = path.find('?');
+      if (qpos != std::string::npos) {
+        path = path.substr(0, qpos);
+      }
+
+      // Check if this is a GET request for the SSE endpoint
+      if (method == "GET" && path == configured_sse_path_) {
+        // SSE server mode: open a long-lived SSE stream
+        GOPHER_LOG_INFO(
+            "SSE client connected: GET {} (endpoint_event -> {})",
+            configured_sse_path_, configured_rpc_path_);
+
+        client_accepts_sse_ = true;
+
+        // Register this SSE connection in the session registry
+        if (write_callbacks_) {
+          sse_session_id_ = SseSessionRegistry::instance().registerSession(
+              &write_callbacks_->connection());
+
+          // Build callback URL for the endpoint event
+          // If external_url is set (behind proxy), use absolute URL
+          // Otherwise use relative path for direct connections
+          std::string callback_path;
+          if (!configured_external_url_.empty()) {
+            // Absolute URL: https://domain/v1/mcp/gateways/{id}/callback/client_X
+            std::string base = configured_external_url_;
+            // Remove trailing slash if present
+            if (!base.empty() && base.back() == '/') base.pop_back();
+            callback_path = base + "/callback/" + sse_session_id_;
+          } else {
+            // Relative path: callback/client_X (resolved relative to SSE URL)
+            callback_path = "callback/" + sse_session_id_;
+          }
+
+          // Send SSE response headers + endpoint event
+          // IMPORTANT: Write raw bytes BEFORE setting is_sse_mode_
+          std::ostringstream sse_response;
+          sse_response << "HTTP/1.1 200 OK\r\n";
+          sse_response << "Content-Type: text/event-stream\r\n";
+          sse_response << "Cache-Control: no-cache\r\n";
+          sse_response << "Access-Control-Allow-Origin: *\r\n";
+          sse_response << "\r\n";
+          sse_response << "event: endpoint\n";
+          sse_response << "data: " << callback_path << "\n\n";
+
+          std::string response_str = sse_response.str();
+          OwnedBuffer response_buffer;
+          response_buffer.add(response_str.c_str(), response_str.length());
+
+          sse_writing_handshake_ = true;
+          write_callbacks_->connection().write(response_buffer, false);
+          sse_writing_handshake_ = false;
+
+          // Enable SSE mode for future writes on this connection
+          sse_server_mode_ = true;
+          is_sse_mode_ = true;
+          sse_headers_written_ = true;
+
+          GOPHER_LOG_INFO(
+              "SSE stream opened: session={}, callback={}",
+              sse_session_id_, callback_path);
+        } else {
+          GOPHER_LOG_ERROR(
+              "SSE stream failed: write_callbacks_ is null for GET {}",
+              configured_sse_path_);
+        }
+        return;
+      }
+
+      // Check if this is a POST to a callback URL (SSE transport)
+      // Pattern: POST /callback/{session_id}
+      std::string callback_prefix = "/callback/";
+      if (method == "POST" && path.find(callback_prefix) == 0) {
+        sse_callback_session_id_ = path.substr(callback_prefix.length());
+        GOPHER_LOG_INFO("SSE callback POST received: session={}",
+                        sse_callback_session_id_);
+
+        // Send 202 Accepted immediately on the POST connection
+        // The actual response will be routed through the SSE stream
+        if (write_callbacks_) {
+          std::string http_202 =
+              "HTTP/1.1 202 Accepted\r\n"
+              "Content-Length: 0\r\n"
+              "Access-Control-Allow-Origin: *\r\n"
+              "\r\n";
+          OwnedBuffer resp_buf;
+          resp_buf.add(http_202.c_str(), http_202.length());
+          sse_writing_handshake_ = true;
+          write_callbacks_->connection().write(resp_buf, false);
+          sse_writing_handshake_ = false;
+        }
+        // Don't return — let the JSON-RPC body be processed normally.
+        // The response will be intercepted in onWrite and routed to SSE.
+        is_sse_mode_ = false;
+      }
+      // Check if this is a POST to the configured RPC path (Streamable HTTP)
+      // or any other non-SSE request
+      else {
+        auto accept = headers.find("accept");
+        if (accept != headers.end() &&
+            accept->second.find("text/event-stream") != std::string::npos) {
+          client_accepts_sse_ = true;
+        }
+        is_sse_mode_ = false;
+      }
     } else {
       // Client: check Content-Type for SSE
       auto content_type = headers.find("content-type");
@@ -537,6 +765,10 @@ class HttpSseJsonRpcProtocolFilter
   }
 
   void onBody(const std::string& data, bool end_stream) override {
+    // SSE server mode: no body processing needed (GET /sse has no body)
+    if (is_server_ && sse_server_mode_) {
+      return;
+    }
     // Server receives JSON-RPC in request body regardless of SSE mode
     // SSE mode only affects the response format
     if (is_server_) {
@@ -620,7 +852,7 @@ class HttpSseJsonRpcProtocolFilter
       return;
     }
 
-    if (event == "message") {
+    if (event == "message" || event.empty()) {
       // SSE message event contains JSON-RPC message
       // Forward to JSON-RPC filter
       auto buffer = std::make_unique<OwnedBuffer>();
@@ -820,10 +1052,14 @@ class HttpSseJsonRpcProtocolFilter
 
     // Register OPTIONS for common MCP paths
     routing_filter_->registerHandler("OPTIONS", "/mcp", corsHandler);
-    routing_filter_->registerHandler("OPTIONS", "/mcp/events", corsHandler);
     routing_filter_->registerHandler("OPTIONS", "/rpc", corsHandler);
     routing_filter_->registerHandler("OPTIONS", "/health", corsHandler);
     routing_filter_->registerHandler("OPTIONS", "/info", corsHandler);
+    // Register OPTIONS for configured SSE and RPC paths
+    routing_filter_->registerHandler("OPTIONS", configured_sse_path_, corsHandler);
+    if (configured_rpc_path_ != "/mcp" && configured_rpc_path_ != "/rpc") {
+      routing_filter_->registerHandler("OPTIONS", configured_rpc_path_, corsHandler);
+    }
 
     // Register health endpoint
     routing_filter_->registerHandler(
@@ -841,28 +1077,33 @@ class HttpSseJsonRpcProtocolFilter
           return resp;
         });
 
-    // Don't register /rpc endpoint - it will pass through to this filter
-    // Only register endpoints that should be handled by routing filter
-
-    // Register info endpoint
+    // Register ready endpoint (used by K8s readiness probe)
     routing_filter_->registerHandler(
-        "GET", "/info", [](const HttpRoutingFilter::RequestContext& req) {
+        "GET", "/ready", [](const HttpRoutingFilter::RequestContext& req) {
+          HttpRoutingFilter::Response resp;
+          resp.status_code = 200;
+          resp.headers["content-type"] = "application/json";
+          resp.headers["cache-control"] = "no-cache";
+
+          resp.body = R"({"status":"ready","timestamp":)" +
+                      std::to_string(std::time(nullptr)) + "}";
+
+          resp.headers["content-length"] = std::to_string(resp.body.length());
+          return resp;
+        });
+
+    // Register info endpoint - capture configured paths
+    std::string info_sse_path = configured_sse_path_;
+    std::string info_rpc_path = configured_rpc_path_;
+    routing_filter_->registerHandler(
+        "GET", "/info", [info_sse_path, info_rpc_path](const HttpRoutingFilter::RequestContext& req) {
           HttpRoutingFilter::Response resp;
           resp.status_code = 200;
           resp.headers["content-type"] = "application/json";
           resp.headers["Access-Control-Allow-Origin"] = "*";
 
-          resp.body = R"({
-        "server": "MCP Server",
-        "protocols": ["http", "sse", "json-rpc"],
-        "endpoints": {
-          "health": "/health",
-          "info": "/info",
-          "json_rpc": "/rpc",
-          "sse_events": "/events"
-        },
-        "version": "1.0.0"
-      })";
+          resp.body = R"({"server":"MCP Server","protocols":["http","sse","json-rpc"],"endpoints":{"health":"/health","info":"/info","json_rpc":")" +
+              info_rpc_path + R"(","sse":")" + info_sse_path + R"("},"version":"1.0.0"})";
 
           resp.headers["content-length"] = std::to_string(resp.body.length());
           return resp;
@@ -911,6 +1152,15 @@ class HttpSseJsonRpcProtocolFilter
   std::string http_path_{"/rpc"};       // Default HTTP path for requests
   std::string http_host_{"localhost"};  // Default HTTP host for requests
   bool use_sse_{true};  // True for SSE mode, false for Streamable HTTP
+
+  // SSE server transport configuration
+  std::string configured_sse_path_{"/sse"};     // Server-side SSE endpoint path
+  std::string configured_rpc_path_{"/mcp"};     // Server-side JSON-RPC endpoint path
+  std::string configured_external_url_;         // External URL for absolute SSE callbacks
+  bool sse_server_mode_{false};               // True when serving SSE stream to a client
+  bool sse_writing_handshake_{false};         // True during SSE handshake write (bypass onWrite)
+  std::string sse_session_id_;               // Session ID for this SSE connection (set on GET /sse)
+  std::string sse_callback_session_id_;      // Session ID from POST /callback/{id} (for response routing)
 
   // SSE endpoint negotiation (client mode only)
   bool waiting_for_sse_endpoint_{false};  // Waiting for "endpoint" SSE event
@@ -1030,7 +1280,8 @@ bool HttpSseFilterChainFactory::createFilterChain(
   // registered
   auto combined_filter = std::make_shared<HttpSseJsonRpcProtocolFilter>(
       dispatcher_, message_callbacks_, is_server_, http_path_, http_host_,
-      use_sse_, route_registration_callback_);
+      use_sse_, route_registration_callback_, sse_path_, rpc_path_,
+      external_url_);
 
   // Add as both read and write filter
   filter_manager.addReadFilter(combined_filter);
