@@ -218,7 +218,14 @@ void McpServer::performListen() {
 
         auto http_sse_factory =
             std::make_shared<filter::HttpSseFilterChainFactory>(
-                *main_dispatcher_, *protocol_callbacks_);
+                *main_dispatcher_, *protocol_callbacks_,
+                true,                    // is_server
+                config_.http_rpc_path,   // http_path
+                "localhost",             // http_host
+                true,                    // use_sse
+                config_.http_sse_path,   // sse_path (server-side SSE endpoint)
+                config_.http_rpc_path,   // rpc_path (server-side JSON-RPC endpoint)
+                config_.external_url);   // external_url (for SSE callback URLs)
 
         // Add filter factories from config (e.g., auth filters)
         // This follows the existing FilterFactoryCb pattern
@@ -656,16 +663,18 @@ void McpServer::onRequest(const jsonrpc::Request& request) {
   // Send response through the current connection (for TCP/HTTP connections)
   // Following production pattern: server sends JSON-RPC, filter handles HTTP
   if (current_connection_) {
-    // Convert response to JSON and send through connection
-    // The filter chain will handle HTTP protocol wrapping
     auto json_val = json::to_json(response);
     std::string json_str = json_val.toString();
 
+    GOPHER_LOG_INFO("Writing response ({} bytes) to connection for method={}",
+                    json_str.size(), request.method);
+
     OwnedBuffer response_buffer;
     response_buffer.add(json_str);
-
-    // Write JSON-RPC response - HTTP filter will wrap it
     current_connection_->write(response_buffer, false);
+  } else {
+    GOPHER_LOG_ERROR("No current_connection_ for response to method={}",
+                     request.method);
   }
 
   // Also try connection managers (for stdio transport)
@@ -776,30 +785,37 @@ void McpServer::onConnectionEvent(network::ConnectionEvent event) {
 
       // Clean up session for this connection
       if (session_manager_ && current_connection_) {
+        auto* closing_connection = current_connection_;
+
         // Remove session associated with the closed connection
-        session_manager_->removeSessionByConnection(current_connection_);
+        session_manager_->removeSessionByConnection(closing_connection);
 
         // Remove from connection-session mapping
-        // Following production pattern: use lock since this map may be accessed
-        // from multiple dispatcher threads
         {
           std::lock_guard<std::mutex> lock(connection_sessions_mutex_);
-          connection_sessions_.erase(current_connection_);
+          connection_sessions_.erase(closing_connection);
         }
 
-        // Remove connection from active list
-        // Following production pattern: all in dispatcher thread, no mutex
-        // needed
-        active_connections_.remove_if(
-            [this](const network::ConnectionPtr& conn) {
-              return conn.get() == current_connection_;
-            });
-
-        // Clear the current connection
+        // Clear the current connection BEFORE removing from active list
         current_connection_ = nullptr;
 
         // Decrement connection count
         num_connections_--;
+
+        // CRITICAL: Defer connection removal from active_connections_ list.
+        // We are inside a connection callback right now — destroying the
+        // ConnectionPtr here would free the connection object while its
+        // callback is still on the stack, causing use-after-free / segfault.
+        // Post the cleanup to the dispatcher so it happens after the callback
+        // returns.
+        if (main_dispatcher_) {
+          main_dispatcher_->post([this, closing_connection]() {
+            active_connections_.remove_if(
+                [closing_connection](const network::ConnectionPtr& conn) {
+                  return conn.get() == closing_connection;
+                });
+          });
+        }
       }
       break;
   }
