@@ -3,6 +3,9 @@
 #include <cstring>
 #include <iostream>
 #include <sstream>
+#include <thread>
+
+#include <curl/curl.h>
 
 #include "mcp/logging/log_macros.h"
 
@@ -915,7 +918,7 @@ void McpConnectionManager::onMessageEndpoint(const std::string& endpoint) {
 }
 
 bool McpConnectionManager::sendHttpPost(const std::string& json_body) {
-  GOPHER_LOG_DEBUG(
+  GOPHER_LOG_INFO(
       "McpConnectionManager::sendHttpPost endpoint={}, body_len={}",
       message_endpoint_, json_body.length());
 
@@ -924,188 +927,49 @@ bool McpConnectionManager::sendHttpPost(const std::string& json_body) {
     return false;
   }
 
-  // Parse endpoint URL to get host, port, path
-  // Format: https://host:port/path or http://host:port/path
-  std::string host;
-  uint16_t port = 443;
-  std::string path;
-  bool use_ssl = true;
+  // Use libcurl for the POST request. The raw socket approach fails because:
+  // 1. EAGAIN on the POST connection's SSL handshake drops the Client Hello
+  // 2. HTTP/1.1 vs HTTP/2 mismatch with servers that prefer h2
+  // curl handles all of this correctly.
+  std::string endpoint = message_endpoint_;
+  std::string body = json_body;
 
-  size_t proto_end = message_endpoint_.find("://");
-  if (proto_end == std::string::npos) {
-    GOPHER_LOG_ERROR("McpConnectionManager: Invalid endpoint URL");
-    return false;
-  }
-
-  std::string proto = message_endpoint_.substr(0, proto_end);
-  if (proto == "http") {
-    use_ssl = false;
-    port = 80;
-  }
-
-  size_t host_start = proto_end + 3;
-  size_t path_start = message_endpoint_.find('/', host_start);
-  if (path_start == std::string::npos) {
-    path = "/";
-    host = message_endpoint_.substr(host_start);
-  } else {
-    path = message_endpoint_.substr(path_start);
-    host = message_endpoint_.substr(host_start, path_start - host_start);
-  }
-
-  // Check for port in host
-  size_t port_pos = host.find(':');
-  if (port_pos != std::string::npos) {
-    port = static_cast<uint16_t>(std::stoi(host.substr(port_pos + 1)));
-    host = host.substr(0, port_pos);
-  }
-
-  GOPHER_LOG_DEBUG(
-      "McpConnectionManager: POST to host={}, port={}, path={}, ssl={}", host,
-      port, path, use_ssl);
-
-  // Resolve hostname
-  std::string ip_address = resolveHostname(host);
-  if (ip_address.empty()) {
-    GOPHER_LOG_ERROR("McpConnectionManager: Failed to resolve hostname: {}",
-                     host);
-    return false;
-  }
-
-  // Create HTTP POST request manually
-  std::ostringstream request;
-  request << "POST " << path << " HTTP/1.1\r\n";
-  request << "Host: " << host << "\r\n";
-  request << "Content-Type: application/json\r\n";
-  request << "Content-Length: " << json_body.length() << "\r\n";
-  request << "Connection: close\r\n";  // One-shot connection
-  request << "\r\n";
-  request << json_body;
-
-  std::string request_str = request.str();
-  GOPHER_LOG_TRACE(
-      "McpConnectionManager: HTTP POST request (first 300 chars): {}",
-      request_str.substr(0, 300));
-
-  // Create address
-  auto address =
-      std::make_shared<network::Address::Ipv4Instance>(ip_address, port);
-
-  // Create stream info
-  auto stream_info = stream_info::StreamInfoImpl::create();
-
-  // Create transport socket using the same factory as the main connection
-  // This ensures proper TCP+SSL handling
-  auto transport_factory = createTransportSocketFactory();
-  if (!transport_factory) {
-    GOPHER_LOG_ERROR(
-        "McpConnectionManager: Failed to create transport factory");
-    return false;
-  }
-
-  auto* client_factory = dynamic_cast<network::ClientTransportSocketFactory*>(
-      transport_factory.get());
-  if (!client_factory) {
-    GOPHER_LOG_ERROR(
-        "McpConnectionManager: Transport factory doesn't support client "
-        "connections");
-    return false;
-  }
-  auto transport_socket = client_factory->createTransportSocket(nullptr);
-
-  // Create TCP socket using MCP socket interface (same pattern as connect())
-  auto local_address =
-      network::Address::anyAddress(network::Address::IpVersion::v4, 0);
-
-  auto socket_result = socket_interface_.socket(
-      network::SocketType::Stream, network::Address::Type::Ip,
-      network::Address::IpVersion::v4, false);
-
-  if (!socket_result.ok()) {
-    GOPHER_LOG_ERROR("McpConnectionManager: Failed to create socket");
-    return false;
-  }
-
-  // Create IO handle wrapper for the socket
-  auto io_handle = socket_interface_.ioHandleForFd(*socket_result.value, false);
-  if (!io_handle) {
-    socket_interface_.close(*socket_result.value);
-    GOPHER_LOG_ERROR("McpConnectionManager: Failed to create IO handle");
-    return false;
-  }
-
-  // Create ConnectionSocket wrapper
-  auto socket_wrapper = std::make_unique<network::ConnectionSocketImpl>(
-      std::move(io_handle), local_address, address);
-
-  // Set socket to non-blocking mode
-  socket_wrapper->ioHandle().setBlocking(false);
-
-  // Create the connection (same pattern as connect())
-  auto post_connection = std::make_unique<network::ConnectionImpl>(
-      dispatcher_, std::move(socket_wrapper), std::move(transport_socket),
-      false);  // Not yet connected
-
-  auto* post_conn_ptr = post_connection.get();
-
-  // Simple connection callback that writes the request after connect
-  class PostConnectionCallbacks : public network::ConnectionCallbacks {
-   public:
-    PostConnectionCallbacks(const std::string& request,
-                            network::Connection* conn)
-        : request_(request), connection_(conn) {}
-
-    void onEvent(network::ConnectionEvent event) override {
-      GOPHER_LOG_DEBUG("PostConnection onEvent: {}", static_cast<int>(event));
-      if (event == network::ConnectionEvent::Connected) {
-        GOPHER_LOG_DEBUG("PostConnection connected, sending POST request");
-        OwnedBuffer buffer;
-        buffer.add(request_);
-        connection_->write(buffer, false);
-      } else if (event == network::ConnectionEvent::RemoteClose ||
-                 event == network::ConnectionEvent::LocalClose) {
-        GOPHER_LOG_DEBUG("PostConnection connection closed");
-        // Connection closed - this is expected after we get the response
-      }
+  std::thread([endpoint, body]() {
+    CURL* curl = curl_easy_init();
+    if (!curl) {
+      GOPHER_LOG_ERROR("sendHttpPost: Failed to init curl");
+      return;
     }
 
-    void onAboveWriteBufferHighWatermark() override {}
-    void onBelowWriteBufferLowWatermark() override {}
+    struct curl_slist* headers = nullptr;
+    headers = curl_slist_append(headers, "Content-Type: application/json");
+    headers = curl_slist_append(headers, "Accept: application/json");
 
-   private:
-    std::string request_;
-    network::Connection* connection_;
-  };
+    curl_easy_setopt(curl, CURLOPT_URL, endpoint.c_str());
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body.c_str());
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, (long)body.length());
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 10L);
+    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 5L);
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
+    // Suppress response body output
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION,
+        +[](void*, size_t size, size_t nmemb, void*) -> size_t {
+          return size * nmemb;
+        });
 
-  // Clean up any previous POST connection
-  post_connection_.reset();
-  post_callbacks_.reset();
+    CURLcode res = curl_easy_perform(curl);
+    if (res != CURLE_OK) {
+      GOPHER_LOG_ERROR("sendHttpPost curl error: {}", curl_easy_strerror(res));
+    } else {
+      long http_code = 0;
+      curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
+      GOPHER_LOG_INFO("sendHttpPost: HTTP {}", http_code);
+    }
 
-  // Store callbacks as member to keep alive
-  post_callbacks_ =
-      std::make_unique<PostConnectionCallbacks>(request_str, post_conn_ptr);
-  post_connection->addConnectionCallbacks(*post_callbacks_);
-
-  // CRITICAL FIX: Initialize the filter manager for the POST connection.
-  // Without this, the filter manager is in an uninitialized state and
-  // onRead() returns early without processing, but subsequent code paths
-  // may still access connection state that hasn't been properly set up,
-  // leading to crashes. Even though we don't need to parse the HTTP response
-  // (it's just a 200 OK acknowledgment), we need the filter manager initialized
-  // for the connection to function correctly.
-  auto* conn_base =
-      dynamic_cast<network::ConnectionImplBase*>(post_connection.get());
-  if (conn_base) {
-    conn_base->filterManager().initializeReadFilters();
-  }
-
-  // Store the connection as member (keeps it alive)
-  post_connection_ = std::unique_ptr<network::ClientConnection>(
-      static_cast<network::ClientConnection*>(post_connection.release()));
-
-  // Initiate connection
-  GOPHER_LOG_DEBUG("McpConnectionManager: Initiating POST connection");
-  post_connection_->connect();
+    curl_slist_free_all(headers);
+    curl_easy_cleanup(curl);
+  }).detach();
 
   return true;
 }
