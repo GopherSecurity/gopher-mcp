@@ -66,19 +66,28 @@ class HttpSseFilterChainFactory : public network::FilterChainFactory {
    * @param http_host HTTP Host header value for client mode
    * @param use_sse True for SSE mode (GET /sse first), false for Streamable
    * HTTP (direct POST)
+   * @param sse_path Server-side SSE endpoint path (e.g., "/sse")
+   * @param rpc_path Server-side JSON-RPC endpoint path (e.g., "/mcp")
+   * @param external_url External URL for absolute SSE callback URLs (proxy support)
    */
   HttpSseFilterChainFactory(event::Dispatcher& dispatcher,
                             McpProtocolCallbacks& message_callbacks,
                             bool is_server = true,
                             const std::string& http_path = "/rpc",
                             const std::string& http_host = "localhost",
-                            bool use_sse = true)
+                            bool use_sse = true,
+                            const std::string& sse_path = "/sse",
+                            const std::string& rpc_path = "/mcp",
+                            const std::string& external_url = "")
       : dispatcher_(dispatcher),
         message_callbacks_(message_callbacks),
         is_server_(is_server),
         http_path_(http_path),
         http_host_(http_host),
-        use_sse_(use_sse) {}
+        use_sse_(use_sse),
+        sse_path_(sse_path),
+        rpc_path_(rpc_path),
+        external_url_(external_url) {}
 
   /**
    * Create filter chain for the connection
@@ -170,6 +179,9 @@ class HttpSseFilterChainFactory : public network::FilterChainFactory {
   std::string http_path_;  // HTTP request path for client mode
   std::string http_host_;  // HTTP Host header for client mode
   bool use_sse_;           // True for SSE mode, false for Streamable HTTP
+  std::string sse_path_;       // Server-side SSE endpoint path (e.g., "/sse")
+  std::string rpc_path_;   // Server-side JSON-RPC endpoint path (e.g., "/mcp")
+  std::string external_url_;  // External URL for absolute SSE callback URLs
   mutable bool enable_metrics_ = true;  // Enable metrics by default
 
   // Store filters for lifetime management
