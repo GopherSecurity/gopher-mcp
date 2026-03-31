@@ -88,8 +88,9 @@ struct McpServerConfig : public application::ApplicationBase::Config {
 
   // HTTP/SSE specific configuration
   std::string http_rpc_path = "/rpc";        // Path for JSON-RPC over HTTP
-  std::string http_sse_path = "/events";     // Path for SSE event stream
+  std::string http_sse_path = "/sse";        // Path for SSE event stream
   std::string http_health_path = "/health";  // Path for health check endpoint
+  std::string external_url;                  // External URL for SSE callbacks (proxy support)
 
   // Session management
   size_t max_sessions = 100;
