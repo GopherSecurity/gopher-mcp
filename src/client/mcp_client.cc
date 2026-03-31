@@ -577,6 +577,10 @@ std::future<InitializeResult> McpClient::initializeProtocol() {
               protocol::McpProtocolEvent::INITIALIZED);
         }
 
+        // Send notifications/initialized as required by MCP spec
+        // Must happen BEFORE any other requests (e.g., tools/list)
+        sendNotification("notifications/initialized", nullopt);
+
         result_promise->set_value(init_result);
       }
     } catch (...) {
