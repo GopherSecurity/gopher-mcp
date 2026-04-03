@@ -926,19 +926,18 @@ jsonrpc::Response McpServer::handleReadResource(const jsonrpc::Request& request,
 
   std::string uri = get<std::string>(uri_it->second);
 
-  // Read resource
-  auto result = resource_manager_->readResource(uri);
-
-  // Convert to response
-  // TODO: Serialize ReadResourceResult to ResponseResult
-  auto response_metadata =
-      make<Metadata>()
-          .add("uri", uri)
-          .add("contentCount", static_cast<int64_t>(result.contents.size()))
-          .build();
-
-  return jsonrpc::Response::success(request.id,
-                                    jsonrpc::ResponseResult(response_metadata));
+  // Delegate to the registered read handler via ResourceManager.
+  // The handler produces a ReadResourceResult with properly populated contents.
+  try {
+    auto result = resource_manager_->readResource(uri, session);
+    auto result_json = json::to_json(result);
+    return jsonrpc::Response::success(request.id,
+                                      jsonrpc::ResponseResult(result_json));
+  } catch (const std::exception& e) {
+    return jsonrpc::Response::make_error(
+        request.id,
+        Error(jsonrpc::INVALID_PARAMS, std::string("Resource read failed: ") + e.what()));
+  }
 }
 
 jsonrpc::Response McpServer::handleSubscribe(const jsonrpc::Request& request,
