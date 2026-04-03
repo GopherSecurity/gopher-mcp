@@ -37,8 +37,8 @@ TEST_F(ReadResourceResponseTest, TextResourceContentsFormat) {
   result.contents.push_back(content);
 
   auto result_json = to_json(result);
-  auto response = jsonrpc::Response::success(make_request_id(1),
-                                             jsonrpc::ResponseResult(result_json));
+  auto response = jsonrpc::Response::success(
+      make_request_id(1), jsonrpc::ResponseResult(result_json));
   JsonValue serialized = to_json(response);
   std::string json_str = serialized.toString();
 
@@ -47,11 +47,14 @@ TEST_F(ReadResourceResponseTest, TextResourceContentsFormat) {
       << "result must contain contents array, got: " << json_str;
 
   // Must contain the text content fields
-  EXPECT_NE(json_str.find("\"uri\":\"metrics://server/stats\""), std::string::npos)
+  EXPECT_NE(json_str.find("\"uri\":\"metrics://server/stats\""),
+            std::string::npos)
       << "contents entry must have uri, got: " << json_str;
-  EXPECT_NE(json_str.find("\"mimeType\":\"application/json\""), std::string::npos)
+  EXPECT_NE(json_str.find("\"mimeType\":\"application/json\""),
+            std::string::npos)
       << "contents entry must have mimeType, got: " << json_str;
-  EXPECT_NE(json_str.find("\"text\":\"{\\\"uptime\\\":3600}\""), std::string::npos)
+  EXPECT_NE(json_str.find("\"text\":\"{\\\"uptime\\\":3600}\""),
+            std::string::npos)
       << "contents entry must have text, got: " << json_str;
 
   // Must NOT have the old broken fields
@@ -180,9 +183,9 @@ TEST_F(ResourceManagerTest, HandlerReceivesCorrectUri) {
   ResourceManager mgr(stats_);
 
   std::string received_uri;
-  auto shared_handler =
-      [&received_uri](const std::string& uri,
-                      SessionContext& /*session*/) -> ReadResourceResult {
+  auto shared_handler = [&received_uri](
+                            const std::string& uri,
+                            SessionContext& /*session*/) -> ReadResourceResult {
     received_uri = uri;
     ReadResourceResult result;
     TextResourceContents c;
