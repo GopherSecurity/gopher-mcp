@@ -20,6 +20,7 @@ add_executable(test_template_serialization json/test_template_serialization.cc)
 add_executable(test_short_json_api json/test_short_json_api.cc)
 # Server tests
 add_executable(test_mcp_server_responses server/test_mcp_server_responses.cc)
+add_executable(test_resource_read server/test_resource_read.cc)
 # CORS tests
 add_executable(test_cors_headers filter/test_cors_headers.cc)
 add_executable(test_options_notification filter/test_options_notification.cc)
@@ -243,6 +244,14 @@ target_link_libraries(test_mcp_server_responses
     gtest
     gtest_main
     Threads::Threads
+)
+
+target_link_libraries(test_resource_read
+    gopher-mcp
+    gtest
+    gtest_main
+    Threads::Threads
+    fmt::fmt
 )
 
 target_link_libraries(test_cors_headers
@@ -1264,6 +1273,7 @@ add_test(NAME McpSerializationTest COMMAND test_mcp_serialization)
 add_test(NAME McpSerializationExtensiveTest COMMAND test_mcp_serialization_extensive)
 add_test(NAME TemplateSerializationTest COMMAND test_template_serialization)
 add_test(NAME McpServerResponsesTest COMMAND test_mcp_server_responses)
+add_test(NAME ResourceReadTest COMMAND test_resource_read)
 add_test(NAME CorsHeadersTest COMMAND test_cors_headers)
 add_test(NAME OptionsNotificationTest COMMAND test_options_notification)
 add_test(NAME EventLoopTest COMMAND test_event_loop)
