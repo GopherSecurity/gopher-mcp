@@ -87,13 +87,24 @@ class HttpsMcpServer {
 
  private:
   void registerHandlers() {
-    // Register example resource
+    // Register example resource with a read handler
     Resource example_resource;
     example_resource.uri = "file:///example.txt";
     example_resource.name = "Example Resource";
     example_resource.description = "An example resource over HTTPS";
     example_resource.mimeType = "text/plain";
-    server_->registerResource(example_resource);
+    server_->registerResource(
+        example_resource,
+        [](const std::string& uri,
+           server::SessionContext& /*session*/) -> ReadResourceResult {
+          ReadResourceResult result;
+          TextResourceContents content;
+          content.uri = mcp::make_optional(uri);
+          content.mimeType = mcp::make_optional(std::string("text/plain"));
+          content.text = "Hello from the example HTTPS resource!";
+          result.contents.push_back(content);
+          return result;
+        });
 
     // Register example tool
     Tool example_tool;
