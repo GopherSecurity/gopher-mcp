@@ -269,9 +269,23 @@ class NotificationHandler {
  */
 class ResourceManager {
  public:
+  // Handler invoked on resources/read to produce the actual content.
+  // Receives the URI so a single handler can serve multiple resources.
+  using ResourceReadHandler =
+      std::function<ReadResourceResult(const std::string& uri,
+                                       SessionContext& session)>;
+
   ResourceManager(McpServerStats& stats) : stats_(stats) {}
 
-  // Register a resource
+  // Register a resource with a read handler that supplies content on read.
+  void registerResource(const Resource& resource,
+                        ResourceReadHandler handler) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    resources_[resource.uri] = resource;
+    resource_handlers_[resource.uri] = handler;
+  }
+
+  // Register a resource without a read handler (metadata-only, e.g. for list).
   void registerResource(const Resource& resource) {
     std::lock_guard<std::mutex> lock(mutex_);
     resources_[resource.uri] = resource;
@@ -315,24 +329,26 @@ class ResourceManager {
     return result;
   }
 
-  // Read resource content
-  ReadResourceResult readResource(const std::string& uri) {
+  // Read resource content by delegating to the registered handler.
+  // Returns an empty result when the URI is unknown, and throws if
+  // the resource was registered without a read handler.
+  ReadResourceResult readResource(const std::string& uri,
+                                  SessionContext& session) {
     std::lock_guard<std::mutex> lock(mutex_);
-    ReadResourceResult result;
 
-    auto it = resources_.find(uri);
-    if (it != resources_.end()) {
-      // Create text content for the resource
-      TextResourceContents content;
-      content.uri = uri;
-      content.mimeType = it->second.mimeType;
-      content.text = "Resource content for: " +
-                     uri;  // Actual implementation would read real content
-
-      result.contents.push_back(content);
-      stats_.resources_served++;
+    auto res_it = resources_.find(uri);
+    if (res_it == resources_.end()) {
+      return ReadResourceResult{};  // unknown resource
     }
 
+    auto handler_it = resource_handlers_.find(uri);
+    if (handler_it == resource_handlers_.end()) {
+      throw std::runtime_error(
+          "Resource registered without a read handler: " + uri);
+    }
+
+    auto result = handler_it->second(uri, session);
+    stats_.resources_served++;
     return result;
   }
 
@@ -379,6 +395,7 @@ class ResourceManager {
  private:
   mutable std::mutex mutex_;
   std::map<std::string, Resource> resources_;
+  std::map<std::string, ResourceReadHandler> resource_handlers_;
   std::vector<ResourceTemplate> resource_templates_;
   std::map<std::string, std::set<std::string>>
       subscriptions_;  // uri -> session_ids
@@ -694,7 +711,15 @@ class McpServer : public application::ApplicationBase,
       std::function<void(const jsonrpc::Notification&, SessionContext&)>
           handler);
 
-  // Resource management
+  // Resource management — register with a read handler for resources/read
+  void registerResource(
+      const Resource& resource,
+      std::function<ReadResourceResult(const std::string&, SessionContext&)>
+          handler) {
+    resource_manager_->registerResource(resource, handler);
+  }
+
+  // Register metadata only (appears in resources/list but has no read handler)
   void registerResource(const Resource& resource) {
     resource_manager_->registerResource(resource);
   }
