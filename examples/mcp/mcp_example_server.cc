@@ -522,7 +522,7 @@ GetPromptResult getSamplePrompt(const std::string& name,
 void setupServer(McpServer& server, bool verbose) {
   g_logger->info("Configuring server resources and tools...");
 
-  // Register sample resources
+  // Register sample resources with read handlers that produce actual content
   {
     // Configuration resource
     Resource config_resource;
@@ -533,7 +533,18 @@ void setupServer(McpServer& server, bool verbose) {
     config_resource.mimeType =
         mcp::make_optional(std::string("application/json"));
 
-    server.registerResource(config_resource);
+    server.registerResource(
+        config_resource,
+        [](const std::string& uri,
+           SessionContext& /*session*/) -> ReadResourceResult {
+          ReadResourceResult result;
+          TextResourceContents content;
+          content.uri = mcp::make_optional(uri);
+          content.mimeType = mcp::make_optional(std::string("application/json"));
+          content.text = R"({"logLevel":"info","maxConnections":100})";
+          result.contents.push_back(content);
+          return result;
+        });
 
     // Log resource
     Resource log_resource;
@@ -543,7 +554,18 @@ void setupServer(McpServer& server, bool verbose) {
         mcp::make_optional(std::string("Real-time server event log"));
     log_resource.mimeType = mcp::make_optional(std::string("text/plain"));
 
-    server.registerResource(log_resource);
+    server.registerResource(
+        log_resource,
+        [](const std::string& uri,
+           SessionContext& /*session*/) -> ReadResourceResult {
+          ReadResourceResult result;
+          TextResourceContents content;
+          content.uri = mcp::make_optional(uri);
+          content.mimeType = mcp::make_optional(std::string("text/plain"));
+          content.text = "[2026-04-03T00:00:00Z] Server started\n";
+          result.contents.push_back(content);
+          return result;
+        });
 
     // Metrics resource
     Resource metrics_resource;
@@ -554,7 +576,19 @@ void setupServer(McpServer& server, bool verbose) {
     metrics_resource.mimeType =
         mcp::make_optional(std::string("application/json"));
 
-    server.registerResource(metrics_resource);
+    server.registerResource(
+        metrics_resource,
+        [](const std::string& uri,
+           SessionContext& /*session*/) -> ReadResourceResult {
+          ReadResourceResult result;
+          TextResourceContents content;
+          content.uri = mcp::make_optional(uri);
+          content.mimeType = mcp::make_optional(std::string("application/json"));
+          content.text =
+              R"({"uptime_seconds":3600,"requests_total":1024,"errors_total":3})";
+          result.contents.push_back(content);
+          return result;
+        });
 
     if (verbose) {
       g_logger->debug("Registered 3 static resources");
