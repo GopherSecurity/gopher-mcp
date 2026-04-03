@@ -935,8 +935,8 @@ jsonrpc::Response McpServer::handleReadResource(const jsonrpc::Request& request,
                                       jsonrpc::ResponseResult(result_json));
   } catch (const std::exception& e) {
     return jsonrpc::Response::make_error(
-        request.id,
-        Error(jsonrpc::INVALID_PARAMS, std::string("Resource read failed: ") + e.what()));
+        request.id, Error(jsonrpc::INVALID_PARAMS,
+                          std::string("Resource read failed: ") + e.what()));
   }
 }
 

@@ -540,7 +540,8 @@ void setupServer(McpServer& server, bool verbose) {
           ReadResourceResult result;
           TextResourceContents content;
           content.uri = mcp::make_optional(uri);
-          content.mimeType = mcp::make_optional(std::string("application/json"));
+          content.mimeType =
+              mcp::make_optional(std::string("application/json"));
           content.text = R"({"logLevel":"info","maxConnections":100})";
           result.contents.push_back(content);
           return result;
@@ -583,7 +584,8 @@ void setupServer(McpServer& server, bool verbose) {
           ReadResourceResult result;
           TextResourceContents content;
           content.uri = mcp::make_optional(uri);
-          content.mimeType = mcp::make_optional(std::string("application/json"));
+          content.mimeType =
+              mcp::make_optional(std::string("application/json"));
           content.text =
               R"({"uptime_seconds":3600,"requests_total":1024,"errors_total":3})";
           result.contents.push_back(content);

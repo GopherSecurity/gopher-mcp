@@ -271,15 +271,13 @@ class ResourceManager {
  public:
   // Handler invoked on resources/read to produce the actual content.
   // Receives the URI so a single handler can serve multiple resources.
-  using ResourceReadHandler =
-      std::function<ReadResourceResult(const std::string& uri,
-                                       SessionContext& session)>;
+  using ResourceReadHandler = std::function<ReadResourceResult(
+      const std::string& uri, SessionContext& session)>;
 
   ResourceManager(McpServerStats& stats) : stats_(stats) {}
 
   // Register a resource with a read handler that supplies content on read.
-  void registerResource(const Resource& resource,
-                        ResourceReadHandler handler) {
+  void registerResource(const Resource& resource, ResourceReadHandler handler) {
     std::lock_guard<std::mutex> lock(mutex_);
     resources_[resource.uri] = resource;
     resource_handlers_[resource.uri] = handler;
@@ -343,8 +341,8 @@ class ResourceManager {
 
     auto handler_it = resource_handlers_.find(uri);
     if (handler_it == resource_handlers_.end()) {
-      throw std::runtime_error(
-          "Resource registered without a read handler: " + uri);
+      throw std::runtime_error("Resource registered without a read handler: " +
+                               uri);
     }
 
     auto result = handler_it->second(uri, session);
