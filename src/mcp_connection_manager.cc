@@ -864,18 +864,15 @@ void McpConnectionManager::onConnectionEvent(network::ConnectionEvent event) {
 
     // Connection closed - clean up state
     connected_ = false;
-    // CRITICAL FIX: Defer connection destruction
-    // We are being called from within the connection's callback loop
-    // (raiseConnectionEvent). Destroying the connection here would cause
-    // use-after-free when the callback loop continues to iterate. Use post() to
-    // defer destruction until after current callback.
     if (active_connection_) {
-      auto conn_to_delete = std::make_shared<network::ConnectionPtr>(
-          std::move(active_connection_));
-      dispatcher_.post([conn_to_delete]() {
-        // Connection is destroyed when lambda and shared_ptr go out of scope
-        conn_to_delete->reset();
-      });
+      // Disable read/write on the connection to unregister libevent
+      // events for this fd. Without this, libevent may fire stale
+      // callbacks for the fd after we've moved the connection to the
+      // dead list, causing use-after-free.
+      active_connection_->readDisable(true);
+      // Move to dead list instead of destroying — keeps the object
+      // alive so any remaining in-flight callbacks don't crash.
+      closed_connections_.push_back(std::move(active_connection_));
     }
   }
 

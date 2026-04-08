@@ -199,6 +199,10 @@ class McpConnectionManager : public McpProtocolCallbacks,
   std::unique_ptr<network::ConnectionManager> connection_manager_;
   network::ConnectionPtr active_connection_;
 
+  // Closed connections kept alive to prevent use-after-free from
+  // libevent callbacks that still reference the connection's fd.
+  std::vector<network::ConnectionPtr> closed_connections_;
+
   // Server listener management
   // Must keep listener manager alive for the lifetime of the server
   std::unique_ptr<network::ListenerManager> listener_manager_;
