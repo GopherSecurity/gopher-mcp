@@ -109,7 +109,13 @@ HttpCodecFilter::HttpCodecFilter(MessageCallbacks& callbacks,
   HttpCodecStateMachineConfig config;
   config.is_server = is_server_;  // Set mode
   config.header_timeout = std::chrono::milliseconds(30000);
-  config.body_timeout = std::chrono::milliseconds(60000);
+  // Disable body timeout for client mode.  SSE connections keep the
+  // response body open indefinitely (infinite stream of events).
+  // A 60 s body timeout would fire and crash in the state machine's
+  // executeTransition() because the SSE connection is still alive.
+  config.body_timeout = is_server_
+      ? std::chrono::milliseconds(60000)
+      : std::chrono::milliseconds(0);
   config.idle_timeout = std::chrono::milliseconds(120000);
   config.enable_keep_alive = true;
   config.state_change_callback =
@@ -161,7 +167,10 @@ HttpCodecFilter::HttpCodecFilter(const filter::FilterCreationContext& context,
   HttpCodecStateMachineConfig sm_config;
   sm_config.is_server = is_server_;
   sm_config.header_timeout = std::chrono::milliseconds(30000);
-  sm_config.body_timeout = std::chrono::milliseconds(60000);
+  // Disable body timeout for client mode — SSE streams never end.
+  sm_config.body_timeout = is_server_
+      ? std::chrono::milliseconds(60000)
+      : std::chrono::milliseconds(0);
   sm_config.idle_timeout = std::chrono::milliseconds(120000);
   sm_config.enable_keep_alive = true;
   sm_config.state_change_callback =
@@ -305,6 +314,11 @@ network::FilterStatus HttpCodecFilter::onWrite(Buffer& data, bool end_stream) {
         GOPHER_LOG_TRACE("onWrite: Content-Length={} body_preview={}...",
                          body_length, body_data.substr(0, 50));
         response << "Cache-Control: no-cache\r\n";
+        // Close connection after response.  Streamable HTTP JSON-RPC is
+        // one request → one response.  Using Connection: close ensures
+        // the TCP socket is fully flushed and closed, which prevents
+        // responses from being stuck in proxy buffers (Traefik, nginx).
+        response << "Connection: close\r\n";
         // CORS headers for browser-based clients (e.g., MCP Inspector)
         response << "Access-Control-Allow-Origin: *\r\n";
         response << "Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n";
