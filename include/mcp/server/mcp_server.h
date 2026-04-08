@@ -939,6 +939,12 @@ class McpServer : public application::ApplicationBase,
   // Background task state
   std::atomic<bool> background_threads_running_{false};
 
+  // Timer handles for background tasks — must outlive the timers they create.
+  // Without these, createTimer returns a unique_ptr that goes out of scope
+  // immediately, destroying the timer before it can fire.
+  event::TimerPtr session_cleanup_timer_;
+  event::TimerPtr resource_update_timer_;
+
   // Deferred listen address
   std::string listen_address_;
   bool need_perform_listen_ = false;

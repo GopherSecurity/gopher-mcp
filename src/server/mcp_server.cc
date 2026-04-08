@@ -671,7 +671,11 @@ void McpServer::onRequest(const jsonrpc::Request& request) {
 
     OwnedBuffer response_buffer;
     response_buffer.add(json_str);
-    current_connection_->write(response_buffer, false);
+    // end_stream=true signals the HTTP codec that this response is complete.
+    // Without this, keep-alive connections may hold the response in the
+    // transport layer waiting for more data, causing clients (like Claude)
+    // to never receive the response even though it was written.
+    current_connection_->write(response_buffer, true);
   } else {
     GOPHER_LOG_ERROR("No current_connection_ for response to method={}",
                      request.method);
@@ -787,10 +791,13 @@ void McpServer::onConnectionEvent(network::ConnectionEvent event) {
       if (session_manager_ && current_connection_) {
         auto* closing_connection = current_connection_;
 
-        // Remove session associated with the closed connection
+        // Remove session associated with the closed connection.
+        // SessionManager::removeSessionByConnection handles both the
+        // session map and its internal connection_sessions_ map atomically
+        // under a single mutex.  No need to also erase from McpServer's
+        // own connection_sessions_ — that map is kept in sync at insert
+        // time but the authoritative state is in SessionManager.
         session_manager_->removeSessionByConnection(closing_connection);
-
-        // Remove from connection-session mapping
         {
           std::lock_guard<std::mutex> lock(connection_sessions_mutex_);
           connection_sessions_.erase(closing_connection);
@@ -1157,44 +1164,57 @@ jsonrpc::Response McpServer::handleGetPrompt(const jsonrpc::Request& request,
 void McpServer::startBackgroundTasks() {
   background_threads_running_ = true;
 
-  // Schedule periodic session cleanup using dispatcher timer
-  auto cleanup_timer = main_dispatcher_->createTimer([this]() {
-    if (background_threads_running_) {
-      // Clean up expired sessions
-      session_manager_->cleanupExpiredSessions();
+  // Schedule periodic session cleanup.
+  // The timer handle is stored in session_cleanup_timer_ so it survives
+  // until the next reschedule or server shutdown.
+  session_cleanup_timer_ = main_dispatcher_->createTimer([this]() {
+    if (!background_threads_running_) return;
 
-      // Reschedule for next cleanup
-      auto next_timer = main_dispatcher_->createTimer([this]() {
-        if (background_threads_running_) {
-          startBackgroundTasks();
-        }
-      });
-      next_timer->enableTimer(std::chrono::seconds(30));
-    }
+    // Clean up expired sessions
+    session_manager_->cleanupExpiredSessions();
+
+    // Reschedule by creating a new timer stored in the same member.
+    // The old timer (this one) has already fired and is consumed.
+    session_cleanup_timer_ = main_dispatcher_->createTimer([this]() {
+      if (background_threads_running_) {
+        session_manager_->cleanupExpiredSessions();
+        // Re-arm for continuous cleanup
+        startBackgroundTasks();
+      }
+    });
+    session_cleanup_timer_->enableTimer(std::chrono::seconds(30));
   });
-  cleanup_timer->enableTimer(std::chrono::seconds(30));
+  session_cleanup_timer_->enableTimer(std::chrono::seconds(30));
 
   // Schedule periodic resource update notifications
-  auto update_timer = main_dispatcher_->createTimer([this]() {
-    if (background_threads_running_) {
-      // Process pending resource updates for each session
-      // Get all sessions and send pending updates
+  resource_update_timer_ = main_dispatcher_->createTimer([this]() {
+    if (!background_threads_running_) return;
 
-      // Reschedule
-      auto next_timer = main_dispatcher_->createTimer([this]() {
-        if (background_threads_running_) {
-          // Continue resource update processing
-        }
-      });
-      next_timer->enableTimer(config_.resource_update_debounce);
-    }
+    // Process pending resource updates for each session
+    // (placeholder — actual update logic can be added here)
+
+    // Reschedule
+    resource_update_timer_ = main_dispatcher_->createTimer([this]() {
+      if (background_threads_running_) {
+        // Continue resource update processing
+      }
+    });
+    resource_update_timer_->enableTimer(config_.resource_update_debounce);
   });
-  update_timer->enableTimer(config_.resource_update_debounce);
+  resource_update_timer_->enableTimer(config_.resource_update_debounce);
 }
 
 void McpServer::stopBackgroundTasks() {
   background_threads_running_ = false;
-  // Timers will naturally expire and not reschedule
+  // Explicitly disable and release timers so they don't fire after shutdown
+  if (session_cleanup_timer_) {
+    session_cleanup_timer_->disableTimer();
+    session_cleanup_timer_.reset();
+  }
+  if (resource_update_timer_) {
+    resource_update_timer_->disableTimer();
+    resource_update_timer_.reset();
+  }
 }
 
 // ListenerCallbacks implementation (production pattern)
