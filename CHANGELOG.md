@@ -14,6 +14,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 
+## [0.1.4] - 2026-04-08
+
+### Added
+
+- Add unit tests for resources/read response and ResourceManager handlers (#206)
+- Add read handlers to example server resource registrations (#206)
+- Add ResourceReadHandler callback to ResourceManager (#206)
+
+### Changed
+
+- Enhance dump-version.sh with GitHub release check and auto-generated changelog
+- Release 0.1.3
+- Run clang-format on resource read implementation files (#206)
+- Unstaged changes: CMakeLists.txt
+
+### Fixed
+
+- Fix resources/read response to match MCP schema (#206)
+
 ## [0.1.3] - 2026-04-08
 
 ### Added
