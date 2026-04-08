@@ -332,12 +332,21 @@ VoidResult McpClient::reconnect() {
 
 // Internal reconnection logic (must be called on dispatcher thread)
 VoidResult McpClient::reconnectInternal() {
+  // Clean up any previously deferred dead connection managers.
+  // Safe now — we are on a new dispatcher iteration so all in-flight
+  // callbacks from the previous iteration have completed.
+  dead_connection_managers_.clear();
+
   // Disconnect first if we think we're connected
   if (connected_ || connection_manager_) {
-    // Close the old connection
+    // Move the old connection manager to the dead list instead of
+    // destroying it immediately.  Libevent callbacks referencing the
+    // old connection may still be queued in the current event-loop
+    // iteration.  Destroying it now causes use-after-free / SIGSEGV.
+    // The dead list is cleared on the next reconnect or shutdown.
     if (connection_manager_) {
       connection_manager_->close();
-      connection_manager_.reset();
+      dead_connection_managers_.push_back(std::move(connection_manager_));
     }
     connected_ = false;
     initialized_ = false;
@@ -425,6 +434,7 @@ void McpClient::shutdown() {
   // Clean up resources
   protocol_state_machine_.reset();
   connection_manager_.reset();
+  dead_connection_managers_.clear();
   request_tracker_.reset();
   circuit_breaker_.reset();
 
@@ -571,10 +581,19 @@ std::future<InitializeResult> McpClient::initializeProtocol() {
         server_capabilities_ = init_result.capabilities;
         initialized_ = true;
 
-        // Notify protocol state machine that initialization is complete
-        if (protocol_state_machine_) {
-          protocol_state_machine_->handleEvent(
-              protocol::McpProtocolEvent::INITIALIZED);
+        // Notify protocol state machine that initialization is complete.
+        // CRITICAL: Must post to dispatcher thread because the state machine
+        // timer was created on the dispatcher's event_base.  Calling
+        // cancelStateTimer() → event_del() from this detached thread corrupts
+        // libevent's internal data structures, causing SIGSEGV ~30 s later
+        // when the (uncanceled) initialization timeout timer fires.
+        if (protocol_state_machine_ && main_dispatcher_) {
+          main_dispatcher_->post([this]() {
+            if (protocol_state_machine_) {
+              protocol_state_machine_->handleEvent(
+                  protocol::McpProtocolEvent::INITIALIZED);
+            }
+          });
         }
 
         // Send notifications/initialized as required by MCP spec
