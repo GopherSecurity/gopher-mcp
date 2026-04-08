@@ -650,6 +650,9 @@ class HttpSseJsonRpcProtocolFilter
         path = path.substr(0, qpos);
       }
 
+      // Log all incoming requests for debugging routing issues
+      GOPHER_LOG_INFO("HTTP request: {} {} (is_server={})", method, path, is_server_);
+
       // Check if this is a GET request for the SSE endpoint
       if (method == "GET" && path == configured_sse_path_) {
         // SSE server mode: open a long-lived SSE stream
@@ -715,10 +718,14 @@ class HttpSseJsonRpcProtocolFilter
       }
 
       // Check if this is a POST to a callback URL (SSE transport)
-      // Pattern: POST /callback/{session_id}
+      // Pattern: POST /callback/{session_id} or POST .../callback/{session_id}
+      // When behind a reverse proxy (Traefik), the path may include a prefix
+      // from the external URL (e.g., /v1/mcp/gateways/{id}/callback/client_1).
+      // Use rfind to match "/callback/" anywhere in the path.
       std::string callback_prefix = "/callback/";
-      if (method == "POST" && path.find(callback_prefix) == 0) {
-        sse_callback_session_id_ = path.substr(callback_prefix.length());
+      auto cb_pos = path.rfind(callback_prefix);
+      if (method == "POST" && cb_pos != std::string::npos) {
+        sse_callback_session_id_ = path.substr(cb_pos + callback_prefix.length());
         GOPHER_LOG_INFO("SSE callback POST received: session={}",
                         sse_callback_session_id_);
 
