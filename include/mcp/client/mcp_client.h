@@ -587,11 +587,13 @@ class McpClient : public application::ApplicationBase {
   std::string current_uri_;
 
   // Dead connection managers awaiting deferred destruction.
-  // During reconnect, the old connection manager cannot be destroyed immediately
-  // because libevent callbacks referencing it may still be in-flight on the
-  // dispatcher's current event loop iteration. Moved here and cleaned up on
-  // the next dispatcher iteration via deferredDelete or explicit clear.
-  std::vector<std::unique_ptr<mcp::McpConnectionManager>> dead_connection_managers_;
+  // During reconnect, the old connection manager cannot be destroyed
+  // immediately because libevent callbacks referencing it may still be
+  // in-flight on the dispatcher's current event loop iteration. Moved here and
+  // cleaned up on the next dispatcher iteration via deferredDelete or explicit
+  // clear.
+  std::vector<std::unique_ptr<mcp::McpConnectionManager>>
+      dead_connection_managers_;
 
   // Connection activity tracking for detecting stale connections
   std::chrono::steady_clock::time_point last_activity_time_;
