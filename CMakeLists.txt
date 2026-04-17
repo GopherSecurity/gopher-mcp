@@ -157,6 +157,7 @@ endif()
 #Find packages
 find_package(Threads REQUIRED)
 find_package(OpenSSL REQUIRED)
+find_package(CURL REQUIRED)
 
 #Find libevent
 find_package(PkgConfig)
@@ -604,6 +605,7 @@ foreach(lib_target ${REAL_TARGETS})
                 nlohmann_json::nlohmann_json
                 ${LIBEVENT_LIBRARIES}
                 yaml-cpp::yaml-cpp
+                CURL::libcurl
         )
 
         # Link logging library - static targets prefer static version to avoid transitive deps
