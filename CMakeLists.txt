@@ -489,6 +489,7 @@ set(MCP_CLIENT_SERVER_SOURCES
 set(MCP_HTTP_SOURCES
     src/http/http_parser.cc
     src/http/sse_parser.cc
+    src/http/http_async_client.cc           # Async HTTP/1.1 client built on codec filter
     src/transport/http_sse_transport_socket.cc  # HTTP+SSE with layered architecture
     src/transport/https_sse_transport_factory.cc  # HTTPS+SSE factory
 )
