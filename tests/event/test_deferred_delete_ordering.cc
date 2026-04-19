@@ -144,6 +144,51 @@ TEST_F(DeferredDeleteOrderingTest, BatchDrainsAfterCallbackReturns) {
   for (auto* f : flags) delete f;
 }
 
+// A Tracer variant that itself queues another Tracer for deferred deletion
+// when it runs. Models the real-world case where a connection's destructor
+// releases sub-objects that also need to defer (filters, session state).
+struct CascadingTracer : public DeferredDeletable {
+  CascadingTracer(std::atomic<bool>& destroyed,
+                  Dispatcher& dispatcher,
+                  std::unique_ptr<DeferredDeletable> child)
+      : destroyed_(destroyed),
+        dispatcher_(dispatcher),
+        child_(std::move(child)) {}
+  ~CascadingTracer() override {
+    if (child_) {
+      dispatcher_.deferredDelete(std::move(child_));
+    }
+    destroyed_ = true;
+  }
+  std::atomic<bool>& destroyed_;
+  Dispatcher& dispatcher_;
+  std::unique_ptr<DeferredDeletable> child_;
+};
+
+// If a destructor re-enters deferredDelete, the dispatcher must drain the
+// newly-queued item on a subsequent pass instead of losing it.
+TEST_F(DeferredDeleteOrderingTest, NestedDeferredDeleteDuringDrainDrainsLater) {
+  std::atomic<bool> outer_destroyed{false};
+  std::atomic<bool> inner_destroyed{false};
+
+  auto inner = std::make_unique<Tracer>(inner_destroyed);
+  auto outer = std::make_unique<CascadingTracer>(outer_destroyed, *dispatcher_,
+                                                 std::move(inner));
+
+  dispatcher_->post(
+      [this, outer_raw = outer.release()]() mutable {
+        dispatcher_->deferredDelete(
+            std::unique_ptr<DeferredDeletable>(outer_raw));
+      });
+
+  for (int i = 0; i < 400 && !inner_destroyed.load(); ++i) {
+    std::this_thread::sleep_for(5ms);
+  }
+  EXPECT_TRUE(outer_destroyed.load()) << "outer must drain first";
+  EXPECT_TRUE(inner_destroyed.load())
+      << "inner queued from outer's destructor must also drain";
+}
+
 }  // namespace
 }  // namespace event
 }  // namespace mcp

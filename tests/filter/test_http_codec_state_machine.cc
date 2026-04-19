@@ -273,6 +273,39 @@ TEST_F(HttpCodecStateMachineTest, BodyTimeout) {
   expectState(HttpCodecState::Error);
 }
 
+// A body_timeout of 0 must disable the body timer entirely. Client-mode
+// HTTP streams that carry SSE responses stay open indefinitely with
+// arbitrary gaps between server events; a non-zero body timeout would
+// fire on idle and tear the stream down. HttpCodecFilter's client-mode
+// constructor passes 0 for exactly this reason, and relies on the state
+// machine honoring "0 == disabled".
+TEST_F(HttpCodecStateMachineTest, BodyTimeoutDisabledWhenZero) {
+  bool error_called = false;
+  config_.body_timeout = 0ms;
+  config_.error_callback = [&error_called](const std::string&) {
+    error_called = true;
+  };
+  state_machine_ =
+      std::make_unique<HttpCodecStateMachine>(*dispatcher_, config_);
+
+  state_machine_->handleEvent(HttpCodecEvent::RequestBegin);
+  runFor(10ms);
+
+  state_machine_->setExpectRequestBody(true);
+  state_machine_->handleEvent(HttpCodecEvent::RequestHeadersComplete);
+  runFor(10ms);
+  expectState(HttpCodecState::ReceivingRequestBody);
+
+  // Run well past what the default 200ms body timeout would be. With
+  // body_timeout == 0 the timer must never have been armed, so we stay
+  // in ReceivingRequestBody with no error.
+  runFor(300ms);
+
+  EXPECT_FALSE(error_called)
+      << "body_timeout == 0 must not raise a timeout error";
+  expectState(HttpCodecState::ReceivingRequestBody);
+}
+
 TEST_F(HttpCodecStateMachineTest, IdleTimeout) {
   expectState(HttpCodecState::WaitingForRequest);
 
