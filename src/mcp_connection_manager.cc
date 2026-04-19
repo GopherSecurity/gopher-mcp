@@ -1,5 +1,6 @@
 #include "mcp/mcp_connection_manager.h"
 
+#include <cassert>
 #include <cstring>
 #include <iostream>
 #include <sstream>
@@ -790,6 +791,11 @@ void McpConnectionManager::onResponse(const jsonrpc::Response& response) {
 }
 
 void McpConnectionManager::onConnectionEvent(network::ConnectionEvent event) {
+  // Connection events are raised from the connection's own callback loop,
+  // which runs on the dispatcher thread. Anything else would mean a caller
+  // synthesised the event off-thread — a bug, not a transport event.
+  assert(dispatcher_.isThreadSafe() && "onConnectionEvent off dispatcher");
+
   const char* event_name = "unknown";
   switch (event) {
     case network::ConnectionEvent::Connected:
@@ -859,20 +865,16 @@ void McpConnectionManager::onConnectionEvent(network::ConnectionEvent event) {
       return;
     }
 
-    // Connection closed - clean up state
-    connected_ = false;
-    // CRITICAL FIX: Defer connection destruction
+    // Connection closed - clean up state.
     // We are being called from within the connection's callback loop
-    // (raiseConnectionEvent). Destroying the connection here would cause
-    // use-after-free when the callback loop continues to iterate. Use post() to
-    // defer destruction until after current callback.
+    // (raiseConnectionEvent). Destroying the connection synchronously here
+    // would be a use-after-free once the callback loop resumes. Hand it to
+    // the dispatcher's deferred-delete queue instead — Connection derives
+    // from DeferredDeletable, so the dispatcher owns teardown on the next
+    // event-loop iteration, after all in-flight callbacks unwind.
+    connected_ = false;
     if (active_connection_) {
-      auto conn_to_delete = std::make_shared<network::ConnectionPtr>(
-          std::move(active_connection_));
-      dispatcher_.post([conn_to_delete]() {
-        // Connection is destroyed when lambda and shared_ptr go out of scope
-        conn_to_delete->reset();
-      });
+      dispatcher_.deferredDelete(std::move(active_connection_));
     }
   }
 
