@@ -345,6 +345,12 @@ class HttpCodecStateMachine {
    */
   static std::string getEventName(HttpCodecEvent event);
 
+  /**
+   * Configured values (as passed into the constructor). Read-only; the
+   * config is immutable after construction.
+   */
+  const HttpCodecStateMachineConfig& config() const { return config_; }
+
  protected:
   // ===== Protected Methods for Extension =====
 

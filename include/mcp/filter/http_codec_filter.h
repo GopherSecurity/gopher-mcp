@@ -210,6 +210,18 @@ class HttpCodecFilter : public network::Filter {
    */
   void markSseGetSent() { sse_get_sent_ = true; }
 
+  /**
+   * Body timeout actually configured on the state machine. In client mode
+   * this is disabled (0) because SSE response streams may sit idle between
+   * server-pushed events; in server mode it is bounded. Exposed for
+   * introspection and for tests that guard against regressions in the
+   * client/server wiring.
+   */
+  std::chrono::milliseconds bodyTimeout() const {
+    return state_machine_ ? state_machine_->config().body_timeout
+                          : std::chrono::milliseconds(0);
+  }
+
  private:
   // Inner class implementing MessageEncoder
   class MessageEncoderImpl : public MessageEncoder {
