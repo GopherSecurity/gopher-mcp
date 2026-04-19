@@ -1137,48 +1137,47 @@ jsonrpc::Response McpServer::handleGetPrompt(const jsonrpc::Request& request,
                                     jsonrpc::ResponseResult(result_metadata));
 }
 
-// Background task management using dispatcher timers
+// Background task management using dispatcher timers.
+// Timers are owned by McpServer so they outlive this function; on each fire
+// the callback re-arms the same timer to implement a periodic task without
+// rebuilding timer objects.
 void McpServer::startBackgroundTasks() {
   background_threads_running_ = true;
 
-  // Schedule periodic session cleanup using dispatcher timer
-  auto cleanup_timer = main_dispatcher_->createTimer([this]() {
-    if (background_threads_running_) {
-      // Clean up expired sessions
-      session_manager_->cleanupExpiredSessions();
+  const auto cleanup_interval = std::chrono::seconds(30);
 
-      // Reschedule for next cleanup
-      auto next_timer = main_dispatcher_->createTimer([this]() {
-        if (background_threads_running_) {
-          startBackgroundTasks();
-        }
-      });
-      next_timer->enableTimer(std::chrono::seconds(30));
+  session_cleanup_timer_ = main_dispatcher_->createTimer([this, cleanup_interval]() {
+    if (!background_threads_running_) {
+      return;
     }
+    session_manager_->cleanupExpiredSessions();
+    // Re-arm for the next tick. The timer is a member, so firing is safe.
+    session_cleanup_timer_->enableTimer(cleanup_interval);
   });
-  cleanup_timer->enableTimer(std::chrono::seconds(30));
+  session_cleanup_timer_->enableTimer(cleanup_interval);
 
-  // Schedule periodic resource update notifications
-  auto update_timer = main_dispatcher_->createTimer([this]() {
-    if (background_threads_running_) {
-      // Process pending resource updates for each session
-      // Get all sessions and send pending updates
+  const auto update_interval = config_.resource_update_debounce;
 
-      // Reschedule
-      auto next_timer = main_dispatcher_->createTimer([this]() {
-        if (background_threads_running_) {
-          // Continue resource update processing
-        }
-      });
-      next_timer->enableTimer(config_.resource_update_debounce);
+  resource_update_timer_ = main_dispatcher_->createTimer([this, update_interval]() {
+    if (!background_threads_running_) {
+      return;
     }
+    // Resource-update dispatch hooks in here when enabled.
+    resource_update_timer_->enableTimer(update_interval);
   });
-  update_timer->enableTimer(config_.resource_update_debounce);
+  resource_update_timer_->enableTimer(update_interval);
 }
 
 void McpServer::stopBackgroundTasks() {
   background_threads_running_ = false;
-  // Timers will naturally expire and not reschedule
+  // Disable immediately so a pending fire doesn't run after shutdown starts.
+  // The guard above also prevents re-arming from inside the callback.
+  if (session_cleanup_timer_) {
+    session_cleanup_timer_->disableTimer();
+  }
+  if (resource_update_timer_) {
+    resource_update_timer_->disableTimer();
+  }
 }
 
 // ListenerCallbacks implementation (production pattern)
