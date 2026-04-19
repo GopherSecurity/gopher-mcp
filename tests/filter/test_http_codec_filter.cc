@@ -589,6 +589,63 @@ TEST_F(HttpCodecFilterBodyTimeoutTest, ClientModeDisablesBodyTimeout) {
          "normal idle gaps, then crash the state machine on a live stream";
 }
 
+// ---------------------------------------------------------------------------
+// Client-mode response parsing surfaces numeric status as :status.
+//
+// The upstream onStatus callback only captures the reason phrase into
+// headers["status"] ("OK", "Not Found", ...). Callers that need to branch
+// on the actual HTTP status code (the HttpAsyncClient does) need the
+// numeric value. The codec populates headers[":status"] in onHeadersComplete
+// mirroring how server mode populates headers[":method"]; this test pins
+// that contract.
+// ---------------------------------------------------------------------------
+
+class HttpCodecFilterClientStatusTest : public ::testing::Test {
+ protected:
+  void SetUp() override {
+    auto factory = event::createLibeventDispatcherFactory();
+    dispatcher_ = factory->createDispatcher("codec-status");
+    dispatcher_->run(event::RunType::NonBlock);
+    callbacks_ = std::make_unique<TestRequestCallbacks>();
+  }
+
+  void feedResponse(HttpCodecFilter& filter, const std::string& bytes) {
+    OwnedBuffer buf;
+    buf.add(bytes.c_str(), bytes.length());
+    filter.onNewConnection();
+    filter.onData(buf, false);
+  }
+
+  std::unique_ptr<event::Dispatcher> dispatcher_;
+  std::unique_ptr<TestRequestCallbacks> callbacks_;
+};
+
+TEST_F(HttpCodecFilterClientStatusTest, PopulatesNumericStatusPseudoHeader) {
+  HttpCodecFilter filter(*callbacks_, *dispatcher_, /*is_server=*/false);
+  feedResponse(filter,
+               "HTTP/1.1 404 Not Found\r\n"
+               "Content-Length: 0\r\n"
+               "Connection: close\r\n"
+               "\r\n");
+  ASSERT_TRUE(callbacks_->waitForHeaders());
+  auto headers = callbacks_->getHeaders();
+  EXPECT_EQ(headers[":status"], "404")
+      << "client mode must expose the numeric status as :status";
+  EXPECT_EQ(headers["status"], "Not Found")
+      << "reason phrase should still land in headers[\"status\"]";
+}
+
+TEST_F(HttpCodecFilterClientStatusTest, SurfacesSuccessStatus) {
+  HttpCodecFilter filter(*callbacks_, *dispatcher_, /*is_server=*/false);
+  feedResponse(filter,
+               "HTTP/1.1 202 Accepted\r\n"
+               "Content-Length: 0\r\n"
+               "Connection: close\r\n"
+               "\r\n");
+  ASSERT_TRUE(callbacks_->waitForHeaders());
+  EXPECT_EQ(callbacks_->getHeaders()[":status"], "202");
+}
+
 }  // namespace
 }  // namespace filter
 }  // namespace mcp

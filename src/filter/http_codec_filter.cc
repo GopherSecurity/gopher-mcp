@@ -621,6 +621,12 @@ HttpCodecFilter::ParserCallbacks::onHeadersComplete() {
     }
     parent_.current_stream_->headers[":method"] = method_str;
     parent_.current_stream_->method = method_str;
+  } else {
+    // Client mode: surface numeric response status as :status pseudo-header.
+    // Callers (HttpAsyncClient, etc.) need the numeric code, not just the
+    // reason phrase that onStatus already captures into headers["status"].
+    auto status_code = static_cast<uint16_t>(parent_.parser_->statusCode());
+    parent_.current_stream_->headers[":status"] = std::to_string(status_code);
   }
 
   // Check keep-alive
