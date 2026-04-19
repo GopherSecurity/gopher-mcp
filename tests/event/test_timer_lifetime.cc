@@ -362,6 +362,44 @@ TEST_F(TimerLifetimeTest, TimerCleanupOnDestruction) {
   EXPECT_FALSE(callback_executed);
 }
 
+/**
+ * Test: Periodic timer pattern — timer stored as a member, re-armed by its
+ * own callback via enableTimer on the same TimerPtr. This is the pattern
+ * McpServer's background tasks rely on; the previous code created a fresh
+ * TimerPtr on each fire, which both leaked scheduling state and destroyed
+ * the currently-firing timer from inside its own callback.
+ */
+TEST_F(TimerLifetimeTest, PeriodicReArmOnSameTimerFiresRepeatedly) {
+  std::atomic<int> fire_count{0};
+  event::TimerPtr timer;
+
+  auto interval = std::chrono::milliseconds(20);
+
+  // Capture the timer by reference so the callback re-arms the exact same
+  // TimerPtr each tick — the pattern McpServer uses.
+  timer = dispatcher_->createTimer([&timer, &fire_count, interval]() {
+    fire_count++;
+    timer->enableTimer(interval);
+  });
+  timer->enableTimer(interval);
+
+  runDispatcher();
+  std::this_thread::sleep_for(std::chrono::milliseconds(120));
+
+  // Expect at least 4 fires in ~120ms at 20ms cadence. We're loose on the
+  // upper bound because CI scheduling jitter can double this on loaded
+  // runners.
+  EXPECT_GE(fire_count.load(), 4)
+      << "member timer with self-rearm must keep firing";
+
+  // disableTimer must stop the cadence promptly.
+  timer->disableTimer();
+  int count_at_disable = fire_count.load();
+  std::this_thread::sleep_for(std::chrono::milliseconds(80));
+  EXPECT_LE(fire_count.load(), count_at_disable + 1)
+      << "disableTimer must prevent further fires";
+}
+
 }  // namespace
 }  // namespace event
 }  // namespace mcp
