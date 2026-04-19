@@ -938,6 +938,12 @@ class McpServer : public application::ApplicationBase,
   // Background task state
   std::atomic<bool> background_threads_running_{false};
 
+  // Timers for periodic background tasks. Stored as members so they survive
+  // past startBackgroundTasks() returning — otherwise the TimerPtr would drop
+  // at end of scope and the callback would never fire.
+  event::TimerPtr session_cleanup_timer_;
+  event::TimerPtr resource_update_timer_;
+
   // Deferred listen address
   std::string listen_address_;
   bool need_perform_listen_ = false;
