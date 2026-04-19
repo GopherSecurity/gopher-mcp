@@ -189,6 +189,87 @@ TEST_F(DeferredDeleteOrderingTest, NestedDeferredDeleteDuringDrainDrainsLater) {
       << "inner queued from outer's destructor must also drain";
 }
 
+// Models McpServer::ConnectionLifecycleCallbacks: a callback adapter that, on
+// receiving a close-like event, hands *itself* (and a "connection" peer it
+// owns) to the dispatcher's deferred-delete queue.  Destroying either
+// synchronously would be a use-after-free because the adapter's own onEvent()
+// is still on the stack, and the connection is still iterating its callback
+// list.
+struct PeerConnection : public DeferredDeletable {
+  explicit PeerConnection(std::atomic<bool>& destroyed) : destroyed_(destroyed) {}
+  ~PeerConnection() override { destroyed_ = true; }
+  std::atomic<bool>& destroyed_;
+};
+
+struct LifecycleAdapter : public DeferredDeletable {
+  LifecycleAdapter(Dispatcher& dispatcher,
+                   std::atomic<bool>& adapter_destroyed,
+                   std::unique_ptr<PeerConnection> peer)
+      : dispatcher_(dispatcher),
+        adapter_destroyed_(adapter_destroyed),
+        peer_(std::move(peer)) {}
+  ~LifecycleAdapter() override { adapter_destroyed_ = true; }
+
+  // Mirrors ConnectionLifecycleCallbacks::onEvent: on close, hand both self
+  // and the peer connection to deferred-delete.  Self-move via
+  // unique_ptr-holder avoids a double-delete.
+  void onClose(std::unique_ptr<LifecycleAdapter> self_ptr) {
+    assert(self_ptr.get() == this && "self_ptr must own *this*");
+    dispatcher_.deferredDelete(std::move(peer_));
+    dispatcher_.deferredDelete(std::move(self_ptr));
+  }
+
+  Dispatcher& dispatcher_;
+  std::atomic<bool>& adapter_destroyed_;
+  std::unique_ptr<PeerConnection> peer_;
+};
+
+// Regression test for the crash at McpServer::onConnectionLifecycleEvent:
+// when the adapter's own onEvent() hands both itself and the owning
+// connection to deferredDelete, neither may run its destructor before the
+// onEvent frame returns.  If destruction ran synchronously, the caller
+// iterating connection callbacks would free and then read this adapter's
+// vptr from its own onEvent — immediate UAF.
+TEST_F(DeferredDeleteOrderingTest,
+       LifecycleAdapterDefersSelfAndPeerFromOwnCallback) {
+  std::atomic<bool> adapter_destroyed{false};
+  std::atomic<bool> peer_destroyed{false};
+  std::atomic<bool> observed_alive_after_dispatch{false};
+  std::atomic<bool> callback_done{false};
+
+  auto peer = std::make_unique<PeerConnection>(peer_destroyed);
+  auto adapter = std::make_unique<LifecycleAdapter>(
+      *dispatcher_, adapter_destroyed, std::move(peer));
+
+  dispatcher_->post([&, adapter_raw = adapter.release()]() mutable {
+    std::unique_ptr<LifecycleAdapter> self(adapter_raw);
+    auto* adapter_ptr = self.get();
+    adapter_ptr->onClose(std::move(self));
+    // After onClose returns we must still observe both objects alive —
+    // the dispatcher has queued them but hasn't drained yet.
+    observed_alive_after_dispatch =
+        !adapter_destroyed.load() && !peer_destroyed.load();
+    callback_done = true;
+  });
+
+  for (int i = 0; i < 400 && !callback_done.load(); ++i) {
+    std::this_thread::sleep_for(5ms);
+  }
+  ASSERT_TRUE(callback_done.load());
+
+  EXPECT_TRUE(observed_alive_after_dispatch)
+      << "adapter or peer was destroyed inside its own onEvent — would UAF "
+         "the ConnectionCallbacks list iterator in production";
+
+  for (int i = 0; i < 400 &&
+       !(adapter_destroyed.load() && peer_destroyed.load());
+       ++i) {
+    std::this_thread::sleep_for(5ms);
+  }
+  EXPECT_TRUE(adapter_destroyed.load()) << "adapter must eventually drain";
+  EXPECT_TRUE(peer_destroyed.load()) << "peer must eventually drain";
+}
+
 }  // namespace
 }  // namespace event
 }  // namespace mcp
