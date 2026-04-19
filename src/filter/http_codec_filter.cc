@@ -105,11 +105,16 @@ HttpCodecFilter::HttpCodecFilter(MessageCallbacks& callbacks,
   // Initialize message encoder
   message_encoder_ = std::make_unique<MessageEncoderImpl>(*this);
 
-  // Initialize HTTP codec state machine
+  // Initialize HTTP codec state machine.
+  // Client-side body_timeout is disabled (0 == no timeout): an SSE response
+  // body is an open-ended stream that may stay silent between events for
+  // longer than a request/response body timeout would tolerate. Servers keep
+  // the bounded timeout — request bodies are expected to complete promptly.
   HttpCodecStateMachineConfig config;
-  config.is_server = is_server_;  // Set mode
+  config.is_server = is_server_;
   config.header_timeout = std::chrono::milliseconds(30000);
-  config.body_timeout = std::chrono::milliseconds(60000);
+  config.body_timeout = is_server_ ? std::chrono::milliseconds(60000)
+                                   : std::chrono::milliseconds(0);
   config.idle_timeout = std::chrono::milliseconds(120000);
   config.enable_keep_alive = true;
   config.state_change_callback =
@@ -156,12 +161,15 @@ HttpCodecFilter::HttpCodecFilter(const filter::FilterCreationContext& context,
   // Initialize message encoder
   message_encoder_ = std::make_unique<MessageEncoderImpl>(*this);
 
-  // Initialize HTTP codec state machine with same defaults for now
+  // Initialize HTTP codec state machine.
+  // Client-side body_timeout is disabled (0) for the same reason as the
+  // other constructor: SSE streams may sit idle between server-pushed events.
   // TODO: Extract timeout values from config parameter
   HttpCodecStateMachineConfig sm_config;
   sm_config.is_server = is_server_;
   sm_config.header_timeout = std::chrono::milliseconds(30000);
-  sm_config.body_timeout = std::chrono::milliseconds(60000);
+  sm_config.body_timeout = is_server_ ? std::chrono::milliseconds(60000)
+                                      : std::chrono::milliseconds(0);
   sm_config.idle_timeout = std::chrono::milliseconds(120000);
   sm_config.enable_keep_alive = true;
   sm_config.state_change_callback =
