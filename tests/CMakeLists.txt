@@ -27,6 +27,7 @@ add_executable(test_options_notification filter/test_options_notification.cc)
 # Event tests
 add_executable(test_event_loop event/test_event_loop.cc)
 add_executable(test_timer_lifetime event/test_timer_lifetime.cc)
+add_executable(test_deferred_delete_ordering event/test_deferred_delete_ordering.cc)
 
 # Network tests
 add_executable(test_io_socket_handle network/test_io_socket_handle.cc)
@@ -289,6 +290,14 @@ target_link_libraries(test_event_loop
 )
 
 target_link_libraries(test_timer_lifetime
+    gopher-mcp-event
+    gopher-mcp
+    gtest
+    gtest_main
+    Threads::Threads
+)
+
+target_link_libraries(test_deferred_delete_ordering
     gopher-mcp-event
     gopher-mcp
     gtest
@@ -1278,6 +1287,7 @@ add_test(NAME CorsHeadersTest COMMAND test_cors_headers)
 add_test(NAME OptionsNotificationTest COMMAND test_options_notification)
 add_test(NAME EventLoopTest COMMAND test_event_loop)
 add_test(NAME TimerLifetimeTest COMMAND test_timer_lifetime)
+add_test(NAME DeferredDeleteOrderingTest COMMAND test_deferred_delete_ordering)
 
 # Network tests
 add_test(NAME IoSocketHandleTest COMMAND test_io_socket_handle)

@@ -886,21 +886,30 @@ LibeventDispatcher::SchedulableCallbackImpl::~SchedulableCallbackImpl() {
 
 void LibeventDispatcher::SchedulableCallbackImpl::
     scheduleCallbackCurrentIteration() {
-  if (!scheduled_) {
-    if (dispatcher_.isThreadSafe()) {
-      // We're in the dispatcher thread, run immediately
-      scheduled_ = false;
-      cb_();
-    } else {
-      // Post to dispatcher thread
-      dispatcher_.post([this]() {
-        if (scheduled_) {
-          scheduled_ = false;
-          cb_();
-        }
-      });
-      scheduled_ = true;
-    }
+  if (scheduled_) {
+    return;
+  }
+  // Never run the callback synchronously, even when the caller is already on
+  // the dispatcher thread. The contract for this primitive is that it defers
+  // past the caller's current stack frame — deferredDelete, emulated-edge
+  // file-event activation, and future callers all rely on this to avoid
+  // destroying state (or re-entering libevent) from inside the callback that
+  // scheduled the drain.
+  //
+  // A 0ms timer gives us that guarantee: libevent will fire it after the
+  // current handler returns, before the next poll wait. From off-thread, we
+  // still route through post() so libevent is woken safely.
+  if (dispatcher_.isThreadSafe()) {
+    timer_->enableTimer(std::chrono::milliseconds(0));
+    scheduled_ = true;
+  } else {
+    scheduled_ = true;
+    dispatcher_.post([this]() {
+      if (scheduled_) {
+        scheduled_ = false;
+        cb_();
+      }
+    });
   }
 }
 
