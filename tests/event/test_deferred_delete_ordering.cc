@@ -1,0 +1,149 @@
+// Verifies the ordering contract of Dispatcher::deferredDelete(): an object
+// handed to the dispatcher from inside an event callback must NOT be
+// destroyed synchronously — destruction has to wait for the current callback
+// stack to unwind, otherwise close-event handlers would tear down objects
+// while their own callback loops are still iterating.
+//
+// This test exists because the McpConnectionManager close path and the
+// McpServer per-connection teardown both rely on this guarantee. Regressions
+// here would silently reintroduce a use-after-free in the transport layer.
+
+#include <atomic>
+#include <chrono>
+#include <memory>
+#include <thread>
+
+#include <gtest/gtest.h>
+
+#include "mcp/event/event_loop.h"
+#include "mcp/event/libevent_dispatcher.h"
+
+namespace mcp {
+namespace event {
+namespace {
+
+using namespace std::chrono_literals;
+
+class DeferredDeleteOrderingTest : public ::testing::Test {
+ protected:
+  void SetUp() override {
+    auto factory = createLibeventDispatcherFactory();
+    dispatcher_ = factory->createDispatcher("dd-test");
+    loop_thread_ = std::thread([this]() { dispatcher_->run(RunType::Block); });
+    // Give libevent a moment to actually enter the loop before we start
+    // posting callbacks into it.
+    std::this_thread::sleep_for(20ms);
+  }
+
+  void TearDown() override {
+    if (dispatcher_) {
+      dispatcher_->exit();
+    }
+    if (loop_thread_.joinable()) {
+      loop_thread_.join();
+    }
+    dispatcher_.reset();
+  }
+
+  std::unique_ptr<Dispatcher> dispatcher_;
+  std::thread loop_thread_;
+};
+
+// A tracer object that records whether its destructor has run.
+struct Tracer : public DeferredDeletable {
+  explicit Tracer(std::atomic<bool>& destroyed) : destroyed_(destroyed) {}
+  ~Tracer() override { destroyed_ = true; }
+  std::atomic<bool>& destroyed_;
+};
+
+// When deferredDelete is called from inside a dispatcher callback, the
+// destructor must NOT run before that callback returns. This is the contract
+// that makes it safe to deferredDelete(std::move(active_connection_)) while
+// the connection is still iterating its own callback list.
+TEST_F(DeferredDeleteOrderingTest, DestructionDeferredUntilAfterCallback) {
+  std::atomic<bool> destroyed{false};
+  std::atomic<bool> callback_still_alive_at_delete_point{false};
+  auto tracer = std::make_unique<Tracer>(destroyed);
+
+  std::atomic<bool> callback_done{false};
+
+  dispatcher_->post([&, this]() {
+    dispatcher_->deferredDelete(std::move(tracer));
+    // Immediately after the deferredDelete call, the tracer must still be
+    // alive. If deferredDelete destroyed synchronously, `destroyed` would
+    // already be true at this observation point.
+    callback_still_alive_at_delete_point = !destroyed.load();
+    callback_done = true;
+  });
+
+  // Wait for the post to run.
+  for (int i = 0; i < 200 && !callback_done.load(); ++i) {
+    std::this_thread::sleep_for(5ms);
+  }
+  ASSERT_TRUE(callback_done.load()) << "dispatcher never ran the callback";
+
+  EXPECT_TRUE(callback_still_alive_at_delete_point)
+      << "deferredDelete destroyed the object synchronously inside the "
+         "callback — this would cause a use-after-free for connection close "
+         "handlers";
+
+  // Eventually the dispatcher must drain the deferred-delete queue.
+  for (int i = 0; i < 200 && !destroyed.load(); ++i) {
+    std::this_thread::sleep_for(5ms);
+  }
+  EXPECT_TRUE(destroyed.load())
+      << "deferred delete never drained — object leaked";
+}
+
+// Multiple objects queued in one callback should all be destroyed on the
+// same drain pass, not interleaved with unrelated work.
+TEST_F(DeferredDeleteOrderingTest, BatchDrainsAfterCallbackReturns) {
+  constexpr int kCount = 5;
+  std::atomic<int> destroyed_count{0};
+  std::vector<std::unique_ptr<DeferredDeletable>> tracers;
+  std::vector<std::atomic<bool>*> flags;
+  for (int i = 0; i < kCount; ++i) {
+    auto* flag = new std::atomic<bool>(false);
+    flags.push_back(flag);
+    tracers.emplace_back(std::make_unique<Tracer>(*flag));
+  }
+
+  std::atomic<bool> callback_done{false};
+  int destroyed_inside_callback = -1;
+
+  dispatcher_->post([&, this]() {
+    for (auto& t : tracers) {
+      dispatcher_->deferredDelete(std::move(t));
+    }
+    destroyed_inside_callback = 0;
+    for (auto* f : flags) {
+      if (f->load()) ++destroyed_inside_callback;
+    }
+    callback_done = true;
+  });
+
+  for (int i = 0; i < 200 && !callback_done.load(); ++i) {
+    std::this_thread::sleep_for(5ms);
+  }
+  ASSERT_TRUE(callback_done.load());
+
+  EXPECT_EQ(destroyed_inside_callback, 0)
+      << "no tracer should have been destroyed synchronously";
+
+  for (int i = 0; i < 400 && destroyed_count.load() < kCount; ++i) {
+    destroyed_count = 0;
+    for (auto* f : flags) {
+      if (f->load()) ++destroyed_count;
+    }
+    if (destroyed_count.load() >= kCount) break;
+    std::this_thread::sleep_for(5ms);
+  }
+  EXPECT_EQ(destroyed_count.load(), kCount)
+      << "all queued tracers must eventually drain";
+
+  for (auto* f : flags) delete f;
+}
+
+}  // namespace
+}  // namespace event
+}  // namespace mcp
