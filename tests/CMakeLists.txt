@@ -84,6 +84,9 @@ add_executable(test_llhttp_parser http/test_llhttp_parser.cc)
 add_executable(test_nghttp2_parser http/test_nghttp2_parser.cc)
 add_executable(test_sse_parser http/test_sse_parser.cc)
 
+# Integration test for HttpAsyncClient (real IO against a localhost listener)
+add_executable(test_http_async_client http/test_http_async_client.cc)
+
 # Transport layer tests (low-level transport/pipe/socket testing)
 add_executable(test_stdio_echo_server transport/test_stdio_echo_server.cc)
 add_executable(test_stdio_echo_client transport/test_stdio_echo_client.cc)
@@ -650,6 +653,15 @@ target_link_libraries(test_nghttp2_parser
 
 target_link_libraries(test_sse_parser
     gopher-mcp
+    gtest
+    gmock
+    gtest_main
+    Threads::Threads
+)
+
+target_link_libraries(test_http_async_client
+    gopher-mcp
+    gopher-mcp-event
     gtest
     gmock
     gtest_main
@@ -1329,6 +1341,7 @@ add_test(NAME HttpParserTest COMMAND test_http_parser)
 add_test(NAME LLHttpParserTest COMMAND test_llhttp_parser)
 add_test(NAME Nghttp2ParserTest COMMAND test_nghttp2_parser)
 add_test(NAME SseParserTest COMMAND test_sse_parser)
+add_test(NAME HttpAsyncClientTest COMMAND test_http_async_client)
 add_test(NAME StdioEchoServerTest COMMAND test_stdio_echo_server)
 add_test(NAME StdioEchoClientTest COMMAND test_stdio_echo_client)
 
