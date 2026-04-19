@@ -481,14 +481,16 @@ std::future<InitializeResult> McpClient::initializeProtocol() {
     // Callback returns immediately - response will be processed elsewhere
   });
 
-  // Step 2: Use std::async to wait for response on a worker thread (not
-  // dispatcher!) Fire and forget - the async thread will set the promise when
-  // done
+  // Step 2: Block on the response on a worker thread so we don't stall the
+  // dispatcher. When the response parses cleanly, hand the dispatcher-thread
+  // state mutations (protocol_state_machine_, server_capabilities_,
+  // initialized_) back to the dispatcher via post() — those fields are read
+  // from the dispatcher elsewhere, so writing them from this worker thread
+  // would be a data race. Only the final promise resolution runs on whichever
+  // thread (dispatcher or worker) completes parsing.
   std::thread([this, result_promise, request_future_ptr]() {
     try {
-      // Wait for the request to be sent (the dispatcher callback to complete)
-      // Then wait for the response - this blocks a worker thread, NOT the
-      // dispatcher
+      // Wait for dispatcher to publish the request future.
       while (!request_future_ptr->valid()) {
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
       }
@@ -501,88 +503,89 @@ std::future<InitializeResult> McpClient::initializeProtocol() {
       if (response.error.has_value()) {
         result_promise->set_exception(std::make_exception_ptr(
             std::runtime_error(response.error->message)));
-      } else {
-        // Parse InitializeResult from response
-        InitializeResult init_result;
+        return;
+      }
 
-        // Parse the flattened response from server
-        // The server returns a Metadata object with flattened fields
-        if (holds_alternative<Metadata>(response.result.value())) {
-          auto& metadata = get<Metadata>(response.result.value());
+      // Parse InitializeResult from response (pure parsing — no shared state).
+      InitializeResult init_result;
+      if (holds_alternative<Metadata>(response.result.value())) {
+        auto& metadata = get<Metadata>(response.result.value());
 
-          // Extract protocol version
-          auto proto_it = metadata.find("protocolVersion");
-          if (proto_it != metadata.end() &&
-              holds_alternative<std::string>(proto_it->second)) {
-            init_result.protocolVersion = get<std::string>(proto_it->second);
-          }
-
-          // Extract server info
-          auto name_it = metadata.find("serverInfo.name");
-          auto version_it = metadata.find("serverInfo.version");
-          if (name_it != metadata.end() && version_it != metadata.end()) {
-            Implementation server_info(
-                holds_alternative<std::string>(name_it->second)
-                    ? get<std::string>(name_it->second)
-                    : "",
-                holds_alternative<std::string>(version_it->second)
-                    ? get<std::string>(version_it->second)
-                    : "");
-            init_result.serverInfo = mcp::make_optional(server_info);
-          }
-
-          // Extract capabilities (simplified)
-          ServerCapabilities caps;
-
-          auto tools_it = metadata.find("capabilities.tools");
-          if (tools_it != metadata.end() &&
-              holds_alternative<bool>(tools_it->second)) {
-            caps.tools = mcp::make_optional(get<bool>(tools_it->second));
-          }
-
-          auto prompts_it = metadata.find("capabilities.prompts");
-          if (prompts_it != metadata.end() &&
-              holds_alternative<bool>(prompts_it->second)) {
-            caps.prompts = mcp::make_optional(get<bool>(prompts_it->second));
-          }
-
-          auto resources_it = metadata.find("capabilities.resources");
-          if (resources_it != metadata.end() &&
-              holds_alternative<bool>(resources_it->second)) {
-            caps.resources =
-                mcp::make_optional(variant<bool, ResourcesCapability>(
-                    get<bool>(resources_it->second)));
-          }
-
-          auto logging_it = metadata.find("capabilities.logging");
-          if (logging_it != metadata.end() &&
-              holds_alternative<bool>(logging_it->second)) {
-            caps.logging = mcp::make_optional(get<bool>(logging_it->second));
-          }
-
-          init_result.capabilities = caps;
-        } else {
-          // Fallback if response format is unexpected
-          init_result.protocolVersion = config_.protocol_version;
-          init_result.capabilities = ServerCapabilities();
+        auto proto_it = metadata.find("protocolVersion");
+        if (proto_it != metadata.end() &&
+            holds_alternative<std::string>(proto_it->second)) {
+          init_result.protocolVersion = get<std::string>(proto_it->second);
         }
 
-        // Store server capabilities
+        auto name_it = metadata.find("serverInfo.name");
+        auto version_it = metadata.find("serverInfo.version");
+        if (name_it != metadata.end() && version_it != metadata.end()) {
+          Implementation server_info(
+              holds_alternative<std::string>(name_it->second)
+                  ? get<std::string>(name_it->second)
+                  : "",
+              holds_alternative<std::string>(version_it->second)
+                  ? get<std::string>(version_it->second)
+                  : "");
+          init_result.serverInfo = mcp::make_optional(server_info);
+        }
+
+        ServerCapabilities caps;
+
+        auto tools_it = metadata.find("capabilities.tools");
+        if (tools_it != metadata.end() &&
+            holds_alternative<bool>(tools_it->second)) {
+          caps.tools = mcp::make_optional(get<bool>(tools_it->second));
+        }
+
+        auto prompts_it = metadata.find("capabilities.prompts");
+        if (prompts_it != metadata.end() &&
+            holds_alternative<bool>(prompts_it->second)) {
+          caps.prompts = mcp::make_optional(get<bool>(prompts_it->second));
+        }
+
+        auto resources_it = metadata.find("capabilities.resources");
+        if (resources_it != metadata.end() &&
+            holds_alternative<bool>(resources_it->second)) {
+          caps.resources =
+              mcp::make_optional(variant<bool, ResourcesCapability>(
+                  get<bool>(resources_it->second)));
+        }
+
+        auto logging_it = metadata.find("capabilities.logging");
+        if (logging_it != metadata.end() &&
+            holds_alternative<bool>(logging_it->second)) {
+          caps.logging = mcp::make_optional(get<bool>(logging_it->second));
+        }
+
+        init_result.capabilities = caps;
+      } else {
+        init_result.protocolVersion = config_.protocol_version;
+        init_result.capabilities = ServerCapabilities();
+      }
+
+      // Commit state on the dispatcher thread, then fulfill the promise.
+      // The promise is fulfilled after the post completes so callers who
+      // proceed on future.get() see initialized_/server_capabilities_
+      // already published.
+      if (!main_dispatcher_) {
+        result_promise->set_exception(std::make_exception_ptr(
+            std::runtime_error("No dispatcher")));
+        return;
+      }
+      main_dispatcher_->post([this, result_promise, init_result]() {
         server_capabilities_ = init_result.capabilities;
         initialized_ = true;
-
-        // Notify protocol state machine that initialization is complete
         if (protocol_state_machine_) {
           protocol_state_machine_->handleEvent(
               protocol::McpProtocolEvent::INITIALIZED);
         }
-
         result_promise->set_value(init_result);
-      }
+      });
     } catch (...) {
       result_promise->set_exception(std::current_exception());
     }
-  }).detach();  // Detach the thread - it will set the promise when done
+  }).detach();
 
   return result_promise->get_future();
 }
