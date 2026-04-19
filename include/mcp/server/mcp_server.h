@@ -88,8 +88,15 @@ struct McpServerConfig : public application::ApplicationBase::Config {
 
   // HTTP/SSE specific configuration
   std::string http_rpc_path = "/rpc";        // Path for JSON-RPC over HTTP
-  std::string http_sse_path = "/events";     // Path for SSE event stream
+  std::string http_sse_path = "/sse";        // Path for SSE event stream
   std::string http_health_path = "/health";  // Path for health check endpoint
+  // Absolute URL the server is reachable at from the client's perspective
+  // (scheme + host + port + optional path prefix). Used to build the
+  // endpoint-event callback URL advertised on GET /sse. Leave empty to
+  // have the server derive a URL from the incoming Host header; set
+  // explicitly when the server sits behind a reverse proxy that rewrites
+  // scheme or path so clients don't try to POST back to an internal URL.
+  std::string external_url;
 
   // Session management
   size_t max_sessions = 100;
