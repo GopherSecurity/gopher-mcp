@@ -10,6 +10,10 @@
  * - Connection close order
  */
 
+#include <atomic>
+#include <chrono>
+#include <thread>
+
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
@@ -49,12 +53,61 @@ class ConnectionManagerSection2Test : public ::testing::Test {
   }
 
   void TearDown() override {
+    stopDispatcherThread();
     callbacks_.reset();
     dispatcher_.reset();
   }
 
+  // Starts the dispatcher on a background thread.  Needed for tests that
+  // invoke McpConnectionManager methods that assert isThreadSafe() — those
+  // methods model callbacks coming from the connection's own callback loop,
+  // which only exists once the dispatcher is running.
+  void startDispatcherThread() {
+    if (loop_thread_.joinable()) {
+      return;
+    }
+    loop_thread_ = std::thread(
+        [this]() { dispatcher_->run(event::RunType::Block); });
+    // Wait until libevent has actually entered the loop — without this we
+    // race with thread_id_ being set and isThreadSafe() still returns false.
+    for (int i = 0; i < 200 && !dispatcher_->isThreadSafe(); ++i) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(2));
+      // isThreadSafe() checked from test thread is always false by design;
+      // poll via a posted sentinel instead.
+      std::atomic<bool> sentinel{false};
+      dispatcher_->post([&sentinel]() { sentinel = true; });
+      for (int j = 0; j < 50 && !sentinel.load(); ++j) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+      }
+      if (sentinel.load()) break;
+    }
+  }
+
+  // Posts fn onto the dispatcher and blocks until it has run.  Use for any
+  // call that must execute on the dispatcher thread (e.g., onConnectionEvent,
+  // deferredDelete, connection mutators guarded by dispatcher-thread asserts).
+  void runOnDispatcher(std::function<void()> fn) {
+    std::atomic<bool> done{false};
+    dispatcher_->post([&done, fn = std::move(fn)]() {
+      fn();
+      done = true;
+    });
+    for (int i = 0; i < 400 && !done.load(); ++i) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    ASSERT_TRUE(done.load()) << "dispatcher never ran the posted callback";
+  }
+
+  void stopDispatcherThread() {
+    if (loop_thread_.joinable()) {
+      dispatcher_->exit();
+      loop_thread_.join();
+    }
+  }
+
   std::unique_ptr<event::Dispatcher> dispatcher_;
   std::unique_ptr<MockProtocolCallbacks> callbacks_;
+  std::thread loop_thread_;
 };
 
 // =============================================================================
@@ -268,10 +321,16 @@ TEST_F(ConnectionManagerSection2Test,
               onConnectionEvent(network::ConnectionEvent::Connected))
       .Times(1);
 
-  // Simulate receiving Connected event twice
-  manager->onConnectionEvent(network::ConnectionEvent::Connected);
-  manager->onConnectionEvent(
-      network::ConnectionEvent::Connected);  // Should be ignored
+  // onConnectionEvent asserts it runs on the dispatcher thread because in
+  // production it's always invoked from the connection's own callback loop.
+  // Drive the synthetic invocations through the dispatcher so they satisfy
+  // that contract.
+  startDispatcherThread();
+  runOnDispatcher([&manager]() {
+    manager->onConnectionEvent(network::ConnectionEvent::Connected);
+    manager->onConnectionEvent(
+        network::ConnectionEvent::Connected);  // Should be ignored
+  });
 }
 
 /**
@@ -286,12 +345,76 @@ TEST_F(ConnectionManagerSection2Test, OnConnectionEventPreventsDuplicateClose) {
 
   manager->setProtocolCallbacks(*callbacks_);
 
-  // First close should be processed, second should be ignored
-  // We can't easily verify the exact count due to internal state,
-  // but we can verify it doesn't crash
-  manager->onConnectionEvent(network::ConnectionEvent::RemoteClose);
-  manager->onConnectionEvent(network::ConnectionEvent::RemoteClose);
-  manager->onConnectionEvent(network::ConnectionEvent::LocalClose);
+  // As above — driven through the dispatcher to satisfy the
+  // onConnectionEvent thread-safety assert.
+  startDispatcherThread();
+  runOnDispatcher([&manager]() {
+    manager->onConnectionEvent(network::ConnectionEvent::RemoteClose);
+    manager->onConnectionEvent(network::ConnectionEvent::RemoteClose);
+    manager->onConnectionEvent(network::ConnectionEvent::LocalClose);
+  });
+}
+
+// =============================================================================
+// Deferred-close / thread-safety regression tests (PR #212)
+// =============================================================================
+
+// Regression test for the crash fixed by 4f46b3db:
+// onConnectionEvent(RemoteClose|LocalClose) used to destroy active_connection_
+// synchronously from inside the connection's own callback loop, causing UAF.
+// It now hands the connection to dispatcher.deferredDelete.  This test drives
+// the close path on the dispatcher thread and verifies it completes without
+// tripping the dispatcher-thread assertion and without crashing.
+TEST_F(ConnectionManagerSection2Test, OnCloseRunsCleanlyOnDispatcherThread) {
+  McpConnectionConfig config;
+  config.transport_type = TransportType::HttpSse;
+
+  auto manager = std::make_unique<McpConnectionManager>(
+      *dispatcher_, network::socketInterface(), config);
+  manager->setProtocolCallbacks(*callbacks_);
+
+  startDispatcherThread();
+
+  // Full legal lifecycle: connect -> close.  Each step must run on the
+  // dispatcher thread because onConnectionEvent now asserts it.
+  runOnDispatcher([&manager]() {
+    manager->onConnectionEvent(network::ConnectionEvent::Connected);
+  });
+  runOnDispatcher([&manager]() {
+    manager->onConnectionEvent(network::ConnectionEvent::RemoteClose);
+  });
+
+  // Sanity: a stray close event after the first must also be safe to process
+  // on the dispatcher thread.  This is the path that used to UAF when the
+  // connection was destroyed synchronously on the first close.
+  runOnDispatcher([&manager]() {
+    manager->onConnectionEvent(network::ConnectionEvent::LocalClose);
+  });
+}
+
+// The dispatcher-thread assertion added alongside the deferred-close fix is
+// the tripwire that stops any future caller from synthesising connection
+// events on the wrong thread.  We can't exercise the abort path in a passing
+// test, but we can at least prove that the same calls *do* succeed when they
+// come in on the dispatcher thread — and, paired with the assertion, that
+// catches off-thread regressions in debug builds.
+TEST_F(ConnectionManagerSection2Test,
+       RepeatedEventSequencesOnDispatcherThreadDoNotCrash) {
+  McpConnectionConfig config;
+  config.transport_type = TransportType::HttpSse;
+
+  auto manager = std::make_unique<McpConnectionManager>(
+      *dispatcher_, network::socketInterface(), config);
+  manager->setProtocolCallbacks(*callbacks_);
+
+  startDispatcherThread();
+
+  for (int i = 0; i < 5; ++i) {
+    runOnDispatcher([&manager]() {
+      manager->onConnectionEvent(network::ConnectionEvent::Connected);
+      manager->onConnectionEvent(network::ConnectionEvent::RemoteClose);
+    });
+  }
 }
 
 // =============================================================================
