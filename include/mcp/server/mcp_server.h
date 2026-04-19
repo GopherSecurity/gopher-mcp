@@ -827,6 +827,45 @@ class McpServer : public application::ApplicationBase,
   void stopBackgroundTasks();
 
  private:
+  // Per-connection lifecycle callback adapter.
+  //
+  // Why: ConnectionCallbacks::onEvent carries no Connection identity. Before
+  // this adapter, McpServer registered itself on every connection and then
+  // fell back to a global `current_connection_` pointer to figure out which
+  // one closed — which is stale whenever multiple connections are active.
+  // Each adapter binds (server, connection) at construction so the close
+  // path knows exactly which connection is dying.
+  //
+  // Also DeferredDeletable: the adapter is registered on the connection, so
+  // destroying it synchronously while we are inside its own onEvent() would
+  // be a use-after-free. The server hands it to dispatcher.deferredDelete()
+  // alongside the connection itself.
+  class ConnectionLifecycleCallbacks : public network::ConnectionCallbacks,
+                                       public event::DeferredDeletable {
+   public:
+    ConnectionLifecycleCallbacks(McpServer& server,
+                                 network::Connection* connection)
+        : server_(server), connection_(connection) {}
+
+    void onEvent(network::ConnectionEvent event) override {
+      server_.onConnectionLifecycleEvent(connection_, event);
+    }
+    void onAboveWriteBufferHighWatermark() override {}
+    void onBelowWriteBufferLowWatermark() override {}
+
+   private:
+    McpServer& server_;
+    network::Connection* connection_;
+  };
+
+  // Dispatcher-thread only: all entries added/removed inside dispatcher.
+  std::unordered_map<network::Connection*,
+                     std::unique_ptr<ConnectionLifecycleCallbacks>>
+      lifecycle_callbacks_;
+
+  void onConnectionLifecycleEvent(network::Connection* connection,
+                                  network::ConnectionEvent event);
+
   // Internal callbacks class to bridge McpProtocolCallbacks to McpServer
   // Following production pattern: separate callback interface from main class
   class ServerProtocolCallbacks : public McpProtocolCallbacks {

@@ -7,6 +7,7 @@
 #include "mcp/server/mcp_server.h"
 
 #include <algorithm>
+#include <cassert>
 #include <future>
 #include <sstream>
 
@@ -762,47 +763,85 @@ void McpServer::onResponse(const jsonrpc::Response& response) {
 }
 
 void McpServer::onConnectionEvent(network::ConnectionEvent event) {
-  // Handle connection events
+  // Stats-only path. Per-connection cleanup lives in
+  // onConnectionLifecycleEvent, invoked by the ConnectionLifecycleCallbacks
+  // adapter which carries the closing connection's identity. This function
+  // still runs for stdio transports (reached via ServerProtocolCallbacks)
+  // where there is no active_connections_ entry to unwind.
   switch (event) {
     case network::ConnectionEvent::Connected:
     case network::ConnectionEvent::ConnectedZeroRtt:
       server_stats_.connections_total++;
       server_stats_.connections_active++;
       break;
-
     case network::ConnectionEvent::RemoteClose:
     case network::ConnectionEvent::LocalClose:
       server_stats_.connections_active--;
-
-      // Clean up session for this connection
-      if (session_manager_ && current_connection_) {
-        // Remove session associated with the closed connection
-        session_manager_->removeSessionByConnection(current_connection_);
-
-        // Remove from connection-session mapping
-        // Following production pattern: use lock since this map may be accessed
-        // from multiple dispatcher threads
-        {
-          std::lock_guard<std::mutex> lock(connection_sessions_mutex_);
-          connection_sessions_.erase(current_connection_);
-        }
-
-        // Remove connection from active list
-        // Following production pattern: all in dispatcher thread, no mutex
-        // needed
-        active_connections_.remove_if(
-            [this](const network::ConnectionPtr& conn) {
-              return conn.get() == current_connection_;
-            });
-
-        // Clear the current connection
-        current_connection_ = nullptr;
-
-        // Decrement connection count
-        num_connections_--;
-      }
       break;
   }
+}
+
+void McpServer::onConnectionLifecycleEvent(network::Connection* connection,
+                                           network::ConnectionEvent event) {
+  // Connection events fire from the connection's own callback loop, which is
+  // the dispatcher thread. Enforcing this here catches any accidental
+  // off-thread callers introduced later.
+  assert(main_dispatcher_ && main_dispatcher_->isThreadSafe() &&
+         "onConnectionLifecycleEvent off dispatcher");
+  // Runs in dispatcher thread via the per-connection adapter.
+  switch (event) {
+    case network::ConnectionEvent::Connected:
+    case network::ConnectionEvent::ConnectedZeroRtt:
+      server_stats_.connections_total++;
+      server_stats_.connections_active++;
+      return;
+    case network::ConnectionEvent::RemoteClose:
+    case network::ConnectionEvent::LocalClose:
+      break;
+  }
+
+  server_stats_.connections_active--;
+
+  // Tear down session state keyed by the actual closing connection, not a
+  // global current_connection_ which may point at a different session.
+  if (session_manager_) {
+    session_manager_->removeSessionByConnection(connection);
+  }
+  {
+    std::lock_guard<std::mutex> lock(connection_sessions_mutex_);
+    connection_sessions_.erase(connection);
+  }
+
+  // Hand both the ConnectionPtr and the lifecycle adapter to the dispatcher's
+  // deferred-delete queue. We are currently inside the adapter's onEvent(),
+  // and the connection is iterating its own callback list — destroying either
+  // synchronously would be a use-after-free. deferredDelete drains after the
+  // current callback stack unwinds.
+  //
+  // Skip container unwinding if we're past shutdown: during ~McpServer the
+  // containers themselves are being destroyed, and mutating them from a
+  // close-triggered callback would be UB. Shutdown already sets this flag
+  // before the destructor starts tearing members down.
+  if (server_running_) {
+    for (auto it = active_connections_.begin();
+         it != active_connections_.end(); ++it) {
+      if (it->get() == connection) {
+        main_dispatcher_->deferredDelete(std::move(*it));
+        active_connections_.erase(it);
+        break;
+      }
+    }
+    auto cb_it = lifecycle_callbacks_.find(connection);
+    if (cb_it != lifecycle_callbacks_.end()) {
+      main_dispatcher_->deferredDelete(std::move(cb_it->second));
+      lifecycle_callbacks_.erase(cb_it);
+    }
+  }
+
+  if (current_connection_ == connection) {
+    current_connection_ = nullptr;
+  }
+  num_connections_--;
 }
 
 void McpServer::onError(const Error& error) {
@@ -1223,9 +1262,14 @@ void McpServer::onNewConnection(network::ConnectionPtr&& connection) {
     return;
   }
 
-  // Add ourselves as connection callbacks to track lifecycle
-  // This allows us to clean up session when connection closes
-  connection->addConnectionCallbacks(*this);
+  // Register a per-connection lifecycle adapter so the close event tells us
+  // exactly which connection is dying. The adapter is held alive by the
+  // lifecycle_callbacks_ map until the close path hands it to the dispatcher
+  // for deferred deletion.
+  auto lifecycle_cb =
+      std::make_unique<ConnectionLifecycleCallbacks>(*this, conn_ptr);
+  connection->addConnectionCallbacks(*lifecycle_cb);
+  lifecycle_callbacks_[conn_ptr] = std::move(lifecycle_cb);
 
   // Store connection-to-session mapping
   // Following production pattern: listener owns connections
