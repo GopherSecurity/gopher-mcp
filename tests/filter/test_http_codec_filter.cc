@@ -548,6 +548,47 @@ TEST_F(HttpCodecFilterRealIoTest, StateMachineIntegration) {
   EXPECT_EQ(headers["url"], "/state-test");
 }
 
+// ---------------------------------------------------------------------------
+// Body-timeout wiring by role
+//
+// Regression guard for the SSE crash: in client mode the codec is expected
+// to disable the body timer (body_timeout == 0) because SSE response bodies
+// are an open-ended stream that may sit idle between server-pushed events.
+// In server mode the 60s body timeout must stay on — request bodies are
+// expected to complete promptly. These tests read back the value actually
+// stored on the state machine so a regression in the is_server_ ternary in
+// http_codec_filter.cc is caught directly.
+// ---------------------------------------------------------------------------
+
+class HttpCodecFilterBodyTimeoutTest : public ::testing::Test {
+ protected:
+  void SetUp() override {
+    auto factory = event::createLibeventDispatcherFactory();
+    dispatcher_ = factory->createDispatcher("codec-bt");
+    // Run once so timers can be created (state machine arms from ctor).
+    dispatcher_->run(event::RunType::NonBlock);
+    callbacks_ = std::make_unique<TestRequestCallbacks>();
+  }
+
+  std::unique_ptr<event::Dispatcher> dispatcher_;
+  std::unique_ptr<TestRequestCallbacks> callbacks_;
+};
+
+TEST_F(HttpCodecFilterBodyTimeoutTest, ServerModeKeepsBodyTimeoutBounded) {
+  HttpCodecFilter filter(*callbacks_, *dispatcher_, /*is_server=*/true);
+  EXPECT_EQ(filter.bodyTimeout(), 60000ms)
+      << "server mode must retain a bounded body timeout so request bodies "
+         "that stall don't wedge a connection";
+}
+
+TEST_F(HttpCodecFilterBodyTimeoutTest, ClientModeDisablesBodyTimeout) {
+  HttpCodecFilter filter(*callbacks_, *dispatcher_, /*is_server=*/false);
+  EXPECT_EQ(filter.bodyTimeout(), 0ms)
+      << "client mode must disable the body timer — an SSE response body is "
+         "an open-ended stream and a bounded body timeout would fire during "
+         "normal idle gaps, then crash the state machine on a live stream";
+}
+
 }  // namespace
 }  // namespace filter
 }  // namespace mcp
