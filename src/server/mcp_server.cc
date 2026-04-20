@@ -388,24 +388,39 @@ void McpServer::shutdown() {
   // Close all connections in dispatcher context
   if (main_dispatcher_) {
     main_dispatcher_->post([this]() {
-      // IMPROVEMENT: Stop listeners using TcpActiveListener (production
-      // pattern) This provides coordinated shutdown with proper connection
-      // draining
+      // Stop listeners first so no new connections slip in while we drain.
       for (auto& listener : tcp_listeners_) {
         listener->disable();
       }
       tcp_listeners_.clear();
 
-      // Close legacy connection managers (for stdio)
+      // Drain active_connections_ on the dispatcher thread so each
+      // ConnectionImpl destructor fires its closeSocket(LocalClose) here
+      // rather than on whatever thread ends up running ~McpServer. That
+      // routes LocalClose through the per-connection adapter back into
+      // onConnectionLifecycleEvent, which asserts dispatcher-thread.
+      //
+      // server_running_ has already flipped to false above, so the
+      // container-unwind branch inside onConnectionLifecycleEvent is
+      // skipped — otherwise each destruction would try to erase its own
+      // element from the vector we are currently clearing, which would
+      // invalidate iterators and drop adapters referenced by
+      // still-running callback chains.
+      //
+      // Order matters: connections must die before their lifecycle
+      // adapters. The connection's callback list still references the
+      // adapter during ~ConnectionImpl's closeSocket; destroying the
+      // adapter first would be a use-after-free on that last callback.
+      active_connections_.clear();
+      lifecycle_callbacks_.clear();
+
+      // Close legacy connection managers (for stdio).
       for (auto& conn_manager : connection_managers_) {
         conn_manager->close();
       }
       connection_managers_.clear();
 
-      // Clear all sessions
-      // Session cleanup will happen automatically
-
-      // Exit the blocking dispatch loop
+      // Exit the blocking dispatch loop.
       main_dispatcher_->exit();
     });
   }
