@@ -688,8 +688,7 @@ class SessionManager {
  * 4. McpServer handles protocol logic
  */
 class McpServer : public application::ApplicationBase,
-                  public network::ListenerCallbacks,
-                  public network::ConnectionCallbacks {
+                  public network::ListenerCallbacks {
  public:
   McpServer(const McpServerConfig& config);
   ~McpServer() override;
@@ -791,14 +790,6 @@ class McpServer : public application::ApplicationBase,
   void onAccept(network::ConnectionSocketPtr&& socket) override;
   // Called when connection is fully established with filters
   void onNewConnection(network::ConnectionPtr&& connection) override;
-
-  // ConnectionCallbacks overrides (for connection lifecycle tracking)
-  void onEvent(network::ConnectionEvent event) override {
-    // Forward to existing handler
-    onConnectionEvent(event);
-  }
-  void onAboveWriteBufferHighWatermark() override {}
-  void onBelowWriteBufferLowWatermark() override {}
 
  private:
   // Register built-in handlers
