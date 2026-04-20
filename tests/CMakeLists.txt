@@ -1557,6 +1557,17 @@ target_link_libraries(test_mcp_client_initialize_routing
 )
 add_test(NAME McpClientInitializeRoutingTest COMMAND test_mcp_client_initialize_routing)
 
+add_executable(test_mcp_server_connection_lifecycle integration/test_mcp_server_connection_lifecycle.cc)
+target_link_libraries(test_mcp_server_connection_lifecycle
+    gopher-mcp
+    gopher-mcp-event
+    gtest
+    gtest_main
+    gmock
+    Threads::Threads
+)
+add_test(NAME McpServerConnectionLifecycleTest COMMAND test_mcp_server_connection_lifecycle)
+
 add_executable(test_http_sse_filter_chain_mode filter/test_http_sse_filter_chain_mode.cc)
 target_link_libraries(test_http_sse_filter_chain_mode
     gopher-mcp
