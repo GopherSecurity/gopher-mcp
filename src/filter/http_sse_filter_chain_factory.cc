@@ -738,16 +738,23 @@ class HttpSseJsonRpcProtocolFilter
         return;
       }
 
-      // ── POST /callback/{session_id} → route the JSON-RPC body
+      // ── POST .../callback/{session_id} → route the JSON-RPC body
       // through the SSE stream registered under {session_id}. We send
       // 202 Accepted on this POST connection right away and let the
       // body keep flowing into the JSON-RPC filter normally; onWrite
       // then intercepts the response before it gets written back to
       // this POST connection and redirects it to the SSE stream.
+      //
+      // Use rfind to accept a path prefix so deployments behind a
+      // reverse proxy still match. If external_url announces a
+      // callback at /v1/mcp/gateways/xyz/callback/client_1 and the
+      // proxy passes that full path through, we still want to strip
+      // everything up to and including /callback/ and take the
+      // session ID from the tail.
       const std::string callback_prefix = "/callback/";
-      if (method == "POST" && path.compare(0, callback_prefix.size(),
-                                           callback_prefix) == 0) {
-        sse_callback_session_id_ = path.substr(callback_prefix.size());
+      const auto cb_pos = path.rfind(callback_prefix);
+      if (method == "POST" && cb_pos != std::string::npos) {
+        sse_callback_session_id_ = path.substr(cb_pos + callback_prefix.size());
         GOPHER_LOG_DEBUG("SSE callback POST: session={}",
                          sse_callback_session_id_);
 
