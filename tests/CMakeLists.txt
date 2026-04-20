@@ -1524,6 +1524,17 @@ target_link_libraries(test_http_sse_filter_chain_factory
 )
 add_test(NAME HttpSseFilterChainFactoryTest COMMAND test_http_sse_filter_chain_factory)
 
+add_executable(test_sse_session_registry filter/test_sse_session_registry.cc)
+target_link_libraries(test_sse_session_registry
+    gopher-mcp
+    gopher-mcp-event
+    gtest
+    gtest_main
+    gmock
+    Threads::Threads
+)
+add_test(NAME SseSessionRegistryTest COMMAND test_sse_session_registry)
+
 add_executable(test_http_sse_filter_chain_mode filter/test_http_sse_filter_chain_mode.cc)
 target_link_libraries(test_http_sse_filter_chain_mode
     gopher-mcp
