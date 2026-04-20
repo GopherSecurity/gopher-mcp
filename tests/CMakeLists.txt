@@ -1546,6 +1546,17 @@ target_link_libraries(test_sse_transport_round_trip
 )
 add_test(NAME SseTransportRoundTripTest COMMAND test_sse_transport_round_trip)
 
+add_executable(test_mcp_client_initialize_routing integration/test_mcp_client_initialize_routing.cc)
+target_link_libraries(test_mcp_client_initialize_routing
+    gopher-mcp
+    gopher-mcp-event
+    gtest
+    gtest_main
+    gmock
+    Threads::Threads
+)
+add_test(NAME McpClientInitializeRoutingTest COMMAND test_mcp_client_initialize_routing)
+
 add_executable(test_http_sse_filter_chain_mode filter/test_http_sse_filter_chain_mode.cc)
 target_link_libraries(test_http_sse_filter_chain_mode
     gopher-mcp
