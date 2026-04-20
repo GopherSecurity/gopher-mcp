@@ -818,11 +818,16 @@ void McpServer::onConnectionLifecycleEvent(network::Connection* connection,
   assert(main_dispatcher_ && main_dispatcher_->isThreadSafe() &&
          "onConnectionLifecycleEvent off dispatcher");
   // Runs in dispatcher thread via the per-connection adapter.
+  //
+  // Only close events reach us here in practice. ConnectionImpl does not
+  // raise Connected for server-accepted sockets (it is raised only from
+  // the client-side connect-completion path), so a Connected case would
+  // be dead code. The matching connections_total/connections_active
+  // increment lives in onNewConnection, which is the server-side
+  // equivalent checkpoint.
   switch (event) {
     case network::ConnectionEvent::Connected:
     case network::ConnectionEvent::ConnectedZeroRtt:
-      server_stats_.connections_total++;
-      server_stats_.connections_active++;
       return;
     case network::ConnectionEvent::RemoteClose:
     case network::ConnectionEvent::LocalClose:
@@ -1312,8 +1317,20 @@ void McpServer::onNewConnection(network::ConnectionPtr&& connection) {
   // Set current connection for request processing context
   current_connection_ = conn_ptr;
 
-  // Update connection count
+  // Update connection count.
+  //
+  // We bump the public stats here rather than wait for a Connected event
+  // via the per-connection lifecycle adapter, because ConnectionImpl
+  // never raises Connected for server-accepted sockets -- the event is
+  // only raised on the client-side connect-completion path. onNewConnection
+  // is the equivalent checkpoint for server: the socket is already
+  // accepted and the filter chain is built by the time we run here, and
+  // this call is on the dispatcher thread, so the atomic increments land
+  // on the same thread that the decrement in onConnectionLifecycleEvent
+  // runs on.
   ++num_connections_;
+  server_stats_.connections_total++;
+  server_stats_.connections_active++;
 
   // Store the connection to keep it alive
   // Following production pattern: server owns connections in dispatcher thread
