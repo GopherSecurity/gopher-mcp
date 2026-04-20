@@ -875,7 +875,6 @@ void McpServer::onConnectionLifecycleEvent(network::Connection* connection,
   if (current_connection_ == connection) {
     current_connection_ = nullptr;
   }
-  num_connections_--;
 }
 
 void McpServer::onError(const Error& error) {
@@ -1328,7 +1327,6 @@ void McpServer::onNewConnection(network::ConnectionPtr&& connection) {
   // this call is on the dispatcher thread, so the atomic increments land
   // on the same thread that the decrement in onConnectionLifecycleEvent
   // runs on.
-  ++num_connections_;
   server_stats_.connections_total++;
   server_stats_.connections_active++;
 
