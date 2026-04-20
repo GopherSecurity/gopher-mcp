@@ -927,9 +927,6 @@ class McpServer : public application::ApplicationBase,
   // Following production pattern: listener owns connections, not threads
   // Connections tracked by count only, ownership managed by listener
 
-  // Track connection count for statistics
-  std::atomic<uint64_t> num_connections_{0};
-
   // Current connection being processed (for request context)
   // This is set temporarily during request processing in dispatcher thread
   network::Connection* current_connection_{nullptr};
