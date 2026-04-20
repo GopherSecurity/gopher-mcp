@@ -177,11 +177,11 @@ class HttpSseFilterChainFactory : public network::FilterChainFactory {
   event::Dispatcher& dispatcher_;
   McpProtocolCallbacks& message_callbacks_;
   bool is_server_;
-  std::string http_path_;     // HTTP request path for client mode
-  std::string http_host_;     // HTTP Host header for client mode
-  bool use_sse_;              // True for SSE mode, false for Streamable HTTP
-  std::string sse_path_;      // Server-side SSE endpoint path (e.g., "/sse")
-  std::string rpc_path_;      // Server-side JSON-RPC endpoint path (e.g., "/mcp")
+  std::string http_path_;  // HTTP request path for client mode
+  std::string http_host_;  // HTTP Host header for client mode
+  bool use_sse_;           // True for SSE mode, false for Streamable HTTP
+  std::string sse_path_;   // Server-side SSE endpoint path (e.g., "/sse")
+  std::string rpc_path_;   // Server-side JSON-RPC endpoint path (e.g., "/mcp")
   std::string external_url_;  // External URL for absolute SSE callback URLs
   mutable bool enable_metrics_ = true;  // Enable metrics by default
 

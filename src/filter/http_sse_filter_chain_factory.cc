@@ -152,8 +152,8 @@ class SseSessionRegistry {
     OwnedBuffer buffer;
     buffer.add(json_data.c_str(), json_data.length());
     it->second->write(buffer, /*end_stream=*/false);
-    GOPHER_LOG_DEBUG("SSE response routed to session {} ({} bytes)",
-                     session_id, json_data.size());
+    GOPHER_LOG_DEBUG("SSE response routed to session {} ({} bytes)", session_id,
+                     json_data.size());
     return true;
   }
 

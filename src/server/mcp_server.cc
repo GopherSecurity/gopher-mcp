@@ -837,8 +837,8 @@ void McpServer::onConnectionLifecycleEvent(network::Connection* connection,
   // close-triggered callback would be UB. Shutdown already sets this flag
   // before the destructor starts tearing members down.
   if (server_running_) {
-    for (auto it = active_connections_.begin();
-         it != active_connections_.end(); ++it) {
+    for (auto it = active_connections_.begin(); it != active_connections_.end();
+         ++it) {
       if (it->get() == connection) {
         main_dispatcher_->deferredDelete(std::move(*it));
         active_connections_.erase(it);
@@ -1199,25 +1199,27 @@ void McpServer::startBackgroundTasks() {
 
   const auto cleanup_interval = std::chrono::seconds(30);
 
-  session_cleanup_timer_ = main_dispatcher_->createTimer([this, cleanup_interval]() {
-    if (!background_threads_running_) {
-      return;
-    }
-    session_manager_->cleanupExpiredSessions();
-    // Re-arm for the next tick. The timer is a member, so firing is safe.
-    session_cleanup_timer_->enableTimer(cleanup_interval);
-  });
+  session_cleanup_timer_ =
+      main_dispatcher_->createTimer([this, cleanup_interval]() {
+        if (!background_threads_running_) {
+          return;
+        }
+        session_manager_->cleanupExpiredSessions();
+        // Re-arm for the next tick. The timer is a member, so firing is safe.
+        session_cleanup_timer_->enableTimer(cleanup_interval);
+      });
   session_cleanup_timer_->enableTimer(cleanup_interval);
 
   const auto update_interval = config_.resource_update_debounce;
 
-  resource_update_timer_ = main_dispatcher_->createTimer([this, update_interval]() {
-    if (!background_threads_running_) {
-      return;
-    }
-    // Resource-update dispatch hooks in here when enabled.
-    resource_update_timer_->enableTimer(update_interval);
-  });
+  resource_update_timer_ =
+      main_dispatcher_->createTimer([this, update_interval]() {
+        if (!background_threads_running_) {
+          return;
+        }
+        // Resource-update dispatch hooks in here when enabled.
+        resource_update_timer_->enableTimer(update_interval);
+      });
   resource_update_timer_->enableTimer(update_interval);
 }
 
