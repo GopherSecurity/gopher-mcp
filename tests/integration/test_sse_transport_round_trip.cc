@@ -1,32 +1,42 @@
 /**
  * Real-IO integration test for the SSE server transport.
  *
- * Verifies the first leg of the round-trip promised in PR #215's test
- * plan: a GET on the configured SSE path returns an HTTP 200 stream that
- * opens with an `event: endpoint` frame carrying a /callback/{id} URL
- * the client can POST to. That exercises:
+ * Verifies the full round-trip promised in PR #215's test plan:
  *
+ *   1. GET on the configured SSE path returns an HTTP 200 stream that
+ *      opens with an `event: endpoint` frame carrying a /callback/{id}
+ *      URL the client can POST to.
+ *   2. POST on that /callback/{id} returns 202 Accepted, and a JSON-RPC
+ *      response produced on the POST connection is rerouted through the
+ *      SseSessionRegistry onto the original SSE stream (instead of being
+ *      framed as HTTP bytes on the POST socket).
+ *
+ * Covered wire paths:
  *   - HttpSseFilterChainFactory server-mode chain construction
- *   - HttpSseJsonRpcProtocolFilter's `onHeaders` handshake path, which
- *     writes the HTTP prelude + the endpoint event inline via
- *     connection().write()
- *   - SseSessionRegistry::registerSession being called against the live
- *     server connection
+ *   - HttpSseJsonRpcProtocolFilter's `onHeaders` handshake for both
+ *     GET /sse (writes HTTP prelude + endpoint event inline via
+ *     connection().write()) and POST /callback/{id} (writes 202 inline
+ *     and tags the filter instance with sse_callback_session_id_)
+ *   - HttpSseJsonRpcProtocolFilter's `onWrite` interception that pulls
+ *     JSON-RPC bytes off the POST connection's write chain and hands
+ *     them to SseSessionRegistry::sendResponse on the matching SSE
+ *     connection
  *
  * Design:
- *   - No McpServer bootstrap; the factory + a ConnectionImpl around a
- *     real TCP socketpair is the smallest harness that exercises the
- *     real write path (not a mock) while keeping the test self-contained.
+ *   - No McpServer bootstrap; two ConnectionImpls over real TCP
+ *     socketpairs sharing a single HttpSseFilterChainFactory is the
+ *     smallest harness that exercises the real routing path (not a mock)
+ *     while keeping the test self-contained. The shared factory is the
+ *     key: it owns the SseSessionRegistry so the POST-connection's
+ *     filter instance can find the SSE-connection's filter instance.
  *   - Dispatcher-thread invariant: every mutation of the connection and
  *     filter chain runs inside executeInDispatcher() because
  *     ConnectionImpl's lifecycle methods assert isThreadSafe().
- *   - Cleanup closes the connection on the dispatcher thread too — tearing
- *     down ConnectionImpl from the test thread would trip its destructor
- *     assert.
- *
- * The POST /callback/{id} → 202 → response-routed-through-SSE leg of the
- * round-trip requires either a full McpServer bootstrap or a test-only
- * connection-tracking filter and is tracked as a follow-up.
+ *   - Cleanup closes both connections and drops the factory on the
+ *     dispatcher thread — tearing down ConnectionImpl from the test
+ *     thread would trip its destructor assert, and the factory's
+ *     transitively-owned SSE filters call registry.removeSession() from
+ *     their destructors which also asserts dispatcher-thread.
  */
 
 #include <chrono>
@@ -86,22 +96,10 @@ class SseTransportRoundTripTest : public test::RealIoTestBase {
     std::shared_ptr<stream_info::StreamInfo> stream_info;
   };
 
-  Harness makeHarness(RecordingCallbacks& callbacks,
+  Harness makeHarness(McpProtocolCallbacks& callbacks,
                       const std::string& sse_path = "/sse",
                       const std::string& rpc_path = "/mcp",
                       const std::string& external_url = "") {
-    auto pair = createSocketPair();
-
-    auto local = network::Address::parseInternetAddress("127.0.0.1", 0);
-    auto remote = network::Address::parseInternetAddress("127.0.0.1", 0);
-    auto socket = std::make_unique<network::ConnectionSocketImpl>(
-        std::move(pair.first), local, remote);
-    auto transport = std::make_unique<network::RawBufferTransportSocket>();
-    auto stream_info = std::make_shared<stream_info::StreamInfoImpl>();
-
-    auto conn = network::ConnectionImpl::createServerConnection(
-        *dispatcher_, std::move(socket), std::move(transport), *stream_info);
-
     auto factory = std::make_shared<filter::HttpSseFilterChainFactory>(
         *dispatcher_, callbacks,
         /*is_server=*/true,
@@ -112,9 +110,35 @@ class SseTransportRoundTripTest : public test::RealIoTestBase {
         /*rpc_path=*/rpc_path,
         /*external_url=*/external_url);
 
-    // Attach the factory's chain to the server connection and arm reads.
-    // Equivalent to what TcpActiveListener::createConnection does for
-    // real accepted sockets.
+    auto inner = makeConnectionForFactory(factory);
+    return Harness{std::move(factory), std::move(inner.conn),
+                   std::move(inner.peer), std::move(inner.stream_info)};
+  }
+
+  // Lightweight shape for attaching additional connections to an existing
+  // factory. The POST /callback leg of the round-trip needs two live
+  // server connections sharing the same factory — both so their filter
+  // instances share the factory's SseSessionRegistry, and so tearing the
+  // factory down cleans up both filter chains at once.
+  struct ExtraConnection {
+    std::unique_ptr<network::ServerConnection> conn;
+    network::IoHandlePtr peer;
+    std::shared_ptr<stream_info::StreamInfo> stream_info;
+  };
+
+  ExtraConnection makeConnectionForFactory(
+      const std::shared_ptr<filter::HttpSseFilterChainFactory>& factory) {
+    auto pair = createSocketPair();
+    auto local = network::Address::parseInternetAddress("127.0.0.1", 0);
+    auto remote = network::Address::parseInternetAddress("127.0.0.1", 0);
+    auto socket = std::make_unique<network::ConnectionSocketImpl>(
+        std::move(pair.first), local, remote);
+    auto transport = std::make_unique<network::RawBufferTransportSocket>();
+    auto stream_info = std::make_shared<stream_info::StreamInfoImpl>();
+
+    auto conn = network::ConnectionImpl::createServerConnection(
+        *dispatcher_, std::move(socket), std::move(transport), *stream_info);
+
     auto* conn_impl = static_cast<network::ConnectionImpl*>(conn.get());
     // createFilterChain() returning false would mean the factory couldn't
     // assemble the HTTP+SSE chain at all — nothing downstream is meaningful
@@ -123,8 +147,8 @@ class SseTransportRoundTripTest : public test::RealIoTestBase {
         << "factory declined to build a filter chain";
     conn_impl->filterManager().initializeReadFilters();
 
-    return Harness{std::move(factory), std::move(conn), std::move(pair.second),
-                   std::move(stream_info)};
+    return ExtraConnection{std::move(conn), std::move(pair.second),
+                           std::move(stream_info)};
   }
 
   // Simulate the HTTP client: push bytes onto the peer IoHandle so they
@@ -318,6 +342,140 @@ TEST_F(SseTransportRoundTripTest, ConfiguredSsePathIsHonored) {
       << "no endpoint event on configured /events path, got: " << wire;
 
   closeOnDispatcher(std::move(conn), std::move(factory));
+}
+
+// Full round-trip: GET /sse registers a session, POST /callback/{id}
+// gets 202 Accepted, and a JSON-RPC response produced on the POST
+// connection is rerouted through the SseSessionRegistry onto the SSE
+// stream. This is the contract PR #215's test plan called out as
+// pending — if the onWrite interception regresses, the response will
+// either leak back onto the POST connection as HTTP bytes or disappear
+// entirely.
+TEST_F(SseTransportRoundTripTest, PostCallbackRoutesResponseThroughSseStream) {
+  // Test-only callbacks that synthesize a server response the moment a
+  // JSON-RPC request is parsed off the POST /callback body. The real
+  // McpServer emits responses via the JSON-RPC filter's encoder; a raw
+  // connection().write() reaches the same write chain and therefore
+  // the same HttpSseJsonRpcProtocolFilter::onWrite that does the
+  // rerouting. The write must happen on the dispatcher thread (ConnImpl
+  // asserts it), which is already the case — filter.onRequest fires
+  // from inside the dispatcher's read path.
+  class EchoingCallbacks : public McpProtocolCallbacks {
+   public:
+    void onRequest(const jsonrpc::Request& request) override {
+      ++requests_seen;
+      if (callback_conn) {
+        OwnedBuffer b;
+        // A minimal JSON-RPC response; the exact shape doesn't matter,
+        // only that it's recognizable on the SSE peer.
+        std::string resp =
+            R"({"jsonrpc":"2.0","id":)" +
+            (holds_alternative<int64_t>(request.id)
+                 ? std::to_string(get<int64_t>(request.id))
+                 : std::string("\"") + get<std::string>(request.id) + "\"") +
+            R"(,"result":{"echoed":true}})" + "\n";
+        b.add(resp);
+        callback_conn->write(b, false);
+      }
+    }
+    void onNotification(const jsonrpc::Notification&) override {}
+    void onResponse(const jsonrpc::Response&) override {}
+    void onConnectionEvent(network::ConnectionEvent) override {}
+    void onError(const Error&) override {}
+
+    network::Connection* callback_conn = nullptr;
+    std::atomic<int> requests_seen{0};
+  } callbacks;
+
+  std::shared_ptr<filter::HttpSseFilterChainFactory> factory;
+  std::unique_ptr<network::ServerConnection> sse_conn;
+  network::IoHandlePtr sse_peer;
+  std::unique_ptr<network::ServerConnection> cb_conn;
+  network::IoHandlePtr cb_peer;
+
+  // Bring up the SSE stream connection first so the session id the
+  // factory generates is registered before any POST can land.
+  executeInDispatcher([&]() {
+    auto h = makeHarness(callbacks);
+    factory = std::move(h.factory);
+    sse_conn = std::move(h.conn);
+    sse_peer = std::move(h.peer);
+
+    writeClientBytes(*sse_peer,
+                     "GET /sse HTTP/1.1\r\n"
+                     "Host: localhost\r\n"
+                     "\r\n");
+  });
+
+  const std::string handshake = drainPeer(*sse_peer);
+  std::smatch m;
+  std::regex endpoint_re(R"(event:\s*endpoint\s*\ndata:\s*([^\r\n]+))");
+  ASSERT_TRUE(std::regex_search(handshake, m, endpoint_re))
+      << "no endpoint event on SSE stream: " << handshake;
+  const std::string callback_url = m[1].str();
+  const std::string marker = "callback/";
+  const auto cb_pos = callback_url.rfind(marker);
+  ASSERT_NE(cb_pos, std::string::npos);
+  const std::string session_id = callback_url.substr(cb_pos + marker.size());
+  ASSERT_FALSE(session_id.empty());
+
+  // Now bring up the POST /callback connection on the SAME factory and
+  // wire its connection pointer into the echoing callbacks. Without
+  // that pointer the callbacks can't emit a write, and the routing
+  // assertion below would be trivially true of any config.
+  executeInDispatcher([&]() {
+    auto extra = makeConnectionForFactory(factory);
+    cb_conn = std::move(extra.conn);
+    cb_peer = std::move(extra.peer);
+    callbacks.callback_conn = cb_conn.get();
+
+    const std::string body =
+        R"({"jsonrpc":"2.0","id":42,"method":"ping"})";
+    std::string req;
+    req += "POST /callback/" + session_id + " HTTP/1.1\r\n";
+    req += "Host: localhost\r\n";
+    req += "Content-Type: application/json\r\n";
+    req += "Content-Length: " + std::to_string(body.size()) + "\r\n";
+    req += "\r\n";
+    req += body;
+    writeClientBytes(*cb_peer, req);
+  });
+
+  // The POST connection gets back only the 202 Accepted handshake;
+  // the response body is rerouted off this socket.
+  const std::string cb_peer_bytes = drainPeer(*cb_peer);
+  EXPECT_NE(cb_peer_bytes.find("HTTP/1.1 202 Accepted"), std::string::npos)
+      << "expected 202 Accepted on POST connection, got: " << cb_peer_bytes;
+  EXPECT_EQ(cb_peer_bytes.find("\"echoed\":true"), std::string::npos)
+      << "response leaked back onto POST connection instead of SSE stream: "
+      << cb_peer_bytes;
+
+  EXPECT_EQ(callbacks.requests_seen.load(), 1)
+      << "JSON-RPC filter never dispatched the POSTed request";
+
+  // The actual routed-response assertion: after the 202, the JSON-RPC
+  // response bytes produced by EchoingCallbacks must appear on the SSE
+  // peer — that's the registry-based reroute working end-to-end.
+  const std::string routed = drainPeer(*sse_peer);
+  EXPECT_NE(routed.find("\"echoed\":true"), std::string::npos)
+      << "JSON-RPC response was not routed through SSE stream, got: "
+      << routed;
+
+  // Tear everything down on the dispatcher thread. The factory outlives
+  // both connections via its filters_ vector, so it must be dropped
+  // last — dropping it off-thread would trip SseSessionRegistry asserts
+  // as the SSE-codec filter destructors run.
+  executeInDispatcher([&]() {
+    // Null the side-channel connection pointer before destroying cb_conn
+    // so any stray read event on the socket doesn't race our teardown
+    // through EchoingCallbacks.
+    callbacks.callback_conn = nullptr;
+    cb_conn->close(network::ConnectionCloseType::NoFlush);
+    cb_conn.reset();
+    sse_conn->close(network::ConnectionCloseType::NoFlush);
+    sse_conn.reset();
+    factory.reset();
+  });
 }
 
 }  // namespace
