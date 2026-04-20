@@ -449,6 +449,7 @@ set(MCP_CORE_SOURCES
     src/filter/http_codec_state_machine.cc
     src/filter/sse_codec_state_machine.cc
     src/filter/http_sse_filter_chain_factory.cc
+    src/filter/sse_session_registry.cc
     src/filter/stdio_filter_chain_factory.cc
     src/filter/json_rpc_protocol_filter.cc
     src/filter/protocol_detection_filter_chain_factory.cc

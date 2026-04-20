@@ -62,6 +62,7 @@
 #include "mcp/filter/json_rpc_protocol_filter.h"
 #include "mcp/filter/metrics_filter.h"
 #include "mcp/filter/sse_codec_filter.h"
+#include "mcp/filter/sse_session_registry.h"
 #include "mcp/json/json_serialization.h"
 #include "mcp/logging/log_macros.h"
 #include "mcp/mcp_connection_manager.h"
@@ -70,98 +71,9 @@
 namespace mcp {
 namespace filter {
 
-// ═══════════════════════════════════════════════════════════════════════════
-// SseSessionRegistry — dispatcher-owned map of SSE session IDs to the
-// network::Connection* that is streaming SSE back to each client.
-//
-// MCP SSE transport splits the request/response pair across two TCP
-// connections:
-//   1. A long-lived GET /sse stream that the client leaves open for
-//      server-sent events. The server registers this connection under a
-//      fresh session ID and announces a POST callback URL containing
-//      that ID in the "endpoint" event.
-//   2. Short POST /callback/{session_id} connections — one per outbound
-//      JSON-RPC request from the client. The server returns 202 Accepted
-//      immediately and then routes the actual JSON-RPC response through
-//      the SSE connection registered under that session ID.
-//
-// The registry is what lets the POST handler find the SSE connection it
-// has to route the response through. It lives on the filter chain
-// factory (one per McpServer), not as a process-wide singleton, so:
-//   - Independent McpServer instances in the same process do not share
-//     session IDs or leak into each other.
-//   - Registry lifetime is bounded by the factory, which is owned by
-//     McpServer — no global state to reason about at shutdown.
-//
-// Threading model:
-//   - The MCP server runs on a single dispatcher thread. All filter
-//     callbacks (onHeaders, onWrite, filter destructor) fire on that
-//     thread, so registry mutations are naturally single-threaded.
-//   - Every public method asserts isThreadSafe() so a future move to a
-//     worker-thread model fails loudly instead of silently corrupting
-//     the map.
-// ═══════════════════════════════════════════════════════════════════════════
-class SseSessionRegistry {
- public:
-  explicit SseSessionRegistry(event::Dispatcher& dispatcher)
-      : dispatcher_(dispatcher) {}
-
-  // Record an SSE stream connection and hand back a stable session ID.
-  // Caller is responsible for calling removeSession() when the stream
-  // closes (filter destructor does this).
-  std::string registerSession(network::Connection* connection) {
-    assert(dispatcher_.isThreadSafe() &&
-           "SseSessionRegistry::registerSession off-dispatcher-thread");
-    std::string session_id = "client_" + std::to_string(next_id_++);
-    sessions_[session_id] = connection;
-    GOPHER_LOG_INFO("SSE session registered: {} (total={})", session_id,
-                    sessions_.size());
-    return session_id;
-  }
-
-  // Drop a session. Safe to call with an unknown ID (no-op). Typically
-  // invoked from the SSE filter's destructor when the stream connection
-  // closes.
-  void removeSession(const std::string& session_id) {
-    assert(dispatcher_.isThreadSafe() &&
-           "SseSessionRegistry::removeSession off-dispatcher-thread");
-    if (sessions_.erase(session_id) > 0) {
-      GOPHER_LOG_INFO("SSE session removed: {} (total={})", session_id,
-                      sessions_.size());
-    }
-  }
-
-  // Write a JSON-RPC response through the SSE stream registered under
-  // session_id. Returns true if the session existed and the write was
-  // handed to the connection (the actual wire bytes are framed into a
-  // `data: ...\n\n` SSE event by the SSE codec filter further down that
-  // connection's write chain). Returns false if the session has gone
-  // away (e.g. client already disconnected while we were handling the
-  // POST), in which case the caller should drop the response on the
-  // floor rather than pretending it was delivered.
-  bool sendResponse(const std::string& session_id,
-                    const std::string& json_data) {
-    assert(dispatcher_.isThreadSafe() &&
-           "SseSessionRegistry::sendResponse off-dispatcher-thread");
-    auto it = sessions_.find(session_id);
-    if (it == sessions_.end()) {
-      GOPHER_LOG_WARN("SSE session not found for response routing: {}",
-                      session_id);
-      return false;
-    }
-    OwnedBuffer buffer;
-    buffer.add(json_data.c_str(), json_data.length());
-    it->second->write(buffer, /*end_stream=*/false);
-    GOPHER_LOG_DEBUG("SSE response routed to session {} ({} bytes)", session_id,
-                     json_data.size());
-    return true;
-  }
-
- private:
-  event::Dispatcher& dispatcher_;
-  std::map<std::string, network::Connection*> sessions_;
-  uint64_t next_id_{1};
-};
+// SseSessionRegistry is defined in mcp/filter/sse_session_registry.h so
+// unit tests can exercise it directly without going through the full
+// filter chain.
 
 // Forward declaration
 class HttpSseJsonRpcProtocolFilter;
