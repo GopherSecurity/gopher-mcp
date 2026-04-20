@@ -217,9 +217,23 @@ void McpServer::performListen() {
         // backward compatibility
         GOPHER_LOG_INFO("Using default HTTP/SSE filter chain factory");
 
+        // Pass the configured endpoint paths (and optional external_url
+        // for reverse-proxy deployments) through to the filter chain so
+        // the SSE server transport advertises callbacks under whatever
+        // paths the operator picked in McpServerConfig. The trailing
+        // defaults of the ctor cover use_sse and the client-mode
+        // http_path/http_host — those are unused in server mode but
+        // still positional in the signature.
         auto http_sse_factory =
             std::make_shared<filter::HttpSseFilterChainFactory>(
-                *main_dispatcher_, *protocol_callbacks_);
+                *main_dispatcher_, *protocol_callbacks_,
+                /*is_server=*/true,
+                /*http_path=*/config_.http_rpc_path,
+                /*http_host=*/"localhost",
+                /*use_sse=*/true,
+                /*sse_path=*/config_.http_sse_path,
+                /*rpc_path=*/config_.http_rpc_path,
+                /*external_url=*/config_.external_url);
 
         // Add filter factories from config (e.g., auth filters)
         // This follows the existing FilterFactoryCb pattern
