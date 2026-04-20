@@ -148,39 +148,25 @@ class McpClientInitializeRoutingTest : public ::testing::Test {
 
   void TearDown() override {
     // Client first so the server sees a RemoteClose on its still-
-    // running dispatcher. In principle the server's
-    // onConnectionLifecycleEvent handler is supposed to take the
-    // active_connections_ erase + deferredDelete path on RemoteClose.
+    // running dispatcher. The server's onConnectionLifecycleEvent
+    // takes the active_connections_ erase + deferredDelete path on
+    // RemoteClose.
     if (client_) {
       client_->shutdown();
       client_.reset();
     }
-    std::this_thread::sleep_for(500ms);
 
+    // server_->shutdown() drains active_connections_ on the
+    // dispatcher thread inside its cleanup post, so by the time
+    // server_.reset() runs on this thread there are no connections
+    // left whose destructors would fire on the wrong thread.
     if (server_) {
       server_->shutdown();
     }
     if (server_thread_.joinable()) {
       server_thread_.join();
     }
-
-    // Deliberately leak the McpServer. Preexisting teardown bug:
-    // McpServer::shutdown() flips server_running_=false on the caller
-    // thread before posting any cleanup, and the shutdown post itself
-    // never clears active_connections_. That leaves connections alive
-    // into ~McpServer, whose destruction runs on this (test) thread;
-    // each ConnectionImpl destructor fires closeSocket(LocalClose),
-    // which forwards through the lifecycle adapter into
-    // McpServer::onConnectionLifecycleEvent — which asserts it is on
-    // the dispatcher thread (mcp_server.cc:804).
-    //
-    // Fixing that is squarely in the server-lifecycle test's scope,
-    // not this one. Here we just need the client-side routing
-    // contract verified and a clean test exit. Leaking the server is
-    // the least-bad workaround: the process is about to exit so the
-    // OS reclaims the heap, and the dispatcher thread has already
-    // joined so there's no live thread touching the object.
-    (void)server_.release();
+    server_.reset();
   }
 
   // Try to open a TCP connection to the given loopback port until it
