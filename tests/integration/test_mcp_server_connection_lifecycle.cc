@@ -119,6 +119,16 @@ class McpServerConnectionLifecycleTest : public ::testing::Test {
 
     ASSERT_TRUE(waitForListenerReady(port_, 5s))
         << "Server did not begin accepting on port " << port_;
+
+    // The readiness probe in waitForListenerReady opens a TCP
+    // connection and closes it. The kernel accepts the SYN and queues
+    // the connection; the server-side onNewConnection may run slightly
+    // after this point and bump connections_total / connections_active.
+    // Wait for the counters to stop moving so tests that take a
+    // baseline snapshot see a stable starting value. Polling for
+    // "unchanged for one tick" is cheaper than guessing a sleep long
+    // enough to cover the slowest machine.
+    waitForConnectionStatsIdle(200ms, 2s);
   }
 
   void TearDown() override {
@@ -210,10 +220,120 @@ class McpServerConnectionLifecycleTest : public ::testing::Test {
     return false;
   }
 
+  // Poll until connections_total has not changed for `quiet_for` or
+  // the overall budget elapses. Used after SetUp to let any in-flight
+  // probe accepts land before a test snapshots the baseline.
+  void waitForConnectionStatsIdle(std::chrono::milliseconds quiet_for,
+                                  std::chrono::milliseconds budget) {
+    const auto deadline = std::chrono::steady_clock::now() + budget;
+    uint64_t last = server_->getServerStats().connections_total.load();
+    auto stable_since = std::chrono::steady_clock::now();
+    while (std::chrono::steady_clock::now() < deadline) {
+      std::this_thread::sleep_for(10ms);
+      uint64_t now_total = server_->getServerStats().connections_total.load();
+      if (now_total != last) {
+        last = now_total;
+        stable_since = std::chrono::steady_clock::now();
+        continue;
+      }
+      if (std::chrono::steady_clock::now() - stable_since >= quiet_for) {
+        return;
+      }
+    }
+  }
+
+  // Wait for connections_active to match `expected` within the budget.
+  // Poll because the counter is updated on the dispatcher thread in
+  // response to async events.
+  bool waitForActiveConnections(uint64_t expected,
+                                std::chrono::milliseconds budget) {
+    const auto deadline = std::chrono::steady_clock::now() + budget;
+    while (std::chrono::steady_clock::now() < deadline) {
+      if (server_->getServerStats().connections_active.load() == expected) {
+        return true;
+      }
+      std::this_thread::sleep_for(10ms);
+    }
+    return server_->getServerStats().connections_active.load() == expected;
+  }
+
   uint16_t port_{0};
   std::unique_ptr<server::McpServer> server_;
   std::thread server_thread_;
 };
+
+// connections_active / connections_total are maintained correctly for
+// server-accepted TCP sockets. ConnectionImpl does not raise Connected
+// for server sockets -- it is only raised on the client-side
+// connect-completion path -- so the increment can't piggyback on the
+// lifecycle adapter's Connected branch. Instead it lives in
+// McpServer::onNewConnection. This test pins that: the counter has to
+// go up on connect and back down on close, symmetrically, across
+// multiple concurrent connections.
+TEST_F(McpServerConnectionLifecycleTest, AcceptedConnectionsAreCounted) {
+  // Snapshot the baseline rather than assume zero. waitForListenerReady
+  // in SetUp opens and closes a probe socket, and the kernel may queue
+  // that as a server-accepted connection whose close does not reach
+  // onConnectionLifecycleEvent within the test budget (ConnectionImpl
+  // on a server socket registers the read-EOF listener only once the
+  // filter chain is wired up). Measuring deltas against whatever the
+  // server has already observed keeps the test honest without depending
+  // on the probe's teardown.
+  const auto& stats = server_->getServerStats();
+  const uint64_t base_active = stats.connections_active.load();
+  const uint64_t base_total = stats.connections_total.load();
+
+  auto a = openClient();
+  auto b = openClient();
+  auto c = openClient();
+  ASSERT_NE(a, nullptr);
+  ASSERT_NE(b, nullptr);
+  ASSERT_NE(c, nullptr);
+
+  // onNewConnection runs on the server's dispatcher thread in response
+  // to the listener's accept; poll until each of the three accepts has
+  // been counted (relative to the baseline).
+  ASSERT_TRUE(waitForActiveConnections(base_active + 3u, 2s))
+      << "connections_active never reached baseline+3 after three "
+         "client connects";
+  EXPECT_GE(stats.connections_total.load(), base_total + 3u);
+
+  // Shut the server down. The drain path closes each live connection
+  // on the dispatcher thread (LocalClose), which runs through
+  // onConnectionLifecycleEvent and decrements connections_active. If
+  // the pre-fix code path were still in place the counter would not
+  // have been incremented on accept, so the drain's N decrements would
+  // wrap it into UINT64_MAX; observing it return cleanly to zero is a
+  // direct proof that increment and decrement agree.
+  //
+  // We use the drain path rather than client-initiated close because a
+  // raw TCP client that never sent any application bytes may not drive
+  // the server-side ConnectionImpl to observe the FIN promptly -- that
+  // is an HTTP filter behavior we don't want to couple the stats test
+  // to. The drain is deterministic and dispatcher-driven.
+  server_->shutdown();
+  if (server_thread_.joinable()) {
+    server_thread_.join();
+  }
+
+  EXPECT_EQ(stats.connections_active.load(), 0u)
+      << "connections_active did not return to zero after server drain";
+
+  // total is monotonic -- never decremented -- and must reflect every
+  // accept we observed, regardless of what closed.
+  EXPECT_GE(stats.connections_total.load(), base_total + 3u);
+
+  // Drop the clients so the test process releases their fds cleanly.
+  // The server is already gone, so their reads would return EOF.
+  a->close();
+  a.reset();
+  b->close();
+  b.reset();
+  c->close();
+  c.reset();
+
+  // TearDown's shutdown() will no-op on the already-stopped server.
+}
 
 // Repeated connect/close cycles don't wedge the listener. Each cycle
 // relies on the lifecycle adapter firing RemoteClose on the dispatcher
