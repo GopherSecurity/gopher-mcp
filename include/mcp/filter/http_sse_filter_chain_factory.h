@@ -18,6 +18,7 @@ class McpProtocolCallbacks;
 namespace filter {
 class HttpRoutingFilter;
 class MetricsFilter;
+class SseSessionRegistry;
 }  // namespace filter
 }  // namespace mcp
 
@@ -83,16 +84,11 @@ class HttpSseFilterChainFactory : public network::FilterChainFactory {
                             bool use_sse = true,
                             const std::string& sse_path = "/sse",
                             const std::string& rpc_path = "/mcp",
-                            const std::string& external_url = "")
-      : dispatcher_(dispatcher),
-        message_callbacks_(message_callbacks),
-        is_server_(is_server),
-        http_path_(http_path),
-        http_host_(http_host),
-        use_sse_(use_sse),
-        sse_path_(sse_path),
-        rpc_path_(rpc_path),
-        external_url_(external_url) {}
+                            const std::string& external_url = "");
+
+  // Destructor defined out-of-line so the unique_ptr<SseSessionRegistry>
+  // member can use the incomplete forward-declared type in this header.
+  ~HttpSseFilterChainFactory();
 
   /**
    * Create filter chain for the connection
@@ -188,6 +184,16 @@ class HttpSseFilterChainFactory : public network::FilterChainFactory {
   std::string rpc_path_;      // Server-side JSON-RPC endpoint path (e.g., "/mcp")
   std::string external_url_;  // External URL for absolute SSE callback URLs
   mutable bool enable_metrics_ = true;  // Enable metrics by default
+
+  // SSE session registry — maps session IDs to the connections that are
+  // streaming SSE to each client, so POST /callback/{id} handlers can
+  // route a JSON-RPC response back through the correct stream. Lazily
+  // constructed on the first server-side filter chain creation; stays
+  // null for client-mode factories. Owned here (not a global singleton)
+  // so each McpServer instance has an isolated registry and lifetime is
+  // bounded by the factory, not process lifetime. Mutable because
+  // createFilterChain is const on the base class.
+  mutable std::unique_ptr<SseSessionRegistry> sse_registry_;
 
   // Store filters for lifetime management
   mutable std::vector<network::FilterSharedPtr> filters_;
