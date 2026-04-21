@@ -396,12 +396,20 @@ void ConnectionPoolImpl::createNewConnection(Callbacks& callbacks) {
     return;
   }
 
-  // Create pending connection entry
-  PendingConnection pending;
+  // Emplace an empty slot in the list first so we have a stable address to
+  // bind the timeout-timer callback to. std::list keeps per-element
+  // addresses stable across push_back/erase of *other* elements, which is
+  // the invariant the timer's capture depends on. Taking the address of a
+  // stack-local PendingConnection and capturing it by reference would
+  // dangle as soon as createNewConnection() returned, since the original
+  // would be destroyed even after std::move into the list.
+  pending_connections_.emplace_back();
+  PendingConnection& pending = pending_connections_.back();
   pending.connection = std::move(connection);
   pending.callbacks = &callbacks;
 
-  // Set connection timeout
+  // Set connection timeout. The lambda now captures the list element's
+  // stable address, not a stack local.
   if (config_.connection_timeout.has_value()) {
     pending.timeout_timer = dispatcher_.createTimer(
         [this, &pending]() { onConnectionTimeout(pending); });
@@ -413,8 +421,6 @@ void ConnectionPoolImpl::createNewConnection(Callbacks& callbacks) {
 
   // Start connection
   pending.connection->connect();
-
-  pending_connections_.push_back(std::move(pending));
 }
 
 void ConnectionPoolImpl::assignConnection(ClientConnection& connection,
@@ -435,13 +441,13 @@ void ConnectionPoolImpl::onConnectionTimeout(PendingConnection& pending) {
   pending.callbacks->onPoolFailure(PoolFailureReason::Timeout,
                                    "Connection timeout");
 
-  // Remove from pending
-  pending_connections_.erase(
-      std::remove_if(pending_connections_.begin(), pending_connections_.end(),
-                     [&pending](const PendingConnection& p) {
-                       return p.connection == pending.connection;
-                     }),
-      pending_connections_.end());
+  // Identify the list node by address, not by unique_ptr equality, and use
+  // std::list::remove_if (not the non-member std::remove_if) so the node is
+  // unlinked in-place. The non-member overload moves elements around to
+  // compact them — which would move the entry whose timer lambda is
+  // currently executing on top of us.
+  pending_connections_.remove_if(
+      [&pending](const PendingConnection& p) { return &p == &pending; });
 }
 
 void ConnectionPoolImpl::checkIdleCallbacks() {
