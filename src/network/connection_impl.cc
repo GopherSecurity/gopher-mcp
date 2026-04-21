@@ -664,6 +664,31 @@ void ConnectionImpl::setDelayedCloseTimeout(std::chrono::milliseconds timeout) {
   delayed_close_timeout_ = timeout;
 }
 
+void ConnectionImpl::setIdleReadTimeout(std::chrono::milliseconds timeout) {
+  // Zero disables the feature and cancels any pending timer — matches the
+  // convention used by setDelayedCloseTimeout so callers can gate the
+  // feature at config time without branching on the timeout value.
+  idle_read_timeout_ = timeout;
+  if (timeout.count() == 0) {
+    if (idle_read_timer_) {
+      idle_read_timer_->disableTimer();
+    }
+    return;
+  }
+  // The timer is armed here so callers who set the timeout *after* the
+  // connection is already open (e.g., from a filter) still get coverage
+  // even if no read has occurred yet. Subsequent successful reads rearm
+  // via resetIdleReadTimer().
+  if (state_ != ConnectionState::Open) {
+    return;
+  }
+  if (idle_read_timer_ == nullptr) {
+    idle_read_timer_ =
+        dispatcher_.createTimer([this]() { onIdleReadTimeout(); });
+  }
+  idle_read_timer_->enableTimer(idle_read_timeout_);
+}
+
 bool ConnectionImpl::startSecureTransport() {
   return transport_socket_ ? transport_socket_->startSecureTransport() : false;
 }
@@ -1054,6 +1079,9 @@ void ConnectionImpl::closeSocket(ConnectionEvent close_type) {
   if (transport_connect_timer_) {
     transport_connect_timer_->disableTimer();
   }
+  if (idle_read_timer_) {
+    idle_read_timer_->disableTimer();
+  }
 
   // Close transport socket safely
   if (transport_socket_) {
@@ -1289,6 +1317,11 @@ void ConnectionImpl::doRead() {
 
     // Update stats
     updateReadBufferStats(result.bytes_processed_, read_buffer_.length());
+
+    // Any successful read rearms the idle-read timer — kept next to the
+    // stats update so the reset happens before we hand off to user
+    // filters, which may themselves block for a while.
+    resetIdleReadTimer();
 
     // Process through filter chain
     processReadBuffer();
@@ -1601,6 +1634,23 @@ void ConnectionImpl::onDelayedCloseTimeout() {
 
 void ConnectionImpl::onConnectTimeout() {
   closeSocket(ConnectionEvent::LocalClose);
+}
+
+void ConnectionImpl::onIdleReadTimeout() {
+  // Idle peer that stopped sending. FlushWrite gives any in-flight
+  // response a chance to drain before the socket goes away; callers
+  // that want a harder drop can still invoke close(NoFlush) directly.
+  GOPHER_LOG_DEBUG("idle read timeout fired on fd={}; closing with FlushWrite",
+                   socket_->ioHandle().fd());
+  close(ConnectionCloseType::FlushWrite, "idle read timeout");
+}
+
+void ConnectionImpl::resetIdleReadTimer() {
+  // Cheap no-op when the feature is disabled — avoids a branch at every
+  // call site in doRead.
+  if (idle_read_timer_ && idle_read_timeout_.count() > 0) {
+    idle_read_timer_->enableTimer(idle_read_timeout_);
+  }
 }
 
 void ConnectionImpl::enableFileEvents(uint32_t events) {

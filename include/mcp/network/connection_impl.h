@@ -90,6 +90,7 @@ class ConnectionImpl : public ConnectionImplBase,
     return socket_options_;
   }
   void setDelayedCloseTimeout(std::chrono::milliseconds timeout) override;
+  void setIdleReadTimeout(std::chrono::milliseconds timeout) override;
   bool startSecureTransport() override;
   optional<std::chrono::milliseconds> lastRoundTripTime() const override;
   uint64_t getWriteEventCount() const override {
@@ -176,6 +177,8 @@ class ConnectionImpl : public ConnectionImplBase,
   // Timer callbacks
   void onDelayedCloseTimeout();
   void onConnectTimeout();
+  void onIdleReadTimeout();
+  void resetIdleReadTimer();
 
   // Helper methods
   void enableFileEvents(uint32_t events);

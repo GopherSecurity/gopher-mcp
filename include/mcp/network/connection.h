@@ -288,6 +288,15 @@ class Connection : public event::DeferredDeletable,
   virtual void setDelayedCloseTimeout(std::chrono::milliseconds timeout) = 0;
 
   /**
+   * Set the idle-read timeout. If no bytes are successfully read from the
+   * transport within the window, the connection is closed with FlushWrite.
+   *
+   * A zero timeout disables the feature and cancels any pending timer. The
+   * timer is (re)armed on each successful read and cancelled on close.
+   */
+  virtual void setIdleReadTimeout(std::chrono::milliseconds timeout) = 0;
+
+  /**
    * Get transport failure reason
    */
   virtual std::string transportFailureReason() const = 0;
@@ -488,6 +497,8 @@ class ConnectionImplBase : public virtual Connection {
   uint32_t buffer_limit_{0};
   std::chrono::milliseconds delayed_close_timeout_{0};
   event::TimerPtr delayed_close_timer_;
+  std::chrono::milliseconds idle_read_timeout_{0};
+  event::TimerPtr idle_read_timer_;
 
   // Close reasons
   std::string local_close_reason_;
