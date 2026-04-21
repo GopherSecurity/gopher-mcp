@@ -168,6 +168,7 @@ add_executable(test_filter_chain_state_machine network/test_filter_chain_state_m
 # Real IO integration tests (using real sockets instead of mocks)
 add_executable(test_event_loop_real_io event/test_event_loop_real_io.cc)
 add_executable(test_connection_manager_real_io network/test_connection_manager_real_io.cc)
+add_executable(test_connection_pool_pending_timeout network/test_connection_pool_pending_timeout.cc)
 add_executable(test_event_handling integration/test_event_handling.cc)
 
 # Link libraries
@@ -1271,6 +1272,14 @@ target_link_libraries(test_connection_manager_real_io
     Threads::Threads
 )
 
+target_link_libraries(test_connection_pool_pending_timeout
+    gopher-mcp
+    gopher-mcp-event
+    gtest
+    gtest_main
+    Threads::Threads
+)
+
 target_link_libraries(test_event_handling
     gopher-mcp
     gopher-mcp-event
@@ -1379,6 +1388,7 @@ add_test(NAME FilterChainStateMachineTest COMMAND test_filter_chain_state_machin
 # Real IO integration tests
 add_test(NAME EventLoopRealIoTest COMMAND test_event_loop_real_io)
 add_test(NAME ConnectionManagerRealIoTest COMMAND test_connection_manager_real_io)
+add_test(NAME ConnectionPoolPendingTimeoutTest COMMAND test_connection_pool_pending_timeout)
 add_test(NAME EventHandlingTest COMMAND test_event_handling)
 
 # Filter state machine tests
