@@ -665,6 +665,9 @@ void ConnectionImpl::setDelayedCloseTimeout(std::chrono::milliseconds timeout) {
 }
 
 void ConnectionImpl::setIdleReadTimeout(std::chrono::milliseconds timeout) {
+  GOPHER_LOG_DEBUG("setIdleReadTimeout(fd={}, timeout={}ms, state={})",
+                   socket_->ioHandle().fd(), timeout.count(),
+                   static_cast<int>(state_));
   // Zero disables the feature and cancels any pending timer — matches the
   // convention used by setDelayedCloseTimeout so callers can gate the
   // feature at config time without branching on the timeout value.
@@ -680,6 +683,7 @@ void ConnectionImpl::setIdleReadTimeout(std::chrono::milliseconds timeout) {
   // even if no read has occurred yet. Subsequent successful reads rearm
   // via resetIdleReadTimer().
   if (state_ != ConnectionState::Open) {
+    GOPHER_LOG_DEBUG("setIdleReadTimeout: state not Open, skipping arm");
     return;
   }
   if (idle_read_timer_ == nullptr) {
@@ -1637,12 +1641,17 @@ void ConnectionImpl::onConnectTimeout() {
 }
 
 void ConnectionImpl::onIdleReadTimeout() {
-  // Idle peer that stopped sending. FlushWrite gives any in-flight
-  // response a chance to drain before the socket goes away; callers
-  // that want a harder drop can still invoke close(NoFlush) directly.
-  GOPHER_LOG_DEBUG("idle read timeout fired on fd={}; closing with FlushWrite",
+  // Idle peer that stopped sending — drop the socket immediately. NoFlush
+  // is the right pick here for two reasons: (1) a silent peer isn't
+  // waiting on an in-flight write, so there's nothing to drain; and
+  // (2) the close() wrapper for FlushWrite pre-sets state_ to Closing
+  // before calling closeSocket(), which then bails via its
+  // re-entrancy guard — NoFlush is the one ConnectionCloseType that
+  // routes straight to closeSocket() with state still Open, so the
+  // LocalClose event actually propagates to our lifecycle adapter.
+  GOPHER_LOG_DEBUG("idle read timeout fired on fd={}; closing with NoFlush",
                    socket_->ioHandle().fd());
-  close(ConnectionCloseType::FlushWrite, "idle read timeout");
+  close(ConnectionCloseType::NoFlush, "idle read timeout");
 }
 
 void ConnectionImpl::resetIdleReadTimer() {
