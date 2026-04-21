@@ -103,6 +103,13 @@ struct McpServerConfig : public application::ApplicationBase::Config {
   std::chrono::milliseconds session_timeout{300000};  // 5 minutes
   bool allow_concurrent_sessions = true;
 
+  // Per-connection idle-read timeout applied to every accepted connection.
+  // If no bytes arrive within the window the connection is closed with
+  // FlushWrite so an in-flight response can still drain. Zero disables
+  // the feature, which is the default so existing deployments see no
+  // behavior change.
+  std::chrono::milliseconds idle_read_timeout{0};
+
   // Request processing
   size_t request_queue_size = 1000;
   std::chrono::milliseconds request_processing_timeout{60000};
