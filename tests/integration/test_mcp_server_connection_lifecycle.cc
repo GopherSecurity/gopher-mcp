@@ -35,8 +35,11 @@
  * test to the server-side callback routing.
  */
 
+#include <sys/socket.h>
+
 #include <chrono>
 #include <cstdint>
+#include <cstring>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -188,6 +191,29 @@ class McpServerConnectionLifecycleTest : public ::testing::Test {
     auto addr = network::Address::parseInternetAddress("127.0.0.1", port_);
     auto connect_result = handle->connect(addr);
     if (!connect_result.ok()) {
+      handle->close();
+      return nullptr;
+    }
+    return handle;
+  }
+
+  // Open a client whose close() will send RST rather than FIN. This is
+  // achieved with SO_LINGER (l_onoff=1, l_linger=0): close() on a socket
+  // with a zero-second linger pushes the kernel onto the abortive-close
+  // path, flushing any queued bytes and emitting RST. This exercises the
+  // server's EOF-detection on the Abort branch of the transport socket,
+  // distinct from the graceful-FIN path covered by openClient().
+  network::IoHandlePtr openClientAbort() {
+    auto handle = openClient();
+    if (!handle) {
+      return nullptr;
+    }
+    struct linger l{};
+    l.l_onoff = 1;
+    l.l_linger = 0;
+    auto opt_result = handle->setSocketOption(
+        SOL_SOCKET, SO_LINGER, &l, static_cast<socklen_t>(sizeof(l)));
+    if (!opt_result.ok()) {
       handle->close();
       return nullptr;
     }
@@ -400,6 +426,43 @@ TEST_F(McpServerConnectionLifecycleTest, RawClientCloseAfterWriteDropsConnection
   ASSERT_TRUE(waitForActiveConnections(base, 2s))
       << "Server did not observe peer FIN after write; deferred-close "
          "callback likely cancelled.";
+}
+
+// Abortive client close (RST) must drop the server-side connection in
+// the same bounded time as graceful FIN. A raw TCP client with SO_LINGER
+// set to (on, 0) turns close() into an abortive close: the kernel sends
+// RST and flushes any queued bytes, rather than the four-way FIN dance.
+//
+// On the server side this surfaces as ECONNRESET on the next read, which
+// RawBufferTransportSocket::doRead maps to a transport error. The
+// connection's error-detection path must still run the same deferred-
+// close-through-dispatcher post that FIN does — otherwise an aborting
+// client (misbehaving proxy, killed peer, network reset) would leave the
+// server holding the connection until an idle-timeout we don't currently
+// enforce on accepted sockets.
+//
+// This variant pairs with RawClientSilentCloseDropsConnection to pin
+// both EOF branches of the server-side teardown: the graceful (FIN →
+// endStream) path and the abortive (RST → transport error) path end in
+// the same closeThroughFilterManager post and drop connections_active
+// symmetrically.
+TEST_F(McpServerConnectionLifecycleTest, RawClientAbortDropsConnection) {
+  const auto& stats = server_->getServerStats();
+  const uint64_t base = stats.connections_active.load();
+
+  auto client = openClientAbort();
+  ASSERT_NE(client, nullptr) << "failed to open client with SO_LINGER=0";
+  ASSERT_TRUE(waitForActiveConnections(base + 1u, 2s));
+
+  // Closing the handle with SO_LINGER (1, 0) set sends RST on this
+  // socket. The kernel does not perform the FIN handshake, so the
+  // server sees a connection reset on its next read attempt.
+  client->close();
+  client.reset();
+
+  ASSERT_TRUE(waitForActiveConnections(base, 2s))
+      << "Server did not observe RST; abortive-close teardown likely "
+         "skipped the deferred-close post that the FIN path uses.";
 }
 
 // Repeated connect/close cycles don't wedge the listener. Each cycle
