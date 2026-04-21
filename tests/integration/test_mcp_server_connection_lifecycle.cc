@@ -106,6 +106,7 @@ class McpServerConnectionLifecycleTest : public ::testing::Test {
     config.server_version = "0.0.1";
     config.supported_transports = {TransportType::HttpSse};
     config.num_workers = 1;
+    customizeConfig(config);
 
     server_ = server::createMcpServer(config);
     ASSERT_NE(server_, nullptr);
@@ -282,6 +283,11 @@ class McpServerConnectionLifecycleTest : public ::testing::Test {
     }
     return server_->getServerStats().connections_active.load() == expected;
   }
+
+  // Subclasses override to tweak McpServerConfig before the server is
+  // built. Kept as a hook rather than a member so the same fixture can
+  // serve several variants without every test carrying every knob.
+  virtual void customizeConfig(server::McpServerConfig& /*config*/) {}
 
   uint16_t port_{0};
   std::unique_ptr<server::McpServer> server_;
@@ -546,6 +552,92 @@ TEST_F(McpServerConnectionLifecycleTest, ShutdownClosesLiveConnections) {
   // Prevent TearDown's shutdown() from running against a moved-from
   // unique_ptr (server_.reset() already nulled it).
   SUCCEED();
+}
+
+// Configures the server with a short idle-read timeout and verifies that
+// an accepted connection which never sends any bytes is dropped on the
+// server side within the window. This pins the end-to-end wiring:
+//
+//   McpServerConfig::idle_read_timeout
+//     -> McpServer::onNewConnection
+//     -> Connection::setIdleReadTimeout
+//     -> ConnectionImpl idle_read_timer_
+//     -> timer callback closes the connection (FlushWrite)
+//     -> ConnectionLifecycleCallbacks decrements connections_active
+//
+// The window is deliberately tight (200ms) so a regression shows as a
+// test hang-then-failure rather than a multi-second wait; the 3s
+// observation budget absorbs scheduling slack on loaded CI.
+class McpServerIdleReadTimeoutTest : public McpServerConnectionLifecycleTest {
+ protected:
+  void customizeConfig(server::McpServerConfig& config) override {
+    config.idle_read_timeout = std::chrono::milliseconds(200);
+  }
+};
+
+TEST_F(McpServerIdleReadTimeoutTest, IdlePeerDroppedAfterTimeout) {
+  const auto& stats = server_->getServerStats();
+  const uint64_t base = stats.connections_active.load();
+
+  auto client = openClient();
+  ASSERT_NE(client, nullptr);
+  ASSERT_TRUE(waitForActiveConnections(base + 1u, 2s));
+
+  // Do nothing — the whole point is that the peer stays silent. The
+  // server's idle_read_timer_ should fire on the dispatcher thread and
+  // close the connection with FlushWrite, which the lifecycle adapter
+  // observes as LocalClose and decrements connections_active.
+  ASSERT_TRUE(waitForActiveConnections(base, 3s))
+      << "server did not drop idle connection within the idle-read timeout "
+         "window; setIdleReadTimeout wiring likely missing or timer never "
+         "armed";
+
+  // The client sees the server's close as EOF on its blocking read.
+  // Covers the other observable side of the same close: the fd was
+  // actually torn down, not merely removed from bookkeeping.
+  EXPECT_TRUE(waitForEof(*client, 1s))
+      << "client never saw server's close after idle timeout";
+
+  client->close();
+  client.reset();
+}
+
+// Counterpart to the idle-drop test: a peer that keeps sending bytes
+// must not be dropped by the idle-read timer. Pins that
+// resetIdleReadTimer() is actually called on every successful read in
+// ConnectionImpl::doRead() — a broken wiring where the timer only
+// arms once would let this test hit the failure in under 200ms.
+TEST_F(McpServerIdleReadTimeoutTest, ActivePeerIsNotDropped) {
+  const auto& stats = server_->getServerStats();
+  const uint64_t base = stats.connections_active.load();
+
+  auto client = openClient();
+  ASSERT_NE(client, nullptr);
+  ASSERT_TRUE(waitForActiveConnections(base + 1u, 2s));
+
+  // Send a byte every 50ms for ~500ms. The 200ms idle window would
+  // close a silent peer well before the loop ends, so survival past the
+  // loop is proof that each successful transport-level read rearmed
+  // the timer. We deliberately poke the raw transport with non-HTTP
+  // bytes: we're pinning the transport-layer idle timer, and any
+  // filter-layer response to garbage (reject, parse-error close, etc.)
+  // is out of scope for this test and would only flake the assertion
+  // in the other direction (connection dropped too early).
+  for (int i = 0; i < 10; ++i) {
+    OwnedBuffer out;
+    out.add("x", 1);
+    auto w = client->write(out);
+    ASSERT_TRUE(w.ok()) << "client write #" << i << " failed";
+    std::this_thread::sleep_for(50ms);
+  }
+
+  EXPECT_EQ(stats.connections_active.load(), base + 1u)
+      << "active peer was dropped — idle timer did not reset on read";
+
+  // Explicit teardown so we don't lean on TearDown's shutdown drain
+  // to close an otherwise-healthy connection.
+  client->close();
+  client.reset();
 }
 
 }  // namespace
