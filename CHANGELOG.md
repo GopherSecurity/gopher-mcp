@@ -14,6 +14,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 
+## [0.1.5] - 2026-04-21
+
+### Added
+
+- Add idle-read timeout to ConnectionImpl (#224)
+- Add real-IO SSE server transport handshake test (#216)
+- Add unit tests for SseSessionRegistry  (#215)
+- Implement SSE server transport with per-factory session registry (#215)
+- Add SSE/RPC path and external_url params to filter chain factory (#215)
+- Add integration tests for HttpAsyncClient (#213)
+- Add HttpAsyncClient built on HttpCodecFilter (#213)
+- Add unit tests for crash-fix contracts (#212)
+
+### Changed
+
+- Release 0.1.4
+- Enhance dump-version.sh with GitHub release check and auto-generated changelog
+- Release 0.1.3
+- Cover server idle-read timeout end-to-end (#224)
+- Switch idle-read close to NoFlush so LocalClose actually propagates (#224)
+- Arm idle-read timeout on every accepted McpServer connection (#224)
+- Cover abortive TCP close in McpServer connection-lifecycle test (#223)
+- Cover ConnectionPoolImpl timeout timer against stack-capture UAF (#222)
+- Stop capturing stack-local PendingConnection in pool timeout timer (#222)
+- Run deferred close through dispatcher post instead of a stack-local timer (#221)
+- Drop write-only num_connections_ in favor of public stat (#220)
+- Drop vestigial ConnectionCallbacks inheritance from McpServer (#220)
+- Cover connections_active/total across three concurrent accepts (#219)
+- Count TCP server connections in the public stats (#219)
+- Drop leak-on-teardown workaround from initialize-routing test (#218)
+- Cover McpServer connection-lifecycle cleanup and shutdown-drain (#218)
+- Drain active_connections_ during McpServer::shutdown on the dispatcher (#218)
+- Cover dispatcher-thread commit inside McpClient::initializeProtocol (#217)
+- Cover POST /callback routing back through the SSE stream (#216)
+- Extract SseSessionRegistry into its own translation unit  (#215)
+- make format (#215)
+- Match POST /callback/{id} under reverse-proxy path prefixes (#215)
+- Wire McpServerConfig endpoint paths into HttpSseFilterChainFactory (#215)
+- Rename default SSE path to /sse and add external_url config (#215)
+- Surface numeric :status pseudo-header from HTTP client codec (#213)
+- Test that client-mode HTTP codec actually disables body_timeout (#212)
+- Cover lifecycle-adapter self+peer deferred-delete pattern (#212)
+- Drive ConnectionManager event tests through the dispatcher thread (#212)
+- Disable body timeout for client-mode HTTP codec (#212)
+- Route initializeProtocol state commit back to the dispatcher thread (#212)
+- Bind server connection callbacks per connection via adapter (#212)
+- Defer closed-connection destruction via Dispatcher::deferredDelete (#212)
+- Unstaged changes: CMakeLists.txt
+
+### Fixed
+
+- Fix background-task timer lifetime in McpServer (#212)
+- Fix scheduleCallbackCurrentIteration to defer past caller's stack frame (#212)
+
 ## [0.1.4] - 2026-04-08
 
 ### Added
