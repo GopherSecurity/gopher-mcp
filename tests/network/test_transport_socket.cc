@@ -162,6 +162,7 @@ class TestConnection : public Connection {
     return *stream_info_;
   }
   void setDelayedCloseTimeout(std::chrono::milliseconds) override {}
+  void setIdleReadTimeout(std::chrono::milliseconds) override {}
   std::string transportFailureReason() const override { return ""; }
   std::string localCloseReason() const override { return ""; }
   bool startSecureTransport() override { return false; }
