@@ -1330,6 +1330,13 @@ void McpServer::onNewConnection(network::ConnectionPtr&& connection) {
   server_stats_.connections_total++;
   server_stats_.connections_active++;
 
+  // Arm the per-connection idle-read timer if the operator configured one.
+  // The setter treats zero as "disabled", so gating here only documents
+  // intent and avoids touching the timer state for the default build.
+  if (config_.idle_read_timeout.count() > 0) {
+    conn_ptr->setIdleReadTimeout(config_.idle_read_timeout);
+  }
+
   // Store the connection to keep it alive
   // Following production pattern: server owns connections in dispatcher thread
   // No mutex needed - all operations happen in dispatcher thread
