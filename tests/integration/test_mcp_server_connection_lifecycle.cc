@@ -335,6 +335,73 @@ TEST_F(McpServerConnectionLifecycleTest, AcceptedConnectionsAreCounted) {
   // TearDown's shutdown() will no-op on the already-stopped server.
 }
 
+// Peer FIN on a raw TCP client must propagate up to the server's
+// connection-lifecycle callback in bounded time, so the server can
+// reclaim connection state (active_connections_, stats) without
+// depending on an idle-timeout.
+//
+// The observable contract is: once the client sends FIN,
+// connections_active drops back to its baseline well within the TCP
+// keepalive / idle-timeout window. The fix this test guards lives in
+// ConnectionImpl::closeThroughFilterManager(): the read path detects
+// EOF from the transport socket, calls closeThroughFilterManager, and
+// that helper must queue the deferred close on the dispatcher such
+// that the callback survives stack unwinding of the current doRead()
+// frame. A prior implementation used a stack-local Timer, which was
+// destroyed (and the libevent timer cancelled) as soon as the helper
+// returned — so the RemoteClose event never propagated and the
+// connection leaked until the TearDown-driven shutdown.
+//
+// Two variants are covered to exercise both branches of the doRead
+// loop: the "silent close" path goes through
+// RawBufferTransportSocket::doRead -> endStream(0), while the
+// "after-write" path exercises the same EOF detection after the
+// filter chain has already been engaged with real data.
+TEST_F(McpServerConnectionLifecycleTest, RawClientSilentCloseDropsConnection) {
+  const auto& stats = server_->getServerStats();
+  const uint64_t base = stats.connections_active.load();
+
+  auto client = openClient();
+  ASSERT_NE(client, nullptr);
+  ASSERT_TRUE(waitForActiveConnections(base + 1u, 2s));
+
+  client->close();
+  client.reset();
+
+  // Generous bound: the fix drops the connection in single-digit
+  // milliseconds on loopback. 2s is plenty for loaded CI while still
+  // catching the "deferred close never runs" regression, which
+  // previously manifested as a 10s+ hang.
+  ASSERT_TRUE(waitForActiveConnections(base, 2s))
+      << "Server did not observe peer FIN; closeThroughFilterManager "
+         "likely dropped its deferred-close callback.";
+}
+
+TEST_F(McpServerConnectionLifecycleTest, RawClientCloseAfterWriteDropsConnection) {
+  const auto& stats = server_->getServerStats();
+  const uint64_t base = stats.connections_active.load();
+
+  auto client = openClient();
+  ASSERT_NE(client, nullptr);
+  ASSERT_TRUE(waitForActiveConnections(base + 1u, 2s));
+
+  // Send a plausible-looking HTTP prefix so the server's filter chain
+  // engages before FIN arrives. This exercises the EOF path after at
+  // least one successful read, which is a different doRead() trip
+  // than the silent-close case.
+  OwnedBuffer out;
+  out.add("GET / HTTP/1.1\r\n\r\n", 18);
+  auto w = client->write(out);
+  ASSERT_TRUE(w.ok()) << "client write failed";
+
+  client->close();
+  client.reset();
+
+  ASSERT_TRUE(waitForActiveConnections(base, 2s))
+      << "Server did not observe peer FIN after write; deferred-close "
+         "callback likely cancelled.";
+}
+
 // Repeated connect/close cycles don't wedge the listener. Each cycle
 // relies on the lifecycle adapter firing RemoteClose on the dispatcher
 // and erasing the connection from active_connections_ /

@@ -990,12 +990,13 @@ void ConnectionImpl::closeThroughFilterManager(ConnectionEvent close_type) {
       file_event_->setEnabled(0);
     }
 
-    // Step 2: Schedule the actual close for the next event loop iteration
-    // The timer with 0 delay ensures closeSocket runs after current stack
-    // unwinds
-    auto close_timer = dispatcher_.createTimer(
-        [this, close_type]() { closeSocket(close_type); });
-    close_timer->enableTimer(std::chrono::milliseconds(0));
+    // Step 2: Run the actual close on the next dispatcher iteration so the
+    // current doRead() / onFileEvent() stack unwinds before the connection
+    // is torn down. dispatcher_.post() queues the callback on the dispatcher
+    // and wakes the loop; unlike a locally-scoped Timer, the queued
+    // callback is owned by the dispatcher so it cannot be cancelled by
+    // stack unwinding.
+    dispatcher_.post([this, close_type]() { closeSocket(close_type); });
   }
 }
 
