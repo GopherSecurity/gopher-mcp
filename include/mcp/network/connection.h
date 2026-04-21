@@ -289,7 +289,7 @@ class Connection : public event::DeferredDeletable,
 
   /**
    * Set the idle-read timeout. If no bytes are successfully read from the
-   * transport within the window, the connection is closed with FlushWrite.
+   * transport within the window, the connection is closed with NoFlush.
    *
    * A zero timeout disables the feature and cancels any pending timer. The
    * timer is (re)armed on each successful read and cancelled on close.
