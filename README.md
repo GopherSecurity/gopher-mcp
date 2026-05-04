@@ -12,7 +12,7 @@
 
 ## Table of Contents
 
-- [Architecture](#architecture)
+- [Architecture Overview](#architecture-overview)
 - [Cross-Language Support](#cross-language-support)
 - [What is MCP?](#what-is-mcp)
 - [Features](#features)
@@ -24,37 +24,53 @@
 - [Contributing](#contributing)
 - [License](#license)
 
-## Architecture
+## Architecture Overview
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                     Application Layer                       │
-│         MCP Server / Client / Custom Applications           │
-├─────────────────────────────────────────────────────────────┤
-│              Cross-Language Binding Layer                   │
-│      Python │ TypeScript │ Go │ Rust │ Java │ C# │ Ruby     │
-├─────────────────────────────────────────────────────────────┤
-│                    C API (FFI Layer)                        │
-│       libgopher_mcp_c: Opaque Handles │ Memory Safety       │
-│        RAII Guards │ Type Safety │ Error Handling           │
-├─────────────────────────────────────────────────────────────┤
-│                      Protocol Layer                         │
-│           MCP JSON-RPC Protocol Implementation              │
-│          Request/Response/Notification Handling             │
-├─────────────────────────────────────────────────────────────┤
-│                    Filter Chain Layer                       │
-│      HTTP Codec │ SSE Codec │ Routing │ Rate Limiting       │
-│      Circuit Breaker │ Metrics │ Backpressure │ Auth        │
-├─────────────────────────────────────────────────────────────┤
-│                    Transport Layer                          │
-│      Stdio │ HTTP(s)+SSE │ WebSocket │ TCP │ Redis │ P2P    │
-├─────────────────────────────────────────────────────────────┤
-│                     Network Layer                           │
-│      Connection Management │ Listener │ Socket Interface    │
-├─────────────────────────────────────────────────────────────┤
-│                  Event Loop & Dispatcher                    │
-│      Libevent Integration │ Timer Management │ I/O Events   │
-└─────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────┐
+│                         Application Layer                           │
+│  ┌────────────────────────────────────────────────────────────────┐ │
+│  │      MCP Server │ MCP Client │ Custom Applications             │ │
+│  └────────────────────────────────────────────────────────────────┘ │
+├─────────────────────────────────────────────────────────────────────┤
+│                    Cross-Language Binding Layer                     │
+│  ┌────────────────────────────────────────────────────────────────┐ │
+│  │   Python │ TypeScript │ Go │ Rust │ Java │ C# │ Ruby │ Swift   │ │
+│  └────────────────────────────────────────────────────────────────┘ │
+├─────────────────────────────────────────────────────────────────────┤
+│                          C API (FFI Layer)                          │
+│  ┌────────────────────────────────────────────────────────────────┐ │
+│  │   libgopher_mcp_c: Opaque Handles │ RAII Guards │ Type Safety  │ │
+│  └────────────────────────────────────────────────────────────────┘ │
+├─────────────────────────────────────────────────────────────────────┤
+│                            Protocol Layer                           │
+│  ┌──────────────┐ ┌──────────────┐ ┌──────────────┐ ┌────────────┐  │
+│  │   JSON-RPC   │ │   Requests   │ │  Responses   │ │   Notify   │  │
+│  │   Codec      │ │   Dispatch   │ │   Routing    │ │   Stream   │  │
+│  └──────────────┘ └──────────────┘ └──────────────┘ └────────────┘  │
+├─────────────────────────────────────────────────────────────────────┤
+│                          Filter Chain Layer                         │
+│  ┌──────────────┐ ┌──────────────┐ ┌──────────────┐ ┌────────────┐  │
+│  │  HTTP / SSE  │ │   Routing    │ │ Rate Limiter │ │   Auth     │  │
+│  │    Codecs    │ │   & CORS     │ │ Circuit Brk  │ │  Metrics   │  │
+│  └──────────────┘ └──────────────┘ └──────────────┘ └────────────┘  │
+├─────────────────────────────────────────────────────────────────────┤
+│                           Transport Layer                           │
+│  ┌────────────────────────────────────────────────────────────────┐ │
+│  │   Stdio │ HTTP(S)+SSE │ Streamable HTTP │ WebSocket │ TCP      │ │
+│  └────────────────────────────────────────────────────────────────┘ │
+├─────────────────────────────────────────────────────────────────────┤
+│                            Network Layer                            │
+│  ┌────────────────┐ ┌────────────────┐ ┌────────────────┐           │
+│  │   Connection   │ │    Listener    │ │     Socket     │           │
+│  │   Management   │ │    & Accept    │ │   Interface    │           │
+│  └────────────────┘ └────────────────┘ └────────────────┘           │
+├─────────────────────────────────────────────────────────────────────┤
+│                       Event Loop & Dispatcher                       │
+│  ┌────────────────────────────────────────────────────────────────┐ │
+│  │   Libevent │ Timer Management │ I/O Events │ Buffer │ Result   │ │
+│  └────────────────────────────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
 ### Design Principles
