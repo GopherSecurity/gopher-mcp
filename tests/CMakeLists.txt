@@ -1441,15 +1441,26 @@ target_link_libraries(test_http_routing_filter_simple
 add_test(NAME HttpRoutingFilterSimpleTest COMMAND test_http_routing_filter_simple)
 
 add_executable(test_sse_codec_state_machine filter/test_sse_codec_state_machine.cc)
-target_link_libraries(test_sse_codec_state_machine 
+target_link_libraries(test_sse_codec_state_machine
     gopher-mcp
     gopher-mcp-event
-    gtest 
-    gtest_main 
+    gtest
+    gtest_main
     gmock
     Threads::Threads
 )
 add_test(NAME SseCodecStateMachineTest COMMAND test_sse_codec_state_machine)
+
+add_executable(test_client_sse_state_machine filter/test_client_sse_state_machine.cc)
+target_link_libraries(test_client_sse_state_machine
+    gopher-mcp
+    gopher-mcp-event
+    gtest
+    gtest_main
+    gmock
+    Threads::Threads
+)
+add_test(NAME ClientSseStateMachineTest COMMAND test_client_sse_state_machine)
 
 add_executable(test_sse_codec_filter filter/test_sse_codec_filter_simple.cc)
 target_link_libraries(test_sse_codec_filter 
@@ -1629,6 +1640,7 @@ add_custom_target(run_tests
             test_gopher_mcp_connection_manager test_builders
             test_event_loop_real_io test_connection_manager_real_io
             test_http_codec_state_machine test_sse_codec_state_machine
+            test_client_sse_state_machine
     WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
     COMMENT "Running tests..."
 )
