@@ -365,8 +365,14 @@ ConnectionImpl::ConnectionImpl(event::Dispatcher& dispatcher,
           // there's actually data to send.
           initial_events = static_cast<uint32_t>(event::FileReadyType::Read);
         } else if (connecting_) {
-          // Client connecting - enable write to detect connection completion
-          initial_events = static_cast<uint32_t>(event::FileReadyType::Write);
+          // Client connecting — do NOT enable Write here. The Write event
+          // must only be armed after the actual connect() syscall has been
+          // issued in doConnect(). Enabling Write before connect() would
+          // cause the write handler to fire immediately, find SO_ERROR==0
+          // (no error because connect hasn't been called yet), and
+          // incorrectly treat the socket as connected.
+          // doConnect() enables the correct events after ::connect().
+          initial_events = 0;
         } else {
           // Not connected and not connecting - for stdio/pipes, treat as
           // already connected. Only enable Read initially; Write will be
