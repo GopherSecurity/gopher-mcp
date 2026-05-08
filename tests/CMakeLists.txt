@@ -1462,6 +1462,17 @@ target_link_libraries(test_client_sse_state_machine
 )
 add_test(NAME ClientSseStateMachineTest COMMAND test_client_sse_state_machine)
 
+add_executable(test_server_connection_mode filter/test_server_connection_mode.cc)
+target_link_libraries(test_server_connection_mode
+    gopher-mcp
+    gopher-mcp-event
+    gtest
+    gtest_main
+    gmock
+    Threads::Threads
+)
+add_test(NAME ServerConnectionModeTest COMMAND test_server_connection_mode)
+
 add_executable(test_sse_codec_filter filter/test_sse_codec_filter_simple.cc)
 target_link_libraries(test_sse_codec_filter 
     gopher-mcp
@@ -1651,7 +1662,7 @@ add_custom_target(run_tests
             test_gopher_mcp_connection_manager test_builders
             test_event_loop_real_io test_connection_manager_real_io
             test_http_codec_state_machine test_sse_codec_state_machine
-            test_client_sse_state_machine
+            test_client_sse_state_machine test_server_connection_mode
     WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
     COMMENT "Running tests..."
 )
