@@ -160,7 +160,6 @@ class HttpSseJsonRpcProtocolFilter
         is_server_(is_server),
         http_path_(http_path),
         http_host_(http_host),
-        use_sse_(use_sse),
         configured_sse_path_(configured_sse_path),
         configured_rpc_path_(configured_rpc_path),
         configured_external_url_(configured_external_url),
@@ -241,17 +240,13 @@ class HttpSseJsonRpcProtocolFilter
     sse_filter_->onNewConnection();
     jsonrpc_filter_->onNewConnection();
 
-    // For client mode with SSE, mark that we need to send GET request.
-    // Don't send here — connection is not ready yet (SSL handshake pending).
-    // The GET will be sent on first onWrite() call after connection is
-    // established. For Streamable HTTP mode (use_sse_ = false), skip the
-    // SSE endpoint waiting.
-    if (!is_server_ && use_sse_) {
-      waiting_for_sse_endpoint_ = true;
-    }
-
-    // Mirror into state machine: ConnectionReady moves Idle -> WaitingForGetSent.
-    if (client_sse_sm_ && use_sse_) {
+    // For client mode with SSE, signal the state machine that the
+    // connection is ready. The GET /sse request will be sent on the
+    // first onWrite() call after the connection is fully established
+    // (TCP/TLS handshake complete). For Streamable HTTP mode the state
+    // machine stays in StreamableHttp and no GET is sent.
+    if (client_sse_sm_ &&
+        client_sse_sm_->currentState() == ClientSseState::Idle) {
       client_sse_sm_->handleEvent(ClientSseEvent::ConnectionReady);
     }
 
@@ -372,15 +367,20 @@ class HttpSseJsonRpcProtocolFilter
 
     GOPHER_LOG_DEBUG(
         "HttpSseJsonRpcProtocolFilter: onWrite called, data_len={}, "
-        "is_server={}, is_sse_mode={}, waiting_for_endpoint={}, "
-        "sse_get_sent={}",
-        data.length(), is_server_, is_sse_mode_, waiting_for_sse_endpoint_,
-        http_filter_->hasSentSseGetRequest());
+        "is_server={}, client_sse_state={}",
+        data.length(), is_server_,
+        client_sse_sm_ ? ClientSseStateMachine::getStateName(
+                             client_sse_sm_->currentState())
+                       : "N/A");
 
-    // Client mode: handle SSE GET initialization
-    if (!is_server_ && waiting_for_sse_endpoint_) {
-      // First write after connection - send SSE GET request first
-      if (!http_filter_->hasSentSseGetRequest()) {
+    // Client mode: handle SSE GET initialization.
+    // The state machine replaces the boolean waiting_for_sse_endpoint_
+    // and hasSentSseGetRequest() checks with explicit state queries.
+    if (client_sse_sm_ && client_sse_sm_->isNegotiating()) {
+      // First write after connection — send SSE GET request first.
+      // WaitingForGetSent means the GET has not been sent yet.
+      if (client_sse_sm_->currentState() ==
+          ClientSseState::WaitingForGetSent) {
         GOPHER_LOG_DEBUG(
             "HttpSseJsonRpcProtocolFilter: Sending SSE GET request first");
 
@@ -439,9 +439,12 @@ class HttpSseJsonRpcProtocolFilter
       }
     }
 
-    // Client mode with SSE active: send via separate POST connection
-    // The SSE connection is for receiving only - POSTs must go separately
-    if (!is_server_ && is_sse_mode_ && !waiting_for_sse_endpoint_ &&
+    // Client mode with SSE active: send via separate POST connection.
+    // The SSE connection is for receiving only — POSTs must go separately.
+    // The state machine replaces the (is_sse_mode_ && !waiting_for_sse_endpoint_)
+    // boolean combination with a single canSendPost() query.
+    if (client_sse_sm_ && client_sse_sm_->canSendPost() &&
+        client_sse_sm_->currentState() != ClientSseState::StreamableHttp &&
         http_filter_->hasMessageEndpoint() && data.length() > 0) {
       GOPHER_LOG_DEBUG(
           "HttpSseJsonRpcProtocolFilter: Client SSE mode - sending via POST "
@@ -758,8 +761,14 @@ class HttpSseJsonRpcProtocolFilter
         pending_json_data_.drain(pending_json_data_.length());
       }
     } else {
-      // Client mode: parse based on content type
-      if (is_sse_mode_) {
+      // Client mode: route body data based on the state machine.
+      // When the SSE stream is active (or negotiating), the body
+      // carries SSE event-stream chunks. Otherwise (Streamable HTTP
+      // or before SSE headers arrive) it carries JSON-RPC responses.
+      bool client_in_sse = client_sse_sm_ &&
+                           (client_sse_sm_->isReady() ||
+                            client_sse_sm_->isNegotiating());
+      if (client_in_sse && is_sse_mode_) {
         // In SSE mode, body contains event stream
         // SSE events can span multiple chunks, accumulate in buffer
         pending_sse_data_.add(data);
@@ -813,9 +822,9 @@ class HttpSseJsonRpcProtocolFilter
       GOPHER_LOG_DEBUG(
           "HttpSseJsonRpcProtocolFilter: Received endpoint event: {}", data);
       http_filter_->setMessageEndpoint(data);
-      waiting_for_sse_endpoint_ = false;
 
-      // Mirror into state machine: endpoint arrived.
+      // Transition the state machine: endpoint arrived. This replaces
+      // the old waiting_for_sse_endpoint_ = false assignment.
       if (client_sse_sm_) {
         client_sse_sm_->handleEvent(ClientSseEvent::EndpointReceived);
       }
@@ -1126,7 +1135,6 @@ class HttpSseJsonRpcProtocolFilter
   // SSE client endpoint configuration
   std::string http_path_{"/rpc"};       // Default HTTP path for requests
   std::string http_host_{"localhost"};  // Default HTTP host for requests
-  bool use_sse_{true};  // True for SSE mode, false for Streamable HTTP
 
   // SSE server transport (only meaningful when is_server_ == true).
   std::string configured_sse_path_{"/sse"};
@@ -1152,10 +1160,9 @@ class HttpSseJsonRpcProtocolFilter
   // connection.
   std::string sse_callback_session_id_;
 
-  // SSE endpoint negotiation (client mode only)
-  bool waiting_for_sse_endpoint_{false};  // Waiting for "endpoint" SSE event
-  std::vector<OwnedBuffer>
-      pending_messages_;  // Messages queued until endpoint received
+  // Messages queued during SSE endpoint negotiation (client mode only).
+  // Drained once the state machine reaches EndpointReceived.
+  std::vector<OwnedBuffer> pending_messages_;
 
   // Client-side SSE negotiation state machine. Tracks the SSE endpoint
   // negotiation lifecycle with validated transitions, timeout handling,
