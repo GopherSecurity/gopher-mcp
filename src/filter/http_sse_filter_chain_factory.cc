@@ -235,6 +235,16 @@ class HttpSseJsonRpcProtocolFilter
 
       client_sse_sm_ = std::make_unique<ClientSseStateMachine>(
           dispatcher_, sm_config, use_sse);
+
+      // Log every state transition for observability and debugging.
+      client_sse_sm_->addStateChangeListener(
+          [](const ClientSseTransitionContext& ctx) {
+            GOPHER_LOG_DEBUG(
+                "Client SSE state: {} -> {} ({})",
+                ClientSseStateMachine::getStateName(ctx.from_state),
+                ClientSseStateMachine::getStateName(ctx.to_state),
+                ctx.reason);
+          });
     }
 
     // Server-side connection mode state machine. Replaces the ad-hoc
@@ -244,6 +254,16 @@ class HttpSseJsonRpcProtocolFilter
       ServerConnModeConfig srv_config;
       server_mode_ = std::make_unique<ServerConnectionMode>(
           dispatcher_, srv_config);
+
+      // Log every mode transition for observability and debugging.
+      server_mode_->addStateChangeListener(
+          [](const ServerConnTransitionContext& ctx) {
+            GOPHER_LOG_DEBUG(
+                "Server connection mode: {} -> {} ({})",
+                ServerConnectionMode::getModeName(ctx.from_mode),
+                ServerConnectionMode::getModeName(ctx.to_mode),
+                ctx.reason);
+          });
     }
   }
 
