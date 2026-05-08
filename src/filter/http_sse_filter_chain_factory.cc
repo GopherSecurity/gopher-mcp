@@ -109,41 +109,12 @@ static std::string requestIdToString(const RequestId& id) {
   return "<unknown>";
 }
 
-// Following production architecture: Stream class for request/response pairs
-// Each incoming request creates a new stream that tracks its own state
-class RequestStream {
- public:
-  RequestStream(RequestId id, HttpSseJsonRpcProtocolFilter* filter)
-      : id_(id),
-        filter_(filter),
-        creation_time_(std::chrono::steady_clock::now()) {}
-
-  RequestId id() const { return id_; }
-
-  // Note: sendResponse implementation moved after HttpSseJsonRpcProtocolFilter
-  // definition
-  void sendResponse(const jsonrpc::Response& response);
-
-  std::chrono::steady_clock::time_point creationTime() const {
-    return creation_time_;
-  }
-
- private:
-  RequestId id_;
-  HttpSseJsonRpcProtocolFilter* filter_;
-  std::chrono::steady_clock::time_point creation_time_;
-};
-
 class HttpSseJsonRpcProtocolFilter
     : public network::Filter,
       public HttpCodecFilter::MessageCallbacks,
       public SseCodecFilter::EventCallbacks,
       public JsonRpcProtocolFilter::MessageHandler {
  public:
-  // Make active_streams_ accessible for response routing
-  friend void HttpSseFilterChainFactory::sendHttpResponse(
-      const jsonrpc::Response&, network::Connection&);
-
   HttpSseJsonRpcProtocolFilter(
       event::Dispatcher& dispatcher,
       McpProtocolCallbacks& mcp_callbacks,
@@ -963,13 +934,6 @@ class HttpSseJsonRpcProtocolFilter
    */
   void onRequest(const jsonrpc::Request& request) override {
     GOPHER_LOG_DEBUG("HttpSseFilter::onRequest for method: {}", request.method);
-    // Following production pattern: create a new stream for each request
-    // This supports HTTP pipelining with multiple concurrent requests
-    // Executed in dispatcher thread - no synchronization needed
-    auto stream = std::make_unique<RequestStream>(request.id, this);
-    std::string id_key = requestIdToString(request.id);
-    active_streams_[id_key] = std::move(stream);
-
     mcp_callbacks_.onRequest(request);
   }
 
@@ -1018,50 +982,6 @@ class HttpSseJsonRpcProtocolFilter
 
   JsonRpcProtocolFilter::Encoder& jsonrpcEncoder() {
     return jsonrpc_filter_->encoder();
-  }
-
-  // Method to send response through this filter instance
-  // Send response for a specific stream
-  // Following production pattern: called only in dispatcher thread context
-  void sendResponseForStream(const jsonrpc::Response& response,
-                             RequestId stream_id) {
-    std::string id_key = requestIdToString(stream_id);
-
-    // No locks needed - single threaded per connection
-    auto it = active_streams_.find(id_key);
-    if (it != active_streams_.end()) {
-      sendResponseThroughFilter(response);
-      active_streams_.erase(it);
-    } else {
-      // Following production pattern: no stream means request was already
-      // completed or never existed Drop the response - do NOT send it (would
-      // violate HTTP protocol)
-      GOPHER_LOG_ERROR(
-          "No stream found for response ID {} - dropping response "
-          "(possible duplicate or late response)",
-          id_key);
-      // NO FALLBACK - just return
-    }
-  }
-
-  /*
-  1. McpServer receives request and calls conn_manager->sendResponse(response)
-  2. McpConnectionManager::sendResponse converts to JSON and calls
-  sendJsonMessage
-  3. sendJsonMessage calls active_connection_->write(*buffer, false)
-  4. This goes through the filter chain's onWrite() methods
-  5. The filter should format the data in onWrite(), not initiate writes
-  */
-  void sendResponseThroughFilter(const jsonrpc::Response& response) {
-    // DEAD CODE - This method is never called!
-    // RequestStream::sendResponse is never invoked by anyone.
-    // The actual response flow is:
-    // 1. McpServer calls current_connection_->write() directly
-    // 2. This triggers onWrite() which formats the data
-    // 3. The formatted data is written to the socket
-    //
-    // This entire RequestStream mechanism is unused and should be removed.
-    GOPHER_LOG_WARN("sendResponseThroughFilter called - this is dead code!");
   }
 
  private:
@@ -1275,11 +1195,6 @@ class HttpSseJsonRpcProtocolFilter
   network::ReadFilterCallbacks* read_callbacks_{nullptr};
   network::WriteFilterCallbacks* write_callbacks_{nullptr};
 
-  // Stream management - following production pattern
-  // Multiple concurrent requests per connection (HTTP pipelining support)
-  // Using string key since RequestId is a variant without comparison operators
-  // All access happens in the single dispatcher thread - no locks needed
-  std::map<std::string, std::unique_ptr<RequestStream>> active_streams_;
 
   // Connection reference for response routing
   network::Connection* connection_{nullptr};
@@ -1291,15 +1206,6 @@ class HttpSseJsonRpcProtocolFilter
   // Custom route registration callback
   HttpRouteRegistrationCallback route_registration_callback_;
 };
-
-// RequestStream method implementation (after HttpSseJsonRpcProtocolFilter
-// definition)
-void RequestStream::sendResponse(const jsonrpc::Response& response) {
-  // Each stream knows how to send its own response
-  if (filter_) {
-    filter_->sendResponseForStream(response, id_);
-  }
-}
 
 // Static method to send response through the connection's filter chain
 // Following production pattern: ensure execution in the connection's dispatcher
