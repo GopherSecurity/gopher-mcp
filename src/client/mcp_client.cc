@@ -569,8 +569,8 @@ std::future<InitializeResult> McpClient::initializeProtocol() {
       // proceed on future.get() see initialized_/server_capabilities_
       // already published.
       if (!main_dispatcher_) {
-        result_promise->set_exception(std::make_exception_ptr(
-            std::runtime_error("No dispatcher")));
+        result_promise->set_exception(
+            std::make_exception_ptr(std::runtime_error("No dispatcher")));
         return;
       }
       main_dispatcher_->post([this, result_promise, init_result]() {

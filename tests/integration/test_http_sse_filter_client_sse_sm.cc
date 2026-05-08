@@ -81,12 +81,12 @@ class ClientSseSmFilterTest : public test::RealIoTestBase {
   // Build a client-mode ConnectionImpl with the filter chain attached.
   // Must be called from within executeInDispatcher().
   Harness makeClientHarness(TestCallbacks& callbacks, bool use_sse = true) {
-    auto factory = std::make_shared<HttpSseFilterChainFactory>(
-        *dispatcher_, callbacks,
-        /*is_server=*/false,
-        /*http_path=*/"/sse",
-        /*http_host=*/"localhost",
-        /*use_sse=*/use_sse);
+    auto factory =
+        std::make_shared<HttpSseFilterChainFactory>(*dispatcher_, callbacks,
+                                                    /*is_server=*/false,
+                                                    /*http_path=*/"/sse",
+                                                    /*http_host=*/"localhost",
+                                                    /*use_sse=*/use_sse);
 
     auto pair = createSocketPair();
     auto local = network::Address::parseInternetAddress("127.0.0.1", 0);
@@ -104,8 +104,8 @@ class ClientSseSmFilterTest : public test::RealIoTestBase {
         << "factory declined to build a filter chain";
     conn_impl->filterManager().initializeReadFilters();
 
-    return Harness{std::move(factory), std::move(conn),
-                   std::move(pair.second), std::move(si)};
+    return Harness{std::move(factory), std::move(conn), std::move(pair.second),
+                   std::move(si)};
   }
 
   // Read bytes from the peer socket (test thread, not dispatcher thread).
@@ -139,9 +139,8 @@ class ClientSseSmFilterTest : public test::RealIoTestBase {
   }
 
   // Clean shutdown on the dispatcher thread to satisfy destructor asserts.
-  void closeOnDispatcher(
-      std::unique_ptr<network::ClientConnection> conn,
-      std::shared_ptr<HttpSseFilterChainFactory> factory) {
+  void closeOnDispatcher(std::unique_ptr<network::ClientConnection> conn,
+                         std::shared_ptr<HttpSseFilterChainFactory> factory) {
     executeInDispatcher([&]() {
       if (conn) {
         conn->close(network::ConnectionCloseType::NoFlush);
@@ -221,12 +220,12 @@ TEST_F(ClientSseSmFilterTest, OnNewConnection_ServerMode_NoClientSm) {
   std::shared_ptr<HttpSseFilterChainFactory> factory;
 
   executeInDispatcher([&]() {
-    factory = std::make_shared<HttpSseFilterChainFactory>(
-        *dispatcher_, callbacks,
-        /*is_server=*/true,
-        /*http_path=*/"/rpc",
-        /*http_host=*/"localhost",
-        /*use_sse=*/true);
+    factory =
+        std::make_shared<HttpSseFilterChainFactory>(*dispatcher_, callbacks,
+                                                    /*is_server=*/true,
+                                                    /*http_path=*/"/rpc",
+                                                    /*http_host=*/"localhost",
+                                                    /*use_sse=*/true);
 
     auto pair = createSocketPair();
     auto local = network::Address::parseInternetAddress("127.0.0.1", 0);
@@ -348,12 +347,12 @@ TEST_F(ClientSseSmFilterTest, OnEndpointEvent_EnablesPostRouting) {
 
   // Simulate the server's SSE response with an endpoint event.
   writeServerBytes(*peer,
-      "HTTP/1.1 200 OK\r\n"
-      "Content-Type: text/event-stream\r\n"
-      "Cache-Control: no-cache\r\n"
-      "\r\n"
-      "event: endpoint\n"
-      "data: /callback/test123\n\n");
+                   "HTTP/1.1 200 OK\r\n"
+                   "Content-Type: text/event-stream\r\n"
+                   "Cache-Control: no-cache\r\n"
+                   "\r\n"
+                   "event: endpoint\n"
+                   "data: /callback/test123\n\n");
 
   // Give the dispatcher time to process the read and fire callbacks.
   std::this_thread::sleep_for(300ms);
@@ -397,14 +396,14 @@ TEST_F(ClientSseSmFilterTest, OnHeaders_SseContentType_TransitionsToActive) {
   // The Content-Type: text/event-stream triggers StreamStarted on
   // the state machine, transitioning it to Active.
   writeServerBytes(*peer,
-      "HTTP/1.1 200 OK\r\n"
-      "Content-Type: text/event-stream\r\n"
-      "Cache-Control: no-cache\r\n"
-      "\r\n"
-      "event: endpoint\n"
-      "data: /callback/test456\n\n"
-      "event: message\n"
-      "data: {\"jsonrpc\":\"2.0\",\"result\":{},\"id\":1}\n\n");
+                   "HTTP/1.1 200 OK\r\n"
+                   "Content-Type: text/event-stream\r\n"
+                   "Cache-Control: no-cache\r\n"
+                   "\r\n"
+                   "event: endpoint\n"
+                   "data: /callback/test456\n\n"
+                   "event: message\n"
+                   "data: {\"jsonrpc\":\"2.0\",\"result\":{},\"id\":1}\n\n");
 
   std::this_thread::sleep_for(300ms);
 
@@ -439,11 +438,11 @@ TEST_F(ClientSseSmFilterTest, OnHeaders_NonSseContentType_NoActiveTransition) {
 
   // Simulate a normal JSON-RPC response (not SSE)
   writeServerBytes(*peer,
-      "HTTP/1.1 200 OK\r\n"
-      "Content-Type: application/json\r\n"
-      "Content-Length: 39\r\n"
-      "\r\n"
-      "{\"jsonrpc\":\"2.0\",\"result\":{},\"id\":1}");
+                   "HTTP/1.1 200 OK\r\n"
+                   "Content-Type: application/json\r\n"
+                   "Content-Length: 39\r\n"
+                   "\r\n"
+                   "{\"jsonrpc\":\"2.0\",\"result\":{},\"id\":1}");
 
   std::this_thread::sleep_for(300ms);
 

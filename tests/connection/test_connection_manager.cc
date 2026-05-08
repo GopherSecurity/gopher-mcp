@@ -66,8 +66,8 @@ class ConnectionManagerSection2Test : public ::testing::Test {
     if (loop_thread_.joinable()) {
       return;
     }
-    loop_thread_ = std::thread(
-        [this]() { dispatcher_->run(event::RunType::Block); });
+    loop_thread_ =
+        std::thread([this]() { dispatcher_->run(event::RunType::Block); });
     // Wait until libevent has actually entered the loop — without this we
     // race with thread_id_ being set and isThreadSafe() still returns false.
     for (int i = 0; i < 200 && !dispatcher_->isThreadSafe(); ++i) {
@@ -79,7 +79,8 @@ class ConnectionManagerSection2Test : public ::testing::Test {
       for (int j = 0; j < 50 && !sentinel.load(); ++j) {
         std::this_thread::sleep_for(std::chrono::milliseconds(2));
       }
-      if (sentinel.load()) break;
+      if (sentinel.load())
+        break;
     }
   }
 

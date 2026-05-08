@@ -63,20 +63,19 @@ class ServerModeFilterTest : public test::RealIoTestBase {
     std::shared_ptr<stream_info::StreamInfo> stream_info;
   };
 
-  Harness makeServerHarness(
-      ServerModeCallbacks& callbacks,
-      const std::shared_ptr<HttpSseFilterChainFactory>& existing_factory =
-          nullptr) {
+  Harness makeServerHarness(ServerModeCallbacks& callbacks,
+                            const std::shared_ptr<HttpSseFilterChainFactory>&
+                                existing_factory = nullptr) {
     auto factory = existing_factory;
     if (!factory) {
-      factory = std::make_shared<HttpSseFilterChainFactory>(
-          *dispatcher_, callbacks,
-          /*is_server=*/true,
-          /*http_path=*/"/mcp",
-          /*http_host=*/"localhost",
-          /*use_sse=*/true,
-          /*sse_path=*/"/sse",
-          /*rpc_path=*/"/mcp");
+      factory =
+          std::make_shared<HttpSseFilterChainFactory>(*dispatcher_, callbacks,
+                                                      /*is_server=*/true,
+                                                      /*http_path=*/"/mcp",
+                                                      /*http_host=*/"localhost",
+                                                      /*use_sse=*/true,
+                                                      /*sse_path=*/"/sse",
+                                                      /*rpc_path=*/"/mcp");
     }
 
     auto pair = createSocketPair();
@@ -93,8 +92,8 @@ class ServerModeFilterTest : public test::RealIoTestBase {
     EXPECT_TRUE(factory->createFilterChain(ci->filterManager()));
     ci->filterManager().initializeReadFilters();
 
-    return Harness{std::move(factory), std::move(conn),
-                   std::move(pair.second), std::move(si)};
+    return Harness{std::move(factory), std::move(conn), std::move(pair.second),
+                   std::move(si)};
   }
 
   std::string drainPeer(network::IoHandle& peer,
@@ -122,9 +121,8 @@ class ServerModeFilterTest : public test::RealIoTestBase {
     ASSERT_TRUE(r.ok()) << "peer.write failed: errno=" << errno;
   }
 
-  void closeOnDispatcher(
-      std::unique_ptr<network::ServerConnection> conn,
-      std::shared_ptr<HttpSseFilterChainFactory> factory) {
+  void closeOnDispatcher(std::unique_ptr<network::ServerConnection> conn,
+                         std::shared_ptr<HttpSseFilterChainFactory> factory) {
     executeInDispatcher([&]() {
       if (conn) {
         conn->close(network::ConnectionCloseType::NoFlush);
@@ -150,10 +148,10 @@ TEST_F(ServerModeFilterTest, GetSse_SseStreamMode) {
     factory = std::move(h.factory);
 
     writeClientBytes(*peer,
-        "GET /sse HTTP/1.1\r\n"
-        "Host: localhost\r\n"
-        "Accept: text/event-stream\r\n"
-        "\r\n");
+                     "GET /sse HTTP/1.1\r\n"
+                     "Host: localhost\r\n"
+                     "Accept: text/event-stream\r\n"
+                     "\r\n");
   });
 
   std::string wire = drainPeer(*peer, 500ms);
@@ -187,9 +185,9 @@ TEST_F(ServerModeFilterTest, GetSseWithQueryString_StillSseStream) {
 
     // Query string should be stripped before matching
     writeClientBytes(*peer,
-        "GET /sse?token=abc HTTP/1.1\r\n"
-        "Host: localhost\r\n"
-        "\r\n");
+                     "GET /sse?token=abc HTTP/1.1\r\n"
+                     "Host: localhost\r\n"
+                     "\r\n");
   });
 
   std::string wire = drainPeer(*peer, 500ms);
@@ -215,13 +213,17 @@ TEST_F(ServerModeFilterTest, PostMcp_PlainHttpMode) {
     peer = std::move(h.peer);
     factory = std::move(h.factory);
 
-    std::string body = R"({"jsonrpc":"2.0","method":"initialize","id":1,"params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}})";
+    std::string body =
+        R"({"jsonrpc":"2.0","method":"initialize","id":1,"params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}})";
     std::string request =
         "POST /mcp HTTP/1.1\r\n"
         "Host: localhost\r\n"
         "Content-Type: application/json\r\n"
-        "Content-Length: " + std::to_string(body.size()) + "\r\n"
-        "\r\n" + body;
+        "Content-Length: " +
+        std::to_string(body.size()) +
+        "\r\n"
+        "\r\n" +
+        body;
     writeClientBytes(*peer, request);
   });
 
@@ -254,18 +256,17 @@ TEST_F(ServerModeFilterTest, SseStream_BodyIgnored) {
 
     // Send GET /sse (opens SSE stream)
     writeClientBytes(*peer,
-        "GET /sse HTTP/1.1\r\n"
-        "Host: localhost\r\n"
-        "\r\n");
+                     "GET /sse HTTP/1.1\r\n"
+                     "Host: localhost\r\n"
+                     "\r\n");
   });
 
   drainPeer(*peer, 500ms);
 
   // Send some garbage body data on the SSE connection — it should
   // be ignored by onBody (SseStream mode ignores request body).
-  executeInDispatcher([&]() {
-    writeClientBytes(*peer, "some garbage body data\r\n");
-  });
+  executeInDispatcher(
+      [&]() { writeClientBytes(*peer, "some garbage body data\r\n"); });
   std::this_thread::sleep_for(100ms);
 
   // No requests should have been parsed from the garbage
@@ -290,9 +291,9 @@ TEST_F(ServerModeFilterTest, ConnectionClose_NoHangOrCrash) {
     factory = std::move(h.factory);
 
     writeClientBytes(*peer,
-        "GET /sse HTTP/1.1\r\n"
-        "Host: localhost\r\n"
-        "\r\n");
+                     "GET /sse HTTP/1.1\r\n"
+                     "Host: localhost\r\n"
+                     "\r\n");
   });
 
   drainPeer(*peer, 500ms);

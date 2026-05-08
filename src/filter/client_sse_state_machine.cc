@@ -163,15 +163,14 @@ ClientSseTransitionResult ClientSseStateMachine::handleEvent(
 
   // If the event did not produce a new state, report failure.
   if (new_state == current) {
-    GOPHER_LOG_DEBUG(
-        "ClientSseStateMachine: event {} ignored in state {}",
-        getEventName(event), getStateName(current));
+    GOPHER_LOG_DEBUG("ClientSseStateMachine: event {} ignored in state {}",
+                     getEventName(event), getStateName(current));
     if (callback) {
       dispatcher_.post([callback]() { callback(false); });
     }
-    return ClientSseTransitionResult::Failure(
-        "Event " + getEventName(event) + " not valid in state " +
-        getStateName(current));
+    return ClientSseTransitionResult::Failure("Event " + getEventName(event) +
+                                              " not valid in state " +
+                                              getStateName(current));
   }
 
   return transitionTo(new_state, event, reason, callback);
@@ -204,13 +203,12 @@ ClientSseTransitionResult ClientSseStateMachine::transitionTo(
   }
 
   transition_in_progress_ = true;
-  executeTransition(new_state, event, reason,
-                    [this, callback](bool success) {
-                      transition_in_progress_ = false;
-                      if (callback) {
-                        callback(success);
-                      }
-                    });
+  executeTransition(new_state, event, reason, [this, callback](bool success) {
+    transition_in_progress_ = false;
+    if (callback) {
+      callback(success);
+    }
+  });
 
   return ClientSseTransitionResult::Success(new_state);
 }
@@ -415,13 +413,13 @@ void ClientSseStateMachine::onStateEnter(ClientSseState state,
 
 void ClientSseStateMachine::initializeTransitions() {
   // StreamableHttp is a stable mode — only terminal states are reachable.
-  valid_transitions_[ClientSseState::StreamableHttp] = {
-      ClientSseState::Closed, ClientSseState::Error};
+  valid_transitions_[ClientSseState::StreamableHttp] = {ClientSseState::Closed,
+                                                        ClientSseState::Error};
 
   // SSE negotiation lifecycle — strictly ordered forward progression.
-  valid_transitions_[ClientSseState::Idle] = {
-      ClientSseState::WaitingForGetSent, ClientSseState::Error,
-      ClientSseState::Closed};
+  valid_transitions_[ClientSseState::Idle] = {ClientSseState::WaitingForGetSent,
+                                              ClientSseState::Error,
+                                              ClientSseState::Closed};
 
   valid_transitions_[ClientSseState::WaitingForGetSent] = {
       ClientSseState::WaitingForEndpoint, ClientSseState::Error,
@@ -505,9 +503,8 @@ void ClientSseStateMachine::onNegotiationTimeout() {
   // If the state has moved on (e.g. endpoint arrived just before the
   // timer fired), ignore the stale timeout.
   if (current_state_ == ClientSseState::WaitingForEndpoint) {
-    GOPHER_LOG_WARN(
-        "ClientSseStateMachine: negotiation timeout after {}ms",
-        config_.negotiation_timeout.count());
+    GOPHER_LOG_WARN("ClientSseStateMachine: negotiation timeout after {}ms",
+                    config_.negotiation_timeout.count());
     handleEvent(ClientSseEvent::NegotiationTimeout);
   }
 }

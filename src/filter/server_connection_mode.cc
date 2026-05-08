@@ -106,22 +106,20 @@ ServerConnTransitionResult ServerConnectionMode::handleEvent(
 
   // If no transition was identified, report failure.
   if (new_mode == current) {
-    GOPHER_LOG_DEBUG(
-        "ServerConnectionMode: event {} ignored in mode {}",
-        getEventName(event), getModeName(current));
+    GOPHER_LOG_DEBUG("ServerConnectionMode: event {} ignored in mode {}",
+                     getEventName(event), getModeName(current));
     if (callback) {
       dispatcher_.post([callback]() { callback(false); });
     }
-    return ServerConnTransitionResult::Failure(
-        "Event " + getEventName(event) + " not valid in mode " +
-        getModeName(current));
+    return ServerConnTransitionResult::Failure("Event " + getEventName(event) +
+                                               " not valid in mode " +
+                                               getModeName(current));
   }
 
   // Validate against the transition matrix.
   if (!isTransitionValid(current, new_mode)) {
-    std::string error = "Invalid transition from " +
-                        getModeName(current) + " to " +
-                        getModeName(new_mode);
+    std::string error = "Invalid transition from " + getModeName(current) +
+                        " to " + getModeName(new_mode);
     GOPHER_LOG_WARN("ServerConnectionMode: {}", error);
     if (callback) {
       dispatcher_.post([callback]() { callback(false); });
@@ -139,13 +137,12 @@ ServerConnTransitionResult ServerConnectionMode::handleEvent(
   }
 
   transition_in_progress_ = true;
-  executeTransition(new_mode, event, reason,
-                    [this, callback](bool success) {
-                      transition_in_progress_ = false;
-                      if (callback) {
-                        callback(success);
-                      }
-                    });
+  executeTransition(new_mode, event, reason, [this, callback](bool success) {
+    transition_in_progress_ = false;
+    if (callback) {
+      callback(success);
+    }
+  });
 
   return ServerConnTransitionResult::Success(new_mode);
 }
@@ -233,14 +230,14 @@ void ServerConnectionMode::initializeTransitions() {
       ServerConnMode::Closed};
 
   // Each determined mode can only go to terminal states.
-  valid_transitions_[ServerConnMode::PlainHttp] = {
-      ServerConnMode::Closed, ServerConnMode::Error};
+  valid_transitions_[ServerConnMode::PlainHttp] = {ServerConnMode::Closed,
+                                                   ServerConnMode::Error};
 
-  valid_transitions_[ServerConnMode::SseStream] = {
-      ServerConnMode::Closed, ServerConnMode::Error};
+  valid_transitions_[ServerConnMode::SseStream] = {ServerConnMode::Closed,
+                                                   ServerConnMode::Error};
 
-  valid_transitions_[ServerConnMode::CallbackProxy] = {
-      ServerConnMode::Closed, ServerConnMode::Error};
+  valid_transitions_[ServerConnMode::CallbackProxy] = {ServerConnMode::Closed,
+                                                       ServerConnMode::Error};
 
   // Error -> Closed is the only escape.
   valid_transitions_[ServerConnMode::Error] = {ServerConnMode::Closed};

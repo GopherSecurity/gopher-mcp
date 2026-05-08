@@ -42,7 +42,8 @@ namespace {
 // Minimal client transport factory. The pool test only exercises the
 // SYN-is-pending window — no bytes are ever read or written — so the
 // transport can be a pure stub.
-class StubClientTransportSocketFactory : public UniversalTransportSocketFactory {
+class StubClientTransportSocketFactory
+    : public UniversalTransportSocketFactory {
  public:
   bool implementsSecureTransport() const override { return false; }
   std::string name() const override { return "stub-client"; }
@@ -137,8 +138,7 @@ TEST_F(ConnectionPoolPendingTimeoutTest, TimeoutFiresCleanly) {
     // fires before the connect() result is processed if the connection
     // stays in EINPROGRESS long enough. If the connection fails before
     // the timeout, the test still exercises the cleanup path without UAF.
-    auto unreachable =
-        Address::parseInternetAddress("127.0.0.1", /*port=*/19);
+    auto unreachable = Address::parseInternetAddress("127.0.0.1", /*port=*/19);
     pool = std::make_unique<ConnectionPoolImpl>(*dispatcher_, unreachable,
                                                 config, *manager);
 
@@ -167,8 +167,7 @@ TEST_F(ConnectionPoolPendingTimeoutTest, TimeoutFiresCleanly) {
   // Accept either Timeout (timer fired) or LocalFailure (immediate reject).
   auto reason = callbacks.last_reason_.load();
   EXPECT_TRUE(
-      reason ==
-          static_cast<int>(ConnectionPool::PoolFailureReason::Timeout) ||
+      reason == static_cast<int>(ConnectionPool::PoolFailureReason::Timeout) ||
       reason ==
           static_cast<int>(ConnectionPool::PoolFailureReason::LocalFailure))
       << "unexpected failure reason: " << reason;

@@ -207,8 +207,8 @@ class ClientSseStateMachine {
    * @param callback Optional completion callback
    * @return Immediate result indicating success or failure
    */
-  ClientSseTransitionResult handleEvent(
-      ClientSseEvent event, CompletionCallback callback = nullptr);
+  ClientSseTransitionResult handleEvent(ClientSseEvent event,
+                                        CompletionCallback callback = nullptr);
 
   /**
    * Transition to a new state with explicit reason.

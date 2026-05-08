@@ -62,7 +62,8 @@ class ServerConnectionModeTest : public ::testing::Test {
 
   // Helper: determine mode and verify
   void determineAs(ServerConnEvent event) {
-    if (!mode_) createMode();
+    if (!mode_)
+      createMode();
     auto r = mode_->handleEvent(event);
     EXPECT_TRUE(r.success);
     runFor(10ms);
@@ -340,13 +341,13 @@ TEST_F(ServerConnectionModeTest, StateHistoryRecordsAllTransitions) {
 
 // ===== Callbacks =====
 
-TEST_F(ServerConnectionModeTest, StateChangeCallback_InvokedOnModeDetermination) {
+TEST_F(ServerConnectionModeTest,
+       StateChangeCallback_InvokedOnModeDetermination) {
   createMode();
   std::vector<ServerConnTransitionContext> transitions;
-  mode_->addStateChangeListener(
-      [&](const ServerConnTransitionContext& ctx) {
-        transitions.push_back(ctx);
-      });
+  mode_->addStateChangeListener([&](const ServerConnTransitionContext& ctx) {
+    transitions.push_back(ctx);
+  });
 
   mode_->handleEvent(ServerConnEvent::SseGetDetected);
   runFor(10ms);
@@ -456,18 +457,16 @@ TEST_F(ServerConnectionModeTest, GetEventName_AllEventsNamed) {
   EXPECT_NE(
       ServerConnectionMode::getEventName(ServerConnEvent::PlainHttpDetected),
       "Unknown");
-  EXPECT_NE(
-      ServerConnectionMode::getEventName(ServerConnEvent::SseGetDetected),
-      "Unknown");
+  EXPECT_NE(ServerConnectionMode::getEventName(ServerConnEvent::SseGetDetected),
+            "Unknown");
   EXPECT_NE(
       ServerConnectionMode::getEventName(ServerConnEvent::CallbackPostDetected),
       "Unknown");
   EXPECT_NE(
       ServerConnectionMode::getEventName(ServerConnEvent::SseHeadersWritten),
       "Unknown");
-  EXPECT_NE(
-      ServerConnectionMode::getEventName(ServerConnEvent::StreamError),
-      "Unknown");
+  EXPECT_NE(ServerConnectionMode::getEventName(ServerConnEvent::StreamError),
+            "Unknown");
   EXPECT_NE(ServerConnectionMode::getEventName(ServerConnEvent::Close),
             "Unknown");
 }
