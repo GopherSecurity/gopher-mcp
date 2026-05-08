@@ -219,12 +219,11 @@ TEST_F(SseTransportRoundTripTest, SseGetAnnouncesCallbackEndpoint) {
     // Push the raw GET request onto the peer socket. The server
     // dispatcher will see a read event and drive it through the filter
     // chain; onHeaders writes the handshake bytes back.
-    writeClientBytes(
-        *peer,
-        "GET /sse HTTP/1.1\r\n"
-        "Host: localhost\r\n"
-        "Accept: text/event-stream\r\n"
-        "\r\n");
+    writeClientBytes(*peer,
+                     "GET /sse HTTP/1.1\r\n"
+                     "Host: localhost\r\n"
+                     "Accept: text/event-stream\r\n"
+                     "\r\n");
   });
 
   const std::string wire = drainPeer(*peer);
@@ -285,11 +284,10 @@ TEST_F(SseTransportRoundTripTest, ExternalUrlIsAdvertisedInEndpointEvent) {
     // Host header intentionally set to something different from the
     // external URL — if the factory fell back to Host-derived URLs,
     // we'd see "localhost" in the callback URL instead of the proxy.
-    writeClientBytes(
-        *peer,
-        "GET /sse HTTP/1.1\r\n"
-        "Host: internal-host:8080\r\n"
-        "\r\n");
+    writeClientBytes(*peer,
+                     "GET /sse HTTP/1.1\r\n"
+                     "Host: internal-host:8080\r\n"
+                     "\r\n");
   });
 
   const std::string wire = drainPeer(*peer);
@@ -328,11 +326,10 @@ TEST_F(SseTransportRoundTripTest, ConfiguredSsePathIsHonored) {
     peer = std::move(h.peer);
     factory = std::move(h.factory);
 
-    writeClientBytes(
-        *peer,
-        "GET /events HTTP/1.1\r\n"
-        "Host: localhost\r\n"
-        "\r\n");
+    writeClientBytes(*peer,
+                     "GET /events HTTP/1.1\r\n"
+                     "Host: localhost\r\n"
+                     "\r\n");
   });
 
   const std::string wire = drainPeer(*peer);
@@ -429,8 +426,7 @@ TEST_F(SseTransportRoundTripTest, PostCallbackRoutesResponseThroughSseStream) {
     cb_peer = std::move(extra.peer);
     callbacks.callback_conn = cb_conn.get();
 
-    const std::string body =
-        R"({"jsonrpc":"2.0","id":42,"method":"ping"})";
+    const std::string body = R"({"jsonrpc":"2.0","id":42,"method":"ping"})";
     std::string req;
     req += "POST /callback/" + session_id + " HTTP/1.1\r\n";
     req += "Host: localhost\r\n";
@@ -458,8 +454,7 @@ TEST_F(SseTransportRoundTripTest, PostCallbackRoutesResponseThroughSseStream) {
   // peer — that's the registry-based reroute working end-to-end.
   const std::string routed = drainPeer(*sse_peer);
   EXPECT_NE(routed.find("\"echoed\":true"), std::string::npos)
-      << "JSON-RPC response was not routed through SSE stream, got: "
-      << routed;
+      << "JSON-RPC response was not routed through SSE stream, got: " << routed;
 
   // Tear everything down on the dispatcher thread. The factory outlives
   // both connections via its filters_ vector, so it must be dropped

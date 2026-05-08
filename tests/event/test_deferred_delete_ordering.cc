@@ -117,7 +117,8 @@ TEST_F(DeferredDeleteOrderingTest, BatchDrainsAfterCallbackReturns) {
     }
     destroyed_inside_callback = 0;
     for (auto* f : flags) {
-      if (f->load()) ++destroyed_inside_callback;
+      if (f->load())
+        ++destroyed_inside_callback;
     }
     callback_done = true;
   });
@@ -133,15 +134,18 @@ TEST_F(DeferredDeleteOrderingTest, BatchDrainsAfterCallbackReturns) {
   for (int i = 0; i < 400 && destroyed_count.load() < kCount; ++i) {
     destroyed_count = 0;
     for (auto* f : flags) {
-      if (f->load()) ++destroyed_count;
+      if (f->load())
+        ++destroyed_count;
     }
-    if (destroyed_count.load() >= kCount) break;
+    if (destroyed_count.load() >= kCount)
+      break;
     std::this_thread::sleep_for(5ms);
   }
   EXPECT_EQ(destroyed_count.load(), kCount)
       << "all queued tracers must eventually drain";
 
-  for (auto* f : flags) delete f;
+  for (auto* f : flags)
+    delete f;
 }
 
 // A Tracer variant that itself queues another Tracer for deferred deletion
@@ -175,11 +179,9 @@ TEST_F(DeferredDeleteOrderingTest, NestedDeferredDeleteDuringDrainDrainsLater) {
   auto outer = std::make_unique<CascadingTracer>(outer_destroyed, *dispatcher_,
                                                  std::move(inner));
 
-  dispatcher_->post(
-      [this, outer_raw = outer.release()]() mutable {
-        dispatcher_->deferredDelete(
-            std::unique_ptr<DeferredDeletable>(outer_raw));
-      });
+  dispatcher_->post([this, outer_raw = outer.release()]() mutable {
+    dispatcher_->deferredDelete(std::unique_ptr<DeferredDeletable>(outer_raw));
+  });
 
   for (int i = 0; i < 400 && !inner_destroyed.load(); ++i) {
     std::this_thread::sleep_for(5ms);
@@ -196,7 +198,8 @@ TEST_F(DeferredDeleteOrderingTest, NestedDeferredDeleteDuringDrainDrainsLater) {
 // is still on the stack, and the connection is still iterating its callback
 // list.
 struct PeerConnection : public DeferredDeletable {
-  explicit PeerConnection(std::atomic<bool>& destroyed) : destroyed_(destroyed) {}
+  explicit PeerConnection(std::atomic<bool>& destroyed)
+      : destroyed_(destroyed) {}
   ~PeerConnection() override { destroyed_ = true; }
   std::atomic<bool>& destroyed_;
 };
@@ -261,9 +264,8 @@ TEST_F(DeferredDeleteOrderingTest,
       << "adapter or peer was destroyed inside its own onEvent — would UAF "
          "the ConnectionCallbacks list iterator in production";
 
-  for (int i = 0; i < 400 &&
-       !(adapter_destroyed.load() && peer_destroyed.load());
-       ++i) {
+  for (int i = 0;
+       i < 400 && !(adapter_destroyed.load() && peer_destroyed.load()); ++i) {
     std::this_thread::sleep_for(5ms);
   }
   EXPECT_TRUE(adapter_destroyed.load()) << "adapter must eventually drain";

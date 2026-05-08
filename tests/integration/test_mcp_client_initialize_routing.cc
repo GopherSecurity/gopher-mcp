@@ -75,9 +75,9 @@ using namespace std::chrono_literals;
 uint16_t pickEphemeralPort() {
   auto& iface = network::socketInterface();
 
-  auto fd_result = iface.socket(network::SocketType::Stream,
-                                network::Address::Type::Ip,
-                                network::Address::IpVersion::v4);
+  auto fd_result =
+      iface.socket(network::SocketType::Stream, network::Address::Type::Ip,
+                   network::Address::IpVersion::v4);
   if (!fd_result.ok()) {
     throw std::runtime_error("pickEphemeralPort: socket() failed");
   }
@@ -178,9 +178,9 @@ class McpClientInitializeRoutingTest : public ::testing::Test {
     auto addr = network::Address::parseInternetAddress("127.0.0.1", port);
     const auto deadline = std::chrono::steady_clock::now() + budget;
     while (std::chrono::steady_clock::now() < deadline) {
-      auto fd_result = iface.socket(network::SocketType::Stream,
-                                    network::Address::Type::Ip,
-                                    network::Address::IpVersion::v4);
+      auto fd_result =
+          iface.socket(network::SocketType::Stream, network::Address::Type::Ip,
+                       network::Address::IpVersion::v4);
       if (fd_result.ok()) {
         auto handle = iface.ioHandleForFd(*fd_result, false);
         // Block on connect: on a non-blocking socket, a successful loopback
@@ -224,8 +224,7 @@ TEST_F(McpClientInitializeRoutingTest, ReturnsCapabilitiesAndUnblocksFollowUp) {
   // StreamableHttp is the transport McpClient negotiates for a plain
   // http:// URL whose path is neither /sse nor /events. That lines up
   // with the server's default http_rpc_path = "/rpc".
-  const std::string uri =
-      "http://127.0.0.1:" + std::to_string(port_) + "/rpc";
+  const std::string uri = "http://127.0.0.1:" + std::to_string(port_) + "/rpc";
   auto connect_result = client_->connect(uri);
   ASSERT_TRUE(holds_alternative<std::nullptr_t>(connect_result))
       << "McpClient::connect failed against real server";

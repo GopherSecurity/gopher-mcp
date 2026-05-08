@@ -83,23 +83,28 @@ class ClientSseStateMachineTest : public ::testing::Test {
     if (!state_machine_) {
       createSseMachine();
     }
-    if (target == ClientSseState::Idle) return;
+    if (target == ClientSseState::Idle)
+      return;
 
     state_machine_->handleEvent(ClientSseEvent::ConnectionReady);
     runFor(10ms);
-    if (target == ClientSseState::WaitingForGetSent) return;
+    if (target == ClientSseState::WaitingForGetSent)
+      return;
 
     state_machine_->handleEvent(ClientSseEvent::GetSent);
     runFor(10ms);
-    if (target == ClientSseState::WaitingForEndpoint) return;
+    if (target == ClientSseState::WaitingForEndpoint)
+      return;
 
     state_machine_->handleEvent(ClientSseEvent::EndpointReceived);
     runFor(10ms);
-    if (target == ClientSseState::EndpointReceived) return;
+    if (target == ClientSseState::EndpointReceived)
+      return;
 
     state_machine_->handleEvent(ClientSseEvent::StreamStarted);
     runFor(10ms);
-    if (target == ClientSseState::Active) return;
+    if (target == ClientSseState::Active)
+      return;
 
     if (target == ClientSseState::Error) {
       state_machine_->handleEvent(ClientSseEvent::StreamError);
@@ -478,11 +483,10 @@ TEST_F(ClientSseStateMachineTest, CompletionCallback_SuccessfulTransition) {
   createSseMachine();
   bool cb_called = false;
   bool cb_success = false;
-  state_machine_->handleEvent(ClientSseEvent::ConnectionReady,
-                              [&](bool s) {
-                                cb_called = true;
-                                cb_success = s;
-                              });
+  state_machine_->handleEvent(ClientSseEvent::ConnectionReady, [&](bool s) {
+    cb_called = true;
+    cb_success = s;
+  });
   runFor(10ms);
   EXPECT_TRUE(cb_called);
   EXPECT_TRUE(cb_success);
@@ -492,11 +496,10 @@ TEST_F(ClientSseStateMachineTest, CompletionCallback_FailedTransition) {
   createSseMachine();
   bool cb_called = false;
   bool cb_success = true;
-  state_machine_->handleEvent(ClientSseEvent::StreamStarted,
-                              [&](bool s) {
-                                cb_called = true;
-                                cb_success = s;
-                              });
+  state_machine_->handleEvent(ClientSseEvent::StreamStarted, [&](bool s) {
+    cb_called = true;
+    cb_success = s;
+  });
   runFor(10ms);
   EXPECT_TRUE(cb_called);
   EXPECT_FALSE(cb_success);

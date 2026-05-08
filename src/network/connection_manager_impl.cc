@@ -448,10 +448,9 @@ void ConnectionPoolImpl::onConnectionTimeout(PendingConnection& pending) {
   // event loop's internal state, causing a SEGFAULT.
   PendingConnection* pending_ptr = &pending;
   dispatcher_.post([this, pending_ptr]() {
-    pending_connections_.remove_if(
-        [pending_ptr](const PendingConnection& p) {
-          return &p == pending_ptr;
-        });
+    pending_connections_.remove_if([pending_ptr](const PendingConnection& p) {
+      return &p == pending_ptr;
+    });
   });
 }
 

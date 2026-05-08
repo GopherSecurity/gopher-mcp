@@ -35,8 +35,6 @@
  * test to the server-side callback routing.
  */
 
-#include <sys/socket.h>
-
 #include <chrono>
 #include <cstdint>
 #include <cstring>
@@ -46,6 +44,7 @@
 #include <thread>
 
 #include <gtest/gtest.h>
+#include <sys/socket.h>
 
 #include "mcp/buffer.h"
 #include "mcp/network/address.h"
@@ -65,9 +64,9 @@ using namespace std::chrono_literals;
 uint16_t pickEphemeralPort() {
   auto& iface = network::socketInterface();
 
-  auto fd_result = iface.socket(network::SocketType::Stream,
-                                network::Address::Type::Ip,
-                                network::Address::IpVersion::v4);
+  auto fd_result =
+      iface.socket(network::SocketType::Stream, network::Address::Type::Ip,
+                   network::Address::IpVersion::v4);
   if (!fd_result.ok()) {
     throw std::runtime_error("pickEphemeralPort: socket() failed");
   }
@@ -159,9 +158,9 @@ class McpServerConnectionLifecycleTest : public ::testing::Test {
     auto addr = network::Address::parseInternetAddress("127.0.0.1", port);
     const auto deadline = std::chrono::steady_clock::now() + budget;
     while (std::chrono::steady_clock::now() < deadline) {
-      auto fd_result = iface.socket(network::SocketType::Stream,
-                                    network::Address::Type::Ip,
-                                    network::Address::IpVersion::v4);
+      auto fd_result =
+          iface.socket(network::SocketType::Stream, network::Address::Type::Ip,
+                       network::Address::IpVersion::v4);
       if (fd_result.ok()) {
         auto handle = iface.ioHandleForFd(*fd_result, false);
         handle->setBlocking(true);
@@ -181,9 +180,9 @@ class McpServerConnectionLifecycleTest : public ::testing::Test {
   // the server see RemoteClose.
   network::IoHandlePtr openClient() {
     auto& iface = network::socketInterface();
-    auto fd_result = iface.socket(network::SocketType::Stream,
-                                  network::Address::Type::Ip,
-                                  network::Address::IpVersion::v4);
+    auto fd_result =
+        iface.socket(network::SocketType::Stream, network::Address::Type::Ip,
+                     network::Address::IpVersion::v4);
     if (!fd_result.ok()) {
       return nullptr;
     }
@@ -209,7 +208,7 @@ class McpServerConnectionLifecycleTest : public ::testing::Test {
     if (!handle) {
       return nullptr;
     }
-    struct linger l{};
+    struct linger l {};
     l.l_onoff = 1;
     l.l_linger = 0;
     auto opt_result = handle->setSocketOption(
@@ -409,7 +408,8 @@ TEST_F(McpServerConnectionLifecycleTest, RawClientSilentCloseDropsConnection) {
          "likely dropped its deferred-close callback.";
 }
 
-TEST_F(McpServerConnectionLifecycleTest, RawClientCloseAfterWriteDropsConnection) {
+TEST_F(McpServerConnectionLifecycleTest,
+       RawClientCloseAfterWriteDropsConnection) {
   const auto& stats = server_->getServerStats();
   const uint64_t base = stats.connections_active.load();
 

@@ -182,7 +182,9 @@ class ServerConnectionMode {
   // ===== Mode Queries =====
 
   /** True only when mode is SseStream */
-  bool isSseStream() const { return current_mode_ == ServerConnMode::SseStream; }
+  bool isSseStream() const {
+    return current_mode_ == ServerConnMode::SseStream;
+  }
 
   /** True only when mode is CallbackProxy */
   bool isCallbackProxy() const {
