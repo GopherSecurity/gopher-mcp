@@ -311,8 +311,9 @@ class HttpSseJsonRpcProtocolFilter
       return status;
     }
 
-    // Second layer: SSE codec (if in SSE mode)
-    if (is_sse_mode_) {
+    // Second layer: SSE codec (if this connection is in SSE mode —
+    // either server SseStream or client Active).
+    if (isSseActive()) {
       status = sse_filter_->onData(data, end_stream);
       if (status == network::FilterStatus::StopIteration) {
         return status;
@@ -713,11 +714,9 @@ class HttpSseJsonRpcProtocolFilter
           write_callbacks_->connection().write(response_buffer, false);
         }
 
-        // Mark mode as SseStream and headers as written via the state
-        // machine. is_sse_mode_ stays for the shared onData path (removed
-        // in Phase 3).
+        // Mark headers as written via the state machine. The mode was
+        // already set to SseStream by handleEvent(SseGetDetected) above.
         server_mode_->handleEvent(ServerConnEvent::SseHeadersWritten);
-        is_sse_mode_ = true;
 
         GOPHER_LOG_INFO("SSE stream opened: session={} callback_url={}",
                         sse_session_id_, callback_url);
@@ -763,10 +762,10 @@ class HttpSseJsonRpcProtocolFilter
             write_callbacks_->connection().write(resp_buf, false);
           }
         }
-        // Keep is_sse_mode_ off on this connection — the body is plain
-        // JSON-RPC, not an SSE stream. Response routing happens in
-        // onWrite via sse_callback_session_id_.
-        is_sse_mode_ = false;
+        // CallbackProxy mode — the body is plain JSON-RPC, not an SSE
+        // stream. Response routing happens in onWrite via
+        // sse_callback_session_id_. isSseActive() returns false for
+        // CallbackProxy so the SSE codec is not invoked.
         return;
       }
 
@@ -782,19 +781,18 @@ class HttpSseJsonRpcProtocolFilter
         client_accepts_sse_ = true;
         GOPHER_LOG_DEBUG("HttpSseJsonRpcProtocolFilter: client accepts SSE");
       }
-      is_sse_mode_ = false;
+      // PlainHttp mode — isSseActive() returns false by default.
     } else {
-      // Client: check Content-Type for SSE
+      // Client: check Content-Type for SSE. If the server responded
+      // with text/event-stream, start the SSE event stream parser and
+      // transition the state machine to Active.
       auto content_type = headers.find("content-type");
-      is_sse_mode_ =
+      bool is_sse_response =
           content_type != headers.end() &&
           content_type->second.find("text/event-stream") != std::string::npos;
 
-      if (is_sse_mode_) {
-        // Client entering SSE mode - start event stream parser
+      if (is_sse_response) {
         sse_filter_->startEventStream();
-
-        // Mirror into state machine: SSE stream confirmed via Content-Type.
         if (client_sse_sm_) {
           client_sse_sm_->handleEvent(ClientSseEvent::StreamStarted);
         }
@@ -821,13 +819,11 @@ class HttpSseJsonRpcProtocolFilter
       }
     } else {
       // Client mode: route body data based on the state machine.
-      // When the SSE stream is active (or negotiating), the body
-      // carries SSE event-stream chunks. Otherwise (Streamable HTTP
-      // or before SSE headers arrive) it carries JSON-RPC responses.
-      bool client_in_sse = client_sse_sm_ &&
-                           (client_sse_sm_->isReady() ||
-                            client_sse_sm_->isNegotiating());
-      if (client_in_sse && is_sse_mode_) {
+      // When the SSE stream is active (Content-Type: text/event-stream
+      // was seen), the body carries SSE event-stream chunks. Otherwise
+      // (Streamable HTTP or before SSE headers arrive) it carries
+      // JSON-RPC responses. isSseActive() checks client_sse_sm_->isReady().
+      if (isSseActive()) {
         // In SSE mode, body contains event stream
         // SSE events can span multiple chunks, accumulate in buffer
         pending_sse_data_.add(data);
@@ -850,8 +846,10 @@ class HttpSseJsonRpcProtocolFilter
   }
 
   void onMessageComplete() override {
-    // HTTP message complete
-    if (!is_sse_mode_ && pending_json_data_.length() > 0) {
+    // HTTP message complete — flush any remaining JSON-RPC data that
+    // was not yet processed. In SSE mode the data flows through the
+    // SSE codec instead, so we only flush for non-SSE connections.
+    if (!isSseActive() && pending_json_data_.length() > 0) {
       // Process any remaining JSON-RPC data
       jsonrpc_filter_->onData(pending_json_data_, true);
       pending_json_data_.drain(pending_json_data_.length());
@@ -1182,10 +1180,28 @@ class HttpSseJsonRpcProtocolFilter
     }
   }
 
+  /**
+   * Check if this connection is in SSE mode for data routing purposes.
+   * Server: true when mode is SseStream.
+   * Client: true when the state machine has reached Active (Content-Type:
+   *         text/event-stream was seen). The state machine can reach
+   *         Active from WaitingForEndpoint directly because Content-Type
+   *         detection (in HTTP headers) precedes the endpoint SSE event
+   *         (in the HTTP body).
+   */
+  bool isSseActive() const {
+    if (server_mode_) {
+      return server_mode_->isSseStream();
+    }
+    if (client_sse_sm_) {
+      return client_sse_sm_->isReady();
+    }
+    return false;
+  }
+
   event::Dispatcher& dispatcher_;
   McpProtocolCallbacks& mcp_callbacks_;
   bool is_server_;
-  bool is_sse_mode_{false};
   bool client_accepts_sse_{
       false};  // Track if client supports SSE (Accept header)
   // (sse_headers_written_ removed — tracked by server_mode_->sseHeadersWritten())
