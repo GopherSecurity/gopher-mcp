@@ -398,11 +398,21 @@ class HttpSseJsonRpcProtocolFilter
     // Client mode: handle SSE GET initialization.
     // The state machine replaces the boolean waiting_for_sse_endpoint_
     // and hasSentSseGetRequest() checks with explicit state queries.
-    if (client_sse_sm_ && client_sse_sm_->isNegotiating()) {
-      // First write after connection — send SSE GET request first.
-      // WaitingForGetSent means the GET has not been sent yet.
-      if (client_sse_sm_->currentState() ==
-          ClientSseState::WaitingForGetSent) {
+    // We check for Idle OR negotiating because onWrite can arrive before
+    // onNewConnection fires the ConnectionReady event (e.g. when the
+    // connection is already established by the time the first write comes).
+    if (client_sse_sm_ &&
+        (client_sse_sm_->isNegotiating() ||
+         client_sse_sm_->currentState() == ClientSseState::Idle)) {
+      // Idle or WaitingForGetSent: the GET has not been sent yet.
+      // Transition through the state machine and send the GET.
+      auto sm_state = client_sse_sm_->currentState();
+      if (sm_state == ClientSseState::Idle ||
+          sm_state == ClientSseState::WaitingForGetSent) {
+        // If still Idle, fire ConnectionReady to advance to WaitingForGetSent.
+        if (sm_state == ClientSseState::Idle) {
+          client_sse_sm_->handleEvent(ClientSseEvent::ConnectionReady);
+        }
         GOPHER_LOG_DEBUG(
             "HttpSseJsonRpcProtocolFilter: Sending SSE GET request first");
 
