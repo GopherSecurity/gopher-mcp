@@ -100,6 +100,14 @@ ClientSseTransitionResult ClientSseStateMachine::handleEvent(
       if (event == ClientSseEvent::EndpointReceived) {
         new_state = ClientSseState::EndpointReceived;
         reason = "Received SSE endpoint event from server";
+      } else if (event == ClientSseEvent::StreamStarted) {
+        // Content-Type: text/event-stream was detected in the HTTP
+        // response headers. This can arrive before the endpoint event
+        // because the headers precede the body in the HTTP response.
+        // Transition to Active so SSE body data is routed through the
+        // SSE codec (which will parse the endpoint event from the body).
+        new_state = ClientSseState::Active;
+        reason = "SSE stream confirmed via Content-Type (endpoint pending)";
       } else if (event == ClientSseEvent::NegotiationTimeout) {
         new_state = ClientSseState::Error;
         reason = "SSE endpoint negotiation timed out";
@@ -126,7 +134,12 @@ ClientSseTransitionResult ClientSseStateMachine::handleEvent(
       break;
 
     case ClientSseState::Active:
-      if (event == ClientSseEvent::StreamError) {
+      if (event == ClientSseEvent::EndpointReceived) {
+        // Endpoint event arrived after Content-Type already confirmed
+        // the SSE stream. Stay in Active — this is a no-op transition
+        // since the endpoint URL is stored by the filter independently.
+        // Return success without changing state.
+      } else if (event == ClientSseEvent::StreamError) {
         new_state = ClientSseState::Error;
         reason = "SSE stream error";
       } else if (event == ClientSseEvent::Close) {
@@ -414,9 +427,12 @@ void ClientSseStateMachine::initializeTransitions() {
       ClientSseState::WaitingForEndpoint, ClientSseState::Error,
       ClientSseState::Closed};
 
+  // WaitingForEndpoint can reach Active directly when Content-Type:
+  // text/event-stream arrives before the endpoint SSE event (the
+  // normal case: HTTP headers precede the body).
   valid_transitions_[ClientSseState::WaitingForEndpoint] = {
-      ClientSseState::EndpointReceived, ClientSseState::Error,
-      ClientSseState::Closed};
+      ClientSseState::EndpointReceived, ClientSseState::Active,
+      ClientSseState::Error, ClientSseState::Closed};
 
   valid_transitions_[ClientSseState::EndpointReceived] = {
       ClientSseState::Active, ClientSseState::Error, ClientSseState::Closed};
