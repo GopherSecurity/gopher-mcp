@@ -57,6 +57,7 @@
 #include <sstream>
 #include <utility>
 
+#include "mcp/filter/client_sse_state_machine.h"
 #include "mcp/filter/http_codec_filter.h"
 #include "mcp/filter/http_routing_filter.h"
 #include "mcp/filter/json_rpc_protocol_filter.h"
@@ -203,6 +204,16 @@ class HttpSseJsonRpcProtocolFilter
         std::make_shared<SseCodecFilter>(*this, dispatcher_, is_server_);
     jsonrpc_filter_ =
         std::make_shared<JsonRpcProtocolFilter>(*this, dispatcher_, is_server_);
+
+    // Client-side SSE negotiation state machine. Replaces the ad-hoc
+    // boolean flags (waiting_for_sse_endpoint_, use_sse_, is_sse_mode_
+    // on the client path) with validated state transitions.
+    if (!is_server_) {
+      ClientSseStateMachineConfig sm_config;
+      sm_config.negotiation_timeout = std::chrono::milliseconds(30000);
+      client_sse_sm_ = std::make_unique<ClientSseStateMachine>(
+          dispatcher_, sm_config, use_sse);
+    }
   }
 
   ~HttpSseJsonRpcProtocolFilter() {
@@ -230,13 +241,18 @@ class HttpSseJsonRpcProtocolFilter
     sse_filter_->onNewConnection();
     jsonrpc_filter_->onNewConnection();
 
-    // For client mode with SSE, mark that we need to send GET request
-    // Don't send here - connection is not ready yet (SSL handshake pending)
+    // For client mode with SSE, mark that we need to send GET request.
+    // Don't send here — connection is not ready yet (SSL handshake pending).
     // The GET will be sent on first onWrite() call after connection is
-    // established For Streamable HTTP mode (use_sse_ = false), skip the SSE
-    // endpoint waiting
+    // established. For Streamable HTTP mode (use_sse_ = false), skip the
+    // SSE endpoint waiting.
     if (!is_server_ && use_sse_) {
       waiting_for_sse_endpoint_ = true;
+    }
+
+    // Mirror into state machine: ConnectionReady moves Idle -> WaitingForGetSent.
+    if (client_sse_sm_ && use_sse_) {
+      client_sse_sm_->handleEvent(ClientSseEvent::ConnectionReady);
     }
 
     return network::FilterStatus::Continue;
@@ -397,6 +413,12 @@ class HttpSseJsonRpcProtocolFilter
           size_t get_len = get_buffer.length();
           data.add(static_cast<const char*>(get_buffer.linearize(get_len)),
                    get_len);
+        }
+
+        // The GET has been sent — transition the state machine so it
+        // tracks that we are now waiting for the server's endpoint event.
+        if (client_sse_sm_) {
+          client_sse_sm_->handleEvent(ClientSseEvent::GetSent);
         }
 
         // Return Continue so the GET request is written to socket
@@ -709,6 +731,11 @@ class HttpSseJsonRpcProtocolFilter
       if (is_sse_mode_) {
         // Client entering SSE mode - start event stream parser
         sse_filter_->startEventStream();
+
+        // Mirror into state machine: SSE stream confirmed via Content-Type.
+        if (client_sse_sm_) {
+          client_sse_sm_->handleEvent(ClientSseEvent::StreamStarted);
+        }
       }
     }
   }
@@ -787,6 +814,11 @@ class HttpSseJsonRpcProtocolFilter
           "HttpSseJsonRpcProtocolFilter: Received endpoint event: {}", data);
       http_filter_->setMessageEndpoint(data);
       waiting_for_sse_endpoint_ = false;
+
+      // Mirror into state machine: endpoint arrived.
+      if (client_sse_sm_) {
+        client_sse_sm_->handleEvent(ClientSseEvent::EndpointReceived);
+      }
 
       // Notify McpConnectionManager about the message endpoint
       // This allows it to set up separate POST connections
@@ -1124,6 +1156,11 @@ class HttpSseJsonRpcProtocolFilter
   bool waiting_for_sse_endpoint_{false};  // Waiting for "endpoint" SSE event
   std::vector<OwnedBuffer>
       pending_messages_;  // Messages queued until endpoint received
+
+  // Client-side SSE negotiation state machine. Tracks the SSE endpoint
+  // negotiation lifecycle with validated transitions, timeout handling,
+  // and state history. Null for server-mode filters.
+  std::unique_ptr<ClientSseStateMachine> client_sse_sm_;
 
   // Protocol filters
   std::shared_ptr<HttpCodecFilter> http_filter_;
