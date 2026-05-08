@@ -210,6 +210,28 @@ class HttpSseJsonRpcProtocolFilter
     if (!is_server_) {
       ClientSseStateMachineConfig sm_config;
       sm_config.negotiation_timeout = std::chrono::milliseconds(30000);
+
+      // When the negotiation timeout fires (or any error transition
+      // occurs), propagate the error to the application layer and
+      // discard any messages that were queued during negotiation.
+      // This fixes the silent-hang bug where the server never sends
+      // the "endpoint" SSE event and the client waits forever.
+      sm_config.error_callback = [this](const std::string& reason) {
+        GOPHER_LOG_ERROR(
+            "Client SSE negotiation failed: {}", reason);
+        Error mcp_error(jsonrpc::INTERNAL_ERROR, reason);
+        mcp_callbacks_.onError(mcp_error);
+
+        // Discard queued messages — they can never be delivered
+        // because the POST endpoint was never received.
+        if (!pending_messages_.empty()) {
+          GOPHER_LOG_WARN(
+              "Discarding {} pending messages due to SSE negotiation failure",
+              pending_messages_.size());
+          pending_messages_.clear();
+        }
+      };
+
       client_sse_sm_ = std::make_unique<ClientSseStateMachine>(
           dispatcher_, sm_config, use_sse);
     }
