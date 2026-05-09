@@ -111,3 +111,4 @@ __pycache__/
 # OS generated files
 Thumbs.db
 Desktop.ini
+vcpkg_installed/

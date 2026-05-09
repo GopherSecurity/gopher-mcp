@@ -109,7 +109,19 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
         add_compile_options(-O3)
     endif()
 elseif(MSVC)
-    add_compile_options(/W4 /WX)
+    # Align with GCC/Clang strict mode behavior:
+    # - strict ON  => warnings as errors
+    # - strict OFF => development-friendly warning level
+    if(MCP_STRICT_WARNINGS)
+        add_compile_options(/W4 /WX)
+    else()
+        add_compile_options(/W3 /WX-)
+    endif()
+endif()
+
+# Windows API hygiene: avoid min/max macro pollution and reduce included Win32 headers.
+if(WIN32)
+    add_compile_definitions(NOMINMAX WIN32_LEAN_AND_MEAN)
 endif()
 
 # Memory sanitizer options for debugging
@@ -241,6 +253,8 @@ if(MCP_USE_LLHTTP)
         # Disable warnings for third-party code
         if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
             target_compile_options(llhttp PRIVATE -w)
+        elseif(MSVC)
+            target_compile_options(llhttp PRIVATE /W3 /WX-)
         endif()
     endif()
     
@@ -292,6 +306,9 @@ if(MCP_USE_NGHTTP2)
         # Enable position-independent code for shared library linking
         if(TARGET nghttp2_static)
             set_target_properties(nghttp2_static PROPERTIES POSITION_INDEPENDENT_CODE ON)
+            if(MSVC)
+                target_compile_options(nghttp2_static PRIVATE /W3 /WX-)
+            endif()
         endif()
 
         set(NGHTTP2_FOUND TRUE)
@@ -720,6 +737,13 @@ if(BUILD_SHARED_LIBS)
         SOVERSION ${GOPHER_MCP_VERSION_MAJOR}
         POSITION_INDEPENDENT_CODE ON
     )
+
+    if(WIN32)
+        set_target_properties(gopher-mcp-echo-advanced PROPERTIES
+            WINDOWS_EXPORT_ALL_SYMBOLS ON
+            PREFIX ""
+        )
+    endif()
 else()
     add_library(gopher-mcp-echo-advanced ALIAS gopher-mcp-echo-advanced-static)
 endif()
@@ -797,6 +821,13 @@ if(BUILD_SHARED_LIBS)
         SOVERSION ${GOPHER_MCP_VERSION_MAJOR}
         POSITION_INDEPENDENT_CODE ON
     )
+
+    if(WIN32)
+        set_target_properties(gopher-mcp-event PROPERTIES
+            WINDOWS_EXPORT_ALL_SYMBOLS ON
+            PREFIX ""
+        )
+    endif()
 else()
     add_library(gopher-mcp-event ALIAS gopher-mcp-event-static)
 endif()

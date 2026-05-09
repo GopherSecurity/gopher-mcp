@@ -49,6 +49,10 @@
 // Platform-specific includes
 #ifdef _WIN32
 #include <windows.h>
+#include <sys/stat.h>
+#ifndef S_ISDIR
+#define S_ISDIR(m) (((m) & S_IFMT) == S_IFDIR)
+#endif
 #endif
 
 namespace mcp {

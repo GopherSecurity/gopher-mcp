@@ -1,0 +1,14 @@
+{
+  "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
+  "name": "gopher-mcp",
+  "builtin-baseline": "4bc07e3eb00c5a9539a5a7a83415150a9260f8db",
+  "dependencies": [
+    {
+      "name": "openssl"
+    },
+    {
+      "name": "libevent",
+      "features": ["openssl", "thread"]
+    }
+  ]
+}
