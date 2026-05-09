@@ -47,7 +47,14 @@ target_compile_definitions(gopher-mcp-logging-static PUBLIC
 # Create shared library
 if(BUILD_SHARED_LIBS)
   add_library(gopher-mcp-logging SHARED ${MCP_LOGGING_SOURCES})
-  
+
+  if(WIN32)
+    set_target_properties(gopher-mcp-logging PROPERTIES
+      WINDOWS_EXPORT_ALL_SYMBOLS ON
+      PREFIX ""
+    )
+  endif()
+
   target_include_directories(gopher-mcp-logging PUBLIC
     $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>

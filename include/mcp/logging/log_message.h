@@ -13,6 +13,7 @@
 #include <unistd.h>
 #endif
 
+#include "mcp/core/compat.h"
 #include "mcp/logging/log_level.h"
 
 namespace mcp {

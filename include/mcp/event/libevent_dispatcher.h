@@ -16,7 +16,7 @@ namespace mcp {
 namespace event {
 
 // Rename to avoid conflict with struct event
-using libevent_event = struct event;
+using libevent_event = struct ::event;
 
 // Use libevent's socket type for callback signature compatibility.
 // On Windows, libevent uses intptr_t (SOCKET), on POSIX it uses int.
