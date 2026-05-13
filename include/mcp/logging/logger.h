@@ -38,28 +38,28 @@ class Logger : public std::enable_shared_from_this<Logger> {
   template <typename... Args>
   void debug(const char* fmt, Args&&... args) {
     if (shouldLog(LogLevel::Debug)) {
-      logImpl(LogLevel::Debug, fmt::format(fmt, std::forward<Args>(args)...));
+      logImpl(LogLevel::Debug, fmt::format(fmt::runtime(fmt), std::forward<Args>(args)...));
     }
   }
 
   template <typename... Args>
   void info(const char* fmt, Args&&... args) {
     if (shouldLog(LogLevel::Info)) {
-      logImpl(LogLevel::Info, fmt::format(fmt, std::forward<Args>(args)...));
+      logImpl(LogLevel::Info, fmt::format(fmt::runtime(fmt), std::forward<Args>(args)...));
     }
   }
 
   template <typename... Args>
   void warning(const char* fmt, Args&&... args) {
     if (shouldLog(LogLevel::Warning)) {
-      logImpl(LogLevel::Warning, fmt::format(fmt, std::forward<Args>(args)...));
+      logImpl(LogLevel::Warning, fmt::format(fmt::runtime(fmt), std::forward<Args>(args)...));
     }
   }
 
   template <typename... Args>
   void error(const char* fmt, Args&&... args) {
     if (shouldLog(LogLevel::Error)) {
-      logImpl(LogLevel::Error, fmt::format(fmt, std::forward<Args>(args)...));
+      logImpl(LogLevel::Error, fmt::format(fmt::runtime(fmt), std::forward<Args>(args)...));
     }
   }
 
@@ -67,7 +67,7 @@ class Logger : public std::enable_shared_from_this<Logger> {
   void critical(const char* fmt, Args&&... args) {
     if (shouldLog(LogLevel::Critical)) {
       logImpl(LogLevel::Critical,
-              fmt::format(fmt, std::forward<Args>(args)...));
+              fmt::format(fmt::runtime(fmt), std::forward<Args>(args)...));
     }
   }
 
@@ -79,7 +79,7 @@ class Logger : public std::enable_shared_from_this<Logger> {
                       Args&&... args) {
     if (shouldLog(level)) {
       auto msg = ctx.toLogMessage(
-          level, fmt::format(fmt, std::forward<Args>(args)...));
+          level, fmt::format(fmt::runtime(fmt), std::forward<Args>(args)...));
       msg.logger_name = name_;
       logMessage(msg);
     }
@@ -95,7 +95,7 @@ class Logger : public std::enable_shared_from_this<Logger> {
       LogMessage msg;
       msg.level = level;
       msg.component = component;
-      msg.message = fmt::format(fmt, std::forward<Args>(args)...);
+      msg.message = fmt::format(fmt::runtime(fmt), std::forward<Args>(args)...);
       msg.logger_name = name_;
       msg.timestamp = std::chrono::system_clock::now();
       msg.thread_id = std::this_thread::get_id();
@@ -115,7 +115,7 @@ class Logger : public std::enable_shared_from_this<Logger> {
     if (shouldLog(level)) {
       LogMessage msg;
       msg.level = level;
-      msg.message = fmt::format(fmt, std::forward<Args>(args)...);
+      msg.message = fmt::format(fmt::runtime(fmt), std::forward<Args>(args)...);
       msg.logger_name = name_;
       msg.file = file;
       msg.line = line;
