@@ -140,8 +140,8 @@ class HttpAsyncClient::RequestContext
     if (!fd_result.ok()) {
       return false;
     }
-    auto io_handle =
-        socket_interface.ioHandleForFd(*fd_result.value, /*socket_v6only=*/false);
+    auto io_handle = socket_interface.ioHandleForFd(*fd_result.value,
+                                                    /*socket_v6only=*/false);
     if (!io_handle) {
       socket_interface.close(*fd_result.value);
       return false;
@@ -154,9 +154,8 @@ class HttpAsyncClient::RequestContext
         std::move(io_handle), local_address, remote_address);
 
     // Transport socket — let the injected factory decide TCP vs TLS.
-    auto* client_factory =
-        dynamic_cast<network::ClientTransportSocketFactory*>(
-            parent_.transport_factory_.get());
+    auto* client_factory = dynamic_cast<network::ClientTransportSocketFactory*>(
+        parent_.transport_factory_.get());
     if (!client_factory) {
       return false;
     }

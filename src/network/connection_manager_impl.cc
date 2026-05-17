@@ -441,13 +441,17 @@ void ConnectionPoolImpl::onConnectionTimeout(PendingConnection& pending) {
   pending.callbacks->onPoolFailure(PoolFailureReason::Timeout,
                                    "Connection timeout");
 
-  // Identify the list node by address, not by unique_ptr equality, and use
-  // std::list::remove_if (not the non-member std::remove_if) so the node is
-  // unlinked in-place. The non-member overload moves elements around to
-  // compact them — which would move the entry whose timer lambda is
-  // currently executing on top of us.
-  pending_connections_.remove_if(
-      [&pending](const PendingConnection& p) { return &p == &pending; });
+  // Defer the removal to the next event loop iteration so the timer
+  // callback completes before its owning PendingConnection (and its
+  // timer) are destroyed. Destroying a libevent timer from within its
+  // own callback is undefined behavior — event_free() can corrupt the
+  // event loop's internal state, causing a SEGFAULT.
+  PendingConnection* pending_ptr = &pending;
+  dispatcher_.post([this, pending_ptr]() {
+    pending_connections_.remove_if([pending_ptr](const PendingConnection& p) {
+      return &p == pending_ptr;
+    });
+  });
 }
 
 void ConnectionPoolImpl::checkIdleCallbacks() {

@@ -1441,15 +1441,37 @@ target_link_libraries(test_http_routing_filter_simple
 add_test(NAME HttpRoutingFilterSimpleTest COMMAND test_http_routing_filter_simple)
 
 add_executable(test_sse_codec_state_machine filter/test_sse_codec_state_machine.cc)
-target_link_libraries(test_sse_codec_state_machine 
+target_link_libraries(test_sse_codec_state_machine
     gopher-mcp
     gopher-mcp-event
-    gtest 
-    gtest_main 
+    gtest
+    gtest_main
     gmock
     Threads::Threads
 )
 add_test(NAME SseCodecStateMachineTest COMMAND test_sse_codec_state_machine)
+
+add_executable(test_client_sse_state_machine filter/test_client_sse_state_machine.cc)
+target_link_libraries(test_client_sse_state_machine
+    gopher-mcp
+    gopher-mcp-event
+    gtest
+    gtest_main
+    gmock
+    Threads::Threads
+)
+add_test(NAME ClientSseStateMachineTest COMMAND test_client_sse_state_machine)
+
+add_executable(test_server_connection_mode filter/test_server_connection_mode.cc)
+target_link_libraries(test_server_connection_mode
+    gopher-mcp
+    gopher-mcp-event
+    gtest
+    gtest_main
+    gmock
+    Threads::Threads
+)
+add_test(NAME ServerConnectionModeTest COMMAND test_server_connection_mode)
 
 add_executable(test_sse_codec_filter filter/test_sse_codec_filter_simple.cc)
 target_link_libraries(test_sse_codec_filter 
@@ -1556,6 +1578,28 @@ target_link_libraries(test_sse_transport_round_trip
 )
 add_test(NAME SseTransportRoundTripTest COMMAND test_sse_transport_round_trip)
 
+add_executable(test_http_sse_filter_server_mode integration/test_http_sse_filter_server_mode.cc)
+target_link_libraries(test_http_sse_filter_server_mode
+    gopher-mcp
+    gopher-mcp-event
+    gtest
+    gtest_main
+    gmock
+    Threads::Threads
+)
+add_test(NAME ServerModeFilterTest COMMAND test_http_sse_filter_server_mode)
+
+add_executable(test_http_sse_filter_client_sse_sm integration/test_http_sse_filter_client_sse_sm.cc)
+target_link_libraries(test_http_sse_filter_client_sse_sm
+    gopher-mcp
+    gopher-mcp-event
+    gtest
+    gtest_main
+    gmock
+    Threads::Threads
+)
+add_test(NAME ClientSseSmFilterTest COMMAND test_http_sse_filter_client_sse_sm)
+
 add_executable(test_mcp_client_initialize_routing integration/test_mcp_client_initialize_routing.cc)
 target_link_libraries(test_mcp_client_initialize_routing
     gopher-mcp
@@ -1629,6 +1673,7 @@ add_custom_target(run_tests
             test_gopher_mcp_connection_manager test_builders
             test_event_loop_real_io test_connection_manager_real_io
             test_http_codec_state_machine test_sse_codec_state_machine
+            test_client_sse_state_machine test_server_connection_mode
     WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
     COMMENT "Running tests..."
 )

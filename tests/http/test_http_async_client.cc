@@ -48,8 +48,7 @@ class ResponseSink {
   }
   bool wait(std::chrono::milliseconds d = 2000ms) {
     std::unique_lock<std::mutex> g(mu_);
-    return cv_.wait_for(g, d,
-                        [&] { return got_response_ || got_error_; });
+    return cv_.wait_for(g, d, [&] { return got_response_ || got_error_; });
   }
   bool hasResponse() const {
     std::lock_guard<std::mutex> g(mu_);
@@ -159,8 +158,7 @@ class HttpAsyncClientTest : public test::RealListenerTestBase {
     OwnedBuffer buf;
     buf.add(bytes);
     const auto deadline = std::chrono::steady_clock::now() + 2000ms;
-    while (buf.length() > 0 &&
-           std::chrono::steady_clock::now() < deadline) {
+    while (buf.length() > 0 && std::chrono::steady_clock::now() < deadline) {
       auto r = handle.write(buf);
       if (!r.ok() || *r == 0) {
         std::this_thread::sleep_for(5ms);
@@ -184,8 +182,7 @@ TEST_F(HttpAsyncClientTest, PostRoundTripDeliversResponseBody) {
 
   executeInDispatcher([this, &req, &sink]() {
     const bool ok = client_->send(
-        req,
-        [&sink](HttpResponse r) { sink.setResponse(std::move(r)); },
+        req, [&sink](HttpResponse r) { sink.setResponse(std::move(r)); },
         [&sink](const std::string& e) { sink.setError(e); });
     ASSERT_TRUE(ok);
   });
@@ -249,8 +246,7 @@ TEST_F(HttpAsyncClientTest, MalformedResponseFiresErrorCallback) {
     req.url = "http://127.0.0.1:" + std::to_string(port) + "/mcp";
     req.body = "{}";
     ASSERT_TRUE(client_->send(
-        req,
-        [sink](HttpResponse r) { sink->setResponse(std::move(r)); },
+        req, [sink](HttpResponse r) { sink->setResponse(std::move(r)); },
         [sink](const std::string& e) { sink->setError(e); }));
   });
 

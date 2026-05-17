@@ -57,10 +57,12 @@
 #include <sstream>
 #include <utility>
 
+#include "mcp/filter/client_sse_state_machine.h"
 #include "mcp/filter/http_codec_filter.h"
 #include "mcp/filter/http_routing_filter.h"
 #include "mcp/filter/json_rpc_protocol_filter.h"
 #include "mcp/filter/metrics_filter.h"
+#include "mcp/filter/server_connection_mode.h"
 #include "mcp/filter/sse_codec_filter.h"
 #include "mcp/filter/sse_session_registry.h"
 #include "mcp/json/json_serialization.h"
@@ -107,41 +109,12 @@ static std::string requestIdToString(const RequestId& id) {
   return "<unknown>";
 }
 
-// Following production architecture: Stream class for request/response pairs
-// Each incoming request creates a new stream that tracks its own state
-class RequestStream {
- public:
-  RequestStream(RequestId id, HttpSseJsonRpcProtocolFilter* filter)
-      : id_(id),
-        filter_(filter),
-        creation_time_(std::chrono::steady_clock::now()) {}
-
-  RequestId id() const { return id_; }
-
-  // Note: sendResponse implementation moved after HttpSseJsonRpcProtocolFilter
-  // definition
-  void sendResponse(const jsonrpc::Response& response);
-
-  std::chrono::steady_clock::time_point creationTime() const {
-    return creation_time_;
-  }
-
- private:
-  RequestId id_;
-  HttpSseJsonRpcProtocolFilter* filter_;
-  std::chrono::steady_clock::time_point creation_time_;
-};
-
 class HttpSseJsonRpcProtocolFilter
     : public network::Filter,
       public HttpCodecFilter::MessageCallbacks,
       public SseCodecFilter::EventCallbacks,
       public JsonRpcProtocolFilter::MessageHandler {
  public:
-  // Make active_streams_ accessible for response routing
-  friend void HttpSseFilterChainFactory::sendHttpResponse(
-      const jsonrpc::Response&, network::Connection&);
-
   HttpSseJsonRpcProtocolFilter(
       event::Dispatcher& dispatcher,
       McpProtocolCallbacks& mcp_callbacks,
@@ -159,7 +132,6 @@ class HttpSseJsonRpcProtocolFilter
         is_server_(is_server),
         http_path_(http_path),
         http_host_(http_host),
-        use_sse_(use_sse),
         configured_sse_path_(configured_sse_path),
         configured_rpc_path_(configured_rpc_path),
         configured_external_url_(configured_external_url),
@@ -203,6 +175,64 @@ class HttpSseJsonRpcProtocolFilter
         std::make_shared<SseCodecFilter>(*this, dispatcher_, is_server_);
     jsonrpc_filter_ =
         std::make_shared<JsonRpcProtocolFilter>(*this, dispatcher_, is_server_);
+
+    // Client-side SSE negotiation state machine. Replaces the ad-hoc
+    // boolean flags (waiting_for_sse_endpoint_, use_sse_, is_sse_mode_
+    // on the client path) with validated state transitions.
+    if (!is_server_) {
+      ClientSseStateMachineConfig sm_config;
+      sm_config.negotiation_timeout = std::chrono::milliseconds(30000);
+
+      // When the negotiation timeout fires (or any error transition
+      // occurs), propagate the error to the application layer and
+      // discard any messages that were queued during negotiation.
+      // This fixes the silent-hang bug where the server never sends
+      // the "endpoint" SSE event and the client waits forever.
+      sm_config.error_callback = [this](const std::string& reason) {
+        GOPHER_LOG_ERROR("Client SSE negotiation failed: {}", reason);
+        Error mcp_error(jsonrpc::INTERNAL_ERROR, reason);
+        mcp_callbacks_.onError(mcp_error);
+
+        // Discard queued messages — they can never be delivered
+        // because the POST endpoint was never received.
+        if (!pending_messages_.empty()) {
+          GOPHER_LOG_WARN(
+              "Discarding {} pending messages due to SSE negotiation failure",
+              pending_messages_.size());
+          pending_messages_.clear();
+        }
+      };
+
+      client_sse_sm_ = std::make_unique<ClientSseStateMachine>(
+          dispatcher_, sm_config, use_sse);
+
+      // Log every state transition for observability and debugging.
+      client_sse_sm_->addStateChangeListener(
+          [](const ClientSseTransitionContext& ctx) {
+            GOPHER_LOG_DEBUG(
+                "Client SSE state: {} -> {} ({})",
+                ClientSseStateMachine::getStateName(ctx.from_state),
+                ClientSseStateMachine::getStateName(ctx.to_state), ctx.reason);
+          });
+    }
+
+    // Server-side connection mode state machine. Replaces the ad-hoc
+    // boolean flags (sse_server_mode_, sse_writing_handshake_,
+    // sse_headers_written_) with validated mode determination.
+    if (is_server_) {
+      ServerConnModeConfig srv_config;
+      server_mode_ =
+          std::make_unique<ServerConnectionMode>(dispatcher_, srv_config);
+
+      // Log every mode transition for observability and debugging.
+      server_mode_->addStateChangeListener(
+          [](const ServerConnTransitionContext& ctx) {
+            GOPHER_LOG_DEBUG("Server connection mode: {} -> {} ({})",
+                             ServerConnectionMode::getModeName(ctx.from_mode),
+                             ServerConnectionMode::getModeName(ctx.to_mode),
+                             ctx.reason);
+          });
+    }
   }
 
   ~HttpSseJsonRpcProtocolFilter() {
@@ -230,13 +260,14 @@ class HttpSseJsonRpcProtocolFilter
     sse_filter_->onNewConnection();
     jsonrpc_filter_->onNewConnection();
 
-    // For client mode with SSE, mark that we need to send GET request
-    // Don't send here - connection is not ready yet (SSL handshake pending)
-    // The GET will be sent on first onWrite() call after connection is
-    // established For Streamable HTTP mode (use_sse_ = false), skip the SSE
-    // endpoint waiting
-    if (!is_server_ && use_sse_) {
-      waiting_for_sse_endpoint_ = true;
+    // For client mode with SSE, signal the state machine that the
+    // connection is ready. The GET /sse request will be sent on the
+    // first onWrite() call after the connection is fully established
+    // (TCP/TLS handshake complete). For Streamable HTTP mode the state
+    // machine stays in StreamableHttp and no GET is sent.
+    if (client_sse_sm_ &&
+        client_sse_sm_->currentState() == ClientSseState::Idle) {
+      client_sse_sm_->handleEvent(ClientSseEvent::ConnectionReady);
     }
 
     return network::FilterStatus::Continue;
@@ -268,8 +299,9 @@ class HttpSseJsonRpcProtocolFilter
       return status;
     }
 
-    // Second layer: SSE codec (if in SSE mode)
-    if (is_sse_mode_) {
+    // Second layer: SSE codec (if this connection is in SSE mode —
+    // either server SseStream or client Active).
+    if (isSseActive()) {
       status = sse_filter_->onData(data, end_stream);
       if (status == network::FilterStatus::StopIteration) {
         return status;
@@ -326,7 +358,7 @@ class HttpSseJsonRpcProtocolFilter
     // endpoint" for GET /sse, or "HTTP/1.1 202 Accepted" for POST
     // /callback). The bytes are already fully-formed HTTP — skip all
     // downstream JSON-RPC / HTTP-codec framing.
-    if (sse_writing_handshake_) {
+    if (server_mode_ && server_mode_->isWritingHandshake()) {
       return network::FilterStatus::Continue;
     }
 
@@ -336,7 +368,8 @@ class HttpSseJsonRpcProtocolFilter
     // write chain to be framed as HTTP and written back to the POST
     // connection. Instead, pull the JSON body out and hand it to the
     // registry, which writes it through the matching SSE stream.
-    if (is_server_ && !sse_callback_session_id_.empty() && data.length() > 0) {
+    if (server_mode_ && server_mode_->isCallbackProxy() &&
+        !sse_callback_session_id_.empty() && data.length() > 0) {
       const size_t len = data.length();
       std::string json_data(static_cast<const char*>(data.linearize(len)), len);
       data.drain(len);
@@ -356,15 +389,30 @@ class HttpSseJsonRpcProtocolFilter
 
     GOPHER_LOG_DEBUG(
         "HttpSseJsonRpcProtocolFilter: onWrite called, data_len={}, "
-        "is_server={}, is_sse_mode={}, waiting_for_endpoint={}, "
-        "sse_get_sent={}",
-        data.length(), is_server_, is_sse_mode_, waiting_for_sse_endpoint_,
-        http_filter_->hasSentSseGetRequest());
+        "is_server={}, client_sse_state={}",
+        data.length(), is_server_,
+        client_sse_sm_ ? ClientSseStateMachine::getStateName(
+                             client_sse_sm_->currentState())
+                       : "N/A");
 
-    // Client mode: handle SSE GET initialization
-    if (!is_server_ && waiting_for_sse_endpoint_) {
-      // First write after connection - send SSE GET request first
-      if (!http_filter_->hasSentSseGetRequest()) {
+    // Client mode: handle SSE GET initialization.
+    // The state machine replaces the boolean waiting_for_sse_endpoint_
+    // and hasSentSseGetRequest() checks with explicit state queries.
+    // We check for Idle OR negotiating because onWrite can arrive before
+    // onNewConnection fires the ConnectionReady event (e.g. when the
+    // connection is already established by the time the first write comes).
+    if (client_sse_sm_ &&
+        (client_sse_sm_->isNegotiating() ||
+         client_sse_sm_->currentState() == ClientSseState::Idle)) {
+      // Idle or WaitingForGetSent: the GET has not been sent yet.
+      // Transition through the state machine and send the GET.
+      auto sm_state = client_sse_sm_->currentState();
+      if (sm_state == ClientSseState::Idle ||
+          sm_state == ClientSseState::WaitingForGetSent) {
+        // If still Idle, fire ConnectionReady to advance to WaitingForGetSent.
+        if (sm_state == ClientSseState::Idle) {
+          client_sse_sm_->handleEvent(ClientSseEvent::ConnectionReady);
+        }
         GOPHER_LOG_DEBUG(
             "HttpSseJsonRpcProtocolFilter: Sending SSE GET request first");
 
@@ -399,6 +447,12 @@ class HttpSseJsonRpcProtocolFilter
                    get_len);
         }
 
+        // The GET has been sent — transition the state machine so it
+        // tracks that we are now waiting for the server's endpoint event.
+        if (client_sse_sm_) {
+          client_sse_sm_->handleEvent(ClientSseEvent::GetSent);
+        }
+
         // Return Continue so the GET request is written to socket
         return network::FilterStatus::Continue;
       }
@@ -417,9 +471,13 @@ class HttpSseJsonRpcProtocolFilter
       }
     }
 
-    // Client mode with SSE active: send via separate POST connection
-    // The SSE connection is for receiving only - POSTs must go separately
-    if (!is_server_ && is_sse_mode_ && !waiting_for_sse_endpoint_ &&
+    // Client mode with SSE active: send via separate POST connection.
+    // The SSE connection is for receiving only — POSTs must go separately.
+    // The state machine replaces the (is_sse_mode_ &&
+    // !waiting_for_sse_endpoint_) boolean combination with a single
+    // canSendPost() query.
+    if (client_sse_sm_ && client_sse_sm_->canSendPost() &&
+        client_sse_sm_->currentState() != ClientSseState::StreamableHttp &&
         http_filter_->hasMessageEndpoint() && data.length() > 0) {
       GOPHER_LOG_DEBUG(
           "HttpSseJsonRpcProtocolFilter: Client SSE mode - sending via POST "
@@ -450,16 +508,12 @@ class HttpSseJsonRpcProtocolFilter
     // - Each connection has its own filter instance (connection-scoped)
     // - All operations happen in single dispatcher thread (no races)
     // - SSE connections are long-lived with one stream at a time
-    if (is_server_ && is_sse_mode_) {
-      // Check if we've written anything to this connection yet
-      // If connection has no bytes sent, this is the first response
+    if (server_mode_ && server_mode_->isSseStream()) {
+      // Check if this is the first SSE data write on this connection.
+      // The first write needs HTTP response headers prepended.
       bool is_first_write = false;
       if (write_callbacks_) {
-        // Check connection's write buffer stats or bytes sent
-        // For now, use a simple approach: if this is the first onWrite call
-        // after entering SSE mode, we need headers
-        // Better approach: query connection's bytes_sent metric
-        is_first_write = !sse_headers_written_;
+        is_first_write = !server_mode_->sseHeadersWritten();
       }
 
       if (is_first_write) {
@@ -488,9 +542,11 @@ class HttpSseJsonRpcProtocolFilter
         std::string response_str = response.str();
         data.add(response_str.c_str(), response_str.length());
 
-        // Mark that headers have been written for this SSE connection
-        // This is connection-scoped, not global
-        sse_headers_written_ = true;
+        // Mark that headers have been written for this SSE connection.
+        // The state machine tracks this as a monotonic sub-state.
+        if (server_mode_) {
+          server_mode_->handleEvent(ServerConnEvent::SseHeadersWritten);
+        }
       } else {
         // Subsequent SSE events - just format as SSE without HTTP headers
         // Subsequent SSE write
@@ -598,6 +654,10 @@ class HttpSseJsonRpcProtocolFilter
       // ── GET {configured_sse_path_} → open an SSE stream.
       if (method == "GET" && path == configured_sse_path_ && sse_registry_ &&
           write_callbacks_) {
+        // Determine connection mode as SSE stream.
+        if (server_mode_) {
+          server_mode_->handleEvent(ServerConnEvent::SseGetDetected);
+        }
         client_accepts_sse_ = true;
         sse_session_id_ =
             sse_registry_->registerSession(&write_callbacks_->connection());
@@ -620,10 +680,9 @@ class HttpSseJsonRpcProtocolFilter
         }
 
         // Write the SSE response prelude + endpoint event straight onto
-        // the wire. We set sse_writing_handshake_ so our own onWrite
-        // passes these bytes through untouched — otherwise the write
-        // filter chain would try to re-frame the raw HTTP bytes as an
-        // SSE event and corrupt the stream.
+        // The RAII HandshakeWriteGuard ensures isWritingHandshake()
+        // returns true while we're writing the raw HTTP prelude, so
+        // our own onWrite passes these bytes through untouched.
         std::ostringstream sse_response;
         sse_response << "HTTP/1.1 200 OK\r\n";
         sse_response << "Content-Type: text/event-stream\r\n";
@@ -637,13 +696,16 @@ class HttpSseJsonRpcProtocolFilter
         OwnedBuffer response_buffer;
         response_buffer.add(response_str.c_str(), response_str.length());
 
-        sse_writing_handshake_ = true;
-        write_callbacks_->connection().write(response_buffer, false);
-        sse_writing_handshake_ = false;
+        // RAII guard ensures isWritingHandshake() is cleared even if
+        // connection().write() throws or triggers a callback chain.
+        {
+          HandshakeWriteGuard guard(*server_mode_);
+          write_callbacks_->connection().write(response_buffer, false);
+        }
 
-        sse_server_mode_ = true;
-        is_sse_mode_ = true;
-        sse_headers_written_ = true;
+        // Mark headers as written via the state machine. The mode was
+        // already set to SseStream by handleEvent(SseGetDetected) above.
+        server_mode_->handleEvent(ServerConnEvent::SseHeadersWritten);
 
         GOPHER_LOG_INFO("SSE stream opened: session={} callback_url={}",
                         sse_session_id_, callback_url);
@@ -666,6 +728,10 @@ class HttpSseJsonRpcProtocolFilter
       const std::string callback_prefix = "/callback/";
       const auto cb_pos = path.rfind(callback_prefix);
       if (method == "POST" && cb_pos != std::string::npos) {
+        // Determine connection mode as callback proxy.
+        if (server_mode_) {
+          server_mode_->handleEvent(ServerConnEvent::CallbackPostDetected);
+        }
         sse_callback_session_id_ = path.substr(cb_pos + callback_prefix.size());
         GOPHER_LOG_DEBUG("SSE callback POST: session={}",
                          sse_callback_session_id_);
@@ -678,37 +744,47 @@ class HttpSseJsonRpcProtocolFilter
               "\r\n";
           OwnedBuffer resp_buf;
           resp_buf.add(http_202.c_str(), http_202.length());
-          sse_writing_handshake_ = true;
-          write_callbacks_->connection().write(resp_buf, false);
-          sse_writing_handshake_ = false;
+          // RAII guard ensures isWritingHandshake() is cleared even
+          // on early return or exception.
+          {
+            HandshakeWriteGuard guard(*server_mode_);
+            write_callbacks_->connection().write(resp_buf, false);
+          }
         }
-        // Keep is_sse_mode_ off on this connection — the body is plain
-        // JSON-RPC, not an SSE stream. Response routing happens in
-        // onWrite via sse_callback_session_id_.
-        is_sse_mode_ = false;
+        // CallbackProxy mode — the body is plain JSON-RPC, not an SSE
+        // stream. Response routing happens in onWrite via
+        // sse_callback_session_id_. isSseActive() returns false for
+        // CallbackProxy so the SSE codec is not invoked.
         return;
       }
 
       // Non-SSE-transport request (POST /mcp Streamable HTTP, /health,
-      // /info, etc.). Preserve the existing behavior: check Accept for
-      // SSE capability but keep plain HTTP mode for request/response.
+      // /info, etc.). Determine connection mode as plain HTTP.
+      if (server_mode_ &&
+          server_mode_->currentMode() == ServerConnMode::Undetermined) {
+        server_mode_->handleEvent(ServerConnEvent::PlainHttpDetected);
+      }
       auto accept = headers.find("accept");
       if (accept != headers.end() &&
           accept->second.find("text/event-stream") != std::string::npos) {
         client_accepts_sse_ = true;
         GOPHER_LOG_DEBUG("HttpSseJsonRpcProtocolFilter: client accepts SSE");
       }
-      is_sse_mode_ = false;
+      // PlainHttp mode — isSseActive() returns false by default.
     } else {
-      // Client: check Content-Type for SSE
+      // Client: check Content-Type for SSE. If the server responded
+      // with text/event-stream, start the SSE event stream parser and
+      // transition the state machine to Active.
       auto content_type = headers.find("content-type");
-      is_sse_mode_ =
+      bool is_sse_response =
           content_type != headers.end() &&
           content_type->second.find("text/event-stream") != std::string::npos;
 
-      if (is_sse_mode_) {
-        // Client entering SSE mode - start event stream parser
+      if (is_sse_response) {
         sse_filter_->startEventStream();
+        if (client_sse_sm_) {
+          client_sse_sm_->handleEvent(ClientSseEvent::StreamStarted);
+        }
       }
     }
   }
@@ -718,7 +794,7 @@ class HttpSseJsonRpcProtocolFilter
     // codec surfaces any trailing bytes we don't want to push them down
     // into the JSON-RPC parser. Ignore bodies on the SSE stream
     // connection entirely.
-    if (is_server_ && sse_server_mode_) {
+    if (server_mode_ && server_mode_->isSseStream()) {
       return;
     }
     // Server receives JSON-RPC in request body regardless of SSE mode
@@ -731,8 +807,12 @@ class HttpSseJsonRpcProtocolFilter
         pending_json_data_.drain(pending_json_data_.length());
       }
     } else {
-      // Client mode: parse based on content type
-      if (is_sse_mode_) {
+      // Client mode: route body data based on the state machine.
+      // When the SSE stream is active (Content-Type: text/event-stream
+      // was seen), the body carries SSE event-stream chunks. Otherwise
+      // (Streamable HTTP or before SSE headers arrive) it carries
+      // JSON-RPC responses. isSseActive() checks client_sse_sm_->isReady().
+      if (isSseActive()) {
         // In SSE mode, body contains event stream
         // SSE events can span multiple chunks, accumulate in buffer
         pending_sse_data_.add(data);
@@ -755,8 +835,10 @@ class HttpSseJsonRpcProtocolFilter
   }
 
   void onMessageComplete() override {
-    // HTTP message complete
-    if (!is_sse_mode_ && pending_json_data_.length() > 0) {
+    // HTTP message complete — flush any remaining JSON-RPC data that
+    // was not yet processed. In SSE mode the data flows through the
+    // SSE codec instead, so we only flush for non-SSE connections.
+    if (!isSseActive() && pending_json_data_.length() > 0) {
       // Process any remaining JSON-RPC data
       jsonrpc_filter_->onData(pending_json_data_, true);
       pending_json_data_.drain(pending_json_data_.length());
@@ -786,7 +868,12 @@ class HttpSseJsonRpcProtocolFilter
       GOPHER_LOG_DEBUG(
           "HttpSseJsonRpcProtocolFilter: Received endpoint event: {}", data);
       http_filter_->setMessageEndpoint(data);
-      waiting_for_sse_endpoint_ = false;
+
+      // Transition the state machine: endpoint arrived. This replaces
+      // the old waiting_for_sse_endpoint_ = false assignment.
+      if (client_sse_sm_) {
+        client_sse_sm_->handleEvent(ClientSseEvent::EndpointReceived);
+      }
 
       // Notify McpConnectionManager about the message endpoint
       // This allows it to set up separate POST connections
@@ -845,13 +932,6 @@ class HttpSseJsonRpcProtocolFilter
    */
   void onRequest(const jsonrpc::Request& request) override {
     GOPHER_LOG_DEBUG("HttpSseFilter::onRequest for method: {}", request.method);
-    // Following production pattern: create a new stream for each request
-    // This supports HTTP pipelining with multiple concurrent requests
-    // Executed in dispatcher thread - no synchronization needed
-    auto stream = std::make_unique<RequestStream>(request.id, this);
-    std::string id_key = requestIdToString(request.id);
-    active_streams_[id_key] = std::move(stream);
-
     mcp_callbacks_.onRequest(request);
   }
 
@@ -900,50 +980,6 @@ class HttpSseJsonRpcProtocolFilter
 
   JsonRpcProtocolFilter::Encoder& jsonrpcEncoder() {
     return jsonrpc_filter_->encoder();
-  }
-
-  // Method to send response through this filter instance
-  // Send response for a specific stream
-  // Following production pattern: called only in dispatcher thread context
-  void sendResponseForStream(const jsonrpc::Response& response,
-                             RequestId stream_id) {
-    std::string id_key = requestIdToString(stream_id);
-
-    // No locks needed - single threaded per connection
-    auto it = active_streams_.find(id_key);
-    if (it != active_streams_.end()) {
-      sendResponseThroughFilter(response);
-      active_streams_.erase(it);
-    } else {
-      // Following production pattern: no stream means request was already
-      // completed or never existed Drop the response - do NOT send it (would
-      // violate HTTP protocol)
-      GOPHER_LOG_ERROR(
-          "No stream found for response ID {} - dropping response "
-          "(possible duplicate or late response)",
-          id_key);
-      // NO FALLBACK - just return
-    }
-  }
-
-  /*
-  1. McpServer receives request and calls conn_manager->sendResponse(response)
-  2. McpConnectionManager::sendResponse converts to JSON and calls
-  sendJsonMessage
-  3. sendJsonMessage calls active_connection_->write(*buffer, false)
-  4. This goes through the filter chain's onWrite() methods
-  5. The filter should format the data in onWrite(), not initiate writes
-  */
-  void sendResponseThroughFilter(const jsonrpc::Response& response) {
-    // DEAD CODE - This method is never called!
-    // RequestStream::sendResponse is never invoked by anyone.
-    // The actual response flow is:
-    // 1. McpServer calls current_connection_->write() directly
-    // 2. This triggers onWrite() which formats the data
-    // 3. The formatted data is written to the socket
-    //
-    // This entire RequestStream mechanism is unused and should be removed.
-    GOPHER_LOG_WARN("sendResponseThroughFilter called - this is dead code!");
   }
 
  private:
@@ -1082,19 +1118,36 @@ class HttpSseJsonRpcProtocolFilter
     }
   }
 
+  /**
+   * Check if this connection is in SSE mode for data routing purposes.
+   * Server: true when mode is SseStream.
+   * Client: true when the state machine has reached Active (Content-Type:
+   *         text/event-stream was seen). The state machine can reach
+   *         Active from WaitingForEndpoint directly because Content-Type
+   *         detection (in HTTP headers) precedes the endpoint SSE event
+   *         (in the HTTP body).
+   */
+  bool isSseActive() const {
+    if (server_mode_) {
+      return server_mode_->isSseStream();
+    }
+    if (client_sse_sm_) {
+      return client_sse_sm_->isReady();
+    }
+    return false;
+  }
+
   event::Dispatcher& dispatcher_;
   McpProtocolCallbacks& mcp_callbacks_;
   bool is_server_;
-  bool is_sse_mode_{false};
   bool client_accepts_sse_{
       false};  // Track if client supports SSE (Accept header)
-  bool sse_headers_written_{
-      false};  // Track if HTTP headers sent for SSE stream
+  // (sse_headers_written_ removed — tracked by
+  // server_mode_->sseHeadersWritten())
 
   // SSE client endpoint configuration
   std::string http_path_{"/rpc"};       // Default HTTP path for requests
   std::string http_host_{"localhost"};  // Default HTTP host for requests
-  bool use_sse_{true};  // True for SSE mode, false for Streamable HTTP
 
   // SSE server transport (only meaningful when is_server_ == true).
   std::string configured_sse_path_{"/sse"};
@@ -1105,14 +1158,11 @@ class HttpSseJsonRpcProtocolFilter
   // mode and in server mode when the factory wasn't built with SSE
   // server transport (back-compat default constructors).
   SseSessionRegistry* sse_registry_{nullptr};
-  // This connection serves the long-lived GET /sse stream.
-  bool sse_server_mode_{false};
-  // Pass-through guard: true while we're inside onHeaders writing raw
-  // HTTP bytes (handshake or 202 Accepted) via connection().write(), so
-  // our own onWrite doesn't try to re-frame those bytes.
-  bool sse_writing_handshake_{false};
-  // Session ID this connection's SSE stream is registered under.
-  // Populated when we handle GET /sse, cleared in the destructor.
+  // (sse_server_mode_ removed — tracked by server_mode_->isSseStream())
+  // (sse_writing_handshake_ removed — tracked by
+  // server_mode_->isWritingHandshake()) Session ID this connection's SSE stream
+  // is registered under. Populated when we handle GET /sse, cleared in the
+  // destructor.
   std::string sse_session_id_;
   // Session ID parsed from an incoming POST /callback/{id}. Non-empty
   // means onWrite should redirect the response through the SSE stream
@@ -1120,10 +1170,19 @@ class HttpSseJsonRpcProtocolFilter
   // connection.
   std::string sse_callback_session_id_;
 
-  // SSE endpoint negotiation (client mode only)
-  bool waiting_for_sse_endpoint_{false};  // Waiting for "endpoint" SSE event
-  std::vector<OwnedBuffer>
-      pending_messages_;  // Messages queued until endpoint received
+  // Messages queued during SSE endpoint negotiation (client mode only).
+  // Drained once the state machine reaches EndpointReceived.
+  std::vector<OwnedBuffer> pending_messages_;
+
+  // Client-side SSE negotiation state machine. Tracks the SSE endpoint
+  // negotiation lifecycle with validated transitions, timeout handling,
+  // and state history. Null for server-mode filters.
+  std::unique_ptr<ClientSseStateMachine> client_sse_sm_;
+
+  // Server-side connection mode state machine. Tracks the per-connection
+  // mode (PlainHttp, SseStream, CallbackProxy) with validated transitions
+  // and RAII handshake write guard. Null for client-mode filters.
+  std::unique_ptr<ServerConnectionMode> server_mode_;
 
   // Protocol filters
   std::shared_ptr<HttpCodecFilter> http_filter_;
@@ -1136,12 +1195,6 @@ class HttpSseJsonRpcProtocolFilter
   network::ReadFilterCallbacks* read_callbacks_{nullptr};
   network::WriteFilterCallbacks* write_callbacks_{nullptr};
 
-  // Stream management - following production pattern
-  // Multiple concurrent requests per connection (HTTP pipelining support)
-  // Using string key since RequestId is a variant without comparison operators
-  // All access happens in the single dispatcher thread - no locks needed
-  std::map<std::string, std::unique_ptr<RequestStream>> active_streams_;
-
   // Connection reference for response routing
   network::Connection* connection_{nullptr};
 
@@ -1152,15 +1205,6 @@ class HttpSseJsonRpcProtocolFilter
   // Custom route registration callback
   HttpRouteRegistrationCallback route_registration_callback_;
 };
-
-// RequestStream method implementation (after HttpSseJsonRpcProtocolFilter
-// definition)
-void RequestStream::sendResponse(const jsonrpc::Response& response) {
-  // Each stream knows how to send its own response
-  if (filter_) {
-    filter_->sendResponseForStream(response, id_);
-  }
-}
 
 // Static method to send response through the connection's filter chain
 // Following production pattern: ensure execution in the connection's dispatcher
