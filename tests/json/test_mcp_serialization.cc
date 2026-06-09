@@ -454,6 +454,72 @@ TEST_F(MCPSerializationTest, ReadResourceResult) {
   testRoundTrip(result);
 }
 
+// Regression test: a resources/read response on the wire is an object with a
+// "contents" array. The ResponseResult deserializer must recognize it and
+// produce a structured ReadResourceResult (not flatten it into Metadata), so
+// that McpClient::readResource returns populated contents instead of empty.
+TEST_F(MCPSerializationTest, ResponseResultDeserializesReadResource) {
+  // Build the wire-shaped response payload, exactly as a server emits it.
+  JsonValue text_entry = JsonValue::object();
+  text_entry["uri"] = "file:///notes.txt";
+  text_entry["mimeType"] = "text/plain";
+  text_entry["text"] = "hello world";
+
+  JsonValue blob_entry = JsonValue::object();
+  blob_entry["uri"] = "file:///image.png";
+  blob_entry["mimeType"] = "image/png";
+  blob_entry["blob"] = "YmluYXJ5";  // base64
+
+  JsonValue contents = JsonValue::array();
+  contents.push_back(std::move(text_entry));
+  contents.push_back(std::move(blob_entry));
+
+  JsonValue payload = JsonValue::object();
+  payload["contents"] = std::move(contents);
+
+  // Deserialize through the ResponseResult path (the path the client uses).
+  auto result = from_json<jsonrpc::ResponseResult>(payload);
+
+  ASSERT_TRUE(holds_alternative<ReadResourceResult>(result));
+  const auto& read_result = get<ReadResourceResult>(result);
+  ASSERT_EQ(read_result.contents.size(), 2u);
+
+  // First entry is text content with its uri/mimeType preserved.
+  ASSERT_TRUE(holds_alternative<TextResourceContents>(read_result.contents[0]));
+  const auto& text = get<TextResourceContents>(read_result.contents[0]);
+  EXPECT_EQ(text.text, "hello world");
+  ASSERT_TRUE(text.uri.has_value());
+  EXPECT_EQ(text.uri.value(), "file:///notes.txt");
+  ASSERT_TRUE(text.mimeType.has_value());
+  EXPECT_EQ(text.mimeType.value(), "text/plain");
+
+  // Second entry is blob content.
+  ASSERT_TRUE(holds_alternative<BlobResourceContents>(read_result.contents[1]));
+  const auto& blob = get<BlobResourceContents>(read_result.contents[1]);
+  EXPECT_EQ(blob.blob, "YmluYXJ5");
+  ASSERT_TRUE(blob.uri.has_value());
+  EXPECT_EQ(blob.uri.value(), "file:///image.png");
+}
+
+// A full ResponseResult round-trip through the variant: serialize a
+// ReadResourceResult-bearing result and read it back unchanged.
+TEST_F(MCPSerializationTest, ResponseResultReadResourceRoundTrip) {
+  ReadResourceResult result;
+  TextResourceContents text("file body");
+  text.uri = mcp::make_optional(std::string("file:///a.txt"));
+  result.contents.push_back(text);
+
+  jsonrpc::ResponseResult response_result(result);
+  JsonValue j = to_json(response_result);
+  auto back = from_json<jsonrpc::ResponseResult>(j);
+
+  ASSERT_TRUE(holds_alternative<ReadResourceResult>(back));
+  const auto& round = get<ReadResourceResult>(back);
+  ASSERT_EQ(round.contents.size(), 1u);
+  ASSERT_TRUE(holds_alternative<TextResourceContents>(round.contents[0]));
+  EXPECT_EQ(get<TextResourceContents>(round.contents[0]).text, "file body");
+}
+
 TEST_F(MCPSerializationTest, CallToolRequest) {
   // Simple tool call
   CallToolRequest simple_req = make_tool_call("calculator");

@@ -131,6 +131,10 @@ JsonValue serialize_ResponseResult(const jsonrpc::ResponseResult& result) {
         // ListToolsResult is a full result object with tools array
         json_result = to_json(list_result);
       },
+      [&json_result](const ReadResourceResult& read_result) {
+        // ReadResourceResult is a full result object with a contents array
+        json_result = to_json(read_result);
+      },
       [&json_result](const JsonValue& json_val) {
         // Direct JsonValue passthrough for arbitrary nested JSON responses
         json_result = json_val;
@@ -539,6 +543,12 @@ jsonrpc::ResponseResult deserialize_ResponseResult(const JsonValue& json) {
     // Check if it's a ListToolsResult (has "tools" array)
     if (json.contains("tools") && json["tools"].isArray()) {
       return jsonrpc::ResponseResult(from_json<ListToolsResult>(json));
+    }
+    // Check if it's a ReadResourceResult - has a "contents" array field.
+    // Note: CallToolResult uses "content" (singular); ReadResourceResult uses
+    // "contents" (plural), so the two do not collide here.
+    if (json.contains("contents") && json["contents"].isArray()) {
+      return jsonrpc::ResponseResult(from_json<ReadResourceResult>(json));
     }
     // Otherwise treat as Metadata
     return jsonrpc::ResponseResult(jsonToMetadata(json));

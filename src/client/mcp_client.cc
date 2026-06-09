@@ -1165,11 +1165,18 @@ std::future<ReadResourceResult> McpClient::readResource(
       if (response.error.has_value()) {
         result_promise->set_exception(std::make_exception_ptr(
             std::runtime_error(response.error->message)));
-      } else {
-        // Parse ReadResourceResult from response
+      } else if (response.result.has_value()) {
+        // The ResponseResult variant directly contains a ReadResourceResult
+        // (the deserializer recognizes the "contents" array and builds one),
+        // mirroring how listResources/listTools extract their results.
         ReadResourceResult result;
-        // TODO: Parse response into result structure
+        if (holds_alternative<ReadResourceResult>(response.result.value())) {
+          result = get<ReadResourceResult>(response.result.value());
+        }
         result_promise->set_value(result);
+      } else {
+        // No result payload at all; return an empty (but valid) result.
+        result_promise->set_value(ReadResourceResult());
       }
     } catch (...) {
       result_promise->set_exception(std::current_exception());
