@@ -827,9 +827,45 @@ void McpClient::handleRequest(const Request& request) {
   connection_manager_->sendResponse(response);
 }
 
-// Handle notifications from server
+// Register an application-level notification handler for a given method.
+// Safe to call from any thread; the handler itself is always invoked in the
+// dispatcher thread by handleNotification().
+void McpClient::registerNotificationHandler(
+    const std::string& method,
+    std::function<void(const jsonrpc::Notification&)> handler) {
+  std::lock_guard<std::mutex> lock(notification_handlers_mutex_);
+  notification_handlers_[method] = std::move(handler);
+}
+
+// Handle notifications from server.
+//
+// Invoked in the dispatcher thread via ProtocolCallbacksImpl::onNotification,
+// which is driven by the JSON-RPC protocol filter. Routes the notification to
+// the application handler registered for its method, if any. Unhandled
+// notification methods are ignored (per JSON-RPC, notifications are never
+// answered), matching the server-side onNotification behaviour.
 void McpClient::handleNotification(const Notification& notification) {
-  // Process based on method
+  std::function<void(const jsonrpc::Notification&)> handler;
+  {
+    std::lock_guard<std::mutex> lock(notification_handlers_mutex_);
+    auto it = notification_handlers_.find(notification.method);
+    if (it != notification_handlers_.end()) {
+      handler = it->second;
+    }
+  }
+
+  // Invoke outside the lock so a handler may (re)register handlers without
+  // deadlocking, and so a slow handler does not block registration.
+  if (handler) {
+    try {
+      handler(notification);
+    } catch (const std::exception&) {
+      // Notifications carry no response; swallow handler exceptions so a
+      // misbehaving callback cannot tear down the dispatcher. Count it as a
+      // client-side error for observability.
+      client_stats_.errors_total++;
+    }
+  }
 }
 
 // Handle errors
