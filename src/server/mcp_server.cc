@@ -1128,6 +1128,17 @@ jsonrpc::Response McpServer::handleCallTool(const jsonrpc::Request& request,
     }
   }
 
+  // Surface the request's params._meta (out-of-band metadata, e.g. correlation
+  // ids) to the tool handler via the session it already receives. Carried as its
+  // stringified-JSON form, like nested arguments above. Cleared when absent so a
+  // prior request's _meta never aliases this one.
+  auto meta_it = params.find("_meta");
+  if (meta_it != params.end() && holds_alternative<std::string>(meta_it->second)) {
+    session.setRequestMeta(mcp::make_optional(get<std::string>(meta_it->second)));
+  } else {
+    session.setRequestMeta(nullopt);
+  }
+
   // Call tool
   GOPHER_LOG_DEBUG("Calling tool_registry_->callTool for: {}", name);
   auto result = tool_registry_->callTool(name, arguments, session);
