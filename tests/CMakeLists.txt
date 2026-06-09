@@ -118,6 +118,9 @@ add_executable(test_mcp_client_memory client/test_mcp_client_memory.cc)
 # Connection promise fix tests
 add_executable(test_connection_promise_fix client/test_connection_promise_fix.cc)
 
+# MCP Client notification handler tests
+add_executable(test_mcp_client_notifications client/test_mcp_client_notifications.cc)
+
 # C API tests
 if(BUILD_C_API)
     # Tests using new opaque handle API
@@ -840,6 +843,18 @@ target_link_libraries(test_connection_promise_fix
     Threads::Threads
 )
 
+# MCP Client notification handler tests
+target_link_libraries(test_mcp_client_notifications
+    gopher-mcp
+    gopher-mcp-event
+    gopher-mcp-logging
+    gtest
+    gmock
+    gtest_main
+    Threads::Threads
+    fmt::fmt
+)
+
 # Link libraries for C API tests
 if(BUILD_C_API)
     # Test for new opaque handle C API types
@@ -1375,6 +1390,7 @@ add_test(NAME ConnectionManagerTest COMMAND test_connection_manager)
 add_test(NAME BuildersTest COMMAND test_builders)
 add_test(NAME McpClientThreadingTest COMMAND test_mcp_client_threading)
 add_test(NAME McpClientMemoryTest COMMAND test_mcp_client_memory)
+add_test(NAME McpClientNotificationTest COMMAND test_mcp_client_notifications)
 
 # New tests for recent fixes
 add_test(NAME ConnectionPoolCallbacksTest COMMAND test_connection_pool_callbacks)

@@ -480,6 +480,18 @@ class McpClient : public application::ApplicationBase {
       const std::vector<SamplingMessage>& messages,
       const optional<ModelPreferences>& preferences = nullopt);
 
+  // Notification handling - register a callback for a given notification
+  // method (e.g. "notifications/resources/updated"). This lets applications
+  // observe server-initiated notifications such as resource updates.
+  //
+  // The handler is invoked in the dispatcher thread when a matching
+  // notification arrives. Registering a handler for a method that already has
+  // one replaces the previous handler. Mirrors the server-side
+  // registerNotificationHandler design.
+  void registerNotificationHandler(
+      const std::string& method,
+      std::function<void(const jsonrpc::Notification&)> handler);
+
   // Progress tracking - register callback for progress updates
   void trackProgress(const ProgressToken& token,
                      std::function<void(double)> callback);
@@ -605,6 +617,14 @@ class McpClient : public application::ApplicationBase {
   // Progress tracking - use string representation as map key
   std::map<std::string, std::function<void(double)>> progress_callbacks_;
   std::mutex progress_mutex_;
+
+  // Application-registered notification handlers, keyed by notification method.
+  // Guarded by a mutex because registration may happen on the application
+  // thread while dispatch (lookup) happens on the dispatcher thread. Mirrors
+  // the server's notification_handlers_/handlers_mutex_ design.
+  std::map<std::string, std::function<void(const jsonrpc::Notification&)>>
+      notification_handlers_;
+  std::mutex notification_handlers_mutex_;
 
   // Protocol state
   bool initialized_{false};
