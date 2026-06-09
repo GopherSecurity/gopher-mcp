@@ -214,6 +214,16 @@ class SessionContext {
 
   const optional<Implementation>& getClientInfo() const { return client_info_; }
 
+  // Request-scoped metadata: the in-flight request's params._meta, carried as its
+  // stringified-JSON form (consistent with how nested arguments are represented
+  // in Metadata). Set immediately before each tool handler is dispatched and
+  // cleared when the request carries no _meta, so a handler can read out-of-band
+  // correlation ids (e.g. run_id / tool_call_id) without the dispatch forking.
+  // Safe as a per-session field because request dispatch is synchronous per
+  // request on the dispatcher thread; it is overwritten on the next call.
+  void setRequestMeta(const optional<std::string>& meta) { request_meta_ = meta; }
+  const optional<std::string>& getRequestMeta() const { return request_meta_; }
+
   // Subscription management
   void addSubscription(const std::string& uri) {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -241,6 +251,7 @@ class SessionContext {
   std::chrono::steady_clock::time_point created_time_;
   std::chrono::steady_clock::time_point last_activity_;
   optional<Implementation> client_info_;
+  optional<std::string> request_meta_;  // params._meta of the in-flight request
 
   mutable std::mutex mutex_;
   std::set<std::string> subscriptions_;
