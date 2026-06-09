@@ -477,6 +477,38 @@ struct ListToolsResult {
   ListToolsResult() = default;
 };
 
+// Resource contents variations and ReadResourceResult are defined here (before
+// the jsonrpc::ResponseResult variant) so ReadResourceResult can participate in
+// that variant, mirroring ListResourcesResult / ListToolsResult above. This is
+// what lets a resources/read response deserialize into a structured result
+// rather than being flattened into Metadata.
+struct ResourceContents {
+  optional<std::string> uri;
+  optional<std::string> mimeType;
+
+  ResourceContents() = default;
+};
+
+struct TextResourceContents : ResourceContents {
+  std::string text;
+
+  TextResourceContents() = default;
+  explicit TextResourceContents(const std::string& t) : text(t) {}
+};
+
+struct BlobResourceContents : ResourceContents {
+  std::string blob;  // Base64-encoded data
+
+  BlobResourceContents() = default;
+  explicit BlobResourceContents(const std::string& b) : blob(b) {}
+};
+
+struct ReadResourceResult {
+  std::vector<variant<TextResourceContents, BlobResourceContents>> contents;
+
+  ReadResourceResult() = default;
+};
+
 // JSON-RPC message types
 namespace jsonrpc {
 
@@ -513,6 +545,7 @@ using ResponseResult = variant<std::nullptr_t,
                                std::vector<Resource>,
                                ListResourcesResult,
                                ListToolsResult,
+                               ReadResourceResult,
                                json::JsonValue>;
 
 struct Response {
@@ -594,27 +627,8 @@ inline Response make_error_response(const RequestId& id,
 
 }  // namespace jsonrpc
 
-// Resource contents variations
-struct ResourceContents {
-  optional<std::string> uri;
-  optional<std::string> mimeType;
-
-  ResourceContents() = default;
-};
-
-struct TextResourceContents : ResourceContents {
-  std::string text;
-
-  TextResourceContents() = default;
-  explicit TextResourceContents(const std::string& t) : text(t) {}
-};
-
-struct BlobResourceContents : ResourceContents {
-  std::string blob;  // Base64-encoded data
-
-  BlobResourceContents() = default;
-  explicit BlobResourceContents(const std::string& b) : blob(b) {}
-};
+// Resource contents variations (ResourceContents, TextResourceContents,
+// BlobResourceContents) are defined earlier, before the ResponseResult variant.
 
 // Factory functions for resource contents
 inline TextResourceContents make_text_resource(const std::string& text) {
@@ -944,11 +958,8 @@ struct ReadResourceRequest : jsonrpc::Request {
   }
 };
 
-struct ReadResourceResult {
-  std::vector<variant<TextResourceContents, BlobResourceContents>> contents;
-
-  ReadResourceResult() = default;
-};
+// ReadResourceResult is defined earlier, before the ResponseResult variant, so
+// it can participate in that variant (see the comment near ListToolsResult).
 
 struct ResourceListChangedNotification : jsonrpc::Notification {
   ResourceListChangedNotification() : jsonrpc::Notification() {
