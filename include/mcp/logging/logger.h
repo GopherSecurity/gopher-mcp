@@ -38,28 +38,32 @@ class Logger : public std::enable_shared_from_this<Logger> {
   template <typename... Args>
   void debug(const char* fmt, Args&&... args) {
     if (shouldLog(LogLevel::Debug)) {
-      logImpl(LogLevel::Debug, fmt::format(fmt::runtime(fmt), std::forward<Args>(args)...));
+      logImpl(LogLevel::Debug,
+              fmt::format(fmt::runtime(fmt), std::forward<Args>(args)...));
     }
   }
 
   template <typename... Args>
   void info(const char* fmt, Args&&... args) {
     if (shouldLog(LogLevel::Info)) {
-      logImpl(LogLevel::Info, fmt::format(fmt::runtime(fmt), std::forward<Args>(args)...));
+      logImpl(LogLevel::Info,
+              fmt::format(fmt::runtime(fmt), std::forward<Args>(args)...));
     }
   }
 
   template <typename... Args>
   void warning(const char* fmt, Args&&... args) {
     if (shouldLog(LogLevel::Warning)) {
-      logImpl(LogLevel::Warning, fmt::format(fmt::runtime(fmt), std::forward<Args>(args)...));
+      logImpl(LogLevel::Warning,
+              fmt::format(fmt::runtime(fmt), std::forward<Args>(args)...));
     }
   }
 
   template <typename... Args>
   void error(const char* fmt, Args&&... args) {
     if (shouldLog(LogLevel::Error)) {
-      logImpl(LogLevel::Error, fmt::format(fmt::runtime(fmt), std::forward<Args>(args)...));
+      logImpl(LogLevel::Error,
+              fmt::format(fmt::runtime(fmt), std::forward<Args>(args)...));
     }
   }
 
