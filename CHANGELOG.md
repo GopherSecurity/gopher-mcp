@@ -14,6 +14,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 
+## [0.1.6] - 2026-06-11
+
+### Added
+
+- Add a request-scoped _meta carrier to SessionContext (#236) - set/getRequestMeta hold the in-flight request's params._meta as its   stringified-JSON form, so a tool handler can read out-of-band metadata   (e.g. correlation ids) without the dispatch forking - The value is per-request but stored on the per-session SessionContext; this is   safe because a session handles one request at a time on the dispatcher thread   and handleCallTool sets it fresh before each dispatch, so it always reflects the   current request
+- Add client-side notification handler registration to McpClient (#237)
+- Add integration tests for ServerConnectionMode wiring in filter (#226)
+- Add comprehensive unit tests for ServerConnectionMode (#226)
+- Add ServerConnectionMode for server-side connection lifecycle (#226)
+- Add integration tests for ClientSseStateMachine wiring in filter (#226)
+- Add comprehensive unit tests for ClientSseStateMachine (#226)
+- Add ClientSseStateMachine for client-side SSE negotiation lifecycle (#226)
+- Add fmt::runtime calls to all runtime format strings
+
+### Changed
+
+- Release 0.1.5
+- Release 0.1.4
+- Enhance dump-version.sh with GitHub release check and auto-generated changelog
+- Release 0.1.3
+- Format code (#236)
+- Surface request params._meta to server-side tool handlers (#236) - handleCallTool stashes params._meta onto the session before dispatch, beside the   existing arguments extraction; cleared when absent so a prior request's _meta   never aliases this one - The tool handler already receives the session, so no handler signature changes
+- Populate ReadResourceResult contents in McpClient::readResource (#238)
+- Format code (#226)
+- Remove dead RequestStream code from HttpSseJsonRpcProtocolFilter (#226)
+- Wire state change logging for both state machines (#226)
+- Remove is_sse_mode_ and unify SSE detection through state machines (#226)
+- Integrate ServerConnectionMode into HttpSseJsonRpcProtocolFilter (#226)
+- Wire SSE negotiation timeout to error propagation and message drain (#226)
+- Replace client-side boolean flags with ClientSseStateMachine queries (#226)
+- Wire ClientSseStateMachine into HttpSseJsonRpcProtocolFilter as shadow (#226)
+- build: Add MSVC 26 support and improve build configuration
+- Restyle README architecture overview to nested-box layout and align right edges (#225)
+- Unstaged changes: CMakeLists.txt
+
+### Fixed
+
+- Fix ConnectionPoolImpl timeout SEGFAULT from premature write event (#226)
+
 ## [0.1.5] - 2026-04-21
 
 ### Added
