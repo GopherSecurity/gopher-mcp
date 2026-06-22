@@ -10,6 +10,7 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include "mcp/event/libevent_dispatcher.h"
 #include "mcp/network/address_impl.h"
 #include "mcp/network/socket_impl.h"
 #include "mcp/transport/tcp_transport_socket_state_machine.h"
@@ -471,6 +472,96 @@ TEST_F(TcpTransportSocketStateMachineTest, TcpConnectionFlow) {
     tcp_transport->closeSocket(network::ConnectionEvent::RemoteClose);
     EXPECT_EQ(tcp_transport->currentState(), TransportSocketState::Closed);
   });
+}
+
+// =============================================================================
+// Liveness-token / Use-After-Free Regression Tests
+// =============================================================================
+//
+// scheduleTransition() posts a lambda capturing raw `this` to the dispatcher.
+// If the state machine is destroyed before the dispatcher drains, the lambda
+// dereferences freed memory. The fix is a std::shared_ptr<bool> alive_ token
+// captured as weak_ptr; on dispatch the lambda checks expired() and bails.
+//
+// These tests use a standalone LibeventDispatcher (not RealIoTestBase) so we
+// can control exactly when the dispatcher drains relative to destruction.
+
+TEST(TransportSocketStateMachineLifetime,
+     ScheduledTransition_NoOpAfterDestroy) {
+  auto dispatcher = std::make_unique<event::LibeventDispatcher>("uaf_test");
+
+  StateMachineConfig config;
+  config.mode = StateMachineConfig::Mode::Client;
+  config.allow_force_transitions = true;
+  config.max_state_history = 10;
+
+  std::atomic<bool> callback_called{false};
+
+  {
+    auto machine =
+        std::make_unique<TestTransportSocketStateMachine>(*dispatcher, config);
+    // Drive into a state from which Connecting is a valid scheduled target.
+    machine->transitionTo(TransportSocketState::Initialized, "init", nullptr);
+    machine->scheduleTransition(
+        TransportSocketState::Connecting, "scheduled",
+        [&callback_called](bool) { callback_called = true; });
+    // Machine destroyed here BEFORE the dispatcher runs.
+  }
+
+  // Drain the queued lambda. Must not crash and must not invoke the callback.
+  dispatcher->run(event::RunType::NonBlock);
+
+  EXPECT_FALSE(callback_called.load());
+}
+
+TEST(TransportSocketStateMachineLifetime, MultiplePostsAfterDestroy) {
+  auto dispatcher = std::make_unique<event::LibeventDispatcher>("uaf_test_n");
+
+  StateMachineConfig config;
+  config.mode = StateMachineConfig::Mode::Client;
+  config.allow_force_transitions = true;
+  config.max_state_history = 10;
+
+  std::atomic<int> callback_count{0};
+
+  {
+    auto machine =
+        std::make_unique<TestTransportSocketStateMachine>(*dispatcher, config);
+    machine->transitionTo(TransportSocketState::Initialized, "init", nullptr);
+    for (int i = 0; i < 4; ++i) {
+      machine->scheduleTransition(
+          TransportSocketState::Connecting, "burst",
+          [&callback_count](bool) { ++callback_count; });
+    }
+  }
+
+  dispatcher->run(event::RunType::NonBlock);
+
+  EXPECT_EQ(callback_count.load(), 0);
+}
+
+TEST(TransportSocketStateMachineLifetime, NormalPathStillWorks) {
+  // Sanity check that the liveness token does NOT break the normal path.
+  auto dispatcher = std::make_unique<event::LibeventDispatcher>("uaf_test_ok");
+
+  StateMachineConfig config;
+  config.mode = StateMachineConfig::Mode::Client;
+  config.allow_force_transitions = true;
+  config.max_state_history = 10;
+
+  auto machine =
+      std::make_unique<TestTransportSocketStateMachine>(*dispatcher, config);
+  machine->transitionTo(TransportSocketState::Initialized, "init", nullptr);
+
+  std::atomic<bool> callback_called{false};
+  machine->scheduleTransition(
+      TransportSocketState::Connecting, "ok",
+      [&callback_called](bool success) { callback_called = success; });
+
+  dispatcher->run(event::RunType::NonBlock);
+
+  EXPECT_TRUE(callback_called.load());
+  EXPECT_EQ(machine->currentState(), TransportSocketState::Connecting);
 }
 
 }  // namespace

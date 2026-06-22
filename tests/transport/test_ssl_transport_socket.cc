@@ -567,6 +567,88 @@ TEST_F(SslTransportSocketUnitTest, MoveToBioMultiReadFixVerification) {
 }
 
 // ============================================================================
+// SECTION A.1: LIFETIME TESTS FOR DISPATCHER-POSTED SSL SOCKET WORK
+// ============================================================================
+
+class SslTransportSocketLifetimeTest : public ::testing::Test {
+ protected:
+  void SetUp() override {
+    dispatcher_ = std::make_unique<event::LibeventDispatcher>("ssl_lifetime");
+
+    SslContextConfig config;
+    config.is_client = true;
+    config.verify_peer = false;
+
+    auto result = SslContext::create(config);
+    if (holds_alternative<SslContextSharedPtr>(result)) {
+      ssl_context_ = get<SslContextSharedPtr>(result);
+    }
+  }
+
+  void TearDown() override {
+    ssl_context_.reset();
+    dispatcher_.reset();
+  }
+
+  std::unique_ptr<event::LibeventDispatcher> dispatcher_;
+  SslContextSharedPtr ssl_context_;
+};
+
+TEST_F(SslTransportSocketLifetimeTest, OnConnectedPostNoOpsAfterDestruction) {
+  if (!ssl_context_) {
+    GTEST_SKIP() << "SSL context creation failed";
+  }
+
+  {
+    auto mock = std::make_unique<MockTransportSocket>();
+    auto ssl_socket = std::make_unique<SslTransportSocket>(
+        std::move(mock), ssl_context_, SslTransportSocket::InitialRole::Client,
+        *dispatcher_);
+
+    network::IoHandlePtr io_handle =
+        std::make_unique<network::IoSocketHandleImpl>();
+    network::ConnectionSocketImpl dummy_socket(std::move(io_handle), nullptr,
+                                               nullptr);
+    ASSERT_TRUE(holds_alternative<std::nullptr_t>(
+        ssl_socket->connect(dummy_socket)));
+
+    ssl_socket->onConnected();
+    // ssl_socket is destroyed here before the posted handshake kickoff runs.
+  }
+
+  // Pre-fix this drained a dispatcher lambda that captured raw `this` from the
+  // destroyed SslTransportSocket. The liveness token makes it a no-op.
+  dispatcher_->run(event::RunType::NonBlock);
+  SUCCEED();
+}
+
+TEST_F(SslTransportSocketLifetimeTest, OnConnectedPostRunsWhileSocketIsAlive) {
+  if (!ssl_context_) {
+    GTEST_SKIP() << "SSL context creation failed";
+  }
+
+  auto mock = std::make_unique<MockTransportSocket>();
+  auto* mock_ptr = mock.get();
+  auto ssl_socket = std::make_unique<SslTransportSocket>(
+      std::move(mock), ssl_context_, SslTransportSocket::InitialRole::Client,
+      *dispatcher_);
+
+  network::IoHandlePtr io_handle =
+      std::make_unique<network::IoSocketHandleImpl>();
+  network::ConnectionSocketImpl dummy_socket(std::move(io_handle), nullptr,
+                                             nullptr);
+  ASSERT_TRUE(
+      holds_alternative<std::nullptr_t>(ssl_socket->connect(dummy_socket)));
+
+  ssl_socket->onConnected();
+  EXPECT_EQ(mock_ptr->getBytesWritten(), 0);
+
+  dispatcher_->run(event::RunType::NonBlock);
+
+  EXPECT_GT(mock_ptr->getBytesWritten(), 0);
+}
+
+// ============================================================================
 // SECTION A.2: UNIT TESTS FOR doRead HANDSHAKE FIX (4 tests)
 // ============================================================================
 

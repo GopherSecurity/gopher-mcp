@@ -429,6 +429,12 @@ class SslTransportSocket
    * Log final statistics for debugging
    */
   void logFinalStatistics();
+
+  // Liveness token for posted lambdas. Any dispatcher_.post([this, ...])
+  // captures a weak_ptr<bool> derived from this and bails on expired() if
+  // the socket is destroyed before the post drains. Prevents UAF when a
+  // teardown races queued work.
+  std::shared_ptr<bool> alive_{std::make_shared<bool>(true)};
 };
 
 /**
