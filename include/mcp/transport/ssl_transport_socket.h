@@ -39,6 +39,23 @@ typedef struct x509_st X509;
 namespace mcp {
 namespace transport {
 
+// Internal diagnostics helpers — declared here so unit tests can reach them
+// without resorting to source-include tricks. Not intended for general use.
+namespace detail {
+
+/**
+ * Drain the OpenSSL error queue into a human-readable string.
+ *
+ * Null-guards ERR_lib_error_string() and ERR_func_error_string() because
+ * the latter is deprecated in OpenSSL 3.x and always returns NULL there,
+ * and streaming a NULL const char* into an ostream is undefined behavior.
+ *
+ * @return Formatted error string, or "No OpenSSL errors in queue" if empty.
+ */
+std::string drainOpenSSLErrorQueue();
+
+}  // namespace detail
+
 // Use SslSocketState from state machine
 
 /**
