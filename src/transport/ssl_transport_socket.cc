@@ -1518,6 +1518,11 @@ void SslTransportSocket::handleSslError(const std::string& reason) {
    * Handle SSL error
    */
 
+  // Surface the failure at warning level so TLS errors aren't silent at the
+  // default log level. Previously this only stored failure_reason_ for
+  // post-mortem retrieval, which made handshake/read failures invisible.
+  GOPHER_LOG_WARN("SSL error: {}", reason);
+
   failure_reason_ = reason;
 
   // Cancel timers
