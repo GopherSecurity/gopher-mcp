@@ -205,8 +205,16 @@ class SslStateMachine {
   void scheduleTransition(SslSocketState new_state,
                           TransitionCompleteCallback callback = nullptr) {
     assertInDispatcherThread();
-    dispatcher_.post(
-        [this, new_state, callback]() { transition(new_state, callback); });
+    // Capture a weak liveness token so that if `this` is destroyed before
+    // the dispatcher drains the post queue we no-op instead of dereferencing
+    // a dangling pointer. See alive_ member.
+    std::weak_ptr<bool> alive = alive_;
+    dispatcher_.post([this, alive, new_state, callback]() {
+      if (alive.expired()) {
+        return;
+      }
+      transition(new_state, callback);
+    });
   }
 
   /**
@@ -436,6 +444,12 @@ class SslStateMachine {
 
   // Transition in progress flag (prevents reentrancy)
   bool transition_in_progress_{false};
+
+  // Liveness token for posted lambdas. Lambdas queued via scheduleTransition()
+  // capture a weak_ptr to this; on dispatch they check expired() and bail if
+  // the state machine has been destroyed in the meantime. Avoids a
+  // use-after-free when a socket tears down mid-handshake.
+  std::shared_ptr<bool> alive_{std::make_shared<bool>(true)};
 };
 
 /**

@@ -919,6 +919,102 @@ TEST_F(SslStateMachineTest, StateMachine_StateTimeout) {
   dispatcher_->run(event::RunType::NonBlock);
 }
 
+// =============================================================================
+// Liveness-token / Use-After-Free Regression Tests
+// =============================================================================
+//
+// These tests cover the fix for a UAF where scheduleTransition() captured a
+// raw `this` in a dispatcher-posted lambda. If the state machine was destroyed
+// before the dispatcher drained the queue, the lambda dereferenced freed
+// memory (crash signature EXC_BAD_ACCESS @ ~0x20, observed during SSL
+// handshake teardown). The fix adds a std::shared_ptr<bool> alive_ token;
+// posted lambdas capture a std::weak_ptr<bool> and bail on expired().
+
+TEST_F(SslStateMachineTest, ScheduleTransition_NoOpAfterDestruction) {
+  // Build a machine, schedule a transition, destroy the machine BEFORE the
+  // dispatcher runs, then drain the dispatcher. With the liveness-token fix
+  // the posted lambda must no-op cleanly (no crash, callback not invoked).
+  bool callback_called = false;
+  {
+    auto machine =
+        SslStateMachineFactory::createClientStateMachine(*dispatcher_);
+    machine->scheduleTransition(SslSocketState::Initialized,
+                                [&callback_called](bool, const std::string&) {
+                                  callback_called = true;
+                                });
+    // machine destroyed here (end of scope) BEFORE the dispatcher runs.
+  }
+
+  // The dispatcher still holds the posted lambda. Draining it must not crash
+  // and must not invoke the original callback (because the underlying
+  // transition() is short-circuited by the expired weak_ptr).
+  dispatcher_->run(event::RunType::NonBlock);
+
+  EXPECT_FALSE(callback_called);
+}
+
+TEST_F(SslStateMachineTest, ScheduleTransition_MultiplePostsAfterDestruction) {
+  // Multiple lambdas queued before destruction must all no-op safely.
+  int callback_count = 0;
+  {
+    auto machine =
+        SslStateMachineFactory::createClientStateMachine(*dispatcher_);
+    for (int i = 0; i < 5; ++i) {
+      machine->scheduleTransition(
+          SslSocketState::Initialized,
+          [&callback_count](bool, const std::string&) { ++callback_count; });
+    }
+  }
+
+  dispatcher_->run(event::RunType::NonBlock);
+
+  EXPECT_EQ(callback_count, 0);
+}
+
+TEST_F(SslStateMachineTest, ScheduleTransition_NormalPathStillWorks) {
+  // Sanity check: the liveness token must not break the normal flow when the
+  // machine outlives the dispatcher drain.
+  auto machine = SslStateMachineFactory::createClientStateMachine(*dispatcher_);
+
+  bool callback_called = false;
+  machine->scheduleTransition(
+      SslSocketState::Initialized,
+      [&callback_called](bool success, const std::string&) {
+        callback_called = success;
+      });
+
+  dispatcher_->run(event::RunType::NonBlock);
+
+  EXPECT_TRUE(callback_called);
+  EXPECT_EQ(machine->getCurrentState(), SslSocketState::Initialized);
+}
+
+TEST_F(SslStateMachineTest, ScheduleTransition_MixedAliveAndDeadMachines) {
+  // Interleave a destroyed machine and a live one through the same dispatcher.
+  // The dead machine's lambda must no-op while the live machine's lambda
+  // must still fire — proves the liveness token is per-instance.
+  bool dead_callback = false;
+  {
+    auto dead = SslStateMachineFactory::createClientStateMachine(*dispatcher_);
+    dead->scheduleTransition(
+        SslSocketState::Initialized,
+        [&dead_callback](bool, const std::string&) { dead_callback = true; });
+  }
+
+  auto live = SslStateMachineFactory::createClientStateMachine(*dispatcher_);
+  bool live_callback = false;
+  live->scheduleTransition(SslSocketState::Initialized,
+                           [&live_callback](bool success, const std::string&) {
+                             live_callback = success;
+                           });
+
+  dispatcher_->run(event::RunType::NonBlock);
+
+  EXPECT_FALSE(dead_callback);
+  EXPECT_TRUE(live_callback);
+  EXPECT_EQ(live->getCurrentState(), SslSocketState::Initialized);
+}
+
 }  // namespace
 }  // namespace transport
 }  // namespace mcp

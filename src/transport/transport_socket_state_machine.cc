@@ -90,8 +90,13 @@ void TransportSocketStateMachine::scheduleTransition(
   pending_transition_ = std::make_unique<PendingTransition>(
       PendingTransition{new_state, reason, callback});
 
-  // Schedule on next event loop iteration
-  dispatcher_.post([this]() {
+  // Schedule on next event loop iteration. Capture a weak liveness token so
+  // the lambda no-ops if the state machine is destroyed before the post
+  // drains, avoiding a UAF on teardown races.
+  std::weak_ptr<bool> alive = alive_;
+  dispatcher_.post([this, alive]() {
+    if (alive.expired())
+      return;
     if (pending_transition_) {
       auto pending = std::move(pending_transition_);
       transitionTo(pending->state, pending->reason, pending->callback);
