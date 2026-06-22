@@ -1354,8 +1354,9 @@ size_t SslTransportSocket::moveToBio() {
     if (bio_carryover_->length() > 0) {
       // BIO still has no room. Wait for SSL_read to drain it before pulling
       // any more from the socket (doing so would reorder the stream).
-      GOPHER_LOG_DEBUG("moveToBio: BIO full, {} carried-over bytes still queued",
-                       bio_carryover_->length());
+      GOPHER_LOG_DEBUG(
+          "moveToBio: BIO full, {} carried-over bytes still queued",
+          bio_carryover_->length());
       return total_written;
     }
   }
@@ -1585,6 +1586,11 @@ void SslTransportSocket::handleSslError(const std::string& reason) {
   /**
    * Handle SSL error
    */
+
+  // Surface the failure at warning level so TLS errors aren't silent at the
+  // default log level. Previously this only stored failure_reason_ for
+  // post-mortem retrieval, which made handshake/read failures invisible.
+  GOPHER_LOG_WARN("SSL error: {}", reason);
 
   failure_reason_ = reason;
 
