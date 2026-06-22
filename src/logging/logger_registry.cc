@@ -1,18 +1,62 @@
 #include "mcp/logging/logger_registry.h"
 
 #include <algorithm>
+#include <cctype>
+#include <cstdlib>
 #include <regex>
+
+#include "mcp/logging/log_macros.h"  // GOPHER_LOG_FLOW_COMPONENT
 
 namespace mcp {
 namespace logging {
+
+namespace {
+// Resolve the initial global log level. Honors the GOPHER_LOG_LEVEL environment
+// variable (e.g. GOPHER_LOG_LEVEL=debug) so verbose output can be switched on
+// without code changes; defaults to Info when unset or empty. This affects every
+// component; use GOPHER_MCP_LOG_FLOW for the MCP request/response flow only.
+LogLevel resolveInitialLevel() {
+  const char* env = std::getenv("GOPHER_LOG_LEVEL");
+  if (env != nullptr && env[0] != '\0') {
+    return stringToLogLevel(env);
+  }
+  return LogLevel::Info;
+}
+
+// Whether the MCP protocol-flow logs (logger component "mcp.flow": initialize,
+// tools/list, tools/call, resources, prompts, HTTP request/response) should be
+// switched on independently of the global level. Driven by GOPHER_MCP_LOG_FLOW;
+// accepts boolean-ish truthy values (1/true/on/yes/enabled). When off, the flow
+// logs simply follow the global level.
+bool resolveFlowEnabled() {
+  const char* env = std::getenv("GOPHER_MCP_LOG_FLOW");
+  if (env == nullptr || env[0] == '\0') {
+    return false;
+  }
+  std::string v(env);
+  std::transform(v.begin(), v.end(), v.begin(),
+                 [](unsigned char c) { return std::tolower(c); });
+  return v == "1" || v == "true" || v == "on" || v == "yes" || v == "enabled" ||
+         v == "debug";
+}
+}  // namespace
 
 LoggerRegistry& LoggerRegistry::instance() {
   static LoggerRegistry instance;
   return instance;
 }
 
-LoggerRegistry::LoggerRegistry() : global_level_(LogLevel::Info) {
+LoggerRegistry::LoggerRegistry() : global_level_(resolveInitialLevel()) {
   initializeDefaults();
+
+  // If the MCP flow switch is on, raise just the "mcp.flow" component to Debug
+  // (leaving the global level untouched) and pre-create its logger so the bloom
+  // filter routes to the component level instead of the global fallback. The
+  // pattern also shields it from later setGlobalLevel() calls.
+  if (resolveFlowEnabled()) {
+    setPattern(GOPHER_LOG_FLOW_COMPONENT, LogLevel::Debug);
+    getOrCreateLogger(GOPHER_LOG_FLOW_COMPONENT);
+  }
 }
 
 void LoggerRegistry::initializeDefaults() {

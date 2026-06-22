@@ -57,6 +57,34 @@
 #define GOPHER_LOG_ERROR(...) GOPHER_LOG(Error, __VA_ARGS__)
 #define GOPHER_LOG_CRITICAL(...) GOPHER_LOG(Critical, __VA_ARGS__)
 
+// MCP protocol-flow logging
+//
+// These trace the request/response flow that callers care about (initialize,
+// tools/list, tools/call, resources, prompts, and the HTTP request/response)
+// under a dedicated logger component, so they can be switched on independently
+// of every other component's debug output via the GOPHER_MCP_LOG_FLOW
+// environment variable. By default they follow the global level (hidden at the
+// default Info level).
+#define GOPHER_LOG_FLOW_COMPONENT "mcp.flow"
+
+#ifdef GOPHER_LOG_DISABLE
+#define GOPHER_LOG_FLOW(level, ...) ((void)0)
+#else
+#define GOPHER_LOG_FLOW(level, ...)                                      \
+  do {                                                                   \
+    if (::mcp::logging::LoggerRegistry::instance().shouldLog(            \
+            GOPHER_LOG_FLOW_COMPONENT, ::mcp::logging::LogLevel::level)) { \
+      ::mcp::logging::LoggerRegistry::instance()                         \
+          .getOrCreateLogger(GOPHER_LOG_FLOW_COMPONENT)                  \
+          ->log(::mcp::logging::LogLevel::level, __FILE__, __LINE__,     \
+                __FUNCTION__, __VA_ARGS__);                              \
+    }                                                                    \
+  } while (0)
+#endif
+
+#define GOPHER_LOG_FLOW_DEBUG(...) GOPHER_LOG_FLOW(Debug, __VA_ARGS__)
+#define GOPHER_LOG_FLOW_INFO(...) GOPHER_LOG_FLOW(Info, __VA_ARGS__)
+
 // Source location helper
 #define GOPHER_LOG_LOCATION __FILE__, __LINE__, __FUNCTION__
 
