@@ -452,7 +452,9 @@ void SslTransportSocket::onConnected() {
   handshake_timer_->enableTimer(kHandshakeTimeout);
 
   // Start handshake in next event loop iteration
-  dispatcher_.post([this]() {
+  std::weak_ptr<bool> alive = alive_;
+  dispatcher_.post([this, alive]() {
+    if (alive.expired()) return;
     if (initial_role_ == InitialRole::Client) {
       initiateClientHandshake();
     } else {
@@ -1392,7 +1394,9 @@ void SslTransportSocket::scheduleShutdownCheck() {
    * Schedule periodic check for shutdown completion
    */
 
-  dispatcher_.post([this]() {
+  std::weak_ptr<bool> alive = alive_;
+  dispatcher_.post([this, alive]() {
+    if (alive.expired()) return;
     auto state = state_machine_->getCurrentState();
     if (state == SslSocketState::ShutdownSent) {
       int ret = SSL_shutdown(ssl_);
@@ -1518,7 +1522,9 @@ void SslTransportSocket::flushBufferedWrites() {
    */
 
   if (write_buffer_->length() > 0) {
-    dispatcher_.post([this]() {
+    std::weak_ptr<bool> alive = alive_;
+    dispatcher_.post([this, alive]() {
+      if (alive.expired()) return;
       if (state_machine_->isConnected() && write_buffer_->length() > 0) {
         auto result = performOptimizedSslWrite(*write_buffer_, false);
         if (result.action_ == TransportIoResult::CLOSE) {

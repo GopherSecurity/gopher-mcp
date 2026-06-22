@@ -380,6 +380,10 @@ class TransportSocketStateMachine {
     CompletionCallback callback;
   };
   std::unique_ptr<PendingTransition> pending_transition_;
+
+  // Liveness token for posted lambdas. See scheduleTransitionTo() — posted
+  // work checks expired() and bails if the state machine has been torn down.
+  std::shared_ptr<bool> alive_{std::make_shared<bool>(true)};
 };
 
 /**
