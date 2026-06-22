@@ -217,8 +217,7 @@ class HttpAsyncClient::RequestContext
     connection_ = std::unique_ptr<network::ClientConnection>(
         static_cast<network::ClientConnection*>(connection_impl.release()));
     GOPHER_LOG_FLOW_DEBUG("HTTP connecting to {}:{} (tls={})", url_.host,
-                          url_.port,
-                     url_.tls ? "yes" : "no");
+                          url_.port, url_.tls ? "yes" : "no");
     connection_->connect();
     return true;
   }
@@ -283,8 +282,8 @@ class HttpAsyncClient::RequestContext
     }
     completed_ = true;
     GOPHER_LOG_FLOW_DEBUG("HTTP <- {} {} ({} {}, body={} bytes)", url_.host,
-                    url_.path, response_.status_code, response_.status_text,
-                    response_.body.size());
+                          url_.path, response_.status_code,
+                          response_.status_text, response_.body.size());
     auto cb = std::move(on_response_);
     if (cb) {
       cb(std::move(response_));
@@ -349,8 +348,8 @@ class HttpAsyncClient::RequestContext
       }
       GOPHER_LOG_FLOW_DEBUG(
           "HTTP -> {} {} (host={}:{}, body={} bytes, headers:{})",
-                       request_.method, url_.path, url_.host, url_.port,
-                       request_.body.size(), hdrs.str());
+          request_.method, url_.path, url_.host, url_.port,
+          request_.body.size(), hdrs.str());
     }
 
     const std::string bytes = req.str();

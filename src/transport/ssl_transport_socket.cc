@@ -477,7 +477,8 @@ void SslTransportSocket::onConnected() {
   // Start handshake in next event loop iteration
   std::weak_ptr<bool> alive = alive_;
   dispatcher_.post([this, alive]() {
-    if (alive.expired()) return;
+    if (alive.expired())
+      return;
     if (initial_role_ == InitialRole::Client) {
       initiateClientHandshake();
     } else {
@@ -610,10 +611,8 @@ VoidResult SslTransportSocket::initializeSsl() {
   // Create SSL connection object
   ssl_ = ssl_context_->newSsl();
   if (!ssl_) {
-    return makeVoidError(
-        Error{0,
-              "Failed to create SSL object: " +
-                  detail::drainOpenSSLErrorQueue()});
+    return makeVoidError(Error{
+        0, "Failed to create SSL object: " + detail::drainOpenSSLErrorQueue()});
   }
 
   // Create BIO pair with specified buffer size
@@ -621,10 +620,8 @@ VoidResult SslTransportSocket::initializeSsl() {
                         kBioBufferSize)) {
     SSL_free(ssl_);
     ssl_ = nullptr;
-    return makeVoidError(
-        Error{0,
-              "Failed to create BIO pair: " +
-                  detail::drainOpenSSLErrorQueue()});
+    return makeVoidError(Error{
+        0, "Failed to create BIO pair: " + detail::drainOpenSSLErrorQueue()});
   }
 
   // Attach BIOs to SSL
@@ -1491,7 +1488,8 @@ void SslTransportSocket::scheduleShutdownCheck() {
 
   std::weak_ptr<bool> alive = alive_;
   dispatcher_.post([this, alive]() {
-    if (alive.expired()) return;
+    if (alive.expired())
+      return;
     auto state = state_machine_->getCurrentState();
     if (state == SslSocketState::ShutdownSent) {
       int ret = SSL_shutdown(ssl_);
@@ -1624,7 +1622,8 @@ void SslTransportSocket::flushBufferedWrites() {
   if (write_buffer_->length() > 0) {
     std::weak_ptr<bool> alive = alive_;
     dispatcher_.post([this, alive]() {
-      if (alive.expired()) return;
+      if (alive.expired())
+        return;
       if (state_machine_->isConnected() && write_buffer_->length() > 0) {
         auto result = performOptimizedSslWrite(*write_buffer_, false);
         if (result.action_ == TransportIoResult::CLOSE) {

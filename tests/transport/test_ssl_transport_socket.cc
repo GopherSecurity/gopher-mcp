@@ -618,8 +618,8 @@ TEST_F(SslTransportSocketLifetimeTest, OnConnectedPostNoOpsAfterDestruction) {
         std::make_unique<network::IoSocketHandleImpl>();
     network::ConnectionSocketImpl dummy_socket(std::move(io_handle), nullptr,
                                                nullptr);
-    ASSERT_TRUE(holds_alternative<std::nullptr_t>(
-        ssl_socket->connect(dummy_socket)));
+    ASSERT_TRUE(
+        holds_alternative<std::nullptr_t>(ssl_socket->connect(dummy_socket)));
 
     ssl_socket->onConnected();
     // ssl_socket is destroyed here before the posted handshake kickoff runs.

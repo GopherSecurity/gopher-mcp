@@ -13,8 +13,9 @@ namespace logging {
 namespace {
 // Resolve the initial global log level. Honors the GOPHER_LOG_LEVEL environment
 // variable (e.g. GOPHER_LOG_LEVEL=debug) so verbose output can be switched on
-// without code changes; defaults to Info when unset or empty. This affects every
-// component; use GOPHER_MCP_LOG_FLOW for the MCP request/response flow only.
+// without code changes; defaults to Info when unset or empty. This affects
+// every component; use GOPHER_MCP_LOG_FLOW for the MCP request/response flow
+// only.
 LogLevel resolveInitialLevel() {
   const char* env = std::getenv("GOPHER_LOG_LEVEL");
   if (env != nullptr && env[0] != '\0') {

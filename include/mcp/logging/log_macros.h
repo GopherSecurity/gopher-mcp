@@ -70,15 +70,15 @@
 #ifdef GOPHER_LOG_DISABLE
 #define GOPHER_LOG_FLOW(level, ...) ((void)0)
 #else
-#define GOPHER_LOG_FLOW(level, ...)                                      \
-  do {                                                                   \
-    if (::mcp::logging::LoggerRegistry::instance().shouldLog(            \
+#define GOPHER_LOG_FLOW(level, ...)                                        \
+  do {                                                                     \
+    if (::mcp::logging::LoggerRegistry::instance().shouldLog(              \
             GOPHER_LOG_FLOW_COMPONENT, ::mcp::logging::LogLevel::level)) { \
-      ::mcp::logging::LoggerRegistry::instance()                         \
-          .getOrCreateLogger(GOPHER_LOG_FLOW_COMPONENT)                  \
-          ->log(::mcp::logging::LogLevel::level, __FILE__, __LINE__,     \
-                __FUNCTION__, __VA_ARGS__);                              \
-    }                                                                    \
+      ::mcp::logging::LoggerRegistry::instance()                           \
+          .getOrCreateLogger(GOPHER_LOG_FLOW_COMPONENT)                    \
+          ->log(::mcp::logging::LogLevel::level, __FILE__, __LINE__,       \
+                __FUNCTION__, __VA_ARGS__);                                \
+    }                                                                      \
   } while (0)
 #endif
 
