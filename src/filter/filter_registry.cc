@@ -24,7 +24,7 @@ FilterRegistry& FilterRegistry::instance() {
 void FilterRegistry::initialize() {
   bool expected = false;
   if (initialized_.compare_exchange_strong(expected, true)) {
-    GOPHER_LOG(Info, "Filter registry initialized");
+    GOPHER_LOG(Debug, "Filter registry initialized");
   }
 }
 
@@ -52,7 +52,7 @@ bool FilterRegistry::registerFactory(const std::string& name,
 
   // Get metadata for logging
   const auto& metadata = factory->getMetadata();
-  GOPHER_LOG(Info, "Registered filter factory '{}' version {} (total: {})",
+  GOPHER_LOG(Debug, "Registered filter factory '{}' version {} (total: {})",
              name, metadata.version, factories_.size());
 
   // Log DEBUG info about all registered factories (bounded output)
@@ -228,7 +228,7 @@ bool FilterRegistry::registerContextFactory(
   context_factories_[name] = factory;
   basic_metadata_[name] = metadata;
 
-  GOPHER_LOG(Info,
+  GOPHER_LOG(Debug,
              "Registered context filter factory '{}' version {} (total context "
              "factories: {})",
              name, metadata.version, context_factories_.size());

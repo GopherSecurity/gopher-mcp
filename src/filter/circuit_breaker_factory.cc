@@ -171,7 +171,7 @@ void registerCircuitBreakerFilterFactory() {
   registry.registerContextFactory("circuit_breaker", createCircuitBreakerFilter,
                                   metadata);
 
-  GOPHER_LOG(Info, "Registered circuit_breaker filter factory (context-aware)");
+  GOPHER_LOG(Debug, "Registered circuit_breaker filter factory (context-aware)");
 }
 
 namespace {
