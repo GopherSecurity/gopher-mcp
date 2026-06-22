@@ -61,11 +61,15 @@ constexpr int kBioBufferSize = 0;
 // ============================================================================
 // SSL Error Handling Utilities
 // ============================================================================
+//
+// drainOpenSSLErrorQueue() lives in detail:: so unit tests can reach it
+// directly (the null-guard logic against OpenSSL 3.x is critical to verify).
+// The other helpers stay in an anonymous namespace.
 
-/**
- * Get detailed OpenSSL error information
- * Drains the entire error queue and builds comprehensive error message
- */
+}  // namespace
+
+namespace detail {
+
 std::string drainOpenSSLErrorQueue() {
   std::string error_details;
   bool first = true;
@@ -80,15 +84,33 @@ std::string drainOpenSSLErrorQueue() {
     char buf[256];
     ERR_error_string_n(err, buf, sizeof(buf));
 
-    // Include library, function, and reason for debugging
+    // Null-guard ERR_*_error_string() return values. ERR_func_error_string()
+    // was deprecated in OpenSSL 3.0 and always returns NULL there;
+    // ERR_lib_error_string() can also return NULL for synthetic errors.
+    // Streaming a NULL const char* into an ostream is UB (libc++ calls
+    // strlen(NULL) and segfaults). We still call ERR_func_error_string()
+    // for older OpenSSL builds; suppress the 3.x deprecation noise.
+    const char* lib_str = ERR_lib_error_string(err);
+#if defined(__clang__) || defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#endif
+    const char* func_str = ERR_func_error_string(err);
+#if defined(__clang__) || defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
     std::stringstream ss;
-    ss << "err=" << err << " lib=" << ERR_lib_error_string(err)
-       << " func=" << ERR_func_error_string(err) << " reason=" << buf;
+    ss << "err=" << err << " lib=" << (lib_str ? lib_str : "unknown")
+       << " func=" << (func_str ? func_str : "unknown") << " reason=" << buf;
     error_details += ss.str();
   }
 
   return error_details.empty() ? "No OpenSSL errors in queue" : error_details;
 }
+
+}  // namespace detail
+
+namespace {
 
 /**
  * Get SSL error reason with comprehensive details
@@ -131,7 +153,7 @@ std::string getSslErrorDetails(SSL* ssl, int ret) {
   }
 
   // Append any queued errors for complete picture
-  std::string queue_errors = drainOpenSSLErrorQueue();
+  std::string queue_errors = detail::drainOpenSSLErrorQueue();
   if (!queue_errors.empty() && queue_errors != "No OpenSSL errors in queue") {
     base_error += " [" + queue_errors + "]";
   }
@@ -588,7 +610,9 @@ VoidResult SslTransportSocket::initializeSsl() {
   ssl_ = ssl_context_->newSsl();
   if (!ssl_) {
     return makeVoidError(
-        Error{0, "Failed to create SSL object: " + drainOpenSSLErrorQueue()});
+        Error{0,
+              "Failed to create SSL object: " +
+                  detail::drainOpenSSLErrorQueue()});
   }
 
   // Create BIO pair with specified buffer size
@@ -597,7 +621,9 @@ VoidResult SslTransportSocket::initializeSsl() {
     SSL_free(ssl_);
     ssl_ = nullptr;
     return makeVoidError(
-        Error{0, "Failed to create BIO pair: " + drainOpenSSLErrorQueue()});
+        Error{0,
+              "Failed to create BIO pair: " +
+                  detail::drainOpenSSLErrorQueue()});
   }
 
   // Attach BIOs to SSL
