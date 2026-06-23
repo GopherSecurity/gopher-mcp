@@ -215,6 +215,7 @@ SslTransportSocket::SslTransportSocket(network::TransportSocketPtr inner_socket,
   // Initialize buffers with reserve for performance
   read_buffer_ = std::make_unique<OwnedBuffer>();
   write_buffer_ = std::make_unique<OwnedBuffer>();
+  bio_carryover_ = std::make_unique<OwnedBuffer>();
 
   // Buffers will grow as needed during handshake
 
@@ -1127,8 +1128,16 @@ TransportIoResult SslTransportSocket::performOptimizedSslRead(Buffer& buffer) {
 
       switch (ssl_error) {
         case SSL_ERROR_WANT_READ:
-          // Need more data from socket
-          keep_reading = false;
+          // SSL has drained the readable BIO. Try to refill it from any
+          // carried-over bytes and/or fresh socket data. If we managed to feed
+          // more encrypted data, keep decrypting so a response larger than the
+          // BIO capacity drains fully within this read instead of stalling
+          // (and instead of stranding carried-over bytes when the socket has
+          // no further read event to trigger us again).
+          if (moveToBio() == 0) {
+            // Nothing left to feed; genuinely need more data from the socket.
+            keep_reading = false;
+          }
           break;
 
         case SSL_ERROR_ZERO_RETURN:
@@ -1234,6 +1243,55 @@ TransportIoResult SslTransportSocket::performOptimizedSslWrite(
   return TransportIoResult::success(total_bytes_written);
 }
 
+size_t SslTransportSocket::writeToNetworkBio(Buffer& buffer) {
+  /**
+   * Write as much of `buffer` as the network BIO will accept, draining the
+   * bytes that were written. The unaccepted remainder (if the BIO fills) is
+   * left at the front of `buffer` so the caller can preserve it. A memory BIO
+   * may accept a slice only partially, which also means it is now full.
+   */
+  size_t written_total = 0;
+
+  while (buffer.length() > 0) {
+    constexpr size_t max_slices = 16;
+    RawSlice slices[max_slices];
+    size_t num_slices = buffer.getRawSlices(slices, max_slices);
+
+    bool bio_full = false;
+    size_t drained_this_pass = 0;
+    for (size_t i = 0; i < num_slices; ++i) {
+      if (slices[i].len_ == 0) {
+        continue;
+      }
+      int written = BIO_write(network_bio_, slices[i].mem_, slices[i].len_);
+      if (written > 0) {
+        written_total += written;
+        drained_this_pass += static_cast<size_t>(written);
+        if (static_cast<size_t>(written) < slices[i].len_) {
+          // Partial write: the BIO is now full.
+          bio_full = true;
+          break;
+        }
+      } else {
+        // BIO_write returned <= 0: no room left.
+        bio_full = true;
+        break;
+      }
+    }
+
+    // Remove only the bytes the BIO actually accepted; the rest stays queued.
+    if (drained_this_pass > 0) {
+      buffer.drain(drained_this_pass);
+    }
+
+    if (bio_full || drained_this_pass == 0) {
+      break;
+    }
+  }
+
+  return written_total;
+}
+
 size_t SslTransportSocket::moveToBio() {
   /**
    * Move data from socket to BIO
@@ -1243,15 +1301,36 @@ size_t SslTransportSocket::moveToBio() {
    * large TLS records (up to 16KB + headers). Without looping, SSL handshakes
    * and data reads can stall waiting for data that's already in the TCP buffer.
    *
+   * Backpressure: the network BIO is a fixed-size memory buffer. When it fills
+   * before we have written everything we read, the leftover bytes MUST be
+   * preserved (in bio_carryover_) and re-fed before any further socket read.
+   * Dropping them corrupts the TLS byte stream, which truncates large
+   * responses and tears down the connection. (This was the original bug:
+   * bytes read from the socket but rejected by a full BIO were silently lost.)
+   *
    * The loop continues until:
    * - doRead() returns 0 bytes (EAGAIN/EWOULDBLOCK - socket buffer empty)
    * - doRead() returns an error
-   * - BIO_write fails (BIO buffer full)
+   * - the network BIO fills up (remainder carried over for the next call)
    */
 
   size_t total_written = 0;
   constexpr int max_iterations = 100;  // Safety limit to prevent infinite loops
   int iterations = 0;
+
+  // First, flush bytes carried over from a previous call. These were already
+  // consumed from the kernel socket buffer, so they take priority over fresh
+  // reads to keep the encrypted stream in order.
+  if (bio_carryover_->length() > 0) {
+    total_written += writeToNetworkBio(*bio_carryover_);
+    if (bio_carryover_->length() > 0) {
+      // BIO still has no room. Wait for SSL_read to drain it before pulling
+      // any more from the socket (doing so would reorder the stream).
+      GOPHER_LOG_DEBUG("moveToBio: BIO full, {} carried-over bytes still queued",
+                       bio_carryover_->length());
+      return total_written;
+    }
+  }
 
   while (iterations++ < max_iterations) {
     // Read from inner socket
@@ -1269,27 +1348,16 @@ size_t SslTransportSocket::moveToBio() {
     GOPHER_LOG_DEBUG("moveToBio: read {} bytes from socket (iteration {})",
                      bytes_read, iterations);
 
-    // Write all data to network BIO
-    constexpr size_t max_slices = 16;
-    RawSlice slices[max_slices];
-    size_t num_slices = temp_buffer.getRawSlices(slices, max_slices);
+    // Write to the network BIO; anything it cannot accept is left in
+    // temp_buffer.
+    total_written += writeToNetworkBio(temp_buffer);
 
-    bool bio_full = false;
-    for (size_t i = 0; i < num_slices; ++i) {
-      int written = BIO_write(network_bio_, slices[i].mem_, slices[i].len_);
-      if (written > 0) {
-        total_written += written;
-      } else {
-        // BIO full or error - stop writing but continue to drain socket
-        bio_full = true;
-        GOPHER_LOG_DEBUG("moveToBio: BIO_write returned {}, BIO may be full",
-                         written);
-        break;
-      }
-    }
-
-    // If BIO is full, we should stop - the SSL layer needs to consume data
-    if (bio_full) {
+    if (temp_buffer.length() > 0) {
+      // BIO is full. Preserve the unwritten remainder instead of dropping it;
+      // it will be flushed first on the next call once SSL_read frees space.
+      size_t carried = temp_buffer.length();
+      temp_buffer.move(*bio_carryover_);
+      GOPHER_LOG_DEBUG("moveToBio: BIO full, carried over {} bytes", carried);
       break;
     }
 
