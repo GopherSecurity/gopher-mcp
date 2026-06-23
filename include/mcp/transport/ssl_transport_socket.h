@@ -280,6 +280,15 @@ class SslTransportSocket
   size_t moveFromBio();
 
   /**
+   * Write as much of `buffer` as the network BIO will currently accept,
+   * draining the bytes that were written. Any remainder the BIO could not
+   * accept is left at the front of `buffer` for the caller to preserve.
+   *
+   * @return Bytes written into the network BIO
+   */
+  size_t writeToNetworkBio(Buffer& buffer);
+
+  /**
    * Schedule handshake retry
    * Used when handshake needs I/O
    */
@@ -314,6 +323,12 @@ class SslTransportSocket
   // I/O buffers
   std::unique_ptr<Buffer> read_buffer_;   // Temporary read buffer
   std::unique_ptr<Buffer> write_buffer_;  // Temporary write buffer
+
+  // Encrypted bytes read from the socket that did not fit in the network BIO
+  // on a previous moveToBio() call. They have already been consumed from the
+  // kernel socket buffer, so they must be re-fed (in order) before reading
+  // more, otherwise the TLS byte stream is corrupted. Empty in the common case.
+  std::unique_ptr<Buffer> bio_carryover_;
 
   // Statistics
   uint64_t bytes_encrypted_{0};     // Total bytes encrypted
