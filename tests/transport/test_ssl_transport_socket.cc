@@ -69,7 +69,16 @@
 #include "mcp/network/socket_interface.h"
 #include "mcp/network/transport_socket.h"
 #include "mcp/transport/ssl_context.h"
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wkeyword-macro"
+#endif
+#define private public
 #include "mcp/transport/ssl_transport_socket.h"
+#undef private
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#endif
 
 #include "../integration/real_io_test_base.h"
 
@@ -649,7 +658,157 @@ TEST_F(SslTransportSocketLifetimeTest, OnConnectedPostRunsWhileSocketIsAlive) {
 }
 
 // ============================================================================
-// SECTION A.2: UNIT TESTS FOR doRead HANDSHAKE FIX (4 tests)
+// SECTION A.2: UNIT TESTS FOR NETWORK BIO BACKPRESSURE (2 tests)
+// ============================================================================
+
+class BioBackpressureMockTransportSocket : public network::TransportSocket {
+ public:
+  void setTransportSocketCallbacks(
+      network::TransportSocketCallbacks& callbacks) override {
+    callbacks_ = &callbacks;
+  }
+
+  std::string protocol() const override { return "bio_backpressure_mock"; }
+  std::string failureReason() const override { return ""; }
+  bool canFlushClose() override { return true; }
+
+  VoidResult connect(network::Socket& socket) override {
+    connected_ = true;
+    return makeVoidSuccess();
+  }
+
+  void closeSocket(network::ConnectionEvent event) override {
+    connected_ = false;
+  }
+
+  TransportIoResult doRead(Buffer& buffer) override {
+    ++read_call_count_;
+    if (read_data_.length() == 0) {
+      return TransportIoResult::stop();
+    }
+
+    const size_t bytes_read = read_data_.length();
+    read_data_.move(buffer);
+    return TransportIoResult::success(bytes_read);
+  }
+
+  TransportIoResult doWrite(Buffer& buffer, bool end_stream) override {
+    buffer.move(write_data_);
+    return TransportIoResult::success(write_data_.length());
+  }
+
+  void onConnected() override {
+    if (callbacks_) {
+      callbacks_->raiseEvent(network::ConnectionEvent::Connected);
+    }
+  }
+
+  void injectReadData(const std::string& data) {
+    read_data_.add(data.data(), data.length());
+  }
+
+  int getReadCallCount() const { return read_call_count_; }
+  void resetCounters() { read_call_count_ = 0; }
+
+ private:
+  network::TransportSocketCallbacks* callbacks_{nullptr};
+  OwnedBuffer read_data_;
+  OwnedBuffer write_data_;
+  bool connected_{false};
+  int read_call_count_{0};
+};
+
+class SslTransportSocketBioBackpressureTest : public ::testing::Test {
+ protected:
+  void SetUp() override {
+    dispatcher_ = std::make_unique<MockDispatcher>();
+
+    SslContextConfig config;
+    config.is_client = true;
+    config.verify_peer = false;
+
+    auto result = SslContext::create(config);
+    if (holds_alternative<SslContextSharedPtr>(result)) {
+      ssl_context_ = get<SslContextSharedPtr>(result);
+    }
+  }
+
+  void TearDown() override {
+    ssl_context_.reset();
+    dispatcher_.reset();
+  }
+
+  static std::string repeatedPayload(size_t size) {
+    std::string payload;
+    payload.reserve(size);
+    for (size_t i = 0; i < size; ++i) {
+      payload.push_back(static_cast<char>('a' + (i % 26)));
+    }
+    return payload;
+  }
+
+  std::unique_ptr<MockDispatcher> dispatcher_;
+  SslContextSharedPtr ssl_context_;
+};
+
+TEST_F(SslTransportSocketBioBackpressureTest,
+       WriteToNetworkBioLeavesRejectedBytesQueued) {
+  if (!ssl_context_) {
+    GTEST_SKIP() << "SSL context creation failed";
+  }
+
+  auto ssl_socket = std::make_unique<SslTransportSocket>(
+      std::make_unique<MockTransportSocket>(), ssl_context_,
+      SslTransportSocket::InitialRole::Client, *dispatcher_);
+  ASSERT_TRUE(holds_alternative<std::nullptr_t>(ssl_socket->initializeSsl()));
+
+  const std::string payload = repeatedPayload(256 * 1024);
+  OwnedBuffer encrypted;
+  encrypted.add(payload.data(), payload.size());
+
+  const size_t written = ssl_socket->writeToNetworkBio(encrypted);
+
+  EXPECT_GT(written, 0);
+  EXPECT_GT(encrypted.length(), 0);
+  EXPECT_EQ(written + encrypted.length(), payload.size());
+}
+
+TEST_F(SslTransportSocketBioBackpressureTest,
+       MoveToBioPreservesCarryoverAndReadsFreshDataOnlyAfterItFits) {
+  if (!ssl_context_) {
+    GTEST_SKIP() << "SSL context creation failed";
+  }
+
+  auto mock = std::make_unique<BioBackpressureMockTransportSocket>();
+  auto* mock_ptr = mock.get();
+  auto ssl_socket = std::make_unique<SslTransportSocket>(
+      std::move(mock), ssl_context_, SslTransportSocket::InitialRole::Client,
+      *dispatcher_);
+  ASSERT_TRUE(holds_alternative<std::nullptr_t>(ssl_socket->initializeSsl()));
+
+  const std::string payload = repeatedPayload(256 * 1024);
+  mock_ptr->injectReadData(payload);
+
+  const size_t first_written = ssl_socket->moveToBio();
+
+  ASSERT_GT(first_written, 0);
+  ASSERT_GT(ssl_socket->bio_carryover_->length(), 0);
+  EXPECT_EQ(first_written + ssl_socket->bio_carryover_->length(),
+            payload.size());
+
+  const size_t carryover_before = ssl_socket->bio_carryover_->length();
+  mock_ptr->resetCounters();
+  mock_ptr->injectReadData("fresh bytes must not be read before carryover");
+
+  const size_t second_written = ssl_socket->moveToBio();
+
+  EXPECT_EQ(second_written, 0);
+  EXPECT_EQ(ssl_socket->bio_carryover_->length(), carryover_before);
+  EXPECT_EQ(mock_ptr->getReadCallCount(), 0);
+}
+
+// ============================================================================
+// SECTION A.3: UNIT TESTS FOR doRead HANDSHAKE FIX (4 tests)
 // ============================================================================
 
 /**
