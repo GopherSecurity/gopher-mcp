@@ -1,6 +1,11 @@
 #include "mcp/http/http_async_client.h"
 
+// Override the default log component for this file
+#undef GOPHER_LOG_COMPONENT
+#define GOPHER_LOG_COMPONENT "http"
+
 #include <cassert>
+#include <cctype>
 #include <memory>
 #include <sstream>
 #include <string>
@@ -8,6 +13,7 @@
 
 #include "mcp/buffer.h"
 #include "mcp/filter/http_codec_filter.h"
+#include "mcp/logging/log_macros.h"
 #include "mcp/network/address.h"
 #include "mcp/network/address_impl.h"
 #include "mcp/network/connection.h"
@@ -95,6 +101,26 @@ std::string statusTextForCode(int code) {
   }
 }
 
+// Redact secret header values (Authorization, api keys) before logging. Keeps
+// the scheme/prefix readable and shows only the last 4 chars of the secret so
+// bearer tokens never land in logs in full.
+std::string redactHeaderValue(const std::string& name,
+                              const std::string& value) {
+  std::string lower;
+  lower.reserve(name.size());
+  for (char c : name) {
+    lower.push_back(static_cast<char>(std::tolower(c)));
+  }
+  if (lower != "authorization" && lower.find("api-key") == std::string::npos &&
+      lower.find("apikey") == std::string::npos && lower != "x-api-key") {
+    return value;
+  }
+  if (value.size() <= 4) {
+    return "***";
+  }
+  return "***" + value.substr(value.size() - 4);
+}
+
 }  // namespace
 
 /**
@@ -138,11 +164,15 @@ class HttpAsyncClient::RequestContext
                                              network::Address::IpVersion::v4,
                                              /*v6only=*/false);
     if (!fd_result.ok()) {
+      GOPHER_LOG_WARN("HTTP start: socket() failed for {}:{}", url_.host,
+                      url_.port);
       return false;
     }
     auto io_handle = socket_interface.ioHandleForFd(*fd_result.value,
                                                     /*socket_v6only=*/false);
     if (!io_handle) {
+      GOPHER_LOG_WARN("HTTP start: ioHandleForFd() failed for {}:{}", url_.host,
+                      url_.port);
       socket_interface.close(*fd_result.value);
       return false;
     }
@@ -157,6 +187,10 @@ class HttpAsyncClient::RequestContext
     auto* client_factory = dynamic_cast<network::ClientTransportSocketFactory*>(
         parent_.transport_factory_.get());
     if (!client_factory) {
+      GOPHER_LOG_WARN(
+          "HTTP start: transport factory is not a ClientTransportSocketFactory "
+          "for {}:{}",
+          url_.host, url_.port);
       return false;
     }
     auto transport_socket = client_factory->createTransportSocket(nullptr);
@@ -182,6 +216,8 @@ class HttpAsyncClient::RequestContext
     // The ClientConnection wrapper is what connect() is called on.
     connection_ = std::unique_ptr<network::ClientConnection>(
         static_cast<network::ClientConnection*>(connection_impl.release()));
+    GOPHER_LOG_DEBUG("HTTP connecting to {}:{} (tls={})", url_.host, url_.port,
+                     url_.tls ? "yes" : "no");
     connection_->connect();
     return true;
   }
@@ -245,6 +281,9 @@ class HttpAsyncClient::RequestContext
       return;
     }
     completed_ = true;
+    GOPHER_LOG_DEBUG("HTTP <- {} {} ({} {}, body={} bytes)", url_.host,
+                    url_.path, response_.status_code, response_.status_text,
+                    response_.body.size());
     auto cb = std::move(on_response_);
     if (cb) {
       cb(std::move(response_));
@@ -268,6 +307,8 @@ class HttpAsyncClient::RequestContext
       return;
     }
     completed_ = true;
+    GOPHER_LOG_WARN("HTTP request to {}{} failed: {}", url_.host, url_.path,
+                    message);
     auto cb = std::move(on_error_);
     if (cb) {
       cb(message);
@@ -298,6 +339,17 @@ class HttpAsyncClient::RequestContext
       req << "Connection: close\r\n";
     }
     req << "\r\n" << request_.body;
+
+    if (::mcp::logging::LoggerRegistry::instance().shouldLog(
+            GOPHER_LOG_COMPONENT, ::mcp::logging::LogLevel::Debug)) {
+      std::ostringstream hdrs;
+      for (const auto& h : request_.headers) {
+        hdrs << " " << h.first << "=" << redactHeaderValue(h.first, h.second);
+      }
+      GOPHER_LOG_DEBUG("HTTP -> {} {} (host={}:{}, body={} bytes, headers:{})",
+                       request_.method, url_.path, url_.host, url_.port,
+                       request_.body.size(), hdrs.str());
+    }
 
     const std::string bytes = req.str();
     OwnedBuffer buffer;
@@ -342,6 +394,7 @@ bool HttpAsyncClient::send(const HttpRequest& request,
 
   ParsedUrl url;
   if (!parseUrl(request.url, url)) {
+    GOPHER_LOG_WARN("HTTP send: unparseable URL: {}", request.url);
     return false;
   }
 
@@ -351,6 +404,7 @@ bool HttpAsyncClient::send(const HttpRequest& request,
   auto* raw = ctx.get();
   active_requests_.emplace(raw, std::move(ctx));
   if (!raw->start()) {
+    GOPHER_LOG_WARN("HTTP send: failed to start request to {}", request.url);
     active_requests_.erase(raw);
     return false;
   }

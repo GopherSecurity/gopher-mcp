@@ -1,17 +1,31 @@
 #include "mcp/logging/logger_registry.h"
 
 #include <algorithm>
+#include <cstdlib>
 #include <regex>
 
 namespace mcp {
 namespace logging {
+
+namespace {
+// Resolve the initial global log level. Honors the GOPHER_LOG_LEVEL environment
+// variable (e.g. GOPHER_LOG_LEVEL=debug) so verbose output can be switched on
+// without code changes; defaults to Info when unset or empty.
+LogLevel resolveInitialLevel() {
+  const char* env = std::getenv("GOPHER_LOG_LEVEL");
+  if (env != nullptr && env[0] != '\0') {
+    return stringToLogLevel(env);
+  }
+  return LogLevel::Info;
+}
+}  // namespace
 
 LoggerRegistry& LoggerRegistry::instance() {
   static LoggerRegistry instance;
   return instance;
 }
 
-LoggerRegistry::LoggerRegistry() : global_level_(LogLevel::Info) {
+LoggerRegistry::LoggerRegistry() : global_level_(resolveInitialLevel()) {
   initializeDefaults();
 }
 

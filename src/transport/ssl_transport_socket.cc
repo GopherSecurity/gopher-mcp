@@ -1351,8 +1351,9 @@ size_t SslTransportSocket::moveToBio() {
     if (bio_carryover_->length() > 0) {
       // BIO still has no room. Wait for SSL_read to drain it before pulling
       // any more from the socket (doing so would reorder the stream).
-      GOPHER_LOG_DEBUG("moveToBio: BIO full, {} carried-over bytes still queued",
-                       bio_carryover_->length());
+      GOPHER_LOG_DEBUG(
+          "moveToBio: BIO full, {} carried-over bytes still queued",
+          bio_carryover_->length());
       return total_written;
     }
   }
