@@ -216,7 +216,8 @@ class HttpAsyncClient::RequestContext
     // The ClientConnection wrapper is what connect() is called on.
     connection_ = std::unique_ptr<network::ClientConnection>(
         static_cast<network::ClientConnection*>(connection_impl.release()));
-    GOPHER_LOG_DEBUG("HTTP connecting to {}:{} (tls={})", url_.host, url_.port,
+    GOPHER_LOG_FLOW_DEBUG("HTTP connecting to {}:{} (tls={})", url_.host,
+                          url_.port,
                      url_.tls ? "yes" : "no");
     connection_->connect();
     return true;
@@ -281,7 +282,7 @@ class HttpAsyncClient::RequestContext
       return;
     }
     completed_ = true;
-    GOPHER_LOG_DEBUG("HTTP <- {} {} ({} {}, body={} bytes)", url_.host,
+    GOPHER_LOG_FLOW_DEBUG("HTTP <- {} {} ({} {}, body={} bytes)", url_.host,
                     url_.path, response_.status_code, response_.status_text,
                     response_.body.size());
     auto cb = std::move(on_response_);
@@ -341,12 +342,13 @@ class HttpAsyncClient::RequestContext
     req << "\r\n" << request_.body;
 
     if (::mcp::logging::LoggerRegistry::instance().shouldLog(
-            GOPHER_LOG_COMPONENT, ::mcp::logging::LogLevel::Debug)) {
+            GOPHER_LOG_FLOW_COMPONENT, ::mcp::logging::LogLevel::Debug)) {
       std::ostringstream hdrs;
       for (const auto& h : request_.headers) {
         hdrs << " " << h.first << "=" << redactHeaderValue(h.first, h.second);
       }
-      GOPHER_LOG_DEBUG("HTTP -> {} {} (host={}:{}, body={} bytes, headers:{})",
+      GOPHER_LOG_FLOW_DEBUG(
+          "HTTP -> {} {} (host={}:{}, body={} bytes, headers:{})",
                        request_.method, url_.path, url_.host, url_.port,
                        request_.body.size(), hdrs.str());
     }

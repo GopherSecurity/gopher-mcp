@@ -487,7 +487,7 @@ std::future<InitializeResult> McpClient::initializeProtocol() {
     init_params["capabilities"] = "{}";
 
     // Send request - do NOT block here!
-    GOPHER_LOG_DEBUG("MCP invoke: initialize (protocolVersion={}, client={}/{})",
+    GOPHER_LOG_FLOW_DEBUG("MCP invoke: initialize (protocolVersion={}, client={}/{})",
                     config_.protocol_version, config_.client_name,
                     config_.client_version);
     *request_future_ptr =
@@ -522,7 +522,7 @@ std::future<InitializeResult> McpClient::initializeProtocol() {
             std::runtime_error(response.error->message)));
         return;
       }
-      GOPHER_LOG_DEBUG("MCP invoke: initialize succeeded");
+      GOPHER_LOG_FLOW_DEBUG("MCP invoke: initialize succeeded");
 
       // Parse InitializeResult from response (pure parsing — no shared state).
       InitializeResult init_result;
@@ -1101,7 +1101,7 @@ std::future<ListResourcesResult> McpClient::listResources(
   }
   auto params_ptr = std::make_shared<Metadata>(std::move(params));
 
-  GOPHER_LOG_DEBUG("MCP invoke: resources/list (cursor={})",
+  GOPHER_LOG_FLOW_DEBUG("MCP invoke: resources/list (cursor={})",
                   cursor.has_value() ? cursor.value() : "<none>");
 
   // Step 1: Post to dispatcher to send the request (non-blocking)
@@ -1167,7 +1167,7 @@ std::future<ReadResourceResult> McpClient::readResource(
   params["uri"] = uri;
   auto params_ptr = std::make_shared<Metadata>(std::move(params));
 
-  GOPHER_LOG_DEBUG("MCP invoke: resources/read uri={}", uri);
+  GOPHER_LOG_FLOW_DEBUG("MCP invoke: resources/read uri={}", uri);
 
   // Step 1: Post to dispatcher to send the request (non-blocking)
   main_dispatcher_->post([this, request_future_ptr, params_ptr]() {
@@ -1336,7 +1336,7 @@ std::future<ListToolsResult> McpClient::listTools(
   }
   auto params_ptr = std::make_shared<Metadata>(std::move(params));
 
-  GOPHER_LOG_DEBUG("MCP invoke: tools/list (cursor={})",
+  GOPHER_LOG_FLOW_DEBUG("MCP invoke: tools/list (cursor={})",
                   cursor.has_value() ? cursor.value() : "<none>");
 
   // Step 1: Post to dispatcher to send the request (non-blocking)
@@ -1371,11 +1371,11 @@ std::future<ListToolsResult> McpClient::listTools(
           // Backward compatibility: if it's a vector of tools directly
           result.tools = get<std::vector<Tool>>(response.result.value());
         }
-        GOPHER_LOG_DEBUG("MCP invoke: tools/list -> {} tools",
+        GOPHER_LOG_FLOW_DEBUG("MCP invoke: tools/list -> {} tools",
                         result.tools.size());
         result_promise->set_value(result);
       } else {
-        GOPHER_LOG_DEBUG("MCP invoke: tools/list -> 0 tools (empty result)");
+        GOPHER_LOG_FLOW_DEBUG("MCP invoke: tools/list -> 0 tools (empty result)");
         result_promise->set_value(ListToolsResult());
       }
     } catch (...) {
@@ -1416,7 +1416,7 @@ std::future<CallToolResult> McpClient::callTool(
   }
   auto params_ptr = std::make_shared<Metadata>(std::move(params));
 
-  GOPHER_LOG_DEBUG(
+  GOPHER_LOG_FLOW_DEBUG(
       "MCP invoke: tools/call name={} args={}", name,
       arguments.has_value()
           ? logTruncate(json::metadataToJson(arguments.value()).toString())
@@ -1463,11 +1463,11 @@ std::future<CallToolResult> McpClient::callTool(
             result.isError = get<bool>(error_it->second);
           }
         }
-        GOPHER_LOG_DEBUG("MCP invoke: tools/call name={} ok (isError={})", name,
+        GOPHER_LOG_FLOW_DEBUG("MCP invoke: tools/call name={} ok (isError={})", name,
                         result.isError ? "true" : "false");
         result_promise->set_value(result);
       } else {
-        GOPHER_LOG_DEBUG("MCP invoke: tools/call name={} -> empty result", name);
+        GOPHER_LOG_FLOW_DEBUG("MCP invoke: tools/call name={} -> empty result", name);
         result_promise->set_value(CallToolResult());
       }
     } catch (...) {
@@ -1503,7 +1503,7 @@ std::future<ListPromptsResult> McpClient::listPrompts(
   }
   auto params_ptr = std::make_shared<Metadata>(std::move(params));
 
-  GOPHER_LOG_DEBUG("MCP invoke: prompts/list (cursor={})",
+  GOPHER_LOG_FLOW_DEBUG("MCP invoke: prompts/list (cursor={})",
                   cursor.has_value() ? cursor.value() : "<none>");
 
   // Step 1: Post to dispatcher to send the request (non-blocking)
@@ -1574,7 +1574,7 @@ std::future<GetPromptResult> McpClient::getPrompt(
   }
   auto params_ptr = std::make_shared<Metadata>(std::move(params));
 
-  GOPHER_LOG_DEBUG("MCP invoke: prompts/get name={}", name);
+  GOPHER_LOG_FLOW_DEBUG("MCP invoke: prompts/get name={}", name);
 
   // Step 1: Post to dispatcher to send the request (non-blocking)
   main_dispatcher_->post([this, request_future_ptr, params_ptr]() {
