@@ -651,6 +651,13 @@ InitializeResult McpClient::parseInitializeResponse(
 // Send request with future-based async API
 std::future<Response> McpClient::sendRequest(const std::string& method,
                                              const optional<Metadata>& params) {
+  return sendRequest(method, params, {});
+}
+
+std::future<Response> McpClient::sendRequest(
+    const std::string& method,
+    const optional<Metadata>& params,
+    const std::map<std::string, std::string>& http_headers) {
   // Check if circuit breaker allows request
   if (!circuit_breaker_->allowRequest()) {
     client_stats_.circuit_breaker_opens++;
@@ -666,6 +673,7 @@ std::future<Response> McpClient::sendRequest(const std::string& method,
   // Create request context
   auto context = std::make_shared<RequestContext>(id, method);
   context->params = params;
+  context->http_headers = http_headers;
   context->start_time = std::chrono::steady_clock::now();
 
   // Track request
@@ -805,7 +813,8 @@ void McpClient::sendRequestInternal(std::shared_ptr<RequestContext> context) {
   last_activity_time_ = std::chrono::steady_clock::now();
 
   // Send through connection manager
-  auto send_result = connection_manager_->sendRequest(request);
+  auto send_result = connection_manager_->sendRequest(request,
+                                                      context->http_headers);
 
   GOPHER_LOG_DEBUG("sendRequest result: is_error={}",
                    is_error<std::nullptr_t>(send_result));
@@ -1023,6 +1032,10 @@ McpConnectionConfig McpClient::createConnectionConfig(TransportType transport) {
       http_config.server_address = server_addr;
       config.http_path = http_path;
       config.http_host = server_addr;
+      config.http_headers = config_.http_headers;
+      config.current_http_headers =
+          std::make_shared<std::map<std::string, std::string>>(
+              config_.http_headers);
 
       // Set SSL transport for HTTPS URLs
       if (is_https) {
@@ -1074,6 +1087,10 @@ McpConnectionConfig McpClient::createConnectionConfig(TransportType transport) {
       http_config.server_address = server_addr;
       config.http_path = http_path;
       config.http_host = server_addr;
+      config.http_headers = config_.http_headers;
+      config.current_http_headers =
+          std::make_shared<std::map<std::string, std::string>>(
+              config_.http_headers);
 
       // Set SSL transport for HTTPS URLs
       if (is_https) {
@@ -1354,6 +1371,12 @@ std::future<VoidResult> McpClient::unsubscribeResource(const std::string& uri) {
 // List available tools
 std::future<ListToolsResult> McpClient::listTools(
     const optional<std::string>& cursor) {
+  return listTools(cursor, {});
+}
+
+std::future<ListToolsResult> McpClient::listTools(
+    const optional<std::string>& cursor,
+    const std::map<std::string, std::string>& http_headers) {
   auto result_promise = std::make_shared<std::promise<ListToolsResult>>();
 
   if (!main_dispatcher_) {
@@ -1380,9 +1403,10 @@ std::future<ListToolsResult> McpClient::listTools(
                         cursor.has_value() ? cursor.value() : "<none>");
 
   // Step 1: Post to dispatcher to send the request (non-blocking)
-  main_dispatcher_->post([this, request_future_ptr, params_ptr]() {
+  main_dispatcher_->post([this, request_future_ptr, params_ptr, http_headers]() {
     *request_future_ptr =
-        sendRequest("tools/list", mcp::make_optional(*params_ptr));
+        sendRequest("tools/list", mcp::make_optional(*params_ptr),
+                    http_headers);
   });
 
   // Step 2: Use std::thread to wait for response on a worker thread (not
@@ -1430,6 +1454,13 @@ std::future<ListToolsResult> McpClient::listTools(
 // Call a tool
 std::future<CallToolResult> McpClient::callTool(
     const std::string& name, const optional<Metadata>& arguments) {
+  return callTool(name, arguments, {});
+}
+
+std::future<CallToolResult> McpClient::callTool(
+    const std::string& name,
+    const optional<Metadata>& arguments,
+    const std::map<std::string, std::string>& http_headers) {
   auto result_promise = std::make_shared<std::promise<CallToolResult>>();
 
   if (!main_dispatcher_) {
@@ -1464,9 +1495,10 @@ std::future<CallToolResult> McpClient::callTool(
           : "<none>");
 
   // Step 1: Post to dispatcher to send the request (non-blocking)
-  main_dispatcher_->post([this, request_future_ptr, params_ptr]() {
+  main_dispatcher_->post([this, request_future_ptr, params_ptr, http_headers]() {
     *request_future_ptr =
-        sendRequest("tools/call", mcp::make_optional(*params_ptr));
+        sendRequest("tools/call", mcp::make_optional(*params_ptr),
+                    http_headers);
   });
 
   // Step 2: Use std::thread to wait for response on a worker thread (not

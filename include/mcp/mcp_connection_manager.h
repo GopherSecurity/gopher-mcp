@@ -2,6 +2,7 @@
 #define MCP_MCP_CONNECTION_MANAGER_H
 
 #include <functional>
+#include <map>
 #include <memory>
 
 #include "mcp/core/result.h"
@@ -51,6 +52,8 @@ struct McpConnectionConfig {
   std::string http_path{"/rpc"};  // Request path (e.g., /sse, /mcp)
   std::string
       http_host;  // Host header value (auto-set from server_address if empty)
+  std::map<std::string, std::string> http_headers;
+  std::shared_ptr<std::map<std::string, std::string>> current_http_headers;
 };
 
 /**
@@ -161,6 +164,9 @@ class McpConnectionManager : public McpProtocolCallbacks,
    * Send a request
    */
   VoidResult sendRequest(const jsonrpc::Request& request);
+  VoidResult sendRequest(
+      const jsonrpc::Request& request,
+      const std::map<std::string, std::string>& http_headers);
 
   /**
    * Send a notification
@@ -232,6 +238,9 @@ class McpConnectionManager : public McpProtocolCallbacks,
   void onError(const Error& error) override;
   void onMessageEndpoint(const std::string& endpoint) override;
   bool sendHttpPost(const std::string& json_body) override;
+  bool sendHttpPost(
+      const std::string& json_body,
+      const std::map<std::string, std::string>& http_headers);
 
   // ListenerCallbacks interface
   void onAccept(network::ConnectionSocketPtr&& socket) override;
@@ -254,6 +263,9 @@ class McpConnectionManager : public McpProtocolCallbacks,
 
   // Send JSON message
   VoidResult sendJsonMessage(const json::JsonValue& message);
+  VoidResult sendJsonMessage(
+      const json::JsonValue& message,
+      const std::map<std::string, std::string>& http_headers);
 
   event::Dispatcher& dispatcher_;
   network::SocketInterface& socket_interface_;

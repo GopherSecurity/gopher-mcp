@@ -68,6 +68,7 @@ struct McpClientConfig : public application::ApplicationBase::Config {
   // Transport configuration
   TransportType preferred_transport = TransportType::Stdio;
   bool auto_negotiate_transport = true;
+  std::map<std::string, std::string> http_headers;
 
   // Connection pool settings
   size_t connection_pool_size = 10;
@@ -145,6 +146,7 @@ struct RequestContext {
   RequestId id;
   std::string method;
   optional<Metadata> params;
+  std::map<std::string, std::string> http_headers;
   std::chrono::steady_clock::time_point start_time;
   std::promise<Response> promise;
   size_t retry_count{0};
@@ -444,6 +446,10 @@ class McpClient : public application::ApplicationBase {
   // Request methods with future-based async API
   std::future<Response> sendRequest(const std::string& method,
                                     const optional<Metadata>& params = nullopt);
+  std::future<Response> sendRequest(
+      const std::string& method,
+      const optional<Metadata>& params,
+      const std::map<std::string, std::string>& http_headers);
 
   // Batch processing - sends multiple requests efficiently
   std::vector<std::future<Response>> sendBatch(
@@ -463,8 +469,15 @@ class McpClient : public application::ApplicationBase {
   // Tool operations
   std::future<ListToolsResult> listTools(
       const optional<Cursor>& cursor = nullopt);
+  std::future<ListToolsResult> listTools(
+      const optional<Cursor>& cursor,
+      const std::map<std::string, std::string>& http_headers);
   std::future<CallToolResult> callTool(
       const std::string& name, const optional<Metadata>& arguments = nullopt);
+  std::future<CallToolResult> callTool(
+      const std::string& name,
+      const optional<Metadata>& arguments,
+      const std::map<std::string, std::string>& http_headers);
 
   // Prompt operations
   std::future<ListPromptsResult> listPrompts(
@@ -544,6 +557,10 @@ class McpClient : public application::ApplicationBase {
   RequestId generateRequestId();
   std::shared_ptr<RequestContext> createRequestContext(
       const std::string& method, const optional<Metadata>& params);
+  std::shared_ptr<RequestContext> createRequestContext(
+      const std::string& method,
+      const optional<Metadata>& params,
+      const std::map<std::string, std::string>& http_headers);
   void sendRequestInternal(std::shared_ptr<RequestContext> context);
   void handleTimeout(std::shared_ptr<RequestContext> context);
   void retryRequest(std::shared_ptr<RequestContext> context);

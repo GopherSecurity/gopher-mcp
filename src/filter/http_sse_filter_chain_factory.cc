@@ -126,12 +126,17 @@ class HttpSseJsonRpcProtocolFilter
       const std::string& configured_sse_path = "/sse",
       const std::string& configured_rpc_path = "/mcp",
       const std::string& configured_external_url = "",
+      const std::map<std::string, std::string>& client_headers = {},
+      const std::shared_ptr<std::map<std::string, std::string>>&
+          client_header_source = nullptr,
       SseSessionRegistry* sse_registry = nullptr)
       : dispatcher_(dispatcher),
         mcp_callbacks_(mcp_callbacks),
         is_server_(is_server),
         http_path_(http_path),
         http_host_(http_host),
+        client_headers_(client_headers),
+        client_header_source_(client_header_source),
         configured_sse_path_(configured_sse_path),
         configured_rpc_path_(configured_rpc_path),
         configured_external_url_(configured_external_url),
@@ -157,6 +162,8 @@ class HttpSseJsonRpcProtocolFilter
     // Set client endpoint for HTTP requests
     if (!is_server) {
       http_filter_->setClientEndpoint(http_path, http_host);
+      http_filter_->setClientHeaders(client_headers_);
+      http_filter_->setClientHeaderSource(client_header_source_);
       // Only enable SSE GET mode if use_sse is true
       // For Streamable HTTP, we send POST requests directly
       if (use_sse) {
@@ -1233,6 +1240,8 @@ class HttpSseJsonRpcProtocolFilter
   // SSE client endpoint configuration
   std::string http_path_{"/rpc"};       // Default HTTP path for requests
   std::string http_host_{"localhost"};  // Default HTTP host for requests
+  std::map<std::string, std::string> client_headers_;
+  std::shared_ptr<std::map<std::string, std::string>> client_header_source_;
 
   // SSE server transport (only meaningful when is_server_ == true).
   std::string configured_sse_path_{"/sse"};
@@ -1302,12 +1311,17 @@ HttpSseFilterChainFactory::HttpSseFilterChainFactory(
     bool use_sse,
     const std::string& sse_path,
     const std::string& rpc_path,
-    const std::string& external_url)
+    const std::string& external_url,
+    const std::map<std::string, std::string>& client_headers,
+    const std::shared_ptr<std::map<std::string, std::string>>&
+        client_header_source)
     : dispatcher_(dispatcher),
       message_callbacks_(message_callbacks),
       is_server_(is_server),
       http_path_(http_path),
       http_host_(http_host),
+      client_headers_(client_headers),
+      client_header_source_(client_header_source),
       use_sse_(use_sse),
       sse_path_(sse_path),
       rpc_path_(rpc_path),
@@ -1392,7 +1406,8 @@ bool HttpSseFilterChainFactory::createFilterChain(
   auto combined_filter = std::make_shared<HttpSseJsonRpcProtocolFilter>(
       dispatcher_, message_callbacks_, is_server_, http_path_, http_host_,
       use_sse_, route_registration_callback_, sse_path_, rpc_path_,
-      external_url_, sse_registry_.get());
+      external_url_, client_headers_, client_header_source_,
+      sse_registry_.get());
 
   // Add as both read and write filter. The FilterManager owns the filter
   // for the connection's lifetime (per-connection filter ownership): when

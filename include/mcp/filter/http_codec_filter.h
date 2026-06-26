@@ -1,6 +1,7 @@
 #pragma once
 
 #include <functional>
+#include <map>
 #include <memory>
 
 #include "mcp/buffer.h"
@@ -176,6 +177,18 @@ class HttpCodecFilter : public network::Filter {
   }
 
   /**
+   * Set extra client request headers for generated HTTP requests.
+   */
+  void setClientHeaders(const std::map<std::string, std::string>& headers) {
+    client_headers_ = headers;
+  }
+
+  void setClientHeaderSource(
+      const std::shared_ptr<std::map<std::string, std::string>>& headers) {
+    client_header_source_ = headers;
+  }
+
+  /**
    * Set the message endpoint for POST requests (client mode only)
    * Called after receiving endpoint event from SSE stream
    * @param endpoint The URL path for sending JSON-RPC messages
@@ -298,6 +311,8 @@ class HttpCodecFilter : public network::Filter {
   bool is_server_;
   std::string client_path_{"/rpc"};       // HTTP request path for client mode
   std::string client_host_{"localhost"};  // HTTP Host header for client mode
+  std::map<std::string, std::string> client_headers_;
+  std::shared_ptr<std::map<std::string, std::string>> client_header_source_;
   std::string message_endpoint_;  // Endpoint for POST requests (from SSE
                                   // endpoint event)
   bool has_message_endpoint_{

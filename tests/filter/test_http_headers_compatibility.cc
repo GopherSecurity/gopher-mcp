@@ -221,6 +221,115 @@ TEST_F(HttpHeadersCompatibilityTest, SseGetRequestHasAllRequiredHeaders) {
 }
 
 // =============================================================================
+// Header Passthrough Tests
+// =============================================================================
+
+TEST_F(HttpHeadersCompatibilityTest, PostRequestIncludesClientHeaders) {
+  HttpCodecFilter filter(callbacks_, *dispatcher_, false /* is_server */);
+  filter.setClientEndpoint("/mcp", "backend.example.com");
+  filter.setClientHeaders({{"Authorization", "Bearer caller-token"},
+                           {"X-Request-ID", "req-123"}});
+
+  OwnedBuffer write_buffer;
+  std::string json_data = "{\"jsonrpc\":\"2.0\",\"method\":\"tools/list\",\"id\":1}";
+  write_buffer.add(json_data.c_str(), json_data.length());
+
+  filter.onWrite(write_buffer, false);
+
+  std::string request = write_buffer.toString();
+
+  EXPECT_NE(request.find("Authorization: Bearer caller-token\r\n"),
+            std::string::npos)
+      << request;
+  EXPECT_NE(request.find("X-Request-ID: req-123\r\n"), std::string::npos)
+      << request;
+}
+
+TEST_F(HttpHeadersCompatibilityTest, ClientHeadersCannotOverrideGenerated) {
+  HttpCodecFilter filter(callbacks_, *dispatcher_, false /* is_server */);
+  filter.setClientEndpoint("/mcp", "backend.example.com");
+  filter.setClientHeaders({{"Host", "attacker.example.com"},
+                           {"Content-Type", "text/plain"},
+                           {"Content-Length", "999999"},
+                           {"Accept", "text/plain"},
+                           {"Connection", "close"},
+                           {"User-Agent", "custom-agent"},
+                           {"Cache-Control", "max-age=3600"},
+                           {"Authorization", "Bearer caller-token"}});
+
+  OwnedBuffer write_buffer;
+  std::string json_data = "{\"jsonrpc\":\"2.0\",\"method\":\"tools/list\",\"id\":1}";
+  write_buffer.add(json_data.c_str(), json_data.length());
+
+  filter.onWrite(write_buffer, false);
+
+  std::string request = write_buffer.toString();
+
+  EXPECT_NE(request.find("Host: backend.example.com\r\n"), std::string::npos)
+      << request;
+  EXPECT_NE(request.find("Content-Type: application/json\r\n"),
+            std::string::npos)
+      << request;
+  EXPECT_NE(request.find("Content-Length: " + std::to_string(json_data.size()) +
+                         "\r\n"),
+            std::string::npos)
+      << request;
+  EXPECT_NE(request.find("Accept: application/json, text/event-stream\r\n"),
+            std::string::npos)
+      << request;
+  EXPECT_NE(request.find("Connection: keep-alive\r\n"), std::string::npos)
+      << request;
+  EXPECT_NE(request.find("User-Agent: gopher-mcp/1.0\r\n"), std::string::npos)
+      << request;
+  EXPECT_EQ(request.find("Host: attacker.example.com"), std::string::npos)
+      << request;
+  EXPECT_EQ(request.find("Content-Type: text/plain"), std::string::npos)
+      << request;
+  EXPECT_EQ(request.find("Content-Length: 999999"), std::string::npos)
+      << request;
+  EXPECT_EQ(request.find("Accept: text/plain"), std::string::npos) << request;
+  EXPECT_EQ(request.find("Connection: close"), std::string::npos) << request;
+  EXPECT_EQ(request.find("User-Agent: custom-agent"), std::string::npos)
+      << request;
+  EXPECT_EQ(request.find("Cache-Control: max-age=3600"), std::string::npos)
+      << request;
+  EXPECT_NE(request.find("Authorization: Bearer caller-token\r\n"),
+            std::string::npos)
+      << request;
+}
+
+TEST_F(HttpHeadersCompatibilityTest, ClientHeaderSourceOverridesStaticHeaders) {
+  HttpCodecFilter filter(callbacks_, *dispatcher_, false /* is_server */);
+  filter.setClientEndpoint("/mcp", "backend.example.com");
+  filter.setClientHeaders({{"Authorization", "Bearer static-token"},
+                           {"X-Static", "yes"}});
+
+  auto current_headers =
+      std::make_shared<std::map<std::string, std::string>>();
+  (*current_headers)["Authorization"] = "Bearer per-request-token";
+  (*current_headers)["X-Request-ID"] = "req-456";
+  filter.setClientHeaderSource(current_headers);
+
+  OwnedBuffer write_buffer;
+  std::string json_data = "{\"jsonrpc\":\"2.0\",\"method\":\"tools/call\",\"id\":2}";
+  write_buffer.add(json_data.c_str(), json_data.length());
+
+  filter.onWrite(write_buffer, false);
+
+  std::string request = write_buffer.toString();
+
+  EXPECT_NE(request.find("Authorization: Bearer per-request-token\r\n"),
+            std::string::npos)
+      << request;
+  EXPECT_NE(request.find("X-Request-ID: req-456\r\n"), std::string::npos)
+      << request;
+  EXPECT_EQ(request.find("Authorization: Bearer static-token"),
+            std::string::npos)
+      << request;
+  EXPECT_EQ(request.find("X-Static: yes"), std::string::npos) << request;
+}
+
+// =============================================================================
 // Edge Cases
 // =============================================================================
 

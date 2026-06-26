@@ -25,6 +25,34 @@
 namespace mcp {
 namespace filter {
 
+namespace {
+std::string toLowerHeaderName(std::string value) {
+  std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
+    return static_cast<char>(std::tolower(c));
+  });
+  return value;
+}
+
+bool isGeneratedClientHeader(const std::string& name) {
+  const std::string lower = toLowerHeaderName(name);
+  return lower == "host" || lower == "content-length" ||
+         lower == "connection" || lower == "accept" ||
+         lower == "content-type" || lower == "user-agent" ||
+         lower == "cache-control";
+}
+
+void appendClientHeaders(std::ostringstream& request,
+                         const std::map<std::string, std::string>& headers) {
+  for (const auto& header : headers) {
+    if (header.first.empty() || header.second.empty() ||
+        isGeneratedClientHeader(header.first)) {
+      continue;
+    }
+    request << header.first << ": " << header.second << "\r\n";
+  }
+}
+}  // namespace
+
 // HttpFilterChainBridge implementation
 
 HttpCodecFilter::HttpFilterChainBridge::HttpFilterChainBridge(
@@ -385,6 +413,9 @@ network::FilterStatus HttpCodecFilter::onWrite(Buffer& data, bool end_stream) {
         request << "Cache-Control: no-cache\r\n";
         request << "Connection: keep-alive\r\n";
         request << "User-Agent: gopher-mcp/1.0\r\n";
+        appendClientHeaders(request, client_header_source_
+                                         ? *client_header_source_
+                                         : client_headers_);
         request << "\r\n";
 
         sse_get_sent_ = true;
@@ -419,6 +450,9 @@ network::FilterStatus HttpCodecFilter::onWrite(Buffer& data, bool end_stream) {
         request << "Accept: application/json, text/event-stream\r\n";
         request << "Connection: keep-alive\r\n";
         request << "User-Agent: gopher-mcp/1.0\r\n";
+        appendClientHeaders(request, client_header_source_
+                                         ? *client_header_source_
+                                         : client_headers_);
         request << "\r\n";
         request << body_data;
       }
