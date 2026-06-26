@@ -813,8 +813,8 @@ void McpClient::sendRequestInternal(std::shared_ptr<RequestContext> context) {
   last_activity_time_ = std::chrono::steady_clock::now();
 
   // Send through connection manager
-  auto send_result =
-      connection_manager_->sendRequest(request, context->http_headers);
+  auto send_result = connection_manager_->sendRequest(request,
+                                                      context->http_headers);
 
   GOPHER_LOG_DEBUG("sendRequest result: is_error={}",
                    is_error<std::nullptr_t>(send_result));
@@ -1403,11 +1403,11 @@ std::future<ListToolsResult> McpClient::listTools(
                         cursor.has_value() ? cursor.value() : "<none>");
 
   // Step 1: Post to dispatcher to send the request (non-blocking)
-  main_dispatcher_->post(
-      [this, request_future_ptr, params_ptr, http_headers]() {
-        *request_future_ptr = sendRequest(
-            "tools/list", mcp::make_optional(*params_ptr), http_headers);
-      });
+  main_dispatcher_->post([this, request_future_ptr, params_ptr, http_headers]() {
+    *request_future_ptr =
+        sendRequest("tools/list", mcp::make_optional(*params_ptr),
+                    http_headers);
+  });
 
   // Step 2: Use std::thread to wait for response on a worker thread (not
   // dispatcher!)
@@ -1495,11 +1495,11 @@ std::future<CallToolResult> McpClient::callTool(
           : "<none>");
 
   // Step 1: Post to dispatcher to send the request (non-blocking)
-  main_dispatcher_->post(
-      [this, request_future_ptr, params_ptr, http_headers]() {
-        *request_future_ptr = sendRequest(
-            "tools/call", mcp::make_optional(*params_ptr), http_headers);
-      });
+  main_dispatcher_->post([this, request_future_ptr, params_ptr, http_headers]() {
+    *request_future_ptr =
+        sendRequest("tools/call", mcp::make_optional(*params_ptr),
+                    http_headers);
+  });
 
   // Step 2: Use std::thread to wait for response on a worker thread (not
   // dispatcher!)
