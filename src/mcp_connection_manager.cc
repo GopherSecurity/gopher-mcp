@@ -1,6 +1,8 @@
 #include "mcp/mcp_connection_manager.h"
 
+#include <algorithm>
 #include <cassert>
+#include <cctype>
 #include <cstring>
 #include <iostream>
 #include <sstream>
@@ -83,6 +85,12 @@ McpConnectionManager::McpConnectionManager(
     : dispatcher_(dispatcher),
       socket_interface_(socket_interface),
       config_(config) {
+  if (!config_.current_http_headers) {
+    config_.current_http_headers =
+        std::make_shared<std::map<std::string, std::string>>(
+            config_.http_headers);
+  }
+
   // Create connection manager
   network::ConnectionManagerConfig conn_config;
   conn_config.per_connection_buffer_limit = config.buffer_limit;
@@ -680,6 +688,12 @@ VoidResult McpConnectionManager::listen(
 }
 
 VoidResult McpConnectionManager::sendRequest(const jsonrpc::Request& request) {
+  return sendRequest(request, {});
+}
+
+VoidResult McpConnectionManager::sendRequest(
+    const jsonrpc::Request& request,
+    const std::map<std::string, std::string>& http_headers) {
   if (!connected_ || !active_connection_) {
     Error err;
     err.code = -1;
@@ -690,7 +704,7 @@ VoidResult McpConnectionManager::sendRequest(const jsonrpc::Request& request) {
   // Convert to JSON using the bridge
   auto json_val = json::to_json(request);
 
-  return sendJsonMessage(json_val);
+  return sendJsonMessage(json_val, http_headers);
 }
 
 VoidResult McpConnectionManager::sendNotification(
@@ -964,6 +978,12 @@ void McpConnectionManager::onMessageEndpoint(const std::string& endpoint) {
 }
 
 bool McpConnectionManager::sendHttpPost(const std::string& json_body) {
+  return sendHttpPost(json_body, {});
+}
+
+bool McpConnectionManager::sendHttpPost(
+    const std::string& json_body,
+    const std::map<std::string, std::string>& http_headers) {
   GOPHER_LOG_DEBUG(
       "McpConnectionManager::sendHttpPost endpoint={}, body_len={}",
       message_endpoint_, json_body.length());
@@ -1028,6 +1048,28 @@ bool McpConnectionManager::sendHttpPost(const std::string& json_body) {
   request << "Content-Type: application/json\r\n";
   request << "Content-Length: " << json_body.length() << "\r\n";
   request << "Connection: close\r\n";  // One-shot connection
+  std::map<std::string, std::string> merged_headers =
+      config_.current_http_headers ? *config_.current_http_headers
+                                   : config_.http_headers;
+  for (const auto& header : http_headers) {
+    merged_headers[header.first] = header.second;
+  }
+  for (const auto& header : merged_headers) {
+    if (header.first.empty() || header.second.empty()) {
+      continue;
+    }
+    const std::string name = header.first;
+    std::string lower = name;
+    std::transform(lower.begin(), lower.end(), lower.begin(),
+                   [](unsigned char c) {
+                     return static_cast<char>(std::tolower(c));
+                   });
+    if (lower == "host" || lower == "content-type" ||
+        lower == "content-length" || lower == "connection") {
+      continue;
+    }
+    request << header.first << ": " << header.second << "\r\n";
+  }
   request << "\r\n";
   request << json_body;
 
@@ -1260,7 +1302,9 @@ McpConnectionManager::createFilterChainFactory() {
     // - JSON-RPC for message protocol
 
     return std::make_shared<filter::HttpSseFilterChainFactory>(
-        dispatcher_, *this, is_server_, config_.http_path, config_.http_host);
+        dispatcher_, *this, is_server_, config_.http_path, config_.http_host,
+        true /* use_sse */, "/sse", "/mcp", "", config_.http_headers,
+        config_.current_http_headers);
 
   } else if (config_.transport_type == TransportType::StreamableHttp) {
     // Streamable HTTP: Simple POST request/response pattern
@@ -1271,7 +1315,8 @@ McpConnectionManager::createFilterChainFactory() {
 
     return std::make_shared<filter::HttpSseFilterChainFactory>(
         dispatcher_, *this, is_server_, config_.http_path, config_.http_host,
-        false /* use_sse */);
+        false /* use_sse */, "/sse", "/mcp", "", config_.http_headers,
+        config_.current_http_headers);
 
   } else {
     // Simple direct transport (stdio, websocket):
@@ -1286,6 +1331,12 @@ McpConnectionManager::createFilterChainFactory() {
 
 VoidResult McpConnectionManager::sendJsonMessage(
     const json::JsonValue& message) {
+  return sendJsonMessage(message, {});
+}
+
+VoidResult McpConnectionManager::sendJsonMessage(
+    const json::JsonValue& message,
+    const std::map<std::string, std::string>& http_headers) {
   GOPHER_LOG_DEBUG(
       "McpConnectionManager::sendJsonMessage called, connected={}, conn={}",
       connected_, (void*)active_connection_.get());
@@ -1311,7 +1362,7 @@ VoidResult McpConnectionManager::sendJsonMessage(
   // Post write to dispatcher thread to ensure thread safety
   // The write() call must happen on the dispatcher thread
   // We capture `this` to check if connection is still valid when callback runs
-  dispatcher_.post([this, json_str = std::move(json_str)]() {
+  dispatcher_.post([this, json_str = std::move(json_str), http_headers]() {
     // Check if connection is still valid - it may have been closed
     if (!active_connection_) {
       GOPHER_LOG_DEBUG(
@@ -1322,6 +1373,14 @@ VoidResult McpConnectionManager::sendJsonMessage(
     GOPHER_LOG_DEBUG(
         "McpConnectionManager write callback executing, conn={}, msg_len={}",
         (void*)active_connection_.get(), json_str.length());
+
+    if (config_.current_http_headers) {
+      auto merged_headers = config_.http_headers;
+      for (const auto& header : http_headers) {
+        merged_headers[header.first] = header.second;
+      }
+      *config_.current_http_headers = std::move(merged_headers);
+    }
 
     // Create buffer with JSON payload
     OwnedBuffer buffer;
