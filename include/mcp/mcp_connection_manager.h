@@ -71,6 +71,18 @@ class McpProtocolCallbacks {
   virtual void onNotification(const jsonrpc::Notification& notification) = 0;
 
   /**
+   * Set the connection that the next onRequest/onNotification originates from,
+   * so the server can route the response back to the correct socket instead of
+   * relying on a stale global pointer. Without this, concurrent requests all
+   * get their responses written to whichever connection was accepted last,
+   * causing the others to hang. Default no-op for transports (e.g. stdio) that
+   * don't need per-request connection identity.
+   */
+  virtual void setCurrentConnection(network::Connection* connection) {
+    (void)connection;
+  }
+
+  /**
    * Called when a response is received
    */
   virtual void onResponse(const jsonrpc::Response& response) = 0;

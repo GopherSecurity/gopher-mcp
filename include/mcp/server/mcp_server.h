@@ -901,6 +901,14 @@ class McpServer : public application::ApplicationBase,
       server_.onNotification(notification);
     }
 
+    // Bind the originating connection before the request/notification is
+    // handled so the response is routed to the correct socket (fixes
+    // concurrent-request response misrouting). Safe: everything runs
+    // synchronously on the single dispatcher thread.
+    void setCurrentConnection(network::Connection* connection) override {
+      server_.current_connection_ = connection;
+    }
+
     void onResponse(const jsonrpc::Response& response) override {
       server_.onResponse(response);
     }

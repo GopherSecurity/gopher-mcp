@@ -932,10 +932,19 @@ class HttpSseJsonRpcProtocolFilter
    */
   void onRequest(const jsonrpc::Request& request) override {
     GOPHER_LOG_DEBUG("HttpSseFilter::onRequest for method: {}", request.method);
+    // Bind the originating connection so the server writes the response back
+    // to THIS socket, not whichever connection was accepted last. Without this,
+    // concurrent requests' responses are misrouted and the clients hang.
+    if (write_callbacks_) {
+      mcp_callbacks_.setCurrentConnection(&write_callbacks_->connection());
+    }
     mcp_callbacks_.onRequest(request);
   }
 
   void onNotification(const jsonrpc::Notification& notification) override {
+    if (write_callbacks_) {
+      mcp_callbacks_.setCurrentConnection(&write_callbacks_->connection());
+    }
     mcp_callbacks_.onNotification(notification);
 
     // For HTTP transport, send HTTP 202 Accepted response
