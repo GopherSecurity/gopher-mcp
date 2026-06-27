@@ -20,6 +20,7 @@
 #include <thread>
 
 #include <gtest/gtest.h>
+#include <sys/socket.h>
 
 #include "mcp/buffer.h"
 #include "mcp/filter/http_sse_filter_chain_factory.h"
@@ -51,6 +52,7 @@ class ServerModeCallbacks : public McpProtocolCallbacks {
   void onRequestWithContext(const jsonrpc::Request& req,
                             MessageDispatchContext& context) override {
     requests_.push_back(req);
+    request_connection_ = context.originConnection();
     // Capture the transport session id that traveled WITH this message —
     // the filter's contract is to build a fresh context per dispatched
     // message (possibly with an empty id).
@@ -66,6 +68,7 @@ class ServerModeCallbacks : public McpProtocolCallbacks {
   std::vector<jsonrpc::Request> requests_;
   std::vector<std::string> binding_at_request_;
   std::string current_binding_{"<context-free-dispatch>"};
+  network::Connection* request_connection_{nullptr};
   int error_count_{0};
 };
 
@@ -108,6 +111,37 @@ class ServerModeFilterTest : public test::RealIoTestBase {
     ci->filterManager().initializeReadFilters();
 
     return Harness{std::move(factory), std::move(conn), std::move(pair.second),
+                   std::move(si)};
+  }
+
+  Harness makeServerHarnessWithUnixPair(
+      ServerModeCallbacks& callbacks,
+      const std::shared_ptr<HttpSseFilterChainFactory>& existing_factory) {
+    int fds[2];
+    if (::socketpair(AF_UNIX, SOCK_STREAM, 0, fds) != 0) {
+      throw std::runtime_error("Failed to create unix socketpair");
+    }
+
+    auto& socket_interface = network::socketInterface();
+    auto server_handle = socket_interface.ioHandleForFd(fds[0], true);
+    auto peer_handle = socket_interface.ioHandleForFd(fds[1], true);
+    server_handle->setBlocking(false);
+    peer_handle->setBlocking(false);
+
+    auto local = network::Address::pipeAddress("server");
+    auto remote = network::Address::pipeAddress("peer");
+    auto socket = std::make_unique<network::ConnectionSocketImpl>(
+        std::move(server_handle), local, remote);
+    auto transport = std::make_unique<network::RawBufferTransportSocket>();
+    auto si = std::make_shared<stream_info::StreamInfoImpl>();
+
+    auto conn = network::ConnectionImpl::createServerConnection(
+        *dispatcher_, std::move(socket), std::move(transport), *si);
+    auto* ci = static_cast<network::ConnectionImpl*>(conn.get());
+    EXPECT_TRUE(existing_factory->createFilterChain(ci->filterManager()));
+    ci->filterManager().initializeReadFilters();
+
+    return Harness{existing_factory, std::move(conn), std::move(peer_handle),
                    std::move(si)};
   }
 
@@ -297,6 +331,61 @@ TEST_F(ServerModeFilterTest, PostCallback_AnnouncesTransportSessionId) {
          "before the request is dispatched";
 
   closeOnDispatcher(std::move(conn), std::move(factory));
+}
+
+TEST_F(ServerModeFilterTest, PostMcp_BindsOriginatingConnectionBeforeRequest) {
+  ServerModeCallbacks callbacks;
+  std::unique_ptr<network::ServerConnection> first_conn;
+  std::unique_ptr<network::ServerConnection> second_conn;
+  network::IoHandlePtr first_peer;
+  network::IoHandlePtr second_peer;
+  std::shared_ptr<HttpSseFilterChainFactory> factory;
+  network::Connection* first_conn_ptr = nullptr;
+  network::Connection* second_conn_ptr = nullptr;
+
+  executeInDispatcher([&]() {
+    auto shared_factory = std::make_shared<HttpSseFilterChainFactory>(
+        *dispatcher_, callbacks, /*is_server=*/true,
+        /*http_path=*/"/mcp", /*http_host=*/"localhost", /*use_sse=*/true,
+        /*sse_path=*/"/sse", /*rpc_path=*/"/mcp");
+
+    auto first = makeServerHarnessWithUnixPair(callbacks, shared_factory);
+    first_conn = std::move(first.conn);
+    first_peer = std::move(first.peer);
+    first_conn_ptr = first_conn.get();
+
+    auto second = makeServerHarnessWithUnixPair(callbacks, shared_factory);
+    second_conn = std::move(second.conn);
+    second_peer = std::move(second.peer);
+    second_conn_ptr = second_conn.get();
+    factory = std::move(shared_factory);
+
+    ASSERT_NE(first_conn_ptr, nullptr);
+    ASSERT_NE(second_conn_ptr, nullptr);
+    ASSERT_NE(first_conn_ptr, second_conn_ptr);
+
+    std::string body = R"({"jsonrpc":"2.0","method":"ping","id":101})";
+    std::string request =
+        "POST /mcp HTTP/1.1\r\n"
+        "Host: localhost\r\n"
+        "Content-Type: application/json\r\n"
+        "Content-Length: " +
+        std::to_string(body.size()) +
+        "\r\n"
+        "\r\n" +
+        body;
+    writeClientBytes(*first_peer, request);
+  });
+
+  std::this_thread::sleep_for(200ms);
+
+  ASSERT_GE(callbacks.requests_.size(), 1u);
+  EXPECT_EQ(callbacks.requests_[0].method, "ping");
+  EXPECT_EQ(callbacks.request_connection_, first_conn_ptr);
+  EXPECT_NE(callbacks.request_connection_, second_conn_ptr);
+
+  closeOnDispatcher(std::move(first_conn), factory);
+  closeOnDispatcher(std::move(second_conn), std::move(factory));
 }
 
 // A plain HTTP request (no callback path) must announce an EMPTY id —
