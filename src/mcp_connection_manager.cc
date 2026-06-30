@@ -1060,10 +1060,9 @@ bool McpConnectionManager::sendHttpPost(
     }
     const std::string name = header.first;
     std::string lower = name;
-    std::transform(lower.begin(), lower.end(), lower.begin(),
-                   [](unsigned char c) {
-                     return static_cast<char>(std::tolower(c));
-                   });
+    std::transform(
+        lower.begin(), lower.end(), lower.begin(),
+        [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
     if (lower == "host" || lower == "content-type" ||
         lower == "content-length" || lower == "connection") {
       continue;

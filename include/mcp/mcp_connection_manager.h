@@ -238,9 +238,8 @@ class McpConnectionManager : public McpProtocolCallbacks,
   void onError(const Error& error) override;
   void onMessageEndpoint(const std::string& endpoint) override;
   bool sendHttpPost(const std::string& json_body) override;
-  bool sendHttpPost(
-      const std::string& json_body,
-      const std::map<std::string, std::string>& http_headers);
+  bool sendHttpPost(const std::string& json_body,
+                    const std::map<std::string, std::string>& http_headers);
 
   // ListenerCallbacks interface
   void onAccept(network::ConnectionSocketPtr&& socket) override;
