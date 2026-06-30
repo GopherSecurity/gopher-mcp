@@ -77,20 +77,19 @@ class HttpSseFilterChainFactory : public network::FilterChainFactory {
    *                 callback URL advertised on GET /sse. Leave empty to
    *                 derive the URL from the incoming Host header.
    */
-  HttpSseFilterChainFactory(event::Dispatcher& dispatcher,
-                            McpProtocolCallbacks& message_callbacks,
-                            bool is_server = true,
-                            const std::string& http_path = "/rpc",
-                            const std::string& http_host = "localhost",
-                            bool use_sse = true,
-                            const std::string& sse_path = "/sse",
-                            const std::string& rpc_path = "/mcp",
-                            const std::string& external_url = "",
-                            const std::map<std::string, std::string>&
-                                client_headers = {},
-                            const std::shared_ptr<
-                                std::map<std::string, std::string>>&
-                                client_header_source = nullptr);
+  HttpSseFilterChainFactory(
+      event::Dispatcher& dispatcher,
+      McpProtocolCallbacks& message_callbacks,
+      bool is_server = true,
+      const std::string& http_path = "/rpc",
+      const std::string& http_host = "localhost",
+      bool use_sse = true,
+      const std::string& sse_path = "/sse",
+      const std::string& rpc_path = "/mcp",
+      const std::string& external_url = "",
+      const std::map<std::string, std::string>& client_headers = {},
+      const std::shared_ptr<std::map<std::string, std::string>>&
+          client_header_source = nullptr);
 
   // Destructor defined out-of-line so the unique_ptr<SseSessionRegistry>
   // member can use the incomplete forward-declared type in this header.
@@ -192,9 +191,9 @@ class HttpSseFilterChainFactory : public network::FilterChainFactory {
   std::string http_host_;  // HTTP Host header for client mode
   std::map<std::string, std::string> client_headers_;
   std::shared_ptr<std::map<std::string, std::string>> client_header_source_;
-  bool use_sse_;           // True for SSE mode, false for Streamable HTTP
-  std::string sse_path_;   // Server-side SSE endpoint path (e.g., "/sse")
-  std::string rpc_path_;   // Server-side JSON-RPC endpoint path (e.g., "/mcp")
+  bool use_sse_;          // True for SSE mode, false for Streamable HTTP
+  std::string sse_path_;  // Server-side SSE endpoint path (e.g., "/sse")
+  std::string rpc_path_;  // Server-side JSON-RPC endpoint path (e.g., "/mcp")
   std::string external_url_;  // External URL for absolute SSE callback URLs
   mutable bool enable_metrics_ = true;  // Enable metrics by default
 

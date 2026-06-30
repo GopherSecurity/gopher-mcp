@@ -34,9 +34,9 @@ bool isValidClientHeader(const std::string& name, const std::string& value) {
 }
 
 std::string toLowerHeaderName(std::string value) {
-  std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
-    return static_cast<char>(std::tolower(c));
-  });
+  std::transform(
+      value.begin(), value.end(), value.begin(),
+      [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
   return value;
 }
 
