@@ -227,11 +227,12 @@ TEST_F(HttpHeadersCompatibilityTest, SseGetRequestHasAllRequiredHeaders) {
 TEST_F(HttpHeadersCompatibilityTest, PostRequestIncludesClientHeaders) {
   HttpCodecFilter filter(callbacks_, *dispatcher_, false /* is_server */);
   filter.setClientEndpoint("/mcp", "backend.example.com");
-  filter.setClientHeaders({{"Authorization", "Bearer caller-token"},
-                           {"X-Request-ID", "req-123"}});
+  filter.setClientHeaders(
+      {{"Authorization", "Bearer caller-token"}, {"X-Request-ID", "req-123"}});
 
   OwnedBuffer write_buffer;
-  std::string json_data = "{\"jsonrpc\":\"2.0\",\"method\":\"tools/list\",\"id\":1}";
+  std::string json_data =
+      "{\"jsonrpc\":\"2.0\",\"method\":\"tools/list\",\"id\":1}";
   write_buffer.add(json_data.c_str(), json_data.length());
 
   filter.onWrite(write_buffer, false);
@@ -258,7 +259,8 @@ TEST_F(HttpHeadersCompatibilityTest, ClientHeadersCannotOverrideGenerated) {
                            {"Authorization", "Bearer caller-token"}});
 
   OwnedBuffer write_buffer;
-  std::string json_data = "{\"jsonrpc\":\"2.0\",\"method\":\"tools/list\",\"id\":1}";
+  std::string json_data =
+      "{\"jsonrpc\":\"2.0\",\"method\":\"tools/list\",\"id\":1}";
   write_buffer.add(json_data.c_str(), json_data.length());
 
   filter.onWrite(write_buffer, false);
@@ -301,17 +303,17 @@ TEST_F(HttpHeadersCompatibilityTest, ClientHeadersCannotOverrideGenerated) {
 TEST_F(HttpHeadersCompatibilityTest, ClientHeaderSourceOverridesStaticHeaders) {
   HttpCodecFilter filter(callbacks_, *dispatcher_, false /* is_server */);
   filter.setClientEndpoint("/mcp", "backend.example.com");
-  filter.setClientHeaders({{"Authorization", "Bearer static-token"},
-                           {"X-Static", "yes"}});
+  filter.setClientHeaders(
+      {{"Authorization", "Bearer static-token"}, {"X-Static", "yes"}});
 
-  auto current_headers =
-      std::make_shared<std::map<std::string, std::string>>();
+  auto current_headers = std::make_shared<std::map<std::string, std::string>>();
   (*current_headers)["Authorization"] = "Bearer per-request-token";
   (*current_headers)["X-Request-ID"] = "req-456";
   filter.setClientHeaderSource(current_headers);
 
   OwnedBuffer write_buffer;
-  std::string json_data = "{\"jsonrpc\":\"2.0\",\"method\":\"tools/call\",\"id\":2}";
+  std::string json_data =
+      "{\"jsonrpc\":\"2.0\",\"method\":\"tools/call\",\"id\":2}";
   write_buffer.add(json_data.c_str(), json_data.length());
 
   filter.onWrite(write_buffer, false);
