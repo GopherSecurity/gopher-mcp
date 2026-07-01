@@ -223,6 +223,27 @@ TEST(HttpCodecClientModeTest, ResponseBodyIsStreamedWithoutCompletionReplay) {
   EXPECT_FALSE(callbacks.body_end_streams_[0]);
 }
 
+TEST(HttpCodecClientModeTest, PostedParserErrorSkipsDestroyedFilter) {
+  auto factory = event::createLibeventDispatcherFactory();
+  auto dispatcher = factory->createDispatcher("test");
+  dispatcher->run(event::RunType::NonBlock);
+
+  TestRequestCallbacks callbacks;
+  {
+    auto filter =
+        std::make_unique<HttpCodecFilter>(callbacks, *dispatcher, false);
+    filter->handleParserError("synthetic parser error");
+  }
+
+  auto start = std::chrono::steady_clock::now();
+  while (std::chrono::steady_clock::now() - start < 10ms) {
+    dispatcher->run(event::RunType::NonBlock);
+    std::this_thread::sleep_for(1ms);
+  }
+
+  EXPECT_FALSE(callbacks.error_received_);
+}
+
 TEST_F(HttpCodecFilterIntegrationTest, OversizedRequestBodyCallbackIsRejected) {
   ASSERT_EQ(filter_->parser_callbacks_->onMessageBegin(),
             http::ParserCallbackResult::Success);
@@ -344,6 +365,17 @@ TEST_F(HttpCodecFilterIntegrationTest,
   EXPECT_FALSE(filter_->pending_parser_error_.has_value());
   EXPECT_TRUE(callbacks_.error_received_);
   EXPECT_EQ(callbacks_.error_message_, "HTTP body chunk exceeds codec limit");
+}
+
+TEST_F(HttpCodecFilterIntegrationTest, ParserErrorCallbackRunsFromPostedWork) {
+  filter_->handleParserError("posted parser error");
+
+  EXPECT_FALSE(callbacks_.error_received_);
+
+  runFor(10ms);
+
+  EXPECT_TRUE(callbacks_.error_received_);
+  EXPECT_EQ(callbacks_.error_message_, "posted parser error");
 }
 
 TEST_F(HttpCodecFilterIntegrationTest, KeepAliveConnection) {

@@ -319,9 +319,13 @@ class HttpCodecFilter : public network::Filter {
    */
   void onCodecError(const std::string& error);
 
+  struct LifetimeToken {};
+
   // Components
   MessageCallbacks* message_callbacks_;
   event::Dispatcher& dispatcher_;
+  std::shared_ptr<LifetimeToken> lifetime_token_{
+      std::make_shared<LifetimeToken>()};
   bool is_server_;
   std::string client_path_{"/rpc"};       // HTTP request path for client mode
   std::string client_host_{"localhost"};  // HTTP Host header for client mode
