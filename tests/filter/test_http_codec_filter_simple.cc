@@ -7,6 +7,7 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include <gtest/gtest.h>
 
@@ -33,6 +34,8 @@ class TestRequestCallbacks : public HttpCodecFilter::MessageCallbacks {
   void onBody(const std::string& data, bool end_stream) override {
     body_received_ = true;
     body_ = data;
+    body_chunks_.push_back(data);
+    body_end_streams_.push_back(end_stream);
     end_stream_ = end_stream;
   }
 
@@ -50,6 +53,8 @@ class TestRequestCallbacks : public HttpCodecFilter::MessageCallbacks {
   bool error_received_{false};
   std::map<std::string, std::string> headers_;
   std::string body_;
+  std::vector<std::string> body_chunks_;
+  std::vector<bool> body_end_streams_;
   std::string error_message_;
   bool keep_alive_{false};
   bool end_stream_{false};
@@ -167,6 +172,42 @@ TEST_F(HttpCodecFilterIntegrationTest, PostRequestWithBody) {
   auto content_type_it = callbacks_.headers_.find("content-type");
   EXPECT_NE(content_type_it, callbacks_.headers_.end());
   EXPECT_EQ(content_type_it->second, "application/json");
+}
+
+TEST(HttpCodecClientModeTest, ResponseBodyIsStreamedWithoutCompletionReplay) {
+  auto factory = event::createLibeventDispatcherFactory();
+  auto dispatcher = factory->createDispatcher("test");
+  dispatcher->run(event::RunType::NonBlock);
+
+  TestRequestCallbacks callbacks;
+  HttpCodecFilter filter(callbacks, *dispatcher, false /* is_server */);
+  ASSERT_EQ(filter.onNewConnection(), network::FilterStatus::Continue);
+
+  const std::string body = "event: message\ndata: one\n\n";
+  std::string response =
+      "HTTP/1.1 200 OK\r\n"
+      "Content-Type: text/event-stream\r\n"
+      "Content-Length: " +
+      std::to_string(body.size()) +
+      "\r\n"
+      "\r\n" +
+      body;
+
+  OwnedBuffer buffer;
+  buffer.add(response);
+  EXPECT_EQ(filter.onData(buffer, false), network::FilterStatus::Continue);
+
+  auto start = std::chrono::steady_clock::now();
+  while (std::chrono::steady_clock::now() - start < 10ms) {
+    dispatcher->run(event::RunType::NonBlock);
+    std::this_thread::sleep_for(1ms);
+  }
+
+  ASSERT_TRUE(callbacks.headers_received_);
+  ASSERT_TRUE(callbacks.message_complete_);
+  ASSERT_EQ(callbacks.body_chunks_.size(), 1u);
+  EXPECT_EQ(callbacks.body_chunks_[0], body);
+  EXPECT_FALSE(callbacks.body_end_streams_[0]);
 }
 
 TEST_F(HttpCodecFilterIntegrationTest, KeepAliveConnection) {
