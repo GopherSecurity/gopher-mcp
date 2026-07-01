@@ -506,6 +506,13 @@ void HttpCodecFilter::dispatch(Buffer& data) {
   // Drain consumed data from buffer
   data.drain(consumed);
 
+  if (pending_parser_error_.has_value()) {
+    std::string error = std::move(pending_parser_error_.value());
+    pending_parser_error_.reset();
+    handleParserError(error);
+    return;
+  }
+
   // Check for parser errors
   if (parser_->getStatus() == http::ParserStatus::Error) {
     handleParserError(parser_->getError());
@@ -730,10 +737,7 @@ http::ParserCallbackResult HttpCodecFilter::ParserCallbacks::onBody(
   if (data == nullptr || length > kMaxHttpBodyChunkSize) {
     GOPHER_LOG_ERROR("HTTP body chunk rejected: data_present={} length={} max={}",
                      data != nullptr, length, kMaxHttpBodyChunkSize);
-    if (parent_.message_callbacks_) {
-      parent_.message_callbacks_->onError(
-          "HTTP body chunk exceeds codec limit");
-    }
+    parent_.pending_parser_error_ = "HTTP body chunk exceeds codec limit";
     return http::ParserCallbackResult::Error;
   }
 
@@ -748,8 +752,7 @@ http::ParserCallbackResult HttpCodecFilter::ParserCallbacks::onBody(
       parent_.message_callbacks_->onBody(body_chunk, false);
     } catch (const std::bad_alloc&) {
       GOPHER_LOG_ERROR("HTTP body chunk allocation failed: length={}", length);
-      parent_.message_callbacks_->onError(
-          "HTTP body chunk allocation failed");
+      parent_.pending_parser_error_ = "HTTP body chunk allocation failed";
       return http::ParserCallbackResult::Error;
     }
 
@@ -779,10 +782,8 @@ http::ParserCallbackResult HttpCodecFilter::ParserCallbacks::onBody(
     } catch (const std::bad_alloc&) {
       GOPHER_LOG_ERROR("HTTP body accumulation allocation failed: length={}",
                        length);
-      if (parent_.message_callbacks_) {
-        parent_.message_callbacks_->onError(
-            "HTTP body accumulation allocation failed");
-      }
+      parent_.pending_parser_error_ =
+          "HTTP body accumulation allocation failed";
       return http::ParserCallbackResult::Error;
     }
   }
@@ -836,7 +837,7 @@ http::ParserCallbackResult HttpCodecFilter::ParserCallbacks::onChunkComplete() {
 }
 
 void HttpCodecFilter::ParserCallbacks::onError(const std::string& error) {
-  parent_.handleParserError(error);
+  parent_.pending_parser_error_ = error;
 }
 
 // MessageEncoderImpl implementation
