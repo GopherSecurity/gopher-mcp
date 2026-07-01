@@ -224,6 +224,11 @@ class McpConnectionManager : public McpProtocolCallbacks,
                                         const std::string& server_address,
                                         bool use_ssl);
 
+  /**
+   * Clear protocol callbacks before callback owner teardown.
+   */
+  void clearProtocolCallbacks() { protocol_callbacks_ = nullptr; }
+
   // McpProtocolCallbacks interface (default implementations)
   void onRequest(const jsonrpc::Request& request) override;
   void onNotification(const jsonrpc::Notification& notification) override;
