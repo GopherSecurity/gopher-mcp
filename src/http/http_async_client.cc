@@ -267,12 +267,15 @@ class HttpAsyncClient::RequestContext
   }
 
   void onBody(const std::string& data, bool end_stream) override {
-    // HttpCodecFilter in client mode emits each body chunk twice: once
-    // inline as it arrives (end_stream=false) and once again with the
-    // fully accumulated body at message-complete (end_stream=true). We
-    // only care about the final complete body, so take the end_stream
-    // delivery and overwrite whatever streamed in.
-    if (end_stream) {
+    // HttpCodecFilter streams response body chunks as they arrive and no
+    // longer retains them for a completion replay. Keep the per-request body
+    // here, where finite HttpAsyncClient responses need it, without forcing
+    // long-lived HTTP/SSE codec streams to retain unbounded data.
+    if (!end_stream) {
+      response_.body += data;
+      saw_streamed_body_ = true;
+    } else if (!saw_streamed_body_) {
+      // Compatibility with filters that still deliver a final full body.
       response_.body = data;
     }
   }
@@ -368,6 +371,7 @@ class HttpAsyncClient::RequestContext
   std::shared_ptr<filter::HttpCodecFilter> codec_filter_;
   HttpResponse response_;
   bool completed_{false};
+  bool saw_streamed_body_{false};
 };
 
 // HttpAsyncClient implementation

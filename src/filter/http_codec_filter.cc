@@ -726,6 +726,13 @@ http::ParserCallbackResult HttpCodecFilter::ParserCallbacks::onBody(
         "HttpCodecFilter forwarding body chunk: {}...",
         body_chunk.substr(0, std::min(body_chunk.length(), (size_t)100)));
     parent_.message_callbacks_->onBody(body_chunk, false);
+
+    // Client response bodies are streamed to the next filter as chunks. Do not
+    // retain them in current_stream_->body because SSE responses can stay open
+    // indefinitely, and onMessageComplete would also forward a duplicate copy
+    // for finite responses.
+    parent_.state_machine_->handleEvent(HttpCodecEvent::ResponseBodyData);
+    return http::ParserCallbackResult::Success;
   }
 
   if (parent_.current_stream_) {
