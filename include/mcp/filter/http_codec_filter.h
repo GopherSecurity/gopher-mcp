@@ -365,6 +365,7 @@ class HttpCodecFilter : public network::Filter {
   // Per-request state is stored in HttpStreamContext, not in the filter
   HttpStreamContextManager stream_manager_;
   HttpStreamContextPtr current_stream_;  // Current stream being processed
+  optional<std::string> pending_parser_error_;
 
   // Message buffering (connection-level, not per-request)
   OwnedBuffer message_buffer_;

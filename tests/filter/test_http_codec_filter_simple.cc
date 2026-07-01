@@ -13,13 +13,26 @@
 
 #include "mcp/buffer.h"
 #include "mcp/event/libevent_dispatcher.h"
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wkeyword-macro"
+#endif
+#define private public
 #include "mcp/filter/http_codec_filter.h"
+#undef private
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#endif
 
 namespace mcp {
 namespace filter {
 namespace {
 
 using namespace std::chrono_literals;
+
+constexpr size_t kOversizedHttpBodyChunk = 16 * 1024 * 1024 + 1;
+constexpr size_t kMaxHttpBodySize = 16 * 1024 * 1024;
+constexpr char kBodyByte = 'x';
 
 // Simple request callbacks implementation
 class TestRequestCallbacks : public HttpCodecFilter::MessageCallbacks {
@@ -208,6 +221,90 @@ TEST(HttpCodecClientModeTest, ResponseBodyIsStreamedWithoutCompletionReplay) {
   ASSERT_EQ(callbacks.body_chunks_.size(), 1u);
   EXPECT_EQ(callbacks.body_chunks_[0], body);
   EXPECT_FALSE(callbacks.body_end_streams_[0]);
+}
+
+TEST_F(HttpCodecFilterIntegrationTest, OversizedRequestBodyCallbackIsRejected) {
+  ASSERT_EQ(filter_->parser_callbacks_->onMessageBegin(),
+            http::ParserCallbackResult::Success);
+
+  EXPECT_EQ(filter_->parser_callbacks_->onBody(&kBodyByte,
+                                               kOversizedHttpBodyChunk),
+            http::ParserCallbackResult::Error);
+
+  EXPECT_FALSE(callbacks_.body_received_);
+  EXPECT_FALSE(callbacks_.message_complete_);
+}
+
+TEST_F(HttpCodecFilterIntegrationTest,
+       RequestBodyAccumulationOverLimitIsRejected) {
+  ASSERT_EQ(filter_->parser_callbacks_->onMessageBegin(),
+            http::ParserCallbackResult::Success);
+
+  const std::string half_body(kMaxHttpBodySize / 2, kBodyByte);
+  ASSERT_EQ(filter_->parser_callbacks_->onBody(half_body.data(),
+                                               half_body.size()),
+            http::ParserCallbackResult::Success);
+  ASSERT_EQ(filter_->parser_callbacks_->onBody(half_body.data(),
+                                               half_body.size()),
+            http::ParserCallbackResult::Success);
+  ASSERT_EQ(filter_->current_stream_->body.length(), kMaxHttpBodySize);
+
+  EXPECT_EQ(filter_->parser_callbacks_->onBody(&kBodyByte, 1),
+            http::ParserCallbackResult::Error);
+
+  ASSERT_TRUE(filter_->pending_parser_error_.has_value());
+  EXPECT_EQ(filter_->pending_parser_error_.value(),
+            "HTTP body exceeds codec limit");
+  EXPECT_FALSE(callbacks_.body_received_);
+  EXPECT_FALSE(callbacks_.message_complete_);
+}
+
+TEST_F(HttpCodecFilterIntegrationTest, NullRequestBodyCallbackIsRejected) {
+  ASSERT_EQ(filter_->parser_callbacks_->onMessageBegin(),
+            http::ParserCallbackResult::Success);
+
+  EXPECT_EQ(filter_->parser_callbacks_->onBody(nullptr, 1),
+            http::ParserCallbackResult::Error);
+
+  EXPECT_FALSE(callbacks_.body_received_);
+  EXPECT_FALSE(callbacks_.message_complete_);
+}
+
+TEST(HttpCodecClientModeTest, OversizedResponseBodyCallbackIsRejected) {
+  auto factory = event::createLibeventDispatcherFactory();
+  auto dispatcher = factory->createDispatcher("test");
+  dispatcher->run(event::RunType::NonBlock);
+
+  TestRequestCallbacks callbacks;
+  HttpCodecFilter filter(callbacks, *dispatcher, false /* is_server */);
+  ASSERT_EQ(filter.onNewConnection(), network::FilterStatus::Continue);
+  ASSERT_EQ(filter.parser_callbacks_->onMessageBegin(),
+            http::ParserCallbackResult::Success);
+
+  EXPECT_EQ(filter.parser_callbacks_->onBody(&kBodyByte,
+                                             kOversizedHttpBodyChunk),
+            http::ParserCallbackResult::Error);
+
+  EXPECT_FALSE(callbacks.body_received_);
+  EXPECT_FALSE(callbacks.message_complete_);
+}
+
+TEST(HttpCodecClientModeTest, NullResponseBodyCallbackIsRejected) {
+  auto factory = event::createLibeventDispatcherFactory();
+  auto dispatcher = factory->createDispatcher("test");
+  dispatcher->run(event::RunType::NonBlock);
+
+  TestRequestCallbacks callbacks;
+  HttpCodecFilter filter(callbacks, *dispatcher, false /* is_server */);
+  ASSERT_EQ(filter.onNewConnection(), network::FilterStatus::Continue);
+  ASSERT_EQ(filter.parser_callbacks_->onMessageBegin(),
+            http::ParserCallbackResult::Success);
+
+  EXPECT_EQ(filter.parser_callbacks_->onBody(nullptr, 1),
+            http::ParserCallbackResult::Error);
+
+  EXPECT_FALSE(callbacks.body_received_);
+  EXPECT_FALSE(callbacks.message_complete_);
 }
 
 TEST_F(HttpCodecFilterIntegrationTest, KeepAliveConnection) {
