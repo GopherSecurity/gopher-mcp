@@ -583,6 +583,17 @@ if(BUILD_SHARED_LIBS)
             INSTALL_RPATH "$ORIGIN"
             BUILD_WITH_INSTALL_RPATH OFF
         )
+        if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND
+           CMAKE_CXX_COMPILER_ID MATCHES "^(GNU|Clang)$" AND LLHTTP_FOUND)
+            # Keep bundled llhttp symbols private on Linux ELF builds. Node.js
+            # can export ABI-incompatible llhttp symbols into the process, but
+            # broad symbolic binding would also disable normal interposition for
+            # unrelated exported library functions.
+            set(LLHTTP_LOCAL_VERSION_SCRIPT
+                "${CMAKE_CURRENT_SOURCE_DIR}/cmake/gopher-mcp-llhttp-local.map")
+            set_property(TARGET gopher-mcp APPEND_STRING PROPERTY
+                LINK_FLAGS " -Wl,--version-script=${LLHTTP_LOCAL_VERSION_SCRIPT}")
+        endif()
     endif()
 else()
     # If only static is built, create alias
