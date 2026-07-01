@@ -162,6 +162,92 @@ class TestCertificateGenerator {
   }
 };
 
+class UniqueSsl {
+ public:
+  explicit UniqueSsl(SSL* ssl = nullptr) : ssl_(ssl) {}
+  ~UniqueSsl() { reset(); }
+
+  UniqueSsl(const UniqueSsl&) = delete;
+  UniqueSsl& operator=(const UniqueSsl&) = delete;
+
+  SSL* get() const { return ssl_; }
+
+  SSL* release() {
+    SSL* ssl = ssl_;
+    ssl_ = nullptr;
+    return ssl;
+  }
+
+  void reset(SSL* ssl = nullptr) {
+    if (ssl_) {
+      SSL_free(ssl_);
+    }
+    ssl_ = ssl;
+  }
+
+ private:
+  SSL* ssl_{nullptr};
+};
+
+bool completeInMemoryHandshake(SSL* client_ssl, SSL* server_ssl) {
+  BIO* client_read = nullptr;
+  BIO* client_write = nullptr;
+  BIO* server_read = nullptr;
+  BIO* server_write = nullptr;
+
+  if (BIO_new_bio_pair(&client_read, 0, &server_write, 0) != 1 ||
+      BIO_new_bio_pair(&server_read, 0, &client_write, 0) != 1) {
+    if (client_read) {
+      BIO_free(client_read);
+    }
+    if (client_write) {
+      BIO_free(client_write);
+    }
+    if (server_read) {
+      BIO_free(server_read);
+    }
+    if (server_write) {
+      BIO_free(server_write);
+    }
+    return false;
+  }
+
+  SSL_set_bio(client_ssl, client_read, client_write);
+  SSL_set_bio(server_ssl, server_read, server_write);
+  SSL_set_connect_state(client_ssl);
+  SSL_set_accept_state(server_ssl);
+
+  bool client_done = false;
+  bool server_done = false;
+  for (int i = 0; i < 100 && (!client_done || !server_done); ++i) {
+    if (!client_done) {
+      int ret = SSL_do_handshake(client_ssl);
+      if (ret == 1) {
+        client_done = true;
+      } else {
+        int err = SSL_get_error(client_ssl, ret);
+        if (err != SSL_ERROR_WANT_READ && err != SSL_ERROR_WANT_WRITE) {
+          return false;
+        }
+      }
+    }
+
+    if (!server_done) {
+      int ret = SSL_do_handshake(server_ssl);
+      if (ret == 1) {
+        server_done = true;
+      } else {
+        int err = SSL_get_error(server_ssl, ret);
+        if (err != SSL_ERROR_WANT_READ && err != SSL_ERROR_WANT_WRITE) {
+          return false;
+        }
+      }
+    }
+  }
+
+  return client_done && server_done;
+}
+
 // ============================================================================
 // SECTION A: UNIT TESTS WITH MOCK DISPATCHER (9 tests)
 // ============================================================================
@@ -488,6 +574,65 @@ TEST_F(SslTransportSocketUnitTest, ConnectionInfo) {
   EXPECT_EQ(ssl_socket->getCipherSuite(), "");
   EXPECT_EQ(ssl_socket->getTlsVersion(), "");
   EXPECT_TRUE(ssl_socket->getSubjectAltNames().empty());
+}
+
+TEST_F(SslTransportSocketUnitTest,
+       ExtractConnectionInfoKeepsPeerMetadataWhenVerifyPeerDisabled) {
+  auto cert = TestCertificateGenerator::generateSelfSignedCert(
+      "skip-peer-metadata.example.com");
+  ASSERT_NE(cert, nullptr);
+
+  const std::string cert_file = "/tmp/test_skip_tls_cert.pem";
+  const std::string key_file = "/tmp/test_skip_tls_key.pem";
+  {
+    std::ofstream cert_out(cert_file);
+    cert_out << cert->cert_pem;
+  }
+  {
+    std::ofstream key_out(key_file);
+    key_out << cert->key_pem;
+  }
+
+  SslContextConfig client_config;
+  client_config.is_client = true;
+  client_config.verify_peer = false;
+  auto client_context_result = SslContext::create(client_config);
+  ASSERT_FALSE(holds_alternative<Error>(client_context_result));
+  auto client_context = get<SslContextSharedPtr>(client_context_result);
+
+  SslContextConfig server_config;
+  server_config.is_client = false;
+  server_config.verify_peer = false;
+  server_config.cert_chain_file = cert_file;
+  server_config.private_key_file = key_file;
+  auto server_context_result = SslContext::create(server_config);
+  ASSERT_FALSE(holds_alternative<Error>(server_context_result));
+  auto server_context = get<SslContextSharedPtr>(server_context_result);
+
+  UniqueSsl client_ssl(client_context->newSsl());
+  UniqueSsl server_ssl(server_context->newSsl());
+  ASSERT_NE(client_ssl.get(), nullptr);
+  ASSERT_NE(server_ssl.get(), nullptr);
+  ASSERT_TRUE(completeInMemoryHandshake(client_ssl.get(), server_ssl.get()));
+
+  X509* peer_cert = SSL_get_peer_certificate(client_ssl.get());
+  ASSERT_NE(peer_cert, nullptr);
+  X509_free(peer_cert);
+
+  auto mock = std::make_unique<MockTransportSocket>();
+  auto ssl_socket = std::make_unique<SslTransportSocket>(
+      std::move(mock), client_context, SslTransportSocket::InitialRole::Client,
+      *dispatcher_);
+  ssl_socket->ssl_ = client_ssl.release();
+
+  ssl_socket->extractConnectionInfo();
+
+  EXPECT_NE(ssl_socket->peer_cert_info_.find("skip-peer-metadata.example.com"),
+            std::string::npos);
+  EXPECT_EQ(ssl_socket->subject_alt_names_.size(), 2);
+  EXPECT_EQ(ssl_socket->subject_alt_names_[0],
+            "skip-peer-metadata.example.com");
+  EXPECT_EQ(ssl_socket->subject_alt_names_[1], "*.example.com");
 }
 
 // Unit Test 4: Can Flush Close

@@ -1003,7 +1003,6 @@ void SslTransportSocket::extractConnectionInfo() {
    * Extract comprehensive connection information
    */
 
-  // Get peer certificate
   X509* peer_cert = SSL_get_peer_certificate(ssl_);
   if (peer_cert) {
     // Extract subject
