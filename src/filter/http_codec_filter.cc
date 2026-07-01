@@ -25,19 +25,24 @@
 namespace mcp {
 namespace filter {
 
-bool isValidClientHeader(const std::string& name, const std::string& value) {
-  auto has_invalid_byte = [](const std::string& text) {
-    return text.find_first_of("\r\n\0", 0, 3) != std::string::npos;
-  };
-  return !name.empty() && !value.empty() && !has_invalid_byte(name) &&
-         !has_invalid_byte(value);
-}
+namespace {
+constexpr size_t kMaxHttpBodyChunkSize = 16 * 1024 * 1024;
+constexpr size_t kMaxHttpBodySize = 16 * 1024 * 1024;
 
 std::string toLowerHeaderName(std::string value) {
   std::transform(
       value.begin(), value.end(), value.begin(),
       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
   return value;
+}
+}  // namespace
+
+bool isValidClientHeader(const std::string& name, const std::string& value) {
+  auto has_invalid_byte = [](const std::string& text) {
+    return text.find_first_of("\r\n\0", 0, 3) != std::string::npos;
+  };
+  return !name.empty() && !value.empty() && !has_invalid_byte(name) &&
+         !has_invalid_byte(value);
 }
 
 bool isGeneratedClientHeader(const std::string& name) {
@@ -718,14 +723,35 @@ http::ParserCallbackResult HttpCodecFilter::ParserCallbacks::onBody(
     const char* data, size_t length) {
   GOPHER_LOG_DEBUG("ParserCallbacks::onBody - received {} bytes", length);
 
+  if (length == 0) {
+    return http::ParserCallbackResult::Success;
+  }
+
+  if (data == nullptr || length > kMaxHttpBodyChunkSize) {
+    GOPHER_LOG_ERROR("HTTP body chunk rejected: data_present={} length={} max={}",
+                     data != nullptr, length, kMaxHttpBodyChunkSize);
+    if (parent_.message_callbacks_) {
+      parent_.message_callbacks_->onError(
+          "HTTP body chunk exceeds codec limit");
+    }
+    return http::ParserCallbackResult::Error;
+  }
+
   // For client mode (receiving responses), forward body data immediately
   // This is critical for SSE streams which never complete
   if (!parent_.is_server_ && parent_.message_callbacks_) {
-    std::string body_chunk(data, length);
-    GOPHER_LOG_DEBUG(
-        "HttpCodecFilter forwarding body chunk: {}...",
-        body_chunk.substr(0, std::min(body_chunk.length(), (size_t)100)));
-    parent_.message_callbacks_->onBody(body_chunk, false);
+    try {
+      std::string body_chunk(data, length);
+      GOPHER_LOG_DEBUG(
+          "HttpCodecFilter forwarding body chunk: {}...",
+          body_chunk.substr(0, std::min(body_chunk.length(), (size_t)100)));
+      parent_.message_callbacks_->onBody(body_chunk, false);
+    } catch (const std::bad_alloc&) {
+      GOPHER_LOG_ERROR("HTTP body chunk allocation failed: length={}", length);
+      parent_.message_callbacks_->onError(
+          "HTTP body chunk allocation failed");
+      return http::ParserCallbackResult::Error;
+    }
 
     // Client response bodies are streamed to the next filter as chunks. Do not
     // retain them in current_stream_->body because SSE responses can stay open
@@ -736,9 +762,29 @@ http::ParserCallbackResult HttpCodecFilter::ParserCallbacks::onBody(
   }
 
   if (parent_.current_stream_) {
-    parent_.current_stream_->body.append(data, length);
-    GOPHER_LOG_DEBUG("ParserCallbacks::onBody - total body now {} bytes",
-                     parent_.current_stream_->body.length());
+    const size_t current_body_size = parent_.current_stream_->body.length();
+    if (current_body_size > kMaxHttpBodySize ||
+        length > kMaxHttpBodySize - current_body_size) {
+      GOPHER_LOG_ERROR(
+          "HTTP body rejected: accumulated={} incoming={} max={}",
+          current_body_size, length, kMaxHttpBodySize);
+      parent_.pending_parser_error_ = "HTTP body exceeds codec limit";
+      return http::ParserCallbackResult::Error;
+    }
+
+    try {
+      parent_.current_stream_->body.append(data, length);
+      GOPHER_LOG_DEBUG("ParserCallbacks::onBody - total body now {} bytes",
+                       parent_.current_stream_->body.length());
+    } catch (const std::bad_alloc&) {
+      GOPHER_LOG_ERROR("HTTP body accumulation allocation failed: length={}",
+                       length);
+      if (parent_.message_callbacks_) {
+        parent_.message_callbacks_->onError(
+            "HTTP body accumulation allocation failed");
+      }
+      return http::ParserCallbackResult::Error;
+    }
   }
   // Trigger body data event based on mode
   if (parent_.is_server_) {
