@@ -369,6 +369,7 @@ class HttpCodecFilter : public network::Filter {
 
   // Message buffering (connection-level, not per-request)
   OwnedBuffer message_buffer_;
+  optional<std::string> pending_parser_error_;
 };
 
 }  // namespace filter

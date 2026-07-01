@@ -307,6 +307,45 @@ TEST(HttpCodecClientModeTest, NullResponseBodyCallbackIsRejected) {
   EXPECT_FALSE(callbacks.message_complete_);
 }
 
+TEST_F(HttpCodecFilterIntegrationTest,
+       ParserCallbackErrorIsDeferredUntilDispatchUnwinds) {
+  ASSERT_EQ(filter_->parser_callbacks_->onMessageBegin(),
+            http::ParserCallbackResult::Success);
+
+  filter_->parser_callbacks_->onError("synthetic parser callback error");
+
+  ASSERT_TRUE(filter_->pending_parser_error_.has_value());
+  EXPECT_FALSE(callbacks_.error_received_);
+
+  auto request = createGetRequest("/deferred-error");
+  filter_->dispatch(request);
+  runFor(10ms);
+
+  EXPECT_FALSE(filter_->pending_parser_error_.has_value());
+  EXPECT_TRUE(callbacks_.error_received_);
+  EXPECT_EQ(callbacks_.error_message_, "synthetic parser callback error");
+}
+
+TEST_F(HttpCodecFilterIntegrationTest,
+       BodyCallbackErrorIsDeferredUntilDispatchUnwinds) {
+  ASSERT_EQ(filter_->parser_callbacks_->onMessageBegin(),
+            http::ParserCallbackResult::Success);
+
+  EXPECT_EQ(filter_->parser_callbacks_->onBody(nullptr, 1),
+            http::ParserCallbackResult::Error);
+
+  ASSERT_TRUE(filter_->pending_parser_error_.has_value());
+  EXPECT_FALSE(callbacks_.error_received_);
+
+  auto request = createGetRequest("/deferred-body-error");
+  filter_->dispatch(request);
+  runFor(10ms);
+
+  EXPECT_FALSE(filter_->pending_parser_error_.has_value());
+  EXPECT_TRUE(callbacks_.error_received_);
+  EXPECT_EQ(callbacks_.error_message_, "HTTP body chunk exceeds codec limit");
+}
+
 TEST_F(HttpCodecFilterIntegrationTest, KeepAliveConnection) {
   filter_->onNewConnection();
 
