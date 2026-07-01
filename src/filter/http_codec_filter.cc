@@ -521,8 +521,15 @@ void HttpCodecFilter::dispatch(Buffer& data) {
 
 void HttpCodecFilter::handleParserError(const std::string& error) {
   state_machine_->handleEvent(HttpCodecEvent::ParseError);
-  if (message_callbacks_) {
-    message_callbacks_->onError(error);
+  MessageCallbacks* callbacks = message_callbacks_;
+  if (callbacks) {
+    std::weak_ptr<LifetimeToken> lifetime = lifetime_token_;
+    dispatcher_.post([lifetime, callbacks, error]() {
+      if (lifetime.expired()) {
+        return;
+      }
+      callbacks->onError(error);
+    });
   }
 }
 
