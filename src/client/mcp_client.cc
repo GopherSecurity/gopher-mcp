@@ -412,10 +412,12 @@ void McpClient::shutdown() {
       // Post to dispatcher thread
       main_dispatcher_->post([this]() {
         if (connection_manager_) {
+          connection_manager_->clearProtocolCallbacks();
           connection_manager_->close();
         }
       });
     } else {
+      connection_manager_->clearProtocolCallbacks();
       connection_manager_->close();
     }
   }

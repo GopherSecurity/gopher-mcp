@@ -1,7 +1,13 @@
+#include <algorithm>
+#include <atomic>
+#include <chrono>
+#include <cstdlib>
+#include <functional>
 #include <future>
 #include <memory>
 #include <string>
 #include <thread>
+#include <vector>
 #include <unistd.h>
 
 #include <arpa/inet.h>
@@ -9,8 +15,19 @@
 #include <netinet/in.h>
 #include <sys/socket.h>
 
+#include "mcp/buffer.h"
 #include "mcp/event/event_loop.h"
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wkeyword-macro"
+#endif
+#define private public
 #include "mcp/mcp_connection_manager.h"
+#undef private
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#endif
+#include "mcp/network/connection.h"
 #include "mcp/network/socket_impl.h"
 
 namespace mcp {
@@ -129,6 +146,169 @@ class MockMcpProtocolCallbacks : public McpProtocolCallbacks {
   Error last_error_;
 
   std::vector<network::ConnectionEvent> events_;
+};
+
+template <class T>
+T& unreachableRef() {
+  std::abort();
+}
+
+template <class T>
+const T& unreachableConstRef() {
+  std::abort();
+}
+
+class CloseTrackingConnection : public network::Connection {
+ public:
+  CloseTrackingConnection(event::Dispatcher& dispatcher,
+                          std::atomic<bool>& destroyed)
+      : dispatcher_(dispatcher), destroyed_(destroyed) {}
+
+  ~CloseTrackingConnection() override { destroyed_ = true; }
+
+  void addConnectionCallbacks(network::ConnectionCallbacks& cb) override {
+    callbacks_.push_back(&cb);
+  }
+  void removeConnectionCallbacks(network::ConnectionCallbacks& cb) override {
+    callbacks_.erase(std::remove(callbacks_.begin(), callbacks_.end(), &cb),
+                     callbacks_.end());
+  }
+  void addBytesSentCallback(network::BytesSentCb) override {}
+  void enableHalfClose(bool enabled) override { half_close_enabled_ = enabled; }
+  bool isHalfCloseEnabled() const override { return half_close_enabled_; }
+  void close(network::ConnectionCloseType type) override {
+    ++close_count_;
+    last_close_type_ = type;
+    state_ = network::ConnectionState::Closing;
+    if (raise_local_close_on_close_) {
+      for (network::ConnectionCallbacks* cb : callbacks_) {
+        cb->onEvent(network::ConnectionEvent::LocalClose);
+      }
+    }
+  }
+  void close(network::ConnectionCloseType type,
+             const std::string& details) override {
+    close(type);
+    local_close_reason_ = details;
+  }
+  network::DetectedCloseType detectedCloseType() const override {
+    return network::DetectedCloseType::Normal;
+  }
+  event::Dispatcher& dispatcher() const override { return dispatcher_; }
+  uint64_t id() const override { return 1; }
+  void hashKey(std::vector<uint8_t>&) const override {}
+  std::string nextProtocol() const override { return ""; }
+  void noDelay(bool) override {}
+  network::ReadDisableStatus readDisableWithStatus(bool disable) override {
+    read_disabled_ = disable;
+    return disable ? network::ReadDisableStatus::TransitionedToReadDisabled
+                   : network::ReadDisableStatus::TransitionedToReadEnabled;
+  }
+  void detectEarlyCloseWhenReadDisabled(bool) override {}
+  bool readEnabled() const override { return !read_disabled_; }
+  network::ConnectionInfoSetter& connectionInfoSetter() override {
+    return unreachableRef<network::ConnectionInfoSetter>();
+  }
+  const network::ConnectionInfoProvider& connectionInfoProvider()
+      const override {
+    return unreachableConstRef<network::ConnectionInfoProvider>();
+  }
+  network::ConnectionInfoProviderSharedPtr connectionInfoProviderSharedPtr()
+      const override {
+    return nullptr;
+  }
+  optional<network::Connection::UnixDomainSocketPeerCredentials>
+  unixSocketPeerCredentials() const override {
+    return nullopt;
+  }
+  void setConnectionStats(const network::ConnectionStats&) override {}
+  network::SslConnectionInfoConstSharedPtr ssl() const override {
+    return nullptr;
+  }
+  std::string requestedServerName() const override { return ""; }
+  network::ConnectionState state() const override { return state_; }
+  bool connecting() const override { return false; }
+  void write(Buffer&, bool) override {}
+  void setBufferLimits(uint32_t limit) override { buffer_limit_ = limit; }
+  uint32_t bufferLimit() const override { return buffer_limit_; }
+  bool aboveHighWatermark() const override { return false; }
+  const network::SocketOptionsSharedPtr& socketOptions() const override {
+    return socket_options_;
+  }
+  stream_info::StreamInfo& streamInfo() override { return stream_info_; }
+  const stream_info::StreamInfo& streamInfo() const override {
+    return stream_info_;
+  }
+  void setDelayedCloseTimeout(std::chrono::milliseconds) override {}
+  void setIdleReadTimeout(std::chrono::milliseconds) override {}
+  std::string transportFailureReason() const override { return ""; }
+  std::string localCloseReason() const override { return local_close_reason_; }
+  bool startSecureTransport() override { return false; }
+  optional<std::chrono::milliseconds> lastRoundTripTime() const override {
+    return nullopt;
+  }
+  void configureInitialCongestionWindow(
+      uint64_t, std::chrono::microseconds) override {}
+  optional<uint64_t> congestionWindowInBytes() const override { return nullopt; }
+  network::Socket& socket() override {
+    return unreachableRef<network::Socket>();
+  }
+  const network::Socket& socket() const override {
+    return unreachableConstRef<network::Socket>();
+  }
+  network::TransportSocket& transportSocket() override {
+    return unreachableRef<network::TransportSocket>();
+  }
+  const network::TransportSocket& transportSocket() const override {
+    return unreachableConstRef<network::TransportSocket>();
+  }
+
+  Buffer& readBuffer() override { return read_buffer_; }
+  Buffer& writeBuffer() override { return write_buffer_; }
+  Buffer* currentWriteBuffer() override { return nullptr; }
+  bool currentWriteEndStream() const override { return false; }
+  bool readHalfClosed() const override { return false; }
+  bool isClosed() const override {
+    return state_ == network::ConnectionState::Closed;
+  }
+  void readDisable(bool disable) override { read_disabled_ = disable; }
+  bool readDisabled() const override { return read_disabled_; }
+
+  network::IoHandle& ioHandle() override {
+    return unreachableRef<network::IoHandle>();
+  }
+  const network::IoHandle& ioHandle() const override {
+    return unreachableConstRef<network::IoHandle>();
+  }
+  network::Connection& connection() override {
+    return static_cast<network::Connection&>(*this);
+  }
+  bool shouldDrainReadBuffer() override { return false; }
+  void setTransportSocketIsReadable() override {}
+  void raiseEvent(network::ConnectionEvent) override {}
+  void flushWriteBuffer() override {}
+
+  void setState(network::ConnectionState state) { state_ = state; }
+
+  int close_count_{0};
+  network::ConnectionCloseType last_close_type_{
+      network::ConnectionCloseType::FlushWrite};
+  bool raise_local_close_on_close_{false};
+
+ private:
+  event::Dispatcher& dispatcher_;
+  std::atomic<bool>& destroyed_;
+  std::vector<network::ConnectionCallbacks*> callbacks_;
+  OwnedBuffer read_buffer_;
+  OwnedBuffer write_buffer_;
+  stream_info::StreamInfoImpl stream_info_;
+  network::SocketOptionsSharedPtr socket_options_{
+      std::make_shared<std::vector<network::SocketOptionConstSharedPtr>>()};
+  network::ConnectionState state_{network::ConnectionState::Open};
+  bool half_close_enabled_{false};
+  bool read_disabled_{false};
+  uint32_t buffer_limit_{0};
+  std::string local_close_reason_;
 };
 
 // JsonRpcMessageFilter tests
@@ -352,8 +532,38 @@ class McpConnectionManagerTest : public ::testing::Test {
   }
 
   void TearDown() override {
+    stopDispatcherThread();
     manager_.reset();
     dispatcher_->exit();
+  }
+
+  void startDispatcherThread() {
+    if (loop_thread_.joinable()) {
+      return;
+    }
+
+    loop_thread_ =
+        std::thread([this]() { dispatcher_->run(event::RunType::Block); });
+  }
+
+  void runOnDispatcher(std::function<void()> fn) {
+    std::atomic<bool> done{false};
+    dispatcher_->post([&done, fn = std::move(fn)]() {
+      fn();
+      done = true;
+    });
+
+    for (int i = 0; i < 400 && !done.load(); ++i) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    ASSERT_TRUE(done.load()) << "dispatcher never ran the posted callback";
+  }
+
+  void stopDispatcherThread() {
+    if (loop_thread_.joinable()) {
+      dispatcher_->exit();
+      loop_thread_.join();
+    }
   }
 
   event::DispatcherPtr dispatcher_;
@@ -361,6 +571,7 @@ class McpConnectionManagerTest : public ::testing::Test {
   McpConnectionConfig config_;
   std::unique_ptr<McpConnectionManager> manager_;
   MockMcpProtocolCallbacks callbacks_;
+  std::thread loop_thread_;
 };
 
 TEST_F(McpConnectionManagerTest, InitialState) {
@@ -458,6 +669,87 @@ TEST_F(McpConnectionManagerTest, DISABLED_CloseConnection) {
 
   // Close
   manager_->close();
+  EXPECT_FALSE(manager_->isConnected());
+}
+
+TEST_F(McpConnectionManagerTest, CloseDefersActiveConnectionDestruction) {
+  std::atomic<bool> destroyed{false};
+  auto connection =
+      std::make_unique<CloseTrackingConnection>(*dispatcher_, destroyed);
+  auto* connection_ptr = connection.get();
+
+  manager_->active_connection_ = std::move(connection);
+  manager_->connected_ = true;
+
+  manager_->close();
+
+  EXPECT_EQ(1, connection_ptr->close_count_);
+  EXPECT_EQ(network::ConnectionCloseType::NoFlush,
+            connection_ptr->last_close_type_);
+  EXPECT_EQ(connection_ptr, manager_->active_connection_.get());
+  EXPECT_FALSE(destroyed.load());
+  EXPECT_FALSE(manager_->isConnected());
+
+  startDispatcherThread();
+  runOnDispatcher([this]() {
+    manager_->onConnectionEvent(network::ConnectionEvent::LocalClose);
+  });
+
+  EXPECT_EQ(nullptr, manager_->active_connection_.get());
+}
+
+TEST_F(McpConnectionManagerTest, CloseReleasesAlreadyClosingConnection) {
+  std::atomic<bool> destroyed{false};
+  auto connection =
+      std::make_unique<CloseTrackingConnection>(*dispatcher_, destroyed);
+  auto* connection_ptr = connection.get();
+  connection->setState(network::ConnectionState::Closing);
+
+  manager_->active_connection_ = std::move(connection);
+  manager_->connected_ = true;
+
+  startDispatcherThread();
+  runOnDispatcher([this]() { manager_->close(); });
+
+  EXPECT_EQ(0, connection_ptr->close_count_);
+  EXPECT_EQ(nullptr, manager_->active_connection_.get());
+  EXPECT_FALSE(manager_->isConnected());
+}
+
+TEST_F(McpConnectionManagerTest, CloseDoesNotForwardAfterCallbacksCleared) {
+  std::atomic<bool> destroyed{false};
+  auto connection =
+      std::make_unique<CloseTrackingConnection>(*dispatcher_, destroyed);
+  connection->raise_local_close_on_close_ = true;
+  connection->addConnectionCallbacks(*manager_);
+
+  manager_->active_connection_ = std::move(connection);
+  manager_->connected_ = true;
+  manager_->clearProtocolCallbacks();
+
+  startDispatcherThread();
+  runOnDispatcher([this]() { manager_->close(); });
+
+  EXPECT_TRUE(callbacks_.events_.empty());
+  EXPECT_EQ(nullptr, manager_->active_connection_.get());
+}
+
+TEST_F(McpConnectionManagerTest, ServerCloseDoesNotForwardLifecycleEvent) {
+  std::atomic<bool> destroyed{false};
+  auto connection =
+      std::make_unique<CloseTrackingConnection>(*dispatcher_, destroyed);
+  connection->raise_local_close_on_close_ = true;
+  connection->addConnectionCallbacks(*manager_);
+
+  manager_->is_server_ = true;
+  manager_->active_connection_ = std::move(connection);
+  manager_->connected_ = true;
+
+  startDispatcherThread();
+  runOnDispatcher([this]() { manager_->close(); });
+
+  EXPECT_TRUE(callbacks_.events_.empty());
+  EXPECT_EQ(nullptr, manager_->active_connection_.get());
   EXPECT_FALSE(manager_->isConnected());
 }
 

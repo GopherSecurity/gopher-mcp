@@ -751,13 +751,20 @@ void McpConnectionManager::close() {
 
   // Close active connection if any
   if (active_connection_) {
-    // Remove ourselves as callbacks first to prevent use-after-free
-    active_connection_->removeConnectionCallbacks(*this);
-    // Use NoFlush to avoid triggering writes during shutdown
-    // FlushWrite can cause SSL close_notify to be sent which may access
-    // resources that are being destroyed
-    active_connection_->close(network::ConnectionCloseType::NoFlush);
-    active_connection_.reset();
+    if (active_connection_->state() != network::ConnectionState::Open) {
+      dispatcher_.deferredDelete(std::move(active_connection_));
+    } else {
+      // Use NoFlush to avoid triggering writes during shutdown
+      // FlushWrite can cause SSL close_notify to be sent which may access
+      // resources that are being destroyed
+      //
+      // Do not reset active_connection_ here. Connection::close() schedules the
+      // actual close on the dispatcher, and onConnectionEvent(LocalClose) moves
+      // active_connection_ into the deferred-delete queue after close callbacks
+      // unwind. Resetting immediately destroys the transport before that posted
+      // close runs.
+      active_connection_->close(network::ConnectionCloseType::NoFlush);
+    }
   }
 
   // Stop listening if we're a server
@@ -911,7 +918,10 @@ void McpConnectionManager::onConnectionEvent(network::ConnectionEvent event) {
   GOPHER_LOG_DEBUG(
       "McpConnectionManager forwarding event to protocol_callbacks_={}",
       (protocol_callbacks_ ? "set" : "NULL"));
-  if (protocol_callbacks_) {
+  const bool server_close_event =
+      is_server_ && (event == network::ConnectionEvent::RemoteClose ||
+                     event == network::ConnectionEvent::LocalClose);
+  if (protocol_callbacks_ && !server_close_event) {
     GOPHER_LOG_DEBUG(
         "McpConnectionManager calling protocol_callbacks_->onConnectionEvent");
     protocol_callbacks_->onConnectionEvent(event);
