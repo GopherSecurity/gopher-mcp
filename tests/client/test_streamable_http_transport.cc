@@ -13,6 +13,18 @@
 
 #include <gtest/gtest.h>
 
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wkeyword-macro"
+#endif
+#define private public
+#define protected public
+#include "mcp/client/mcp_client.h"
+#undef protected
+#undef private
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#endif
 #include "mcp/mcp_connection_manager.h"
 
 namespace mcp {
@@ -87,6 +99,17 @@ class TransportNegotiationTest : public ::testing::Test {
   }
 };
 
+class RealTransportNegotiationTest : public ::testing::Test {
+ protected:
+  std::unique_ptr<client::McpClient> makeClient(
+      TransportType preferred_transport, bool auto_negotiate_transport = true) {
+    client::McpClientConfig config;
+    config.preferred_transport = preferred_transport;
+    config.auto_negotiate_transport = auto_negotiate_transport;
+    return std::make_unique<client::McpClient>(config);
+  }
+};
+
 /**
  * Test: URLs with /sse path should use HttpSse transport
  */
@@ -137,6 +160,46 @@ TEST_F(TransportNegotiationTest, PathMatchingIsCaseSensitive) {
   EXPECT_FALSE(urlShouldUseSse("http://localhost:8080/SSE"));
   EXPECT_FALSE(urlShouldUseSse("http://localhost:8080/EVENTS"));
   EXPECT_TRUE(urlShouldUseStreamableHttp("http://localhost:8080/SSE"));
+}
+
+TEST_F(RealTransportNegotiationTest,
+       PreferredHttpSseOverridesStreamableHttpPathHeuristic) {
+  auto client = makeClient(TransportType::HttpSse);
+
+  EXPECT_EQ(TransportType::HttpSse,
+            client->negotiateTransport("http://localhost:8080/rpc"));
+  EXPECT_EQ(TransportType::HttpSse,
+            client->negotiateTransport("https://example.com/mcp"));
+}
+
+TEST_F(RealTransportNegotiationTest,
+       PreferredStreamableHttpOverridesSsePathHeuristic) {
+  auto client = makeClient(TransportType::StreamableHttp);
+
+  EXPECT_EQ(TransportType::StreamableHttp,
+            client->negotiateTransport("http://localhost:8080/sse"));
+  EXPECT_EQ(TransportType::StreamableHttp,
+            client->negotiateTransport("https://example.com/events"));
+}
+
+TEST_F(RealTransportNegotiationTest,
+       NonHttpPreferredTransportDoesNotOverrideAutoHttpHeuristic) {
+  auto client = makeClient(TransportType::Stdio);
+
+  EXPECT_EQ(TransportType::StreamableHttp,
+            client->negotiateTransport("http://localhost:8080/rpc"));
+  EXPECT_EQ(TransportType::HttpSse,
+            client->negotiateTransport("https://example.com/events"));
+}
+
+TEST_F(RealTransportNegotiationTest,
+       DisabledAutoNegotiationUsesPreferredTransportForHttpUrls) {
+  auto client = makeClient(TransportType::Stdio, false);
+
+  EXPECT_EQ(TransportType::Stdio,
+            client->negotiateTransport("http://localhost:8080/rpc"));
+  EXPECT_EQ(TransportType::Stdio,
+            client->negotiateTransport("https://example.com/events"));
 }
 
 // =============================================================================
