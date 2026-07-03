@@ -961,6 +961,14 @@ TransportType McpClient::negotiateTransport(const std::string& uri) {
   } else if (uri.find("ws://") == 0 || uri.find("wss://") == 0) {
     return TransportType::WebSocket;
   } else if (uri.find("http://") == 0 || uri.find("https://") == 0) {
+    if (!config_.auto_negotiate_transport) {
+      return config_.preferred_transport;
+    }
+    if (config_.preferred_transport == TransportType::StreamableHttp ||
+        config_.preferred_transport == TransportType::HttpSse) {
+      return config_.preferred_transport;
+    }
+
     // For HTTP URLs, use heuristics to determine transport type:
     // - If URL path contains "/sse" or "/events" -> use SSE transport
     // - Otherwise -> use Streamable HTTP (simpler, more common)

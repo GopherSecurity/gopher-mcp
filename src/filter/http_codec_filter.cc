@@ -742,8 +742,9 @@ http::ParserCallbackResult HttpCodecFilter::ParserCallbacks::onBody(
   }
 
   if (data == nullptr || length > kMaxHttpBodyChunkSize) {
-    GOPHER_LOG_ERROR("HTTP body chunk rejected: data_present={} length={} max={}",
-                     data != nullptr, length, kMaxHttpBodyChunkSize);
+    GOPHER_LOG_ERROR(
+        "HTTP body chunk rejected: data_present={} length={} max={}",
+        data != nullptr, length, kMaxHttpBodyChunkSize);
     parent_.pending_parser_error_ = "HTTP body chunk exceeds codec limit";
     return http::ParserCallbackResult::Error;
   }
