@@ -1285,7 +1285,6 @@ bool HttpSseFilterChainFactory::createFilterChain(
       if (filter) {
         filter_manager.addReadFilter(filter);
         filter_manager.addWriteFilter(filter);
-        filters_.push_back(filter);
       }
     }
   }
@@ -1315,7 +1314,6 @@ bool HttpSseFilterChainFactory::createFilterChain(
     auto metrics_adapter = metrics_filter->createNetworkAdapter();
     filter_manager.addReadFilter(metrics_adapter);
     filter_manager.addWriteFilter(metrics_adapter);
-    filters_.push_back(metrics_adapter);
   }
 
   // Routing is now integrated into the combined filter
@@ -1338,12 +1336,16 @@ bool HttpSseFilterChainFactory::createFilterChain(
       use_sse_, route_registration_callback_, sse_path_, rpc_path_,
       external_url_, sse_registry_.get());
 
-  // Add as both read and write filter
+  // Add as both read and write filter. The FilterManager owns the filter
+  // for the connection's lifetime (per-connection filter ownership): when
+  // the connection is destroyed its FilterManager drops these refs and the
+  // filter destructs, which is what deregisters its SSE stream from the
+  // registry. The factory deliberately keeps NO reference of its own — a
+  // retained copy would keep every connection's filters (and their buffers)
+  // alive for the whole life of the server, and leave the filter destructor
+  // to run only at shutdown instead of at connection close.
   filter_manager.addReadFilter(combined_filter);
   filter_manager.addWriteFilter(combined_filter);
-
-  // Store for lifetime management
-  filters_.push_back(combined_filter);
 
   return true;
 }
