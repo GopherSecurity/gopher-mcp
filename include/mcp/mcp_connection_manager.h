@@ -180,6 +180,25 @@ class McpConnectionManager : public McpProtocolCallbacks,
     protocol_callbacks_ = &callbacks;
   }
 
+  /**
+   * Resolve a possibly-relative SSE callback endpoint against the server
+   * address the connection was configured with.
+   *
+   * The SSE "endpoint" event may carry a relative callback URL — the server
+   * announces "callback/{id}" unless an operator configured an external
+   * URL — but sendHttpPost() requires an absolute URL. Relative forms
+   * resolve to the same scheme and host:port the SSE stream itself uses,
+   * with the path made absolute. Already-absolute endpoints pass through
+   * untouched, as does everything when server_address is empty (there is
+   * nothing to resolve against; sendHttpPost will report the bad URL).
+   *
+   * Static so the resolution rules are unit-testable without a live
+   * connection.
+   */
+  static std::string resolveEndpointUrl(const std::string& endpoint,
+                                        const std::string& server_address,
+                                        bool use_ssl);
+
   // McpProtocolCallbacks interface (default implementations)
   void onRequest(const jsonrpc::Request& request) override;
   void onNotification(const jsonrpc::Notification& notification) override;

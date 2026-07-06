@@ -904,15 +904,46 @@ void McpConnectionManager::onError(const Error& error) {
   }
 }
 
+std::string McpConnectionManager::resolveEndpointUrl(
+    const std::string& endpoint,
+    const std::string& server_address,
+    bool use_ssl) {
+  if (endpoint.find("://") != std::string::npos) {
+    return endpoint;  // Already absolute.
+  }
+  if (server_address.empty()) {
+    return endpoint;  // Nothing to resolve against.
+  }
+  std::string path = endpoint;
+  if (path.empty() || path[0] != '/') {
+    path = "/" + path;
+  }
+  return (use_ssl ? "https://" : "http://") + server_address + path;
+}
+
 void McpConnectionManager::onMessageEndpoint(const std::string& endpoint) {
   GOPHER_LOG_DEBUG("McpConnectionManager::onMessageEndpoint endpoint={}",
                    endpoint);
-  message_endpoint_ = endpoint;
+  // The server announces a relative callback URL unless an external URL is
+  // configured; sendHttpPost needs an absolute one. Resolve against the
+  // same server the SSE stream is connected to.
+  std::string server_address;
+  bool use_ssl = false;
+  if (config_.http_sse_config.has_value()) {
+    server_address = config_.http_sse_config->server_address;
+    use_ssl = config_.http_sse_config->ssl_config.has_value();
+  }
+  message_endpoint_ = resolveEndpointUrl(endpoint, server_address, use_ssl);
+  if (message_endpoint_ != endpoint) {
+    GOPHER_LOG_DEBUG("Resolved relative endpoint '{}' to '{}'", endpoint,
+                     message_endpoint_);
+  }
   has_message_endpoint_ = true;
 
-  // Forward to protocol callbacks if set
+  // Forward to protocol callbacks if set. Forward the resolved form so
+  // upper layers never see a relative URL they cannot POST to.
   if (protocol_callbacks_ && protocol_callbacks_ != this) {
-    protocol_callbacks_->onMessageEndpoint(endpoint);
+    protocol_callbacks_->onMessageEndpoint(message_endpoint_);
   }
 }
 
