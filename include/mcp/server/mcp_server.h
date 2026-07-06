@@ -424,29 +424,15 @@ class ResourceManager {
     }
   }
 
-  // Notify subscribers of resource update
-  void notifyResourceUpdate(const std::string& uri) {
+  // Sessions currently subscribed to a URI (snapshot). The server builds
+  // and routes the notifications/resources/updated messages from this;
+  // the manager only owns the bookkeeping. This replaces a pending-updates
+  // queue that nothing ever drained — updates were counted as sent but
+  // silently accumulated forever.
+  std::set<std::string> getSubscribers(const std::string& uri) const {
     std::lock_guard<std::mutex> lock(mutex_);
     auto it = subscriptions_.find(uri);
-    if (it != subscriptions_.end()) {
-      // Queue update notifications for subscribers
-      for (const auto& session_id : it->second) {
-        pending_updates_[session_id].insert(uri);
-      }
-      stats_.resource_updates_sent++;
-    }
-  }
-
-  // Get pending updates for session
-  std::set<std::string> getPendingUpdates(const std::string& session_id) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    auto it = pending_updates_.find(session_id);
-    if (it != pending_updates_.end()) {
-      auto updates = it->second;
-      pending_updates_.erase(it);
-      return updates;
-    }
-    return {};
+    return it != subscriptions_.end() ? it->second : std::set<std::string>{};
   }
 
  private:
@@ -456,8 +442,6 @@ class ResourceManager {
   std::vector<ResourceTemplate> resource_templates_;
   std::map<std::string, std::set<std::string>>
       subscriptions_;  // uri -> session_ids
-  std::map<std::string, std::set<std::string>>
-      pending_updates_;  // session_id -> uris
   McpServerStats& stats_;
 };
 
@@ -881,9 +865,11 @@ class McpServer : public application::ApplicationBase,
     resource_manager_->registerResourceTemplate(template_);
   }
 
-  void notifyResourceUpdate(const std::string& uri) {
-    resource_manager_->notifyResourceUpdate(uri);
-  }
+  // Push notifications/resources/updated to every session subscribed to
+  // the URI. Callable from any thread; delivery happens on the dispatcher
+  // thread through each session's own channel (SSE stream, connection, or
+  // stdio manager).
+  void notifyResourceUpdate(const std::string& uri);
 
   // Tool management
   void registerTool(const Tool& tool,
