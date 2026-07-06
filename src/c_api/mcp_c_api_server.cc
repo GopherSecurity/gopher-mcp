@@ -115,12 +115,11 @@ mcp_error_t mcp_server_send_notification(mcp_server_t* server,
     return MCP_ERROR_INVALID_ARGUMENT;
   }
 
-  try {
-    // TODO: Send notification to connection or broadcast
-    return MCP_SUCCESS;
-  } catch (...) {
-    return MCP_ERROR_INTERNAL;
-  }
+  // This C server facade is not implemented yet (mcp_server_create never
+  // builds an underlying server, so there is nothing to send through).
+  // Report that honestly instead of returning MCP_SUCCESS while dropping
+  // the notification — callers were left believing delivery happened.
+  return MCP_ERROR_NOT_IMPLEMENTED;
 }
 
 }  // extern "C"
