@@ -776,9 +776,8 @@ http::ParserCallbackResult HttpCodecFilter::ParserCallbacks::onBody(
     const size_t current_body_size = parent_.current_stream_->body.length();
     if (current_body_size > kMaxHttpBodySize ||
         length > kMaxHttpBodySize - current_body_size) {
-      GOPHER_LOG_ERROR(
-          "HTTP body rejected: accumulated={} incoming={} max={}",
-          current_body_size, length, kMaxHttpBodySize);
+      GOPHER_LOG_ERROR("HTTP body rejected: accumulated={} incoming={} max={}",
+                       current_body_size, length, kMaxHttpBodySize);
       parent_.pending_parser_error_ = "HTTP body exceeds codec limit";
       return http::ParserCallbackResult::Error;
     }

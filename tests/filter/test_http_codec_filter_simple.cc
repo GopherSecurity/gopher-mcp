@@ -248,9 +248,9 @@ TEST_F(HttpCodecFilterIntegrationTest, OversizedRequestBodyCallbackIsRejected) {
   ASSERT_EQ(filter_->parser_callbacks_->onMessageBegin(),
             http::ParserCallbackResult::Success);
 
-  EXPECT_EQ(filter_->parser_callbacks_->onBody(&kBodyByte,
-                                               kOversizedHttpBodyChunk),
-            http::ParserCallbackResult::Error);
+  EXPECT_EQ(
+      filter_->parser_callbacks_->onBody(&kBodyByte, kOversizedHttpBodyChunk),
+      http::ParserCallbackResult::Error);
 
   EXPECT_FALSE(callbacks_.body_received_);
   EXPECT_FALSE(callbacks_.message_complete_);
@@ -262,12 +262,12 @@ TEST_F(HttpCodecFilterIntegrationTest,
             http::ParserCallbackResult::Success);
 
   const std::string half_body(kMaxHttpBodySize / 2, kBodyByte);
-  ASSERT_EQ(filter_->parser_callbacks_->onBody(half_body.data(),
-                                               half_body.size()),
-            http::ParserCallbackResult::Success);
-  ASSERT_EQ(filter_->parser_callbacks_->onBody(half_body.data(),
-                                               half_body.size()),
-            http::ParserCallbackResult::Success);
+  ASSERT_EQ(
+      filter_->parser_callbacks_->onBody(half_body.data(), half_body.size()),
+      http::ParserCallbackResult::Success);
+  ASSERT_EQ(
+      filter_->parser_callbacks_->onBody(half_body.data(), half_body.size()),
+      http::ParserCallbackResult::Success);
   ASSERT_EQ(filter_->current_stream_->body.length(), kMaxHttpBodySize);
 
   EXPECT_EQ(filter_->parser_callbacks_->onBody(&kBodyByte, 1),
@@ -302,9 +302,9 @@ TEST(HttpCodecClientModeTest, OversizedResponseBodyCallbackIsRejected) {
   ASSERT_EQ(filter.parser_callbacks_->onMessageBegin(),
             http::ParserCallbackResult::Success);
 
-  EXPECT_EQ(filter.parser_callbacks_->onBody(&kBodyByte,
-                                             kOversizedHttpBodyChunk),
-            http::ParserCallbackResult::Error);
+  EXPECT_EQ(
+      filter.parser_callbacks_->onBody(&kBodyByte, kOversizedHttpBodyChunk),
+      http::ParserCallbackResult::Error);
 
   EXPECT_FALSE(callbacks.body_received_);
   EXPECT_FALSE(callbacks.message_complete_);
