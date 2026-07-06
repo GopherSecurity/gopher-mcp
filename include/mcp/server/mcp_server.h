@@ -583,36 +583,59 @@ class SessionManager {
   SessionManager(const McpServerConfig& config, McpServerStats& stats)
       : config_(config), stats_(stats) {}
 
+  // Observer invoked once for each session removed by the expiry sweep, on
+  // the thread that triggered the sweep (the dispatcher thread: background
+  // cleanup timer, or the at-capacity path of a session create). It fires
+  // AFTER mutex_ is released, so the callback may safely take other locks
+  // (e.g. ResourceManager's) without lock-ordering hazards. This is how the
+  // server releases state it keys on a session — resource subscriptions —
+  // that would otherwise leak when a session times out. The explicit
+  // removeSession/removeSessionByConnection/removeSessionByTransportId
+  // paths do NOT fire it; their callers already hold the removed session
+  // and release such state directly.
+  using SessionRemovedCallback = std::function<void(const SessionPtr&)>;
+  void setSessionRemovedCallback(SessionRemovedCallback callback) {
+    session_removed_callback_ = std::move(callback);
+  }
+
   // Create new session
   SessionPtr createSession(network::Connection* connection) {
-    std::lock_guard<std::mutex> lock(mutex_);
+    SessionPtr session;
+    std::vector<SessionPtr> expired;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
 
-    // Check max sessions limit. Use the Locked variant — mutex_ is already
-    // held here and is not recursive, so calling the public
-    // cleanupExpiredSessions() would self-deadlock.
-    if (sessions_.size() >= config_.max_sessions) {
-      // Try to clean up expired sessions first
-      cleanupExpiredSessionsLocked();
+      // Check max sessions limit. Use the Locked variant — mutex_ is already
+      // held here and is not recursive, so calling the public
+      // cleanupExpiredSessions() would self-deadlock.
       if (sessions_.size() >= config_.max_sessions) {
-        return nullptr;  // Max sessions reached
+        // Try to clean up expired sessions first
+        cleanupExpiredSessionsLocked(expired);
+        if (sessions_.size() >= config_.max_sessions) {
+          fireSessionRemoved(expired);
+          return nullptr;  // Max sessions reached
+        }
       }
+
+      // Generate session ID
+      std::string session_id = generateSessionId();
+
+      // Create session
+      session = std::make_shared<SessionContext>(session_id, connection);
+      sessions_[session_id] = session;
+
+      // Track by connection if available
+      if (connection) {
+        connection_sessions_[connection] = session;
+      }
+
+      stats_.sessions_total++;
+      stats_.sessions_active++;
     }
 
-    // Generate session ID
-    std::string session_id = generateSessionId();
-
-    // Create session
-    auto session = std::make_shared<SessionContext>(session_id, connection);
-    sessions_[session_id] = session;
-
-    // Track by connection if available
-    if (connection) {
-      connection_sessions_[connection] = session;
-    }
-
-    stats_.sessions_total++;
-    stats_.sessions_active++;
-
+    // Fire removal observers for any sessions the capacity sweep evicted,
+    // outside the lock.
+    fireSessionRemoved(expired);
     return session;
   }
 
@@ -639,29 +662,35 @@ class SessionManager {
   // close) plus the usual expiry sweep.
   SessionPtr getOrCreateSessionByTransportId(
       const std::string& transport_session_id) {
-    std::lock_guard<std::mutex> lock(mutex_);
+    SessionPtr session;
+    std::vector<SessionPtr> expired;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
 
-    auto it = transport_sessions_.find(transport_session_id);
-    if (it != transport_sessions_.end()) {
-      it->second->updateActivity();
-      return it->second;
-    }
-
-    if (sessions_.size() >= config_.max_sessions) {
-      cleanupExpiredSessionsLocked();
-      if (sessions_.size() >= config_.max_sessions) {
-        return nullptr;  // Max sessions reached
+      auto it = transport_sessions_.find(transport_session_id);
+      if (it != transport_sessions_.end()) {
+        it->second->updateActivity();
+        return it->second;
       }
+
+      if (sessions_.size() >= config_.max_sessions) {
+        cleanupExpiredSessionsLocked(expired);
+        if (sessions_.size() >= config_.max_sessions) {
+          fireSessionRemoved(expired);
+          return nullptr;  // Max sessions reached
+        }
+      }
+
+      session = std::make_shared<SessionContext>(generateSessionId(), nullptr);
+      session->setTransportSessionId(transport_session_id);
+      sessions_[session->getId()] = session;
+      transport_sessions_[transport_session_id] = session;
+
+      stats_.sessions_total++;
+      stats_.sessions_active++;
     }
 
-    auto session =
-        std::make_shared<SessionContext>(generateSessionId(), nullptr);
-    session->setTransportSessionId(transport_session_id);
-    sessions_[session->getId()] = session;
-    transport_sessions_[transport_session_id] = session;
-
-    stats_.sessions_total++;
-    stats_.sessions_active++;
+    fireSessionRemoved(expired);
     return session;
   }
 
@@ -736,10 +765,15 @@ class SessionManager {
     return (it != connection_sessions_.end()) ? it->second : nullptr;
   }
 
-  // Clean up expired sessions
+  // Clean up expired sessions. Fires the session-removed observer for each
+  // swept session, outside the lock.
   void cleanupExpiredSessions() {
-    std::lock_guard<std::mutex> lock(mutex_);
-    cleanupExpiredSessionsLocked();
+    std::vector<SessionPtr> expired;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      cleanupExpiredSessionsLocked(expired);
+    }
+    fireSessionRemoved(expired);
   }
 
   // Enumerate active sessions (snapshot). Used by broadcast paths, which
@@ -755,13 +789,34 @@ class SessionManager {
   }
 
  private:
+  // Fire the session-removed observer for each session, if one is set.
+  // Called only with mutex_ released.
+  void fireSessionRemoved(const std::vector<SessionPtr>& removed) {
+    if (!session_removed_callback_) {
+      return;
+    }
+    for (const auto& session : removed) {
+      session_removed_callback_(session);
+    }
+  }
+
   // Expiry sweep body shared by the public entry point and the
   // at-capacity path inside createSession / getOrCreateSessionByTransportId,
-  // which already hold mutex_ (non-recursive).
-  void cleanupExpiredSessionsLocked() {
+  // which already hold mutex_ (non-recursive). Appends every removed session
+  // to `removed` so the caller can fire observers after releasing the lock.
+  void cleanupExpiredSessionsLocked(std::vector<SessionPtr>& removed) {
     std::vector<std::string> expired;
 
     for (const auto& pair : sessions_) {
+      // Transport-keyed sessions (HTTP+SSE) are NOT subject to activity
+      // expiry: their lifetime is bounded by the SSE stream closing
+      // (removeSessionByTransportId), and the client may legitimately hold
+      // an idle-but-open stream far longer than session_timeout. Expiring
+      // one here would silently drop a live client's session — and its
+      // resource subscriptions — while its stream is still connected.
+      if (!pair.second->getTransportSessionId().empty()) {
+        continue;
+      }
       if (pair.second->isExpired(config_.session_timeout)) {
         expired.push_back(pair.first);
       }
@@ -774,9 +829,7 @@ class SessionManager {
         if (it->second->getConnection()) {
           connection_sessions_.erase(it->second->getConnection());
         }
-        if (!it->second->getTransportSessionId().empty()) {
-          transport_sessions_.erase(it->second->getTransportSessionId());
-        }
+        removed.push_back(it->second);
         sessions_.erase(it);
         stats_.sessions_expired++;
         stats_.sessions_active--;
@@ -796,6 +849,7 @@ class SessionManager {
   // on short-lived connections (HTTP+SSE POST callbacks). Kept consistent
   // with sessions_ by every mutation path above.
   std::map<std::string, SessionPtr> transport_sessions_;
+  SessionRemovedCallback session_removed_callback_;
   McpServerConfig config_;
   McpServerStats& stats_;
 };
