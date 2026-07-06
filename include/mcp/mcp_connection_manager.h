@@ -94,6 +94,26 @@ class McpProtocolCallbacks {
   }
 
   /**
+   * Called immediately before a parsed message is dispatched, carrying the
+   * transport-level session id the message belongs to. For HTTP+SSE servers
+   * this is the SSE stream id extracted from the POST /callback/{id} path —
+   * the durable client identity that outlives the one-shot POST connection
+   * the message physically arrived on. Empty when the transport has no
+   * session concept (stdio, plain HTTP); receivers must then fall back to
+   * connection identity.
+   *
+   * Always invoked in the dispatcher thread right before the matching
+   * onRequest/onNotification/onResponse for the same message, so an
+   * implementation may stash it as request-scoped context without locking.
+   * It is re-announced per message (not per connection) because reads from
+   * different connections interleave on the dispatcher thread.
+   */
+  virtual void onTransportSessionBound(
+      const std::string& transport_session_id) {
+    (void)transport_session_id;  // Default implementation does nothing
+  }
+
+  /**
    * Send a POST request to the message endpoint
    * Used by HTTP/SSE transport to send messages on a separate connection
    * Returns true if the POST was initiated successfully

@@ -932,10 +932,19 @@ class HttpSseJsonRpcProtocolFilter
    */
   void onRequest(const jsonrpc::Request& request) override {
     GOPHER_LOG_DEBUG("HttpSseFilter::onRequest for method: {}", request.method);
+    // Announce which transport session this message belongs to before
+    // dispatching. On a POST /callback/{id} connection this carries the SSE
+    // stream id — the durable client identity — so the server can key its
+    // MCP session on it instead of this short-lived POST connection. It is
+    // announced per message (not per connection) because dispatcher-thread
+    // reads from different connections interleave; an empty id explicitly
+    // clears any previous connection's binding.
+    mcp_callbacks_.onTransportSessionBound(sse_callback_session_id_);
     mcp_callbacks_.onRequest(request);
   }
 
   void onNotification(const jsonrpc::Notification& notification) override {
+    mcp_callbacks_.onTransportSessionBound(sse_callback_session_id_);
     mcp_callbacks_.onNotification(notification);
 
     // For HTTP transport, send HTTP 202 Accepted response
@@ -961,6 +970,7 @@ class HttpSseJsonRpcProtocolFilter
   }
 
   void onResponse(const jsonrpc::Response& response) override {
+    mcp_callbacks_.onTransportSessionBound(sse_callback_session_id_);
     mcp_callbacks_.onResponse(response);
   }
 
