@@ -434,5 +434,56 @@ TEST_F(ServerNotificationDeliveryTest, DisconnectedSubscriberIsReleased) {
       << "remaining subscriber stopped receiving after peer disconnect";
 }
 
+// Regression for the double-delivery bug: an HTTP+SSE client is represented
+// by both its transport-keyed session and the connection-keyed session of
+// its SSE GET stream. Fan-out used to enumerate both and write to the same
+// stream twice. Here we COUNT deliveries and require exactly one — the
+// earlier tests could not catch a duplicate because the client swallows the
+// second handler invocation's exception.
+TEST_F(ServerNotificationDeliveryTest, ResourceUpdateDeliveredExactlyOnce) {
+  const std::string kUri = "test://resource/once";
+
+  std::atomic<int> count{0};
+  std::promise<void> first;
+  auto* client = makeConnectedClient("dedup-client");
+  ASSERT_NE(client, nullptr);
+  client->registerNotificationHandler(
+      "notifications/resources/updated",
+      [&count, &first](const jsonrpc::Notification&) {
+        if (++count == 1) {
+          first.set_value();
+        }
+      });
+
+  ASSERT_TRUE(subscribeAndWait(*client, kUri));
+  server_->notifyResourceUpdate(kUri);
+
+  ASSERT_EQ(first.get_future().wait_for(5s), std::future_status::ready)
+      << "update never delivered";
+  // Grace window for a stray duplicate to arrive before we assert none did.
+  std::this_thread::sleep_for(300ms);
+  EXPECT_EQ(count.load(), 1) << "resource update delivered more than once";
+}
+
+TEST_F(ServerNotificationDeliveryTest, BroadcastDeliveredExactlyOnce) {
+  std::atomic<int> count{0};
+  std::promise<void> first;
+  auto* client = makeConnectedClient("dedup-broadcast-client");
+  ASSERT_NE(client, nullptr);
+  client->registerNotificationHandler(
+      "test/broadcast", [&count, &first](const jsonrpc::Notification&) {
+        if (++count == 1) {
+          first.set_value();
+        }
+      });
+
+  server_->broadcastNotification(jsonrpc::Notification("test/broadcast"));
+
+  ASSERT_EQ(first.get_future().wait_for(5s), std::future_status::ready)
+      << "broadcast never delivered";
+  std::this_thread::sleep_for(300ms);
+  EXPECT_EQ(count.load(), 1) << "broadcast delivered more than once";
+}
+
 }  // namespace
 }  // namespace mcp
