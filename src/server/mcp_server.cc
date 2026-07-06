@@ -446,6 +446,14 @@ void McpServer::shutdown() {
       }
       connection_managers_.clear();
 
+      // Release the HTTP+SSE factory here, on the dispatcher thread, after
+      // every connection is gone. The factory owns the SSE session registry
+      // and keeps every created filter alive; if it instead died in
+      // ~McpServer (caller thread), those filter destructors would call
+      // registry.removeSession off the dispatcher thread and trip its
+      // thread assert.
+      http_sse_factory_.reset();
+
       // Exit the blocking dispatch loop.
       main_dispatcher_->exit();
     });
