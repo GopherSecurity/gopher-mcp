@@ -140,4 +140,65 @@ TEST_F(SessionTransportBindingTest, AtCapacityReturnsNull) {
   EXPECT_EQ(manager.getOrCreateSessionByTransportId("client_2"), nullptr);
 }
 
+// A closing POST connection fires removeSessionByConnection; that must
+// never collaterally destroy a transport-keyed session.
+TEST_F(SessionTransportBindingTest,
+       ConnectionRemovalDoesNotTouchTransportSessions) {
+  SessionManager manager(config_, stats_);
+
+  auto transport_session = manager.getOrCreateSessionByTransportId("client_1");
+  ASSERT_NE(transport_session, nullptr);
+
+  // Simulate the close of some unrelated connection-keyed session. The
+  // fake pointer is only used as a map key, never dereferenced.
+  auto* fake_conn = reinterpret_cast<network::Connection*>(0x1);
+  auto conn_session = manager.createSession(fake_conn);
+  ASSERT_NE(conn_session, nullptr);
+
+  auto removed = manager.removeSessionByConnection(fake_conn);
+  EXPECT_EQ(removed, conn_session);
+
+  EXPECT_EQ(manager.getSessionByTransportId("client_1"), transport_session);
+  EXPECT_EQ(manager.getSession(transport_session->getId()), transport_session);
+}
+
+// ---------------------------------------------------------------------------
+// ResourceManager::releaseSession
+// ---------------------------------------------------------------------------
+
+// When a session ends, its subscriptions must leave the fan-out map, so a
+// later resource update no longer targets the dead session id.
+TEST_F(SessionTransportBindingTest, ReleaseSessionDropsSubscriptions) {
+  ResourceManager resources(stats_);
+  SessionContext session("session_1", nullptr);
+
+  resources.subscribe("res://a", session);
+  resources.subscribe("res://b", session);
+
+  resources.releaseSession(session);
+
+  // Updates after release must not queue anything for the dead session.
+  resources.notifyResourceUpdate("res://a");
+  resources.notifyResourceUpdate("res://b");
+  EXPECT_TRUE(resources.getPendingUpdates("session_1").empty());
+}
+
+// Release must only drop the dying session's subscriptions, not other
+// subscribers of the same URI.
+TEST_F(SessionTransportBindingTest, ReleaseSessionKeepsOtherSubscribers) {
+  ResourceManager resources(stats_);
+  SessionContext dying("session_1", nullptr);
+  SessionContext staying("session_2", nullptr);
+
+  resources.subscribe("res://a", dying);
+  resources.subscribe("res://a", staying);
+
+  resources.releaseSession(dying);
+  resources.notifyResourceUpdate("res://a");
+
+  EXPECT_TRUE(resources.getPendingUpdates("session_1").empty());
+  auto updates = resources.getPendingUpdates("session_2");
+  EXPECT_EQ(updates.count("res://a"), 1u);
+}
+
 }  // namespace

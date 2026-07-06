@@ -838,8 +838,15 @@ void McpServer::onConnectionLifecycleEvent(network::Connection* connection,
 
   // Tear down session state keyed by the actual closing connection, not a
   // global current_connection_ which may point at a different session.
+  // Transport-keyed sessions (HTTP+SSE) are untouched here by design: they
+  // are created with a null connection, live across many short POST
+  // connections, and are released by the SSE registry's session-closed
+  // callback when their stream ends.
   if (session_manager_) {
-    session_manager_->removeSessionByConnection(connection);
+    auto session = session_manager_->removeSessionByConnection(connection);
+    if (session && resource_manager_) {
+      resource_manager_->releaseSession(*session);
+    }
   }
   {
     std::lock_guard<std::mutex> lock(connection_sessions_mutex_);
