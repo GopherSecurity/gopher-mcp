@@ -198,6 +198,19 @@ class SessionContext {
   const SessionId& getId() const { return id_; }
   network::Connection* getConnection() const { return connection_; }
 
+  // Transport-level session id (e.g. the SSE stream id for HTTP+SSE
+  // clients). Non-empty only for sessions keyed on a transport session
+  // rather than a connection: those clients send each request on a
+  // short-lived POST connection, so the connection pointer cannot serve
+  // as the durable identity — this id can, and it is also what the
+  // server-push path uses to find the client's SSE stream.
+  void setTransportSessionId(const std::string& transport_session_id) {
+    transport_session_id_ = transport_session_id;
+  }
+  const std::string& getTransportSessionId() const {
+    return transport_session_id_;
+  }
+
   // Update activity timestamp
   void updateActivity() { last_activity_ = std::chrono::steady_clock::now(); }
 
@@ -251,6 +264,7 @@ class SessionContext {
  private:
   SessionId id_;
   network::Connection* connection_;  // Store raw pointer
+  std::string transport_session_id_;  // Durable transport identity, may be ""
   std::chrono::steady_clock::time_point created_time_;
   std::chrono::steady_clock::time_point last_activity_;
   optional<Implementation> client_info_;
@@ -612,6 +626,69 @@ class SessionManager {
     return nullptr;
   }
 
+  // Get-or-create a session keyed on a transport-level session id (e.g.
+  // the SSE stream id). Used for transports where each request arrives on
+  // a fresh short-lived connection: the connection pointer changes per
+  // request, so keying on it would give every request its own session and
+  // lose state such as resource subscriptions. The session is deliberately
+  // created with a null connection — it must NOT be tracked in
+  // connection_sessions_, or the close of whichever POST connection it was
+  // first seen on would tear it down. Its lifetime is bounded by the
+  // transport session instead (removeSessionByTransportId on SSE stream
+  // close) plus the usual expiry sweep.
+  SessionPtr getOrCreateSessionByTransportId(
+      const std::string& transport_session_id) {
+    std::lock_guard<std::mutex> lock(mutex_);
+
+    auto it = transport_sessions_.find(transport_session_id);
+    if (it != transport_sessions_.end()) {
+      it->second->updateActivity();
+      return it->second;
+    }
+
+    if (sessions_.size() >= config_.max_sessions) {
+      cleanupExpiredSessionsLocked();
+      if (sessions_.size() >= config_.max_sessions) {
+        return nullptr;  // Max sessions reached
+      }
+    }
+
+    auto session =
+        std::make_shared<SessionContext>(generateSessionId(), nullptr);
+    session->setTransportSessionId(transport_session_id);
+    sessions_[session->getId()] = session;
+    transport_sessions_[transport_session_id] = session;
+
+    stats_.sessions_total++;
+    stats_.sessions_active++;
+    return session;
+  }
+
+  // Get session by transport-level session id (no creation).
+  SessionPtr getSessionByTransportId(const std::string& transport_session_id) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto it = transport_sessions_.find(transport_session_id);
+    return (it != transport_sessions_.end()) ? it->second : nullptr;
+  }
+
+  // Remove the session bound to a transport-level session id. Called when
+  // the transport session ends (e.g. the client's SSE stream closes).
+  // Returns the removed session so the caller can release related state
+  // (e.g. resource subscriptions) that lives outside this manager.
+  SessionPtr removeSessionByTransportId(
+      const std::string& transport_session_id) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto it = transport_sessions_.find(transport_session_id);
+    if (it == transport_sessions_.end()) {
+      return nullptr;
+    }
+    auto session = it->second;
+    transport_sessions_.erase(it);
+    sessions_.erase(session->getId());
+    stats_.sessions_active--;
+    return session;
+  }
+
   // Remove session
   void removeSession(const std::string& session_id) {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -620,6 +697,9 @@ class SessionManager {
       // Remove from connection map if tracked
       if (it->second->getConnection()) {
         connection_sessions_.erase(it->second->getConnection());
+      }
+      if (!it->second->getTransportSessionId().empty()) {
+        transport_sessions_.erase(it->second->getTransportSessionId());
       }
       sessions_.erase(it);
       stats_.sessions_active--;
@@ -659,8 +739,8 @@ class SessionManager {
 
  private:
   // Expiry sweep body shared by the public entry point and the
-  // at-capacity path inside createSession, which already holds mutex_
-  // (non-recursive).
+  // at-capacity path inside createSession / getOrCreateSessionByTransportId,
+  // which already hold mutex_ (non-recursive).
   void cleanupExpiredSessionsLocked() {
     std::vector<std::string> expired;
 
@@ -677,6 +757,9 @@ class SessionManager {
         if (it->second->getConnection()) {
           connection_sessions_.erase(it->second->getConnection());
         }
+        if (!it->second->getTransportSessionId().empty()) {
+          transport_sessions_.erase(it->second->getTransportSessionId());
+        }
         sessions_.erase(it);
         stats_.sessions_expired++;
         stats_.sessions_active--;
@@ -692,6 +775,10 @@ class SessionManager {
   mutable std::mutex mutex_;
   std::map<std::string, SessionPtr> sessions_;
   std::unordered_map<network::Connection*, SessionPtr> connection_sessions_;
+  // Transport session id -> session, for transports whose requests arrive
+  // on short-lived connections (HTTP+SSE POST callbacks). Kept consistent
+  // with sessions_ by every mutation path above.
+  std::map<std::string, SessionPtr> transport_sessions_;
   McpServerConfig config_;
   McpServerStats& stats_;
 };
