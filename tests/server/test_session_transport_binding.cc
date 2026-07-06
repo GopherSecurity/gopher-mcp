@@ -166,6 +166,21 @@ TEST_F(SessionTransportBindingTest,
 // ResourceManager::releaseSession
 // ---------------------------------------------------------------------------
 
+// getSubscribers is what the server fans notifications out from: it must
+// reflect subscribe/unsubscribe exactly.
+TEST_F(SessionTransportBindingTest, SubscribersTrackSubscribeUnsubscribe) {
+  ResourceManager resources(stats_);
+  SessionContext session("session_1", nullptr);
+
+  EXPECT_TRUE(resources.getSubscribers("res://a").empty());
+
+  resources.subscribe("res://a", session);
+  EXPECT_EQ(resources.getSubscribers("res://a").count("session_1"), 1u);
+
+  resources.unsubscribe("res://a", session);
+  EXPECT_TRUE(resources.getSubscribers("res://a").empty());
+}
+
 // When a session ends, its subscriptions must leave the fan-out map, so a
 // later resource update no longer targets the dead session id.
 TEST_F(SessionTransportBindingTest, ReleaseSessionDropsSubscriptions) {
@@ -177,10 +192,8 @@ TEST_F(SessionTransportBindingTest, ReleaseSessionDropsSubscriptions) {
 
   resources.releaseSession(session);
 
-  // Updates after release must not queue anything for the dead session.
-  resources.notifyResourceUpdate("res://a");
-  resources.notifyResourceUpdate("res://b");
-  EXPECT_TRUE(resources.getPendingUpdates("session_1").empty());
+  EXPECT_TRUE(resources.getSubscribers("res://a").empty());
+  EXPECT_TRUE(resources.getSubscribers("res://b").empty());
 }
 
 // Release must only drop the dying session's subscriptions, not other
@@ -194,11 +207,10 @@ TEST_F(SessionTransportBindingTest, ReleaseSessionKeepsOtherSubscribers) {
   resources.subscribe("res://a", staying);
 
   resources.releaseSession(dying);
-  resources.notifyResourceUpdate("res://a");
 
-  EXPECT_TRUE(resources.getPendingUpdates("session_1").empty());
-  auto updates = resources.getPendingUpdates("session_2");
-  EXPECT_EQ(updates.count("res://a"), 1u);
+  auto subscribers = resources.getSubscribers("res://a");
+  EXPECT_EQ(subscribers.count("session_1"), 0u);
+  EXPECT_EQ(subscribers.count("session_2"), 1u);
 }
 
 }  // namespace

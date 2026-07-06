@@ -524,6 +524,40 @@ VoidResult McpServer::sendNotificationToSession(
       Error(jsonrpc::INTERNAL_ERROR, "No active connection for session"));
 }
 
+// Push notifications/resources/updated to every subscriber of the URI
+void McpServer::notifyResourceUpdate(const std::string& uri) {
+  if (!main_dispatcher_) {
+    return;
+  }
+  // Delivery writes to connections, which is dispatcher-thread work; hop
+  // if the application called this from one of its own threads.
+  if (!main_dispatcher_->isThreadSafe()) {
+    main_dispatcher_->post([this, uri]() { notifyResourceUpdate(uri); });
+    return;
+  }
+
+  Metadata params;
+  params["uri"] = uri;
+  jsonrpc::Notification notification("notifications/resources/updated",
+                                     params);
+
+  for (const auto& session_id : resource_manager_->getSubscribers(uri)) {
+    auto session = session_manager_->getSession(session_id);
+    if (!session) {
+      // Subscriber's session expired between bookkeeping and fan-out;
+      // nothing to deliver to.
+      continue;
+    }
+    auto result = sendNotificationToSession(session, notification);
+    if (holds_alternative<std::nullptr_t>(result)) {
+      server_stats_.resource_updates_sent++;
+    } else {
+      GOPHER_LOG_DEBUG("Resource update for {} not delivered to session {}: {}",
+                       uri, session_id, get<Error>(result).message);
+    }
+  }
+}
+
 // Send notification to specific session
 VoidResult McpServer::sendNotification(
     const std::string& session_id, const jsonrpc::Notification& notification) {
