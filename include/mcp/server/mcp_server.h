@@ -407,6 +407,23 @@ class ResourceManager {
     session.removeSubscription(uri);
   }
 
+  // Drop every subscription a session holds. Called when the session ends
+  // (connection closed, SSE stream torn down, expiry) so updates for its
+  // URIs stop being fanned out to an id that can no longer receive them.
+  void releaseSession(SessionContext& session) {
+    auto uris = session.getSubscriptions();
+    std::lock_guard<std::mutex> lock(mutex_);
+    for (const auto& uri : uris) {
+      auto it = subscriptions_.find(uri);
+      if (it != subscriptions_.end()) {
+        it->second.erase(session.getId());
+        if (it->second.empty()) {
+          subscriptions_.erase(it);
+        }
+      }
+    }
+  }
+
   // Notify subscribers of resource update
   void notifyResourceUpdate(const std::string& uri) {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -706,19 +723,23 @@ class SessionManager {
     }
   }
 
-  // Remove session by connection
-  void removeSessionByConnection(network::Connection* connection) {
+  // Remove session by connection. Returns the removed session (or null)
+  // so the caller can release related state, mirroring
+  // removeSessionByTransportId.
+  SessionPtr removeSessionByConnection(network::Connection* connection) {
     if (!connection)
-      return;
+      return nullptr;
 
     std::lock_guard<std::mutex> lock(mutex_);
     auto conn_it = connection_sessions_.find(connection);
-    if (conn_it != connection_sessions_.end()) {
-      auto session = conn_it->second;
-      connection_sessions_.erase(conn_it);
-      sessions_.erase(session->getId());
-      stats_.sessions_active--;
+    if (conn_it == connection_sessions_.end()) {
+      return nullptr;
     }
+    auto session = conn_it->second;
+    connection_sessions_.erase(conn_it);
+    sessions_.erase(session->getId());
+    stats_.sessions_active--;
+    return session;
   }
 
   // Get session by connection
