@@ -508,20 +508,26 @@ VoidResult McpServer::sendNotificationToSession(
               "SSE stream gone for session " + session->getId()));
   }
 
-  // Connection-keyed session (long-lived connection): write the JSON like
-  // the response path does and let the connection's filter chain frame it.
+  // Connection-keyed HTTP session: no valid server-initiated channel.
+  // HTTP/1.1 has no message outside a request/response cycle, so writing
+  // raw JSON to the connection would corrupt its framing. Such a session is
+  // also only ever an alias of an HTTP+SSE client whose real push channel
+  // is the SSE stream (the transport-keyed session above) — writing here
+  // too would duplicate the delivery. And on the posted off-thread path the
+  // connection may already be freed. So we deliberately do NOT write to
+  // session->getConnection(); we fail cleanly. (getConnection() is only
+  // compared to null here, never dereferenced, which is safe even if the
+  // pointer dangles.)
   if (session->getConnection()) {
-    auto json_val = json::to_json(notification);
-    std::string json_str = json_val.toString();
-    OwnedBuffer buffer;
-    buffer.add(json_str);
-    session->getConnection()->write(buffer, false);
-    return makeVoidSuccess();
+    return makeVoidError(
+        Error(jsonrpc::INTERNAL_ERROR,
+              "Session " + session->getId() +
+                  " has no server-initiated notification channel"));
   }
 
-  // Stdio: requests are dispatched without a connection pointer, so the
-  // session carries neither key. There is a single stdio client, reached
-  // through its connection manager.
+  // Neither key: stdio. Requests are dispatched without a connection
+  // pointer, so the session carries no key. There is a single stdio client,
+  // reached through its connection manager.
   for (auto& conn_manager : connection_managers_) {
     if (conn_manager->isConnected()) {
       return conn_manager->sendNotification(notification);
@@ -603,29 +609,25 @@ void McpServer::broadcastNotification(
     return;
   }
 
-  // Route per session so HTTP+SSE clients get their copy through their own
-  // SSE stream. Sessions with neither key share the single stdio client —
-  // send through the connection managers once, not once per session.
-  bool used_manager_fallback = false;
+  // Deliver to each client exactly once through its real push channel.
+  // Only two channels can carry a server-initiated message: an HTTP+SSE
+  // client's SSE stream (its transport-keyed session) and the stdio
+  // connection manager. Connection-keyed sessions are transient aliases of
+  // HTTP connections (the SSE GET stream, each one-shot POST) with no push
+  // channel of their own — enumerating them here is exactly what used to
+  // double-deliver to SSE clients and inject raw JSON into POST exchanges,
+  // so they are skipped.
   for (auto& session : session_manager_->getAllSessions()) {
-    const bool needs_manager_fallback =
-        session->getTransportSessionId().empty() && !session->getConnection();
-    if (needs_manager_fallback) {
-      if (used_manager_fallback) {
-        continue;
-      }
-      used_manager_fallback = true;
+    if (!session->getTransportSessionId().empty()) {
+      sendNotificationToSession(session, notification);
     }
-    sendNotificationToSession(session, notification);
   }
 
-  // A stdio client that has not sent a request yet has no session at all;
-  // preserve the old behavior of still broadcasting through the managers.
-  if (!used_manager_fallback) {
-    for (auto& conn_manager : connection_managers_) {
-      if (conn_manager->isConnected()) {
-        conn_manager->sendNotification(notification);
-      }
+  // stdio: a single client reached through its connection manager,
+  // independent of whether it has created a session yet.
+  for (auto& conn_manager : connection_managers_) {
+    if (conn_manager->isConnected()) {
+      conn_manager->sendNotification(notification);
     }
   }
 }
