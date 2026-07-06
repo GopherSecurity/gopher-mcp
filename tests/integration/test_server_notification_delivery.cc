@@ -485,7 +485,6 @@ TEST_F(ServerNotificationDeliveryTest, BroadcastDeliveredExactlyOnce) {
   EXPECT_EQ(count.load(), 1) << "broadcast delivered more than once";
 }
 
-
 // sendNotification from an application thread (off the dispatcher) must
 // deliver without blocking the caller and, crucially, must never hang: the
 // old post-and-wait blocked forever if the dispatcher exited before running
