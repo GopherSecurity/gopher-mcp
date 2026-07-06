@@ -114,9 +114,11 @@ TEST_F(SessionTransportBindingTest, RemoveSessionClearsTransportIndex) {
   EXPECT_EQ(manager.getSessionByTransportId("client_1"), nullptr);
 }
 
-// The expiry sweep must clean the transport index too, or an expired id
-// would keep resolving to a destroyed session.
-TEST_F(SessionTransportBindingTest, ExpirySweepCleansTransportIndex) {
+// Transport-keyed sessions are exempt from activity expiry: their lifetime
+// is bounded by the SSE stream closing, and an HTTP+SSE client may hold an
+// idle-but-open stream far longer than session_timeout. Expiring one would
+// silently drop a live client's session and leak its subscriptions.
+TEST_F(SessionTransportBindingTest, ExpirySweepSkipsTransportSessions) {
   config_.session_timeout = std::chrono::milliseconds(0);
   SessionManager manager(config_, stats_);
 
@@ -125,9 +127,59 @@ TEST_F(SessionTransportBindingTest, ExpirySweepCleansTransportIndex) {
 
   manager.cleanupExpiredSessions();
 
-  EXPECT_EQ(manager.getSessionByTransportId("client_1"), nullptr);
+  // Still there — only the SSE stream close (removeSessionByTransportId)
+  // may end a transport-keyed session.
+  EXPECT_EQ(manager.getSessionByTransportId("client_1"), session);
+  EXPECT_EQ(manager.getSession(session->getId()), session);
+  EXPECT_EQ(stats_.sessions_expired.load(), 0u);
+}
+
+// The expiry sweep fires the session-removed observer for each swept
+// (connection-keyed / stdio) session, so the server can release state it
+// keys on the session (resource subscriptions). Without it those entries
+// leak forever.
+TEST_F(SessionTransportBindingTest, ExpirySweepFiresRemovedCallback) {
+  config_.session_timeout = std::chrono::milliseconds(0);
+  SessionManager manager(config_, stats_);
+
+  std::vector<std::string> removed_ids;
+  manager.setSessionRemovedCallback(
+      [&removed_ids](const SessionManager::SessionPtr& s) {
+        removed_ids.push_back(s->getId());
+      });
+
+  auto session = manager.createSession(nullptr);
+  ASSERT_NE(session, nullptr);
+
+  manager.cleanupExpiredSessions();
+
   EXPECT_EQ(manager.getSession(session->getId()), nullptr);
-  EXPECT_EQ(stats_.sessions_expired.load(), 1u);
+  ASSERT_EQ(removed_ids.size(), 1u);
+  EXPECT_EQ(removed_ids[0], session->getId());
+}
+
+// The at-capacity sweep inside createSession also fires the observer for
+// the sessions it evicts.
+TEST_F(SessionTransportBindingTest, CapacitySweepFiresRemovedCallback) {
+  config_.max_sessions = 1;
+  config_.session_timeout = std::chrono::milliseconds(0);
+  SessionManager manager(config_, stats_);
+
+  std::vector<std::string> removed_ids;
+  manager.setSessionRemovedCallback(
+      [&removed_ids](const SessionManager::SessionPtr& s) {
+        removed_ids.push_back(s->getId());
+      });
+
+  auto first = manager.createSession(nullptr);
+  ASSERT_NE(first, nullptr);
+  // Second create trips the capacity sweep, which evicts the expired first
+  // session and fires the observer for it.
+  auto second = manager.createSession(nullptr);
+  ASSERT_NE(second, nullptr);
+
+  ASSERT_EQ(removed_ids.size(), 1u);
+  EXPECT_EQ(removed_ids[0], first->getId());
 }
 
 // The session limit covers transport-keyed sessions too, and rejection is

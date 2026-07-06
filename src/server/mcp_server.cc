@@ -37,6 +37,19 @@ McpServer::McpServer(const McpServerConfig& config)
   // Initialize resource manager for resource handling
   resource_manager_ = std::make_unique<ResourceManager>(server_stats_);
 
+  // Release a session's resource subscriptions when the expiry sweep
+  // removes it. Without this, a timed-out session's ids would linger in the
+  // resource fan-out map forever (a slow leak, and a dead-id target for
+  // every future update). Runs on the dispatcher thread (the only caller of
+  // the sweep) with the SessionManager lock already released, so taking the
+  // ResourceManager lock here is safe. Connection-close and SSE-stream-close
+  // removals are handled separately by onConnectionLifecycleEvent and the
+  // registry's session-closed callback.
+  session_manager_->setSessionRemovedCallback(
+      [this](const SessionManager::SessionPtr& session) {
+        resource_manager_->releaseSession(*session);
+      });
+
   // Initialize tool registry for tool management
   tool_registry_ = std::make_unique<ToolRegistry>(server_stats_);
 
