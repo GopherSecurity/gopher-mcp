@@ -306,8 +306,8 @@ TEST_F(ServerNotificationDeliveryTest, SendNotificationFromRequestHandler) {
 
   server_->registerRequestHandler(
       "test/trigger",
-      [this](const jsonrpc::Request& request, server::SessionContext& session)
-          -> jsonrpc::Response {
+      [this](const jsonrpc::Request& request,
+             server::SessionContext& session) -> jsonrpc::Response {
         // Dispatcher thread. Push to the requesting session before
         // answering the request — the classic "tool emits a progress
         // notification" shape.
@@ -317,9 +317,8 @@ TEST_F(ServerNotificationDeliveryTest, SendNotificationFromRequestHandler) {
         auto result = server_->sendNotification(session.getId(), pushed);
         bool sent = holds_alternative<std::nullptr_t>(result);
         return jsonrpc::Response::success(
-            request.id,
-            jsonrpc::ResponseResult(
-                make<Metadata>().add("notified", sent).build()));
+            request.id, jsonrpc::ResponseResult(
+                            make<Metadata>().add("notified", sent).build()));
       });
 
   std::promise<std::string> delivered;
@@ -380,8 +379,7 @@ TEST_F(ServerNotificationDeliveryTest, UpdateOnlyReachesSubscribedClient) {
   ASSERT_TRUE(subscribeAndWait(*subscriber, kUri));
 
   server_->notifyResourceUpdate(kUri);
-  ASSERT_EQ(first_delivery.get_future().wait_for(5s),
-            std::future_status::ready)
+  ASSERT_EQ(first_delivery.get_future().wait_for(5s), std::future_status::ready)
       << "subscriber never received the update";
 
   // Negative assert needs a grace window: give a misrouted copy time to
@@ -397,8 +395,7 @@ TEST_F(ServerNotificationDeliveryTest, UpdateOnlyReachesSubscribedClient) {
 
   server_->notifyResourceUpdate(kUri);
   std::this_thread::sleep_for(300ms);
-  EXPECT_EQ(subscriber_count.load(), 1)
-      << "update delivered after unsubscribe";
+  EXPECT_EQ(subscriber_count.load(), 1) << "update delivered after unsubscribe";
 }
 
 // A subscriber disconnecting (SSE stream close) must release its session
