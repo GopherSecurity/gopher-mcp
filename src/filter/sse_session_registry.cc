@@ -36,6 +36,29 @@ void SseSessionRegistry::removeSession(const std::string& session_id) {
   }
 }
 
+void SseSessionRegistry::removeConnection(network::Connection* connection) {
+  assert(dispatcher_.isThreadSafe() &&
+         "SseSessionRegistry::removeConnection off-dispatcher-thread");
+  if (!connection) {
+    return;
+  }
+  for (auto it = sessions_.begin(); it != sessions_.end();) {
+    if (it->second == connection) {
+      const std::string session_id = it->first;
+      it = sessions_.erase(it);
+      GOPHER_LOG_INFO("SSE session removed on connection close: {} (total={})",
+                      session_id, sessions_.size());
+      // Erase before notifying so the observer cannot route a message
+      // into the closing stream by calling back into us.
+      if (session_closed_callback_) {
+        session_closed_callback_(session_id);
+      }
+    } else {
+      ++it;
+    }
+  }
+}
+
 bool SseSessionRegistry::sendResponse(const std::string& session_id,
                                       const std::string& json_data) {
   assert(dispatcher_.isThreadSafe() &&

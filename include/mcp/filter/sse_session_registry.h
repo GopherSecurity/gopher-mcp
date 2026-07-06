@@ -54,6 +54,16 @@ class SseSessionRegistry {
   // Drop a session. Safe to call with an unknown ID (no-op).
   void removeSession(const std::string& session_id);
 
+  // Drop every session streaming through the given connection. Called
+  // from the server's connection-close handler: the filter that
+  // registered the session cannot reliably do this itself because the
+  // factory keeps filters alive past their connection's death, so the
+  // filter destructor (the other removal path) may run long after the
+  // connection pointer has dangled — and a push or POST-callback routed
+  // through a stale entry is a write into freed memory. Fires the
+  // session-closed callback for each removed session, like removeSession.
+  void removeConnection(network::Connection* connection);
+
   // Observer for session teardown. Invoked on the dispatcher thread from
   // removeSession() after the entry is gone, once per actually-removed
   // session. This is how the server layer learns that a client's SSE
