@@ -485,5 +485,64 @@ TEST_F(ServerNotificationDeliveryTest, BroadcastDeliveredExactlyOnce) {
   EXPECT_EQ(count.load(), 1) << "broadcast delivered more than once";
 }
 
+
+// sendNotification from an application thread (off the dispatcher) must
+// deliver without blocking the caller and, crucially, must never hang: the
+// old post-and-wait blocked forever if the dispatcher exited before running
+// the task. Fire-and-forget removes that failure mode entirely.
+TEST_F(ServerNotificationDeliveryTest, SendNotificationOffThreadDelivers) {
+  std::promise<std::string> captured_session_id;
+  auto id_future = captured_session_id.get_future();
+  bool captured = false;
+  server_->registerRequestHandler(
+      "test/whoami",
+      [&captured_session_id, &captured](
+          const jsonrpc::Request& request,
+          server::SessionContext& session) -> jsonrpc::Response {
+        // Capture the server-side session id once so the test thread can
+        // target it with sendNotification.
+        if (!captured) {
+          captured = true;
+          captured_session_id.set_value(session.getId());
+        }
+        return jsonrpc::Response::success(
+            request.id, jsonrpc::ResponseResult(make<Metadata>().build()));
+      });
+
+  std::promise<std::string> delivered;
+  auto delivered_future = delivered.get_future();
+  auto* client = makeConnectedClient("offthread-client");
+  ASSERT_NE(client, nullptr);
+  client->registerNotificationHandler(
+      "test/offthread", [&delivered](const jsonrpc::Notification& n) {
+        std::string origin;
+        if (n.params.has_value()) {
+          auto it = n.params->find("origin");
+          if (it != n.params->end() &&
+              holds_alternative<std::string>(it->second)) {
+            origin = get<std::string>(it->second);
+          }
+        }
+        delivered.set_value(origin);
+      });
+
+  auto whoami = client->sendRequest("test/whoami");
+  ASSERT_EQ(whoami.wait_for(5s), std::future_status::ready);
+  ASSERT_EQ(id_future.wait_for(5s), std::future_status::ready);
+  const std::string session_id = id_future.get();
+
+  Metadata params;
+  params["origin"] = std::string("offthread");
+  jsonrpc::Notification pushed("test/offthread", params);
+
+  // Called on the test (application) thread — hits the off-dispatcher
+  // hand-off path. Returns "accepted for delivery" immediately.
+  auto result = server_->sendNotification(session_id, pushed);
+  EXPECT_TRUE(holds_alternative<std::nullptr_t>(result));
+
+  ASSERT_EQ(delivered_future.wait_for(5s), std::future_status::ready)
+      << "off-thread sendNotification never reached the client";
+  EXPECT_EQ(delivered_future.get(), "offthread");
+}
 }  // namespace
 }  // namespace mcp
