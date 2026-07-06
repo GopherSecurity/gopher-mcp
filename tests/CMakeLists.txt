@@ -1657,6 +1657,17 @@ target_link_libraries(test_mcp_client_initialize_routing
 )
 add_test(NAME McpClientInitializeRoutingTest COMMAND test_mcp_client_initialize_routing)
 
+add_executable(test_server_notification_delivery integration/test_server_notification_delivery.cc)
+target_link_libraries(test_server_notification_delivery
+    gopher-mcp
+    gopher-mcp-event
+    gtest
+    gtest_main
+    gmock
+    Threads::Threads
+)
+add_test(NAME ServerNotificationDeliveryTest COMMAND test_server_notification_delivery)
+
 add_executable(test_mcp_server_connection_lifecycle integration/test_mcp_server_connection_lifecycle.cc)
 target_link_libraries(test_mcp_server_connection_lifecycle
     gopher-mcp
