@@ -992,6 +992,17 @@ void McpServer::onConnectionLifecycleEvent(network::Connection* connection,
 
   server_stats_.connections_active--;
 
+  // If the closing connection carried an SSE stream, drop its registry
+  // entry NOW — the entry holds a raw Connection* and this is the last
+  // moment it is guaranteed valid (the filter destructor, the other
+  // removal path, can run long after because the factory keeps filters
+  // alive). A stale entry would make the next push a write into freed
+  // memory. Removal fires the registry's session-closed callback, which
+  // releases the MCP session keyed on the stream and its subscriptions.
+  if (http_sse_factory_) {
+    http_sse_factory_->sseRegistry().removeConnection(connection);
+  }
+
   // Tear down session state keyed by the actual closing connection, not a
   // global current_connection_ which may point at a different session.
   // Transport-keyed sessions (HTTP+SSE) are untouched here by design: they

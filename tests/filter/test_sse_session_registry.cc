@@ -229,6 +229,40 @@ TEST_F(SseSessionRegistryTest, ClosedCallbackSeesSessionAlreadyGone) {
   });
 }
 
+// removeConnection is the close-path removal: the server calls it with
+// the dying connection, and only sessions bound to THAT connection go —
+// with the closed callback fired for each, exactly like removeSession.
+TEST_F(SseSessionRegistryTest, RemoveConnectionDropsOnlyItsSessions) {
+  executeInDispatcher([this]() {
+    SseSessionRegistry registry(*dispatcher_);
+    std::vector<std::string> closed;
+    registry.setSessionClosedCallback(
+        [&closed](const std::string& id) { closed.push_back(id); });
+
+    // Fake pointers used purely as map values; never dereferenced.
+    auto* conn_a = reinterpret_cast<network::Connection*>(0x1);
+    auto* conn_b = reinterpret_cast<network::Connection*>(0x2);
+    const std::string a = registry.registerSession(conn_a);
+    const std::string b = registry.registerSession(conn_b);
+
+    registry.removeConnection(conn_a);
+
+    EXPECT_FALSE(registry.hasSession(a));
+    EXPECT_TRUE(registry.hasSession(b));
+    ASSERT_EQ(closed.size(), 1u);
+    EXPECT_EQ(closed[0], a);
+
+    // Idempotent: the connection is already gone.
+    registry.removeConnection(conn_a);
+    EXPECT_EQ(closed.size(), 1u);
+
+    // Null and unknown connections are safe no-ops.
+    registry.removeConnection(nullptr);
+    registry.removeConnection(reinterpret_cast<network::Connection*>(0x3));
+    EXPECT_EQ(registry.sessionCount(), 1u);
+  });
+}
+
 // ----------------------------------------------------------------------
 // Live-write test (real ConnectionImpl over a TCP socketpair).
 // ----------------------------------------------------------------------
