@@ -6,6 +6,8 @@
 
 #include "mcp/server/mcp_server.h"
 
+#include "mcp/filter/sse_session_registry.h"
+
 #include <algorithm>
 #include <cassert>
 #include <future>
@@ -251,6 +253,30 @@ void McpServer::performListen() {
           GOPHER_LOG_DEBUG(
               "Set route registration callback for custom endpoints");
         }
+
+        // Keep a handle on the factory: its SSE session registry is the
+        // server's only route to a client's SSE stream outside a request
+        // cycle (server-initiated notifications), and the teardown observer
+        // below is what bounds the lifetime of transport-keyed sessions.
+        http_sse_factory_ = http_sse_factory;
+
+        // When a client's SSE stream closes, drop the MCP session keyed on
+        // it and release its resource subscriptions — after this the
+        // transport identity can never carry another message, so keeping
+        // the session would only leak subscription state and let a later
+        // stream accidentally inherit it if the registry reused the id.
+        // Runs on the dispatcher thread (registry contract).
+        http_sse_factory->sseRegistry().setSessionClosedCallback(
+            [this](const std::string& transport_session_id) {
+              auto session = session_manager_->removeSessionByTransportId(
+                  transport_session_id);
+              if (session) {
+                resource_manager_->releaseSession(*session);
+                GOPHER_LOG_DEBUG(
+                    "Session {} released on SSE stream close (transport={})",
+                    session->getId(), transport_session_id);
+              }
+            });
 
         tcp_config.filter_chain_factory = http_sse_factory;
 
@@ -561,6 +587,28 @@ void McpServer::setupFilterChain(application::FilterChainBuilder& builder) {
   }
 }
 
+SessionManager::SessionPtr McpServer::getOrCreateCurrentSession() {
+  // Transport session id wins: for HTTP+SSE each request arrives on a
+  // one-shot POST connection, so keying the session on the connection
+  // would hand every request a fresh session and silently drop state
+  // such as resource subscriptions. The SSE stream id announced by the
+  // transport filter is the identity that actually spans the client's
+  // requests — and it is also what the push path needs to find the
+  // client's SSE stream.
+  if (!current_transport_session_id_.empty()) {
+    return session_manager_->getOrCreateSessionByTransportId(
+        current_transport_session_id_);
+  }
+
+  // Connection-keyed fallback for transports where the connection is
+  // long-lived (stdio) or there is no transport session concept.
+  auto session = session_manager_->getSessionByConnection(current_connection_);
+  if (!session) {
+    session = session_manager_->createSession(current_connection_);
+  }
+  return session;
+}
+
 // McpProtocolCallbacks overrides
 void McpServer::onRequest(const jsonrpc::Request& request) {
   GOPHER_LOG_DEBUG("McpServer::onRequest called with method: {}",
@@ -583,13 +631,10 @@ void McpServer::onRequest(const jsonrpc::Request& request) {
     pending_requests_[key] = pending_req;
   }
 
-  // Get or create session for this connection
-  // Try to get existing session first
-  auto session = session_manager_->getSessionByConnection(current_connection_);
-  if (!session) {
-    // Create new session for this connection
-    session = session_manager_->createSession(current_connection_);
-  }
+  // Resolve the session for this request: transport session id first
+  // (durable across HTTP+SSE POST connections), connection identity as
+  // fallback.
+  auto session = getOrCreateCurrentSession();
 
   if (session) {
     pending_req->session_id = session->getId();
@@ -722,12 +767,9 @@ void McpServer::onNotification(const jsonrpc::Notification& notification) {
   // Handle notification in dispatcher context
   server_stats_.notifications_total++;
 
-  // Get session for this connection
-  auto session = session_manager_->getSessionByConnection(current_connection_);
-  if (!session) {
-    // Create new session for notifications if needed
-    session = session_manager_->createSession(current_connection_);
-  }
+  // Resolve the session the same way requests do, so a notification sent
+  // on a fresh POST connection still lands in the subscriber's session.
+  auto session = getOrCreateCurrentSession();
   if (!session) {
     return;  // Can't process notification without session
   }

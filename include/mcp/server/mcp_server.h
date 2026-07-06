@@ -911,6 +911,16 @@ class McpServer : public application::ApplicationBase,
   void onConnectionEvent(network::ConnectionEvent event);
   void onError(const Error& error) override;
 
+  // Request-scoped transport session binding. The transport filter announces
+  // the transport-level session id (e.g. SSE stream id from the POST
+  // /callback/{id} path) immediately before dispatching each message, on the
+  // dispatcher thread. Stored like current_connection_ as dispatch context;
+  // an empty id means the current message's transport has no session concept
+  // and session lookup falls back to connection identity.
+  void onTransportSessionBound(const std::string& transport_session_id) {
+    current_transport_session_id_ = transport_session_id;
+  }
+
   // Request tracking helpers
   bool isRequestCancelled(const RequestId& id) const {
     std::lock_guard<std::mutex> lock(pending_requests_mutex_);
@@ -931,6 +941,13 @@ class McpServer : public application::ApplicationBase,
  private:
   // Register built-in handlers
   void registerBuiltinHandlers();
+
+  // Resolve the session for the message currently being dispatched.
+  // Prefers the transport session id (durable across the short-lived POST
+  // connections of HTTP+SSE) and falls back to connection identity for
+  // transports without one (stdio, plain HTTP). Returns nullptr only when
+  // the session limit is reached. Dispatcher thread only.
+  SessionManager::SessionPtr getOrCreateCurrentSession();
 
   // Internal method to perform actual listening (called from dispatcher thread)
   void performListen();
@@ -1027,6 +1044,11 @@ class McpServer : public application::ApplicationBase,
 
     void onError(const Error& error) override { server_.onError(error); }
 
+    void onTransportSessionBound(
+        const std::string& transport_session_id) override {
+      server_.onTransportSessionBound(transport_session_id);
+    }
+
    private:
     McpServer& server_;
   };
@@ -1045,6 +1067,13 @@ class McpServer : public application::ApplicationBase,
   // IMPROVEMENT: Using TcpActiveListener for robust listener management
   // Following production architecture for better connection lifecycle handling
   std::vector<std::unique_ptr<network::TcpActiveListener>> tcp_listeners_;
+
+  // Server-side HTTP+SSE filter chain factory (default listener path).
+  // Held here — not just dropped into the listener config — because the
+  // server needs its SSE session registry outside any request cycle: to
+  // push server-initiated notifications through a client's SSE stream and
+  // to observe stream teardown so the MCP session keyed on it is released.
+  std::shared_ptr<filter::HttpSseFilterChainFactory> http_sse_factory_;
 
   // Pending listener configurations (for config-driven startup)
   std::vector<mcp::config::ListenerConfig> pending_listener_configs_;
@@ -1067,6 +1096,11 @@ class McpServer : public application::ApplicationBase,
   // Current connection being processed (for request context)
   // This is set temporarily during request processing in dispatcher thread
   network::Connection* current_connection_{nullptr};
+
+  // Transport session id of the message currently being dispatched (see
+  // onTransportSessionBound). Dispatcher thread only, like
+  // current_connection_. Empty for transports without session identity.
+  std::string current_transport_session_id_;
 
   // Active connections owned by server
   // Following production pattern: all operations in dispatcher thread, no mutex
