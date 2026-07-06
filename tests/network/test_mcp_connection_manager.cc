@@ -247,9 +247,11 @@ class CloseTrackingConnection : public network::Connection {
   optional<std::chrono::milliseconds> lastRoundTripTime() const override {
     return nullopt;
   }
-  void configureInitialCongestionWindow(
-      uint64_t, std::chrono::microseconds) override {}
-  optional<uint64_t> congestionWindowInBytes() const override { return nullopt; }
+  void configureInitialCongestionWindow(uint64_t,
+                                        std::chrono::microseconds) override {}
+  optional<uint64_t> congestionWindowInBytes() const override {
+    return nullopt;
+  }
   network::Socket& socket() override {
     return unreachableRef<network::Socket>();
   }
