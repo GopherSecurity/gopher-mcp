@@ -28,6 +28,11 @@ void SseSessionRegistry::removeSession(const std::string& session_id) {
   if (sessions_.erase(session_id) > 0) {
     GOPHER_LOG_INFO("SSE session removed: {} (total={})", session_id,
                     sessions_.size());
+    // Notify after the entry is gone so the observer cannot route a
+    // message into the half-closed stream by calling back into us.
+    if (session_closed_callback_) {
+      session_closed_callback_(session_id);
+    }
   }
 }
 
