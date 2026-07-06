@@ -173,6 +173,20 @@ class HttpSseFilterChainFactory : public network::FilterChainFactory {
   static void sendHttpResponse(const jsonrpc::Response& response,
                                network::Connection& connection);
 
+  /**
+   * Access the server-side SSE session registry, creating it on first use
+   * (same lazy construction createFilterChain performs). This is the
+   * server layer's handle for two things it cannot do from inside a
+   * request cycle:
+   *   - observing SSE stream teardown (setSessionClosedCallback), so the
+   *     MCP session keyed on the stream can be released, and
+   *   - pushing server-initiated messages (notifications) through a
+   *     client's SSE stream.
+   * Server-mode factories only; must be called on the dispatcher thread
+   * the factory was built with, like every registry operation.
+   */
+  SseSessionRegistry& sseRegistry();
+
  private:
   event::Dispatcher& dispatcher_;
   McpProtocolCallbacks& message_callbacks_;

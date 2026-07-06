@@ -1259,6 +1259,16 @@ HttpSseFilterChainFactory::HttpSseFilterChainFactory(
 // can see the complete type from this translation unit.
 HttpSseFilterChainFactory::~HttpSseFilterChainFactory() = default;
 
+SseSessionRegistry& HttpSseFilterChainFactory::sseRegistry() {
+  assert(is_server_ && "sseRegistry() is only meaningful in server mode");
+  // Same lazy construction as createFilterChain, so whichever runs first
+  // wins and both hand out the one instance.
+  if (!sse_registry_) {
+    sse_registry_.reset(new SseSessionRegistry(dispatcher_));
+  }
+  return *sse_registry_;
+}
+
 bool HttpSseFilterChainFactory::createFilterChain(
     network::FilterManager& filter_manager) const {
   // Following production pattern: create filters in order
