@@ -209,8 +209,12 @@ class HttpSseFilterChainFactory : public network::FilterChainFactory {
   // createFilterChain is const on the base class.
   mutable std::unique_ptr<SseSessionRegistry> sse_registry_;
 
-  // Store filters for lifetime management
-  mutable std::vector<network::FilterSharedPtr> filters_;
+  // NOTE: the factory intentionally does not retain the filters it creates.
+  // Each connection's FilterManager owns its own filter-chain instance for
+  // the connection's lifetime (per-connection ownership model), so a
+  // factory-held copy would only leak — keeping every connection's filters
+  // alive until the server shuts down and deferring the SSE-stream
+  // deregistration done in the filter destructor to that same late moment.
 
   // Filter factories added by user (authentication, logging, etc.)
   // These are invoked during chain creation to add filters before protocol

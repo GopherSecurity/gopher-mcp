@@ -23,6 +23,7 @@
 
 #include "mcp/buffer.h"
 #include "mcp/filter/http_sse_filter_chain_factory.h"
+#include "mcp/filter/sse_session_registry.h"
 #include "mcp/mcp_connection_manager.h"
 #include "mcp/network/connection_impl.h"
 #include "mcp/network/socket_impl.h"
@@ -399,6 +400,61 @@ TEST_F(ServerModeFilterTest, ConnectionClose_NoHangOrCrash) {
   // Clean shutdown — no hang, no crash
   closeOnDispatcher(std::move(conn), std::move(factory));
   SUCCEED();
+}
+
+// ── Filter lifetime is bounded by the connection ──────────────────
+
+// The factory must NOT retain the filters it builds: each connection's
+// FilterManager owns its filter chain, so destroying the connection alone
+// must destruct the combined filter, whose destructor deregisters the SSE
+// stream from the registry. We open an SSE stream, then destroy ONLY the
+// connection (the factory stays alive) and require the registry entry to be
+// gone. If the factory still held the filter, its destructor would not run
+// and the entry would leak.
+TEST_F(ServerModeFilterTest, ConnectionDestroyReleasesFilterAndSseStream) {
+  ServerModeCallbacks callbacks;
+  std::unique_ptr<network::ServerConnection> conn;
+  network::IoHandlePtr peer;
+  std::shared_ptr<HttpSseFilterChainFactory> factory;
+
+  executeInDispatcher([&]() {
+    auto h = makeServerHarness(callbacks);
+    conn = std::move(h.conn);
+    peer = std::move(h.peer);
+    factory = std::move(h.factory);
+
+    writeClientBytes(*peer,
+                     "GET /sse HTTP/1.1\r\n"
+                     "Host: localhost\r\n"
+                     "Accept: text/event-stream\r\n"
+                     "\r\n");
+  });
+
+  // The endpoint event proves the stream registered.
+  std::string wire = drainPeer(*peer, 500ms);
+  ASSERT_NE(wire.find("event: endpoint"), std::string::npos)
+      << "SSE stream never opened, got: " << wire;
+
+  size_t after_open = 0;
+  executeInDispatcher(
+      [&]() { after_open = factory->sseRegistry().sessionCount(); });
+  ASSERT_EQ(after_open, 1u) << "GET /sse should register exactly one stream";
+
+  // Destroy ONLY the connection (keep the factory alive). With the factory
+  // no longer retaining the filter, this drops the last reference, runs the
+  // combined filter's destructor, and deregisters the stream.
+  size_t after_close = 99;
+  executeInDispatcher([&]() {
+    conn->close(network::ConnectionCloseType::NoFlush);
+    conn.reset();
+    after_close = factory->sseRegistry().sessionCount();
+  });
+  EXPECT_EQ(after_close, 0u)
+      << "destroying the connection must destruct its filter and deregister "
+         "the SSE stream — a non-zero count means the factory leaked the "
+         "filter past the connection's lifetime";
+
+  executeInDispatcher([&]() { factory.reset(); });
 }
 
 }  // namespace
