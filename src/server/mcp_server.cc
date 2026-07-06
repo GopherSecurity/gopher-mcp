@@ -573,28 +573,46 @@ void McpServer::notifyResourceUpdate(const std::string& uri) {
 // Send notification to specific session
 VoidResult McpServer::sendNotification(
     const std::string& session_id, const jsonrpc::Notification& notification) {
-  // Get session
-  auto session = session_manager_->getSession(session_id);
-  if (!session) {
-    return makeVoidError(Error(jsonrpc::INVALID_PARAMS, "Session not found"));
-  }
-
   // Already on the dispatcher thread (e.g. called from a tool or request
-  // handler): deliver inline. The old post-and-wait here deadlocked the
-  // event loop — the future could only be fulfilled by the very thread
-  // that was blocked on it.
-  if (main_dispatcher_->isThreadSafe()) {
+  // handler): resolve and deliver inline, returning the real result. The
+  // old post-and-wait here deadlocked the event loop — the future could
+  // only be fulfilled by the very thread that was blocked on it.
+  if (main_dispatcher_ && main_dispatcher_->isThreadSafe()) {
+    auto session = session_manager_->getSession(session_id);
+    if (!session) {
+      return makeVoidError(Error(jsonrpc::INVALID_PARAMS, "Session not found"));
+    }
     return sendNotificationToSession(session, notification);
   }
 
-  // Off-thread caller (application thread): hop to the dispatcher and wait
-  // for the result. Safe because the dispatcher is free to run the task.
-  auto send_promise = std::make_shared<std::promise<VoidResult>>();
-  auto send_future = send_promise->get_future();
-  main_dispatcher_->post([this, session, notification, send_promise]() {
-    send_promise->set_value(sendNotificationToSession(session, notification));
+  if (!main_dispatcher_) {
+    return makeVoidError(Error(jsonrpc::INTERNAL_ERROR, "Server not running"));
+  }
+
+  // Off-thread caller (application thread). Resolve the session now (the
+  // lookup is mutex-guarded, so it is safe from any thread) purely to
+  // report an unknown id synchronously — the common misuse. Then hand the
+  // actual delivery to the dispatcher and return WITHOUT blocking on a
+  // result future. The previous post-and-wait hung forever if the
+  // dispatcher exited (shutdown) before running the task, since the promise
+  // would then never be fulfilled. A notification is one-way, so a
+  // fire-and-forget hand-off matching notifyResourceUpdate /
+  // broadcastNotification is the right contract: success means "accepted
+  // for delivery", not "delivered".
+  //
+  // The delivery task re-resolves the session by id rather than capturing
+  // the SessionPtr, so it never pins (or acts on) a session whose
+  // connection was freed between this call and the task running.
+  if (!session_manager_->getSession(session_id)) {
+    return makeVoidError(Error(jsonrpc::INVALID_PARAMS, "Session not found"));
+  }
+  main_dispatcher_->post([this, session_id, notification]() {
+    auto session = session_manager_->getSession(session_id);
+    if (session) {
+      sendNotificationToSession(session, notification);
+    }
   });
-  return send_future.get();
+  return makeVoidSuccess();
 }
 
 // Broadcast notification to all sessions
