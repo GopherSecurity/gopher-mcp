@@ -473,6 +473,57 @@ void McpServer::registerNotificationHandler(
   notification_handlers_[method] = handler;
 }
 
+// Deliver a notification to one session's client. Dispatcher thread only —
+// every route below writes to a connection owned by that thread.
+VoidResult McpServer::sendNotificationToSession(
+    const SessionManager::SessionPtr& session,
+    const jsonrpc::Notification& notification) {
+  assert(main_dispatcher_ && main_dispatcher_->isThreadSafe() &&
+         "sendNotificationToSession off dispatcher");
+
+  // HTTP+SSE: the session is keyed on the client's SSE stream — route the
+  // JSON through the registry, which writes it down the stream connection's
+  // filter chain (the SSE codec frames it as a `data:` event). This is the
+  // only channel that reaches an HTTP+SSE client outside a request cycle.
+  if (!session->getTransportSessionId().empty()) {
+    if (http_sse_factory_) {
+      auto json_val = json::to_json(notification);
+      if (http_sse_factory_->sseRegistry().sendResponse(
+              session->getTransportSessionId(), json_val.toString())) {
+        return makeVoidSuccess();
+      }
+    }
+    // Stream already gone (client disconnected between lookup and send) or
+    // no HTTP factory — report failure so the caller doesn't assume
+    // delivery.
+    return makeVoidError(
+        Error(jsonrpc::INTERNAL_ERROR,
+              "SSE stream gone for session " + session->getId()));
+  }
+
+  // Connection-keyed session (long-lived connection): write the JSON like
+  // the response path does and let the connection's filter chain frame it.
+  if (session->getConnection()) {
+    auto json_val = json::to_json(notification);
+    std::string json_str = json_val.toString();
+    OwnedBuffer buffer;
+    buffer.add(json_str);
+    session->getConnection()->write(buffer, false);
+    return makeVoidSuccess();
+  }
+
+  // Stdio: requests are dispatched without a connection pointer, so the
+  // session carries neither key. There is a single stdio client, reached
+  // through its connection manager.
+  for (auto& conn_manager : connection_managers_) {
+    if (conn_manager->isConnected()) {
+      return conn_manager->sendNotification(notification);
+    }
+  }
+  return makeVoidError(
+      Error(jsonrpc::INTERNAL_ERROR, "No active connection for session"));
+}
+
 // Send notification to specific session
 VoidResult McpServer::sendNotification(
     const std::string& session_id, const jsonrpc::Notification& notification) {
@@ -482,38 +533,61 @@ VoidResult McpServer::sendNotification(
     return makeVoidError(Error(jsonrpc::INVALID_PARAMS, "Session not found"));
   }
 
-  // Send notification through session's connection
-  // This needs to be done in dispatcher context
+  // Already on the dispatcher thread (e.g. called from a tool or request
+  // handler): deliver inline. The old post-and-wait here deadlocked the
+  // event loop — the future could only be fulfilled by the very thread
+  // that was blocked on it.
+  if (main_dispatcher_->isThreadSafe()) {
+    return sendNotificationToSession(session, notification);
+  }
+
+  // Off-thread caller (application thread): hop to the dispatcher and wait
+  // for the result. Safe because the dispatcher is free to run the task.
   auto send_promise = std::make_shared<std::promise<VoidResult>>();
   auto send_future = send_promise->get_future();
-
   main_dispatcher_->post([this, session, notification, send_promise]() {
-    // Find the connection manager for this session's connection
-    for (auto& conn_manager : connection_managers_) {
-      if (conn_manager->isConnected()) {
-        auto result = conn_manager->sendNotification(notification);
-        send_promise->set_value(result);
-        return;
-      }
-    }
-    send_promise->set_value(makeVoidError(
-        Error(jsonrpc::INTERNAL_ERROR, "No active connection for session")));
+    send_promise->set_value(sendNotificationToSession(session, notification));
   });
-
   return send_future.get();
 }
 
 // Broadcast notification to all sessions
 void McpServer::broadcastNotification(
     const jsonrpc::Notification& notification) {
-  // Send to all active sessions in dispatcher context
-  main_dispatcher_->post([this, notification]() {
+  // Same threading rule as sendNotification: inline when already on the
+  // dispatcher thread, hop otherwise (fire-and-forget — broadcast has no
+  // per-recipient result to report).
+  if (!main_dispatcher_->isThreadSafe()) {
+    main_dispatcher_->post(
+        [this, notification]() { broadcastNotification(notification); });
+    return;
+  }
+
+  // Route per session so HTTP+SSE clients get their copy through their own
+  // SSE stream. Sessions with neither key share the single stdio client —
+  // send through the connection managers once, not once per session.
+  bool used_manager_fallback = false;
+  for (auto& session : session_manager_->getAllSessions()) {
+    const bool needs_manager_fallback =
+        session->getTransportSessionId().empty() && !session->getConnection();
+    if (needs_manager_fallback) {
+      if (used_manager_fallback) {
+        continue;
+      }
+      used_manager_fallback = true;
+    }
+    sendNotificationToSession(session, notification);
+  }
+
+  // A stdio client that has not sent a request yet has no session at all;
+  // preserve the old behavior of still broadcasting through the managers.
+  if (!used_manager_fallback) {
     for (auto& conn_manager : connection_managers_) {
       if (conn_manager->isConnected()) {
         conn_manager->sendNotification(notification);
       }
     }
-  });
+  }
 }
 
 // ApplicationBase overrides

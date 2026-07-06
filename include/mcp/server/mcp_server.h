@@ -758,6 +758,18 @@ class SessionManager {
     cleanupExpiredSessionsLocked();
   }
 
+  // Enumerate active sessions (snapshot). Used by broadcast paths, which
+  // must not hold the session mutex while writing to connections.
+  std::vector<SessionPtr> getAllSessions() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::vector<SessionPtr> result;
+    result.reserve(sessions_.size());
+    for (const auto& pair : sessions_) {
+      result.push_back(pair.second);
+    }
+    return result;
+  }
+
  private:
   // Expiry sweep body shared by the public entry point and the
   // at-capacity path inside createSession / getOrCreateSessionByTransportId,
@@ -948,6 +960,13 @@ class McpServer : public application::ApplicationBase,
   // transports without one (stdio, plain HTTP). Returns nullptr only when
   // the session limit is reached. Dispatcher thread only.
   SessionManager::SessionPtr getOrCreateCurrentSession();
+
+  // Deliver a notification to one session's client, routed by how the
+  // session is keyed: SSE stream (via the registry), owning connection,
+  // or the stdio connection manager. Dispatcher thread only.
+  VoidResult sendNotificationToSession(
+      const SessionManager::SessionPtr& session,
+      const jsonrpc::Notification& notification);
 
   // Internal method to perform actual listening (called from dispatcher thread)
   void performListen();
