@@ -572,10 +572,12 @@ class SessionManager {
   SessionPtr createSession(network::Connection* connection) {
     std::lock_guard<std::mutex> lock(mutex_);
 
-    // Check max sessions limit
+    // Check max sessions limit. Use the Locked variant — mutex_ is already
+    // held here and is not recursive, so calling the public
+    // cleanupExpiredSessions() would self-deadlock.
     if (sessions_.size() >= config_.max_sessions) {
       // Try to clean up expired sessions first
-      cleanupExpiredSessions();
+      cleanupExpiredSessionsLocked();
       if (sessions_.size() >= config_.max_sessions) {
         return nullptr;  // Max sessions reached
       }
@@ -652,6 +654,14 @@ class SessionManager {
   // Clean up expired sessions
   void cleanupExpiredSessions() {
     std::lock_guard<std::mutex> lock(mutex_);
+    cleanupExpiredSessionsLocked();
+  }
+
+ private:
+  // Expiry sweep body shared by the public entry point and the
+  // at-capacity path inside createSession, which already holds mutex_
+  // (non-recursive).
+  void cleanupExpiredSessionsLocked() {
     std::vector<std::string> expired;
 
     for (const auto& pair : sessions_) {
@@ -673,8 +683,6 @@ class SessionManager {
       }
     }
   }
-
- private:
   // Generate unique session ID
   std::string generateSessionId() {
     static std::atomic<uint64_t> counter{0};
