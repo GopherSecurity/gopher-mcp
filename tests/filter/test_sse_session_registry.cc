@@ -22,6 +22,7 @@
 #include <chrono>
 #include <string>
 #include <thread>
+#include <vector>
 
 #include <gtest/gtest.h>
 
@@ -171,6 +172,60 @@ TEST_F(SseSessionRegistryTest, MultipleSessionsAreIndependent) {
     EXPECT_FALSE(registry.hasSession(a));
     EXPECT_TRUE(registry.hasSession(b));
     EXPECT_EQ(registry.sessionCount(), 1u);
+  });
+}
+
+// ----------------------------------------------------------------------
+// Session-closed observer.
+// ----------------------------------------------------------------------
+
+// The server layer keys MCP sessions on the registry's ids; the closed
+// callback is how it learns a stream ended so the session (and its
+// subscriptions) can be released. Fired exactly once per real removal.
+TEST_F(SseSessionRegistryTest, ClosedCallbackFiresOncePerRemoval) {
+  executeInDispatcher([this]() {
+    SseSessionRegistry registry(*dispatcher_);
+    std::vector<std::string> closed;
+    registry.setSessionClosedCallback(
+        [&closed](const std::string& id) { closed.push_back(id); });
+
+    const std::string id = registry.registerSession(nullptr);
+    registry.removeSession(id);
+    // Double removal (filter dtor after explicit cleanup) must not
+    // re-announce a session that is already gone.
+    registry.removeSession(id);
+
+    ASSERT_EQ(closed.size(), 1u);
+    EXPECT_EQ(closed[0], id);
+  });
+}
+
+TEST_F(SseSessionRegistryTest, ClosedCallbackSkippedForUnknownId) {
+  executeInDispatcher([this]() {
+    SseSessionRegistry registry(*dispatcher_);
+    bool fired = false;
+    registry.setSessionClosedCallback(
+        [&fired](const std::string&) { fired = true; });
+
+    registry.removeSession("never_registered");
+    EXPECT_FALSE(fired);
+  });
+}
+
+// The observer runs after the entry is erased: re-entrant sends into the
+// closing session must fail cleanly rather than write to a dying stream.
+TEST_F(SseSessionRegistryTest, ClosedCallbackSeesSessionAlreadyGone) {
+  executeInDispatcher([this]() {
+    SseSessionRegistry registry(*dispatcher_);
+    bool routed = true;
+    registry.setSessionClosedCallback(
+        [&registry, &routed](const std::string& id) {
+          routed = registry.sendResponse(id, "{}");
+        });
+
+    const std::string id = registry.registerSession(nullptr);
+    registry.removeSession(id);
+    EXPECT_FALSE(routed);
   });
 }
 

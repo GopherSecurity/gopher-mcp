@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <string>
 
@@ -53,6 +54,17 @@ class SseSessionRegistry {
   // Drop a session. Safe to call with an unknown ID (no-op).
   void removeSession(const std::string& session_id);
 
+  // Observer for session teardown. Invoked on the dispatcher thread from
+  // removeSession() after the entry is gone, once per actually-removed
+  // session. This is how the server layer learns that a client's SSE
+  // stream — and therefore the MCP session keyed on it — has ended, so it
+  // can release session state (subscriptions etc.) that lives above the
+  // filter layer. At most one callback; setting replaces the previous one.
+  using SessionClosedCallback = std::function<void(const std::string&)>;
+  void setSessionClosedCallback(SessionClosedCallback callback) {
+    session_closed_callback_ = std::move(callback);
+  }
+
   // Write a JSON-RPC response through the SSE stream registered under
   // session_id. Returns true if the session existed and the write was
   // handed to the connection (the SSE codec filter further down the
@@ -74,6 +86,7 @@ class SseSessionRegistry {
   event::Dispatcher& dispatcher_;
   std::map<std::string, network::Connection*> sessions_;
   uint64_t next_id_{1};
+  SessionClosedCallback session_closed_callback_;
 };
 
 }  // namespace filter
