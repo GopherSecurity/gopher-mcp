@@ -42,6 +42,10 @@ class ServerModeCallbacks : public McpProtocolCallbacks {
  public:
   void onRequest(const jsonrpc::Request& req) override {
     requests_.push_back(req);
+    // Capture which transport session id was in effect when this request
+    // was dispatched — the filter's contract is to announce it (possibly
+    // empty) immediately beforehand, per message.
+    binding_at_request_.push_back(current_binding_);
   }
   void onNotification(const jsonrpc::Notification&) override {}
   void onResponse(const jsonrpc::Response&) override {}
@@ -49,8 +53,13 @@ class ServerModeCallbacks : public McpProtocolCallbacks {
   void onError(const Error&) override { error_count_++; }
   void onMessageEndpoint(const std::string&) override {}
   bool sendHttpPost(const std::string&) override { return true; }
+  void onTransportSessionBound(const std::string& id) override {
+    current_binding_ = id;
+  }
 
   std::vector<jsonrpc::Request> requests_;
+  std::vector<std::string> binding_at_request_;
+  std::string current_binding_{"<never-announced>"};
   int error_count_{0};
 };
 
@@ -236,6 +245,91 @@ TEST_F(ServerModeFilterTest, PostMcp_PlainHttpMode) {
   if (!callbacks.requests_.empty()) {
     EXPECT_EQ(callbacks.requests_[0].method, "initialize");
   }
+
+  closeOnDispatcher(std::move(conn), std::move(factory));
+}
+
+// ── Transport session announcement ────────────────────────────────
+
+// A request arriving on POST /callback/{id} must be dispatched with the
+// SSE session id from the path already announced — this is what lets the
+// server key its MCP session on the stream instead of the one-shot POST
+// connection.
+TEST_F(ServerModeFilterTest, PostCallback_AnnouncesTransportSessionId) {
+  ServerModeCallbacks callbacks;
+  std::unique_ptr<network::ServerConnection> conn;
+  network::IoHandlePtr peer;
+  std::shared_ptr<HttpSseFilterChainFactory> factory;
+
+  executeInDispatcher([&]() {
+    auto h = makeServerHarness(callbacks);
+    conn = std::move(h.conn);
+    peer = std::move(h.peer);
+    factory = std::move(h.factory);
+
+    std::string body =
+        R"({"jsonrpc":"2.0","method":"resources/subscribe","id":1,"params":{"uri":"test://r"}})";
+    std::string request =
+        "POST /callback/client_7 HTTP/1.1\r\n"
+        "Host: localhost\r\n"
+        "Content-Type: application/json\r\n"
+        "Content-Length: " +
+        std::to_string(body.size()) +
+        "\r\n"
+        "\r\n" +
+        body;
+    writeClientBytes(*peer, request);
+  });
+
+  std::this_thread::sleep_for(200ms);
+
+  ASSERT_EQ(callbacks.requests_.size(), 1u)
+      << "Callback POST body should dispatch as a JSON-RPC request";
+  EXPECT_EQ(callbacks.requests_[0].method, "resources/subscribe");
+  EXPECT_EQ(callbacks.binding_at_request_[0], "client_7")
+      << "Transport session id from the callback path must be announced "
+         "before the request is dispatched";
+
+  closeOnDispatcher(std::move(conn), std::move(factory));
+}
+
+// A plain HTTP request (no callback path) must announce an EMPTY id —
+// requests from different connections interleave on the dispatcher
+// thread, so a stale binding from a previous callback POST must never
+// leak onto the next connection's message.
+TEST_F(ServerModeFilterTest, PlainPost_AnnouncesEmptyBinding) {
+  ServerModeCallbacks callbacks;
+  std::unique_ptr<network::ServerConnection> conn;
+  network::IoHandlePtr peer;
+  std::shared_ptr<HttpSseFilterChainFactory> factory;
+
+  // Pretend a callback POST on another connection just dispatched.
+  callbacks.current_binding_ = "client_from_previous_connection";
+
+  executeInDispatcher([&]() {
+    auto h = makeServerHarness(callbacks);
+    conn = std::move(h.conn);
+    peer = std::move(h.peer);
+    factory = std::move(h.factory);
+
+    std::string body = R"({"jsonrpc":"2.0","method":"ping","id":2})";
+    std::string request =
+        "POST /mcp HTTP/1.1\r\n"
+        "Host: localhost\r\n"
+        "Content-Type: application/json\r\n"
+        "Content-Length: " +
+        std::to_string(body.size()) +
+        "\r\n"
+        "\r\n" +
+        body;
+    writeClientBytes(*peer, request);
+  });
+
+  std::this_thread::sleep_for(200ms);
+
+  ASSERT_EQ(callbacks.requests_.size(), 1u);
+  EXPECT_EQ(callbacks.binding_at_request_[0], "")
+      << "Plain HTTP dispatch must clear any previous connection's binding";
 
   closeOnDispatcher(std::move(conn), std::move(factory));
 }
