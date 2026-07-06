@@ -6,8 +6,6 @@
 
 #include "mcp/server/mcp_server.h"
 
-#include "mcp/filter/sse_session_registry.h"
-
 #include <algorithm>
 #include <cassert>
 #include <future>
@@ -17,6 +15,7 @@
 #include "mcp/filter/http_sse_filter_chain_factory.h"
 #include "mcp/filter/json_rpc_filter_factory.h"
 #include "mcp/filter/json_rpc_protocol_filter.h"
+#include "mcp/filter/sse_session_registry.h"
 #include "mcp/logging/log_macros.h"
 #include "mcp/transport/http_sse_transport_socket.h"
 // NOTE: We'll implement connection handler directly in server for now
@@ -546,8 +545,7 @@ void McpServer::notifyResourceUpdate(const std::string& uri) {
 
   Metadata params;
   params["uri"] = uri;
-  jsonrpc::Notification notification("notifications/resources/updated",
-                                     params);
+  jsonrpc::Notification notification("notifications/resources/updated", params);
 
   for (const auto& session_id : resource_manager_->getSubscribers(uri)) {
     auto session = session_manager_->getSession(session_id);

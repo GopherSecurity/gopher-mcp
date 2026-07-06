@@ -263,7 +263,7 @@ class SessionContext {
 
  private:
   SessionId id_;
-  network::Connection* connection_;  // Store raw pointer
+  network::Connection* connection_;   // Store raw pointer
   std::string transport_session_id_;  // Durable transport identity, may be ""
   std::chrono::steady_clock::time_point created_time_;
   std::chrono::steady_clock::time_point last_activity_;
