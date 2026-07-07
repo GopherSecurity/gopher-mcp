@@ -300,6 +300,41 @@ TEST_F(HttpHeadersCompatibilityTest, ClientHeadersCannotOverrideGenerated) {
       << request;
 }
 
+TEST_F(HttpHeadersCompatibilityTest, ClientHeadersRejectLineInjection) {
+  HttpCodecFilter filter(callbacks_, *dispatcher_, false /* is_server */);
+  filter.setClientEndpoint("/mcp", "backend.example.com");
+
+  std::string nul_name = "X-Bad";
+  nul_name.push_back('\0');
+  nul_name += "Name";
+  std::string nul_value = "bad";
+  nul_value.push_back('\0');
+  nul_value += "value";
+
+  filter.setClientHeaders({{"Authorization", "Bearer caller-token"},
+                           {"X-Injected-Value", "ok\r\nX-Smuggled: yes"},
+                           {"X-Bad\nName", "value"},
+                           {nul_name, "value"},
+                           {"X-Nul-Value", nul_value}});
+
+  OwnedBuffer write_buffer;
+  std::string json_data =
+      "{\"jsonrpc\":\"2.0\",\"method\":\"tools/list\",\"id\":1}";
+  write_buffer.add(json_data.c_str(), json_data.length());
+
+  filter.onWrite(write_buffer, false);
+
+  std::string request = write_buffer.toString();
+
+  EXPECT_NE(request.find("Authorization: Bearer caller-token\r\n"),
+            std::string::npos)
+      << request;
+  EXPECT_EQ(request.find("X-Smuggled: yes"), std::string::npos) << request;
+  EXPECT_EQ(request.find("X-Injected-Value:"), std::string::npos) << request;
+  EXPECT_EQ(request.find("X-Bad\nName"), std::string::npos) << request;
+  EXPECT_EQ(request.find("X-Nul-Value:"), std::string::npos) << request;
+}
+
 TEST_F(HttpHeadersCompatibilityTest, ClientHeaderSourceOverridesStaticHeaders) {
   HttpCodecFilter filter(callbacks_, *dispatcher_, false /* is_server */);
   filter.setClientEndpoint("/mcp", "backend.example.com");
