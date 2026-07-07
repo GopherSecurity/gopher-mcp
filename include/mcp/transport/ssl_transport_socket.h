@@ -54,6 +54,12 @@ namespace detail {
  */
 std::string drainOpenSSLErrorQueue();
 
+/**
+ * Clear stale thread-local OpenSSL errors before an SSL operation whose return
+ * value may be interpreted with SSL_get_error().
+ */
+void clearOpenSSLErrorQueue();
+
 }  // namespace detail
 
 // Use SslSocketState from state machine
