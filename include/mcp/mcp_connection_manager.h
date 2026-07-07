@@ -183,6 +183,16 @@ class McpConnectionManager : public McpProtocolCallbacks,
   bool isConnected() const;
 
   /**
+   * True when this manager's transport owns the given connection. Session-
+   * targeted server pushes use this to route a connection-keyed session
+   * (stdio: the dispatch context keys the session on the pipe connection)
+   * back through the manager that can frame and write on that transport.
+   */
+  bool ownsConnection(const network::Connection* connection) const {
+    return connection != nullptr && active_connection_.get() == connection;
+  }
+
+  /**
    * Set protocol callbacks
    */
   void setProtocolCallbacks(McpProtocolCallbacks& callbacks) {

@@ -133,7 +133,9 @@ void McpServer::performListen() {
       conn_config.transport_type = TransportType::Stdio;
       conn_config.buffer_limit = config_.buffer_high_watermark;
       conn_config.connection_timeout = config_.request_processing_timeout;
-      conn_config.stdio_config = transport::StdioTransportSocketConfig();
+      conn_config.stdio_config = config_.stdio_transport_config.has_value()
+                                     ? config_.stdio_transport_config.value()
+                                     : transport::StdioTransportSocketConfig();
 
       auto conn_manager = std::make_unique<McpConnectionManager>(
           *main_dispatcher_, *socket_interface_, conn_config);
@@ -544,26 +546,36 @@ VoidResult McpServer::sendNotificationToSession(
               "SSE stream gone for session " + session->getId()));
   }
 
-  // Connection-keyed HTTP session: no valid server-initiated channel.
-  // HTTP/1.1 has no message outside a request/response cycle, so writing
-  // raw JSON to the connection would corrupt its framing. Such a session is
-  // also only ever an alias of an HTTP+SSE client whose real push channel
-  // is the SSE stream (the transport-keyed session above) — writing here
-  // too would duplicate the delivery. And on the posted off-thread path the
-  // connection may already be freed. So we deliberately do NOT write to
-  // session->getConnection(); we fail cleanly. (getConnection() is only
-  // compared to null here, never dereferenced, which is safe even if the
-  // pointer dangles.)
+  // Connection-keyed session. Since the dispatch context supplies the
+  // origin connection for every transport, stdio sessions are keyed on
+  // the pipe connection too — and stdio DOES have a push channel: the
+  // long-lived pipe, written through the connection manager that frames
+  // for it. Route through the manager that owns the session's connection.
+  // (ownsConnection only compares pointers, never dereferences, which is
+  // safe even if the pointer dangles on the posted off-thread path.)
   if (session->getConnection()) {
+    for (auto& conn_manager : connection_managers_) {
+      if (conn_manager->isConnected() &&
+          conn_manager->ownsConnection(session->getConnection())) {
+        return conn_manager->sendNotification(notification);
+      }
+    }
+
+    // No manager owns it: a plain-HTTP connection. HTTP/1.1 has no message
+    // outside a request/response cycle, so writing raw JSON to the
+    // connection would corrupt its framing. Such a session is also only
+    // ever an alias of an HTTP+SSE client whose real push channel is the
+    // SSE stream (the transport-keyed session above) — writing here too
+    // would duplicate the delivery. Fail cleanly instead.
     return makeVoidError(
         Error(jsonrpc::INTERNAL_ERROR,
               "Session " + session->getId() +
                   " has no server-initiated notification channel"));
   }
 
-  // Neither key: stdio. Requests are dispatched without a connection
-  // pointer, so the session carries no key. There is a single stdio client,
-  // reached through its connection manager.
+  // No key at all: only reachable for sessions created by the context-free
+  // legacy dispatch path. There is a single stdio client, reached through
+  // its connection manager.
   for (auto& conn_manager : connection_managers_) {
     if (conn_manager->isConnected()) {
       return conn_manager->sendNotification(notification);
