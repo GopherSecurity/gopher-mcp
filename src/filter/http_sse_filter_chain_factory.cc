@@ -1015,9 +1015,17 @@ class HttpSseJsonRpcProtocolFilter
     DispatchContext context(*this);
     mcp_callbacks_.onNotificationWithContext(notification, context);
 
-    // For HTTP transport, send HTTP 202 Accepted response
-    // JSON-RPC notifications don't have responses, but HTTP requires one
-    if (is_server_ && write_callbacks_) {
+    // For HTTP transport, send HTTP 202 Accepted response.
+    // JSON-RPC notifications don't have responses, but HTTP requires one.
+    //
+    // NOT in callback-proxy mode, for two reasons: onHeaders already
+    // answered the POST /callback with a guarded 202 at header time, and
+    // this write is unguarded — onWrite's callback-proxy branch would
+    // capture the raw status line and ship it down the client's SSE
+    // stream as event data, corrupting the stream with
+    // "data: HTTP/1.1 202 Accepted...".
+    if (is_server_ && write_callbacks_ &&
+        !(server_mode_ && server_mode_->isCallbackProxy())) {
       // Build minimal HTTP 202 response
       std::string http_response =
           "HTTP/1.1 202 Accepted\r\n"

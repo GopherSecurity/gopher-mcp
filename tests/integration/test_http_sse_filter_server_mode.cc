@@ -342,6 +342,83 @@ TEST_F(ServerModeFilterTest, PlainPost_AnnouncesEmptyBinding) {
   closeOnDispatcher(std::move(conn), std::move(factory));
 }
 
+// ── Callback-proxy notification must not leak a 202 onto the SSE stream ──
+//
+// A notification POSTed to /callback/{id} is already answered with a 202
+// at header time. The dispatch-time 202 the plain-HTTP path needs would be
+// captured by onWrite's callback-proxy branch and shipped down the
+// client's SSE stream as event data ("data: HTTP/1.1 202 Accepted..."),
+// corrupting the stream. This test opens a real SSE stream, POSTs a
+// notification to its callback URL from a second connection, and requires
+// the SSE stream to stay free of HTTP status lines.
+TEST_F(ServerModeFilterTest, CallbackNotification_No202OnSseStream) {
+  ServerModeCallbacks callbacks;
+  std::unique_ptr<network::ServerConnection> sse_conn;
+  network::IoHandlePtr sse_peer;
+  std::shared_ptr<HttpSseFilterChainFactory> factory;
+
+  // Connection 1: open the SSE stream and learn the callback URL.
+  executeInDispatcher([&]() {
+    auto h = makeServerHarness(callbacks);
+    sse_conn = std::move(h.conn);
+    sse_peer = std::move(h.peer);
+    factory = std::move(h.factory);
+
+    writeClientBytes(*sse_peer,
+                     "GET /sse HTTP/1.1\r\n"
+                     "Host: localhost\r\n"
+                     "Accept: text/event-stream\r\n"
+                     "\r\n");
+  });
+
+  std::string handshake = drainPeer(*sse_peer, 500ms);
+  auto cb_pos = handshake.find("callback/");
+  ASSERT_NE(cb_pos, std::string::npos)
+      << "endpoint event with callback URL expected, got: " << handshake;
+  auto id_start = cb_pos + std::string("callback/").size();
+  auto id_end = handshake.find_first_of("\r\n \"", id_start);
+  const std::string session_id = handshake.substr(id_start, id_end - id_start);
+  ASSERT_FALSE(session_id.empty());
+
+  // Connection 2 (same factory, shared registry): POST a notification to
+  // the callback URL.
+  std::unique_ptr<network::ServerConnection> post_conn;
+  network::IoHandlePtr post_peer;
+  executeInDispatcher([&]() {
+    auto h = makeServerHarness(callbacks, factory);
+    post_conn = std::move(h.conn);
+    post_peer = std::move(h.peer);
+
+    std::string body = R"({"jsonrpc":"2.0","method":"initialized"})";
+    writeClientBytes(*post_peer, "POST /callback/" + session_id +
+                                     " HTTP/1.1\r\n"
+                                     "Host: localhost\r\n"
+                                     "Content-Type: application/json\r\n"
+                                     "Content-Length: " +
+                                     std::to_string(body.size()) + "\r\n\r\n" +
+                                     body);
+  });
+
+  std::this_thread::sleep_for(200ms);
+
+  // The POST connection gets exactly the header-time 202.
+  std::string on_post = drainPeer(*post_peer, 300ms);
+  EXPECT_NE(on_post.find("202"), std::string::npos)
+      << "callback POST must be acknowledged, got: " << on_post;
+  EXPECT_EQ(on_post.find("202", on_post.find("202") + 1), std::string::npos)
+      << "callback POST must be acknowledged exactly once, got: " << on_post;
+
+  // The SSE stream must carry no HTTP status line as event data.
+  std::string on_sse = drainPeer(*sse_peer, 300ms);
+  EXPECT_EQ(on_sse.find("202 Accepted"), std::string::npos)
+      << "raw HTTP 202 leaked onto the SSE stream as event data: " << on_sse;
+
+  ASSERT_EQ(callbacks.requests_.size(), 0u);
+
+  closeOnDispatcher(std::move(post_conn), nullptr);
+  closeOnDispatcher(std::move(sse_conn), std::move(factory));
+}
+
 // ── SseStream body ignored ────────────────────────────────────────
 
 TEST_F(ServerModeFilterTest, SseStream_BodyIgnored) {
