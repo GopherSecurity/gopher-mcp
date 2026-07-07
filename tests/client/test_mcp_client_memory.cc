@@ -439,8 +439,7 @@ TEST_F(AsyncPatternMemoryTest, ClientLifetimeTokenExpiresOnShutdown) {
   EXPECT_TRUE(alive.expired());
 }
 
-TEST_F(AsyncPatternMemoryTest,
-       ShutdownCallbackClearingIsSynchronous) {
+TEST_F(AsyncPatternMemoryTest, ShutdownCallbackClearingIsSynchronous) {
   TestableMcpClient client(McpClientConfig{});
   auto* dispatcher = new event::LibeventDispatcher("client-shutdown-test");
   client.setMainDispatcherForTest(dispatcher);

@@ -7,8 +7,8 @@
 #include <memory>
 #include <string>
 #include <thread>
-#include <vector>
 #include <unistd.h>
+#include <vector>
 
 #include <arpa/inet.h>
 #include <gtest/gtest.h>
