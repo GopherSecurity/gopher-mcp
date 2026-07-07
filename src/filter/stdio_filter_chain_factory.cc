@@ -6,51 +6,23 @@
 
 #include "mcp/filter/stdio_filter_chain_factory.h"
 
+// DirectJsonRpcCallbacks lives in json_rpc_filter_factory.h. This file
+// used to define its own namespace-scope class with the SAME name — an
+// ODR violation: two translation units emitted the same mangled class
+// with (after the context hooks landed) different vtable layouts, which
+// a linker is free to merge into misrouted virtual calls. Reuse the one
+// public definition instead.
+#include "mcp/filter/json_rpc_filter_factory.h"
 #include "mcp/filter/json_rpc_protocol_filter.h"
 
 namespace mcp {
 namespace filter {
 
-/**
- * Direct callbacks adapter for JSON-RPC to MCP
- * Simply forwards JSON-RPC messages to MCP callbacks
- */
-class DirectJsonRpcCallbacks : public JsonRpcProtocolFilter::MessageHandler {
- public:
-  DirectJsonRpcCallbacks(McpProtocolCallbacks& mcp_callbacks)
-      : mcp_callbacks_(mcp_callbacks) {}
-
-  void onRequest(const jsonrpc::Request& request) override {
-    mcp_callbacks_.onRequest(request);
-  }
-
-  void onNotification(const jsonrpc::Notification& notification) override {
-    mcp_callbacks_.onNotification(notification);
-  }
-
-  // Propagate the per-message origin built by the JSON-RPC filter so the
-  // application layer can reply on the connection the message arrived on.
-  void onRequestWithContext(const jsonrpc::Request& request,
-                            MessageDispatchContext& context) override {
-    mcp_callbacks_.onRequestWithContext(request, context);
-  }
-
-  void onNotificationWithContext(const jsonrpc::Notification& notification,
-                                 MessageDispatchContext& context) override {
-    mcp_callbacks_.onNotificationWithContext(notification, context);
-  }
-
-  void onResponse(const jsonrpc::Response& response) override {
-    mcp_callbacks_.onResponse(response);
-  }
-
-  void onProtocolError(const Error& error) override {
-    mcp_callbacks_.onError(error);
-  }
-
- private:
-  McpProtocolCallbacks& mcp_callbacks_;
-};
+// Anonymous namespace: this wrapper is an implementation detail of the
+// stdio factory; internal linkage keeps any future same-named class in
+// another translation unit from colliding the way DirectJsonRpcCallbacks
+// did.
+namespace {
 
 /**
  * Wrapper filter that owns the callbacks adapter
@@ -98,6 +70,8 @@ class StdioJsonRpcFilterWrapper : public network::NetworkFilterBase {
   std::shared_ptr<DirectJsonRpcCallbacks> callbacks_adapter_;
   std::shared_ptr<JsonRpcProtocolFilter> jsonrpc_filter_;
 };
+
+}  // namespace
 
 bool StdioFilterChainFactory::createFilterChain(
     network::FilterManager& filter_manager) const {
