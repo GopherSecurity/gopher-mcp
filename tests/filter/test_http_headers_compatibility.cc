@@ -369,6 +369,39 @@ TEST_F(HttpHeadersCompatibilityTest, ClientHeaderSourceOverridesStaticHeaders) {
   EXPECT_EQ(request.find("X-Static: yes"), std::string::npos) << request;
 }
 
+TEST_F(HttpHeadersCompatibilityTest, ClientHeaderSourceDoesNotReusePrevious) {
+  HttpCodecFilter filter(callbacks_, *dispatcher_, false /* is_server */);
+  filter.setClientEndpoint("/mcp", "backend.example.com");
+
+  auto current_headers = std::make_shared<std::map<std::string, std::string>>();
+  filter.setClientHeaderSource(current_headers);
+
+  (*current_headers)["Authorization"] = "Bearer first-token";
+  OwnedBuffer first_write;
+  std::string first_json =
+      "{\"jsonrpc\":\"2.0\",\"method\":\"tools/list\",\"id\":1}";
+  first_write.add(first_json.c_str(), first_json.length());
+  filter.onWrite(first_write, false);
+
+  const std::string first_request = first_write.toString();
+  EXPECT_NE(first_request.find("Authorization: Bearer first-token\r\n"),
+            std::string::npos)
+      << first_request;
+
+  current_headers->clear();
+  OwnedBuffer second_write;
+  std::string second_json =
+      "{\"jsonrpc\":\"2.0\",\"method\":\"tools/list\",\"id\":2}";
+  second_write.add(second_json.c_str(), second_json.length());
+  filter.onWrite(second_write, false);
+
+  const std::string second_request = second_write.toString();
+  EXPECT_EQ(second_request.find("Authorization:"), std::string::npos)
+      << second_request;
+  EXPECT_EQ(second_request.find("Bearer first-token"), std::string::npos)
+      << second_request;
+}
+
 // =============================================================================
 // Edge Cases
 // =============================================================================
