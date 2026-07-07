@@ -996,9 +996,9 @@ TEST_F(SslTransportSocketBioBackpressureTest,
   ASSERT_TRUE(holds_alternative<std::nullptr_t>(ssl_socket->initializeSsl()));
 
   const std::string encrypted = repeatedPayload(64);
-  ASSERT_EQ(BIO_write(ssl_socket->internal_bio_, encrypted.data(),
-                      encrypted.size()),
-            static_cast<int>(encrypted.size()));
+  ASSERT_EQ(
+      BIO_write(ssl_socket->internal_bio_, encrypted.data(), encrypted.size()),
+      static_cast<int>(encrypted.size()));
   ASSERT_EQ(BIO_ctrl_pending(ssl_socket->network_bio_), encrypted.size());
 
   const size_t first_written = ssl_socket->moveFromBio();

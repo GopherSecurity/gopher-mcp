@@ -1145,9 +1145,8 @@ TransportIoResult SslTransportSocket::performOptimizedSslRead(Buffer& buffer) {
 
     // Prepare buffer slice for read
     RawSlice slice;
-    size_t slice_size =
-        std::min(kSslMaxReadChunk,
-                 kMaxPlaintextReadPerEvent - total_bytes_read);
+    size_t slice_size = std::min(kSslMaxReadChunk,
+                                 kMaxPlaintextReadPerEvent - total_bytes_read);
 
     if (slice_size == 0) {
       // Buffer full
@@ -1517,9 +1516,8 @@ size_t SslTransportSocket::moveFromBio() {
   auto result = inner_socket_->doWrite(temp_buffer, false);
   GOPHER_LOG_DEBUG("moveFromBio doWrite bytes_processed={}, action={}",
                    result.bytes_processed_, static_cast<int>(result.action_));
-  const size_t bytes_written =
-      std::min<size_t>(static_cast<size_t>(result.bytes_processed_),
-                       bio_bytes.size());
+  const size_t bytes_written = std::min<size_t>(
+      static_cast<size_t>(result.bytes_processed_), bio_bytes.size());
   total_written += bytes_written;
 
   if (bytes_written < bio_bytes.size()) {

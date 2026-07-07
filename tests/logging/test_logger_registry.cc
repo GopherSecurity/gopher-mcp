@@ -1,8 +1,8 @@
-#include <gtest/gtest.h>
-
 #include <atomic>
 #include <set>
 #include <thread>
+
+#include <gtest/gtest.h>
 
 #include "mcp/logging/log_macros.h"
 #include "mcp/logging/logger_registry.h"
