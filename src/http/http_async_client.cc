@@ -109,7 +109,8 @@ std::string redactHeaderValue(const std::string& name,
   std::string lower;
   lower.reserve(name.size());
   for (char c : name) {
-    lower.push_back(static_cast<char>(std::tolower(c)));
+    lower.push_back(
+        static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
   }
   if (lower != "authorization" && lower.find("api-key") == std::string::npos &&
       lower.find("apikey") == std::string::npos && lower != "x-api-key") {

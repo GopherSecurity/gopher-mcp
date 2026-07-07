@@ -19,6 +19,7 @@
 #include <gtest/gtest.h>
 
 #include "mcp/http/http_async_client.h"
+#include "mcp/logging/logger_registry.h"
 #include "mcp/network/socket_interface.h"
 #include "mcp/network/transport_socket.h"
 
@@ -229,6 +230,50 @@ TEST_F(HttpAsyncClientTest, RejectsMalformedUrl) {
   // either callback. Give the dispatcher a tick to prove nothing posts.
   std::this_thread::sleep_for(50ms);
   EXPECT_FALSE(cb_fired);
+}
+
+TEST_F(HttpAsyncClientTest, HighBitHeaderNameCanBeRedactedForLogging) {
+  auto& registry = logging::LoggerRegistry::instance();
+  registry.setPattern("mcp.flow", logging::LogLevel::Debug);
+
+  uint16_t port = createRealListener();
+  createClient();
+
+  ResponseSink sink;
+  std::string high_bit_header = "X-High-";
+  high_bit_header.push_back(static_cast<char>(0x80));
+  high_bit_header += "-Api-Key";
+
+  HttpRequest req;
+  req.method = "POST";
+  req.url = "http://127.0.0.1:" + std::to_string(port) + "/mcp";
+  req.headers[high_bit_header] = "secret-token-value";
+  req.body = "{}";
+
+  executeInDispatcher([this, &req, &sink]() {
+    const bool ok = client_->send(
+        req, [&sink](HttpResponse r) { sink.setResponse(std::move(r)); },
+        [&sink](const std::string& e) { sink.setError(e); });
+    ASSERT_TRUE(ok);
+  });
+
+  auto accepted = acceptOne();
+  ASSERT_TRUE(accepted);
+
+  const std::string request_wire = readRequest(*accepted);
+  EXPECT_NE(request_wire.find(high_bit_header + ": secret-token-value"),
+            std::string::npos);
+
+  const std::string reply = "HTTP/1.1 204 No Content\r\n"
+                            "Content-Length: 0\r\n"
+                            "Connection: close\r\n\r\n";
+  writeResponse(*accepted, reply);
+
+  ASSERT_TRUE(sink.wait());
+  ASSERT_TRUE(sink.hasResponse()) << "error instead: " << sink.error();
+  EXPECT_EQ(sink.response().status_code, 204);
+
+  registry.setPattern("mcp.flow", logging::LogLevel::Info);
 }
 
 TEST_F(HttpAsyncClientTest, MalformedResponseFiresErrorCallback) {
