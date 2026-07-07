@@ -7,6 +7,7 @@
 #include "mcp/core/result.h"
 #include "mcp/event/event_loop.h"
 #include "mcp/json/json_bridge.h"
+#include "mcp/message_dispatch_context.h"
 #include "mcp/network/connection_manager.h"
 #include "mcp/network/filter.h"
 #include "mcp/transport/http_sse_transport_socket.h"
@@ -69,6 +70,34 @@ class McpProtocolCallbacks {
    * Called when a notification is received
    */
   virtual void onNotification(const jsonrpc::Notification& notification) = 0;
+
+  /**
+   * Context-carrying variants: the message arrives together with a
+   * per-message dispatch context describing its origin (connection,
+   * transport session id) and reply path. Producers that know the origin
+   * call these; the defaults forward to the context-free hooks so existing
+   * implementations keep working unchanged. Receivers that route replies or
+   * key sessions should override these instead of the context-free forms —
+   * the context makes "respond to the wrong connection" and "inherit a
+   * stale session binding" unrepresentable, where ambient
+   * current-connection state cannot.
+   *
+   * Distinct names (rather than overloads of onRequest/onNotification) keep
+   * every existing implementation outside the -Woverloaded-virtual hiding
+   * trap.
+   */
+  virtual void onRequestWithContext(const jsonrpc::Request& request,
+                                    MessageDispatchContext& context) {
+    (void)context;
+    onRequest(request);
+  }
+
+  virtual void onNotificationWithContext(
+      const jsonrpc::Notification& notification,
+      MessageDispatchContext& context) {
+    (void)context;
+    onNotification(notification);
+  }
 
   /**
    * Called when a response is received
