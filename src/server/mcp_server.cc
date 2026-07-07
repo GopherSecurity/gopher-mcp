@@ -735,16 +735,27 @@ void McpServer::setupFilterChain(application::FilterChainBuilder& builder) {
 }
 
 SessionManager::SessionPtr McpServer::getOrCreateCurrentSession() {
+  // The transport session binding is strictly single-use: consume it here
+  // and clear it immediately, so it can only ever apply to the one message
+  // whose dispatch it preceded. The transport filter announces it (via
+  // onTransportSessionBound) right before onRequest/onNotification, but a
+  // producer that does NOT announce — stdio, or any non-SSE filter chain —
+  // must not inherit the previous message's id. Clearing on consume makes a
+  // stale binding unrepresentable rather than relying on every producer to
+  // remember to announce an empty id. Dispatch is synchronous per message
+  // on the dispatcher thread, so consume-and-clear is race-free.
+  std::string transport_session_id;
+  transport_session_id.swap(current_transport_session_id_);
+
   // Transport session id wins: for HTTP+SSE each request arrives on a
   // one-shot POST connection, so keying the session on the connection
   // would hand every request a fresh session and silently drop state
-  // such as resource subscriptions. The SSE stream id announced by the
-  // transport filter is the identity that actually spans the client's
-  // requests — and it is also what the push path needs to find the
-  // client's SSE stream.
-  if (!current_transport_session_id_.empty()) {
+  // such as resource subscriptions. The SSE stream id is the identity that
+  // actually spans the client's requests — and it is also what the push
+  // path needs to find the client's SSE stream.
+  if (!transport_session_id.empty()) {
     return session_manager_->getOrCreateSessionByTransportId(
-        current_transport_session_id_);
+        transport_session_id);
   }
 
   // Connection-keyed fallback for transports where the connection is
