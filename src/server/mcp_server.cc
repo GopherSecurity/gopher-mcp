@@ -817,20 +817,15 @@ SessionManager::SessionPtr McpServer::getOrCreateSessionFor(
 }
 
 // Reply path for messages that arrived through the context-free legacy
-// hooks. There is no origin connection to reply on, so fall back to the
-// first connected stdio manager — the historical degraded behavior — and
-// fail loudly when there is none, instead of writing to an unrelated
-// connection.
-class McpServer::LegacyDispatchContext : public MessageDispatchContext {
+// hooks. The "no origin" half of the contract (null connection, empty
+// transport session id) is inherited from NullMessageDispatchContext so
+// it is defined in exactly one place; only the reply path differs: fall
+// back to the first connected stdio manager — the historical degraded
+// behavior — and fail loudly when there is none, instead of writing to
+// an unrelated connection.
+class McpServer::LegacyDispatchContext : public NullMessageDispatchContext {
  public:
   explicit LegacyDispatchContext(McpServer& server) : server_(server) {}
-
-  network::Connection* originConnection() const override { return nullptr; }
-
-  const std::string& transportSessionId() const override {
-    static const std::string empty;
-    return empty;
-  }
 
   VoidResult sendResponse(const jsonrpc::Response& response) override {
     for (auto& conn_manager : server_.connection_managers_) {

@@ -1291,23 +1291,6 @@ class HttpSseJsonRpcProtocolFilter
   HttpRouteRegistrationCallback route_registration_callback_;
 };
 
-// Static method to send response through the connection's filter chain
-// Following production pattern: ensure execution in the connection's dispatcher
-// thread
-void HttpSseFilterChainFactory::sendHttpResponse(
-    const jsonrpc::Response& response, network::Connection& connection) {
-  GOPHER_LOG_WARN(
-      "HttpSseFilterChainFactory::sendHttpResponse called but filter "
-      "access not available");
-  GOPHER_LOG_WARN("Response ID {} dropped - no direct filter access",
-                  requestIdToString(response.id));
-
-  // Following production pattern: without direct filter access, we cannot route
-  // responses The proper solution is for the connection manager to maintain
-  // filter references and provide a proper API for response routing. For now,
-  // responses must be sent through the connection manager's own mechanisms.
-}
-
 // ===== Factory Implementation =====
 
 HttpSseFilterChainFactory::HttpSseFilterChainFactory(
