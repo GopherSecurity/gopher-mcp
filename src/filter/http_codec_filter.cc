@@ -33,7 +33,6 @@ bool isValidClientHeader(const std::string& name, const std::string& value) {
          !has_invalid_byte(value);
 }
 
-namespace {
 std::string toLowerHeaderName(std::string value) {
   std::transform(
       value.begin(), value.end(), value.begin(),
@@ -44,11 +43,12 @@ std::string toLowerHeaderName(std::string value) {
 bool isGeneratedClientHeader(const std::string& name) {
   const std::string lower = toLowerHeaderName(name);
   return lower == "host" || lower == "content-length" ||
-         lower == "connection" || lower == "accept" ||
-         lower == "content-type" || lower == "user-agent" ||
+         lower == "transfer-encoding" || lower == "connection" ||
+         lower == "accept" || lower == "content-type" || lower == "user-agent" ||
          lower == "cache-control";
 }
 
+namespace {
 void appendClientHeaders(std::ostringstream& request,
                          const std::map<std::string, std::string>& headers) {
   for (const auto& header : headers) {

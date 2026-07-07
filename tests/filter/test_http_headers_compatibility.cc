@@ -252,6 +252,7 @@ TEST_F(HttpHeadersCompatibilityTest, ClientHeadersCannotOverrideGenerated) {
   filter.setClientHeaders({{"Host", "attacker.example.com"},
                            {"Content-Type", "text/plain"},
                            {"Content-Length", "999999"},
+                           {"Transfer-Encoding", "chunked"},
                            {"Accept", "text/plain"},
                            {"Connection", "close"},
                            {"User-Agent", "custom-agent"},
@@ -288,6 +289,8 @@ TEST_F(HttpHeadersCompatibilityTest, ClientHeadersCannotOverrideGenerated) {
   EXPECT_EQ(request.find("Content-Type: text/plain"), std::string::npos)
       << request;
   EXPECT_EQ(request.find("Content-Length: 999999"), std::string::npos)
+      << request;
+  EXPECT_EQ(request.find("Transfer-Encoding: chunked"), std::string::npos)
       << request;
   EXPECT_EQ(request.find("Accept: text/plain"), std::string::npos) << request;
   EXPECT_EQ(request.find("Connection: close"), std::string::npos) << request;
