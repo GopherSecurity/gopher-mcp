@@ -37,12 +37,35 @@
 #if defined(__clang__)
 #pragma clang diagnostic pop
 #endif
+#include "mcp/network/socket_interface.h"
 
 namespace mcp {
 namespace client {
 namespace test {
 
 using namespace std::chrono_literals;
+
+class RecordingProtocolCallbacks : public McpProtocolCallbacks {
+ public:
+  void onRequest(const jsonrpc::Request&) override {}
+  void onNotification(const jsonrpc::Notification&) override {}
+  void onResponse(const jsonrpc::Response&) override {}
+  void onConnectionEvent(network::ConnectionEvent event) override {
+    events.push_back(event);
+  }
+  void onError(const Error&) override {}
+
+  std::vector<network::ConnectionEvent> events;
+};
+
+class TestableMcpClient : public McpClient {
+ public:
+  using McpClient::McpClient;
+
+  void setMainDispatcherForTest(event::Dispatcher* dispatcher) {
+    main_dispatcher_ = dispatcher;
+  }
+};
 
 // ============================================================================
 // Suite 1: RequestTracker Memory Tests
@@ -414,6 +437,29 @@ TEST_F(AsyncPatternMemoryTest, ClientLifetimeTokenExpiresOnShutdown) {
   client.shutdown();
 
   EXPECT_TRUE(alive.expired());
+}
+
+TEST_F(AsyncPatternMemoryTest,
+       ShutdownCallbackClearingIsSynchronous) {
+  TestableMcpClient client(McpClientConfig{});
+  auto* dispatcher = new event::LibeventDispatcher("client-shutdown-test");
+  client.setMainDispatcherForTest(dispatcher);
+
+  McpConnectionConfig config;
+  config.transport_type = TransportType::Stdio;
+  config.use_message_framing = false;
+  auto manager = std::make_unique<McpConnectionManager>(
+      *dispatcher, network::socketInterface(), config);
+
+  RecordingProtocolCallbacks callbacks;
+  manager->setProtocolCallbacks(callbacks);
+  ASSERT_EQ(&callbacks, manager->protocol_callbacks_);
+  client.connection_manager_ = std::move(manager);
+
+  client.clearConnectionCallbacksForShutdown();
+
+  EXPECT_EQ(nullptr, client.connection_manager_->protocol_callbacks_);
+  client.shutdown();
 }
 
 TEST_F(AsyncPatternMemoryTest, InitializeResponseWithoutResultFails) {

@@ -399,6 +399,12 @@ VoidResult McpClient::reconnectInternal() {
 }
 
 // Shutdown client
+void McpClient::clearConnectionCallbacksForShutdown() {
+  if (connection_manager_) {
+    connection_manager_->clearProtocolCallbacks();
+  }
+}
+
 void McpClient::shutdown() {
   if (shutting_down_) {
     return;
@@ -408,16 +414,18 @@ void McpClient::shutdown() {
 
   // Close connection directly without triggering state machine
   if (connection_manager_) {
+    // Break the callback ownership link synchronously. shutdown() may be called
+    // off the dispatcher thread and immediately request dispatcher exit; a
+    // posted close task is not guaranteed to run before teardown continues.
+    clearConnectionCallbacksForShutdown();
     if (main_dispatcher_ && !main_dispatcher_->isThreadSafe()) {
       // Post to dispatcher thread
       main_dispatcher_->post([this]() {
         if (connection_manager_) {
-          connection_manager_->clearProtocolCallbacks();
           connection_manager_->close();
         }
       });
     } else {
-      connection_manager_->clearProtocolCallbacks();
       connection_manager_->close();
     }
   }
@@ -437,17 +445,19 @@ void McpClient::shutdown() {
     dispatcher_thread_.join();
   }
 
-  // Clean up dispatcher after thread has exited
-  if (main_dispatcher_) {
-    delete main_dispatcher_;
-    main_dispatcher_ = nullptr;
-  }
-
-  // Clean up resources
+  // Clean up dispatcher-owned resources before destroying the dispatcher.
+  // Deferred connection teardown can still enqueue work on the dispatcher even
+  // when shutdown skipped a posted close task.
   protocol_state_machine_.reset();
   connection_manager_.reset();
   request_tracker_.reset();
   circuit_breaker_.reset();
+
+  // Clean up dispatcher after thread has exited and its owners are gone.
+  if (main_dispatcher_) {
+    delete main_dispatcher_;
+    main_dispatcher_ = nullptr;
+  }
 
   // Client resources are cleaned up above
 }
