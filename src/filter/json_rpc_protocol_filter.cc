@@ -211,9 +211,14 @@ class JsonRpcProtocolFilter::DispatchContextImpl
   }
 
   VoidResult sendResponse(const jsonrpc::Response& response) override {
-    // Fail loudly when the reply path is gone: a null result here would
-    // otherwise read as "sent" to the caller while nothing went out.
-    if (!parent_.write_callbacks_) {
+    // Fail loudly when the reply path is gone. The null check alone is not
+    // enough: write_callbacks_ is set once at chain init and never cleared,
+    // while ConnectionImpl::write on a non-open connection silently returns
+    // — so without the state check a reply to a client that already hung up
+    // would report success while nothing went out.
+    if (!parent_.write_callbacks_ ||
+        parent_.write_callbacks_->connection().state() !=
+            network::ConnectionState::Open) {
       Error err;
       err.code = jsonrpc::INTERNAL_ERROR;
       err.message = "response dropped: origin connection is gone";

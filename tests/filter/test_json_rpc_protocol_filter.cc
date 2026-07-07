@@ -387,6 +387,93 @@ TEST_F(JsonRpcProtocolFilterTest, RequestDispatchCarriesContext) {
 }
 
 /**
+ * sendResponse must fail — not silently succeed — when the origin
+ * connection is no longer open. write_callbacks_ is set once at chain
+ * init and never cleared, and ConnectionImpl::write on a non-open
+ * connection silently discards, so the sink's state check is the only
+ * thing standing between "client hung up mid-dispatch" and a response
+ * that reports sent while nothing went out.
+ *
+ * Real IO: the filter is wired to a real server connection over a
+ * socketpair; the handler closes the connection during dispatch (the
+ * client-hung-up shape) and then tries to reply.
+ */
+TEST_F(JsonRpcProtocolFilterTest, SendResponseFailsOnClosedConnection) {
+  class ClosingHandler : public JsonRpcProtocolFilter::MessageHandler {
+   public:
+    void onRequest(const jsonrpc::Request&) override {}
+    void onNotification(const jsonrpc::Notification&) override {}
+    void onResponse(const jsonrpc::Response&) override {}
+    void onProtocolError(const Error&) override {}
+
+    void onRequestWithContext(const jsonrpc::Request& request,
+                              MessageDispatchContext& context) override {
+      // Reply while open: must succeed.
+      open_send_ok_ = !holds_alternative<Error>(
+          context.sendResponse(jsonrpc::Response::make_error(
+              request.id, Error(jsonrpc::INTERNAL_ERROR, "while open"))));
+
+      // Client hangs up mid-dispatch (local close has the same state
+      // effect); the second reply must surface an error.
+      connection_->close(network::ConnectionCloseType::NoFlush);
+      closed_send_failed_ = holds_alternative<Error>(
+          context.sendResponse(jsonrpc::Response::make_error(
+              request.id, Error(jsonrpc::INTERNAL_ERROR, "after close"))));
+    }
+
+    network::Connection* connection_{nullptr};
+    bool open_send_ok_{false};
+    bool closed_send_failed_{false};
+  };
+
+  auto handler = std::make_unique<ClosingHandler>();
+  network::ConnectionPtr conn;
+  network::IoHandlePtr peer;
+  std::shared_ptr<JsonRpcProtocolFilter> wired_filter;
+
+  executeInDispatcher([&]() {
+    auto pair = createSocketPair();
+    auto local = network::Address::parseInternetAddress("127.0.0.1", 0);
+    auto remote = network::Address::parseInternetAddress("127.0.0.1", 0);
+    auto socket = std::make_unique<network::ConnectionSocketImpl>(
+        std::move(pair.first), local, remote);
+    auto transport = std::make_unique<network::RawBufferTransportSocket>();
+    auto si = std::make_shared<stream_info::StreamInfoImpl>();
+
+    conn = network::ConnectionImpl::createServerConnection(
+        *dispatcher_, std::move(socket), std::move(transport), *si);
+    peer = std::move(pair.second);
+    handler->connection_ = conn.get();
+
+    wired_filter = std::make_shared<JsonRpcProtocolFilter>(
+        *handler, *dispatcher_, /*is_server=*/true);
+    auto* ci = dynamic_cast<network::ConnectionImpl*>(conn.get());
+    ASSERT_NE(ci, nullptr);
+    ci->filterManager().addReadFilter(wired_filter);
+    ci->filterManager().addWriteFilter(wired_filter);
+    ci->filterManager().initializeReadFilters();
+
+    // Dispatch a request through the wired filter.
+    OwnedBuffer buffer;
+    buffer.add(
+        std::string(R"({"jsonrpc":"2.0","id":11,"method":"test.method"})") +
+        "\n");
+    wired_filter->onData(buffer, false);
+  });
+
+  EXPECT_TRUE(handler->open_send_ok_)
+      << "reply on an open connection must succeed";
+  EXPECT_TRUE(handler->closed_send_failed_)
+      << "reply after the connection closed must return an error, not "
+         "silently report success";
+
+  executeInDispatcher([&]() {
+    wired_filter.reset();
+    conn.reset();
+  });
+}
+
+/**
  * The config-driven constructor installs ProtocolCallbackBridge between
  * the filter and the McpProtocolCallbacks. That bridge must forward the
  * per-message context: if it drops to the context-free hooks, every

@@ -955,8 +955,12 @@ class HttpSseJsonRpcProtocolFilter
 
     VoidResult sendResponse(const jsonrpc::Response& response) override {
       // Fail loudly when the reply path is gone instead of pretending the
-      // response went out.
-      if (!parent_.write_callbacks_) {
+      // response went out. The state check matters as much as the null
+      // check: write_callbacks_ is never cleared, and a write to a
+      // non-open connection is silently discarded by the connection.
+      if (!parent_.write_callbacks_ ||
+          parent_.write_callbacks_->connection().state() !=
+              network::ConnectionState::Open) {
         Error err;
         err.code = jsonrpc::INTERNAL_ERROR;
         err.message = "response dropped: origin connection is gone";
