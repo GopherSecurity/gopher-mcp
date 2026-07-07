@@ -1103,8 +1103,7 @@ void McpServer::onConnectionLifecycleEvent(network::Connection* connection,
     http_sse_factory_->sseRegistry().removeConnection(connection);
   }
 
-  // Tear down session state keyed by the actual closing connection, not a
-  // global current_connection_ which may point at a different session.
+  // Tear down session state keyed by the actual closing connection.
   // Transport-keyed sessions (HTTP+SSE) are untouched here by design: they
   // are created with a null connection, live across many short POST
   // connections, and are released by the SSE registry's session-closed
@@ -1144,10 +1143,6 @@ void McpServer::onConnectionLifecycleEvent(network::Connection* connection,
       main_dispatcher_->deferredDelete(std::move(cb_it->second));
       lifecycle_callbacks_.erase(cb_it);
     }
-  }
-
-  if (current_connection_ == connection) {
-    current_connection_ = nullptr;
   }
 }
 
@@ -1599,9 +1594,6 @@ void McpServer::onNewConnection(network::ConnectionPtr&& connection) {
     std::lock_guard<std::mutex> lock(connection_sessions_mutex_);
     connection_sessions_[conn_ptr] = session;
   }
-
-  // Set current connection for request processing context
-  current_connection_ = conn_ptr;
 
   // Update connection count.
   //

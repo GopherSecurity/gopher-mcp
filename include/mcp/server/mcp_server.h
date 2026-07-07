@@ -974,18 +974,6 @@ class McpServer : public application::ApplicationBase,
   void onConnectionEvent(network::ConnectionEvent event);
   void onError(const Error& error) override;
 
-  // Request-scoped transport session binding. The transport filter announces
-  // the transport-level session id (e.g. SSE stream id from the POST
-  // /callback/{id} path) immediately before dispatching each message, on the
-  // dispatcher thread. It is single-use: getOrCreateCurrentSession() consumes
-  // and clears it, so it applies only to the one message whose dispatch it
-  // preceded and a non-announcing producer can never inherit a stale id. An
-  // empty id means the current message's transport has no session concept and
-  // session lookup falls back to connection identity.
-  void onTransportSessionBound(const std::string& transport_session_id) {
-    current_transport_session_id_ = transport_session_id;
-  }
-
   // Request tracking helpers
   bool isRequestCancelled(const RequestId& id) const {
     std::lock_guard<std::mutex> lock(pending_requests_mutex_);
@@ -1135,11 +1123,6 @@ class McpServer : public application::ApplicationBase,
 
     void onError(const Error& error) override { server_.onError(error); }
 
-    void onTransportSessionBound(
-        const std::string& transport_session_id) override {
-      server_.onTransportSessionBound(transport_session_id);
-    }
-
    private:
     McpServer& server_;
   };
@@ -1183,15 +1166,6 @@ class McpServer : public application::ApplicationBase,
   // Connection management
   // Following production pattern: listener owns connections, not threads
   // Connections tracked by count only, ownership managed by listener
-
-  // Current connection being processed (for request context)
-  // This is set temporarily during request processing in dispatcher thread
-  network::Connection* current_connection_{nullptr};
-
-  // Transport session id of the message currently being dispatched (see
-  // onTransportSessionBound). Dispatcher thread only, like
-  // current_connection_. Empty for transports without session identity.
-  std::string current_transport_session_id_;
 
   // Active connections owned by server
   // Following production pattern: all operations in dispatcher thread, no mutex
