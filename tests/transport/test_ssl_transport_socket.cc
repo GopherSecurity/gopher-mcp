@@ -718,6 +718,58 @@ class BioBackpressureMockTransportSocket : public network::TransportSocket {
   int read_call_count_{0};
 };
 
+class PartialWriteMockTransportSocket : public network::TransportSocket {
+ public:
+  explicit PartialWriteMockTransportSocket(size_t max_write)
+      : max_write_(max_write) {}
+
+  void setTransportSocketCallbacks(
+      network::TransportSocketCallbacks& callbacks) override {
+    callbacks_ = &callbacks;
+  }
+
+  std::string protocol() const override { return "partial_write_mock"; }
+  std::string failureReason() const override { return ""; }
+  bool canFlushClose() override { return true; }
+
+  VoidResult connect(network::Socket& socket) override {
+    connected_ = true;
+    return makeVoidSuccess();
+  }
+
+  void closeSocket(network::ConnectionEvent event) override {
+    connected_ = false;
+  }
+
+  TransportIoResult doRead(Buffer& buffer) override {
+    return TransportIoResult::stop();
+  }
+
+  TransportIoResult doWrite(Buffer& buffer, bool end_stream) override {
+    if (max_write_ == 0 || buffer.length() == 0) {
+      return TransportIoResult::stop();
+    }
+
+    const size_t bytes_to_write = std::min(max_write_, buffer.length());
+    std::string chunk = buffer.toString();
+    chunk.resize(bytes_to_write);
+    written_data_.append(chunk);
+    buffer.drain(bytes_to_write);
+    return TransportIoResult::success(bytes_to_write);
+  }
+
+  void onConnected() override {}
+
+  void setMaxWrite(size_t max_write) { max_write_ = max_write; }
+  const std::string& writtenData() const { return written_data_; }
+
+ private:
+  network::TransportSocketCallbacks* callbacks_{nullptr};
+  size_t max_write_;
+  std::string written_data_;
+  bool connected_{false};
+};
+
 class SslTransportSocketBioBackpressureTest : public ::testing::Test {
  protected:
   void SetUp() override {
@@ -805,6 +857,40 @@ TEST_F(SslTransportSocketBioBackpressureTest,
   EXPECT_EQ(second_written, 0);
   EXPECT_EQ(ssl_socket->bio_carryover_->length(), carryover_before);
   EXPECT_EQ(mock_ptr->getReadCallCount(), 0);
+}
+
+TEST_F(SslTransportSocketBioBackpressureTest,
+       MoveFromBioPreservesUnsentEncryptedBytesAfterPartialSocketWrite) {
+  if (!ssl_context_) {
+    GTEST_SKIP() << "SSL context creation failed";
+  }
+
+  auto mock = std::make_unique<PartialWriteMockTransportSocket>(5);
+  auto* mock_ptr = mock.get();
+  auto ssl_socket = std::make_unique<SslTransportSocket>(
+      std::move(mock), ssl_context_, SslTransportSocket::InitialRole::Client,
+      *dispatcher_);
+  ASSERT_TRUE(holds_alternative<std::nullptr_t>(ssl_socket->initializeSsl()));
+
+  const std::string encrypted = repeatedPayload(64);
+  ASSERT_EQ(BIO_write(ssl_socket->internal_bio_, encrypted.data(),
+                      encrypted.size()),
+            static_cast<int>(encrypted.size()));
+  ASSERT_EQ(BIO_ctrl_pending(ssl_socket->network_bio_), encrypted.size());
+
+  const size_t first_written = ssl_socket->moveFromBio();
+
+  EXPECT_EQ(first_written, 5u);
+  EXPECT_EQ(mock_ptr->writtenData(), encrypted.substr(0, 5));
+  ASSERT_EQ(ssl_socket->bio_write_carryover_->length(), encrypted.size() - 5);
+  EXPECT_EQ(BIO_ctrl_pending(ssl_socket->network_bio_), 0u);
+
+  mock_ptr->setMaxWrite(encrypted.size());
+  const size_t second_written = ssl_socket->moveFromBio();
+
+  EXPECT_EQ(second_written, encrypted.size() - 5);
+  EXPECT_EQ(ssl_socket->bio_write_carryover_->length(), 0u);
+  EXPECT_EQ(mock_ptr->writtenData(), encrypted);
 }
 
 // ============================================================================

@@ -238,6 +238,7 @@ SslTransportSocket::SslTransportSocket(network::TransportSocketPtr inner_socket,
   read_buffer_ = std::make_unique<OwnedBuffer>();
   write_buffer_ = std::make_unique<OwnedBuffer>();
   bio_carryover_ = std::make_unique<OwnedBuffer>();
+  bio_write_carryover_ = std::make_unique<OwnedBuffer>();
 
   // Buffers will grow as needed during handshake
 
@@ -1408,11 +1409,42 @@ size_t SslTransportSocket::moveFromBio() {
    * Move data from BIO to socket (optimized)
    */
 
+  size_t total_written = 0;
+
+  // Bytes already removed from OpenSSL's BIO must be written first; reading
+  // fresh BIO bytes before these would reorder the encrypted stream.
+  if (bio_write_carryover_->length() > 0) {
+    const std::string pending_bytes = bio_write_carryover_->toString();
+    auto result = inner_socket_->doWrite(*bio_write_carryover_, false);
+    const size_t bytes_written = std::min<size_t>(
+        static_cast<size_t>(result.bytes_processed_), pending_bytes.size());
+    total_written += bytes_written;
+    GOPHER_LOG_DEBUG(
+        "moveFromBio carryover doWrite bytes_processed={}, remaining={}, "
+        "action={}",
+        result.bytes_processed_, bio_write_carryover_->length(),
+        static_cast<int>(result.action_));
+
+    if (bytes_written < pending_bytes.size()) {
+      auto carryover = std::make_unique<OwnedBuffer>();
+      carryover->add(pending_bytes.data() + bytes_written,
+                     pending_bytes.size() - bytes_written);
+      bio_write_carryover_ = std::move(carryover);
+    } else {
+      bio_write_carryover_ = std::make_unique<OwnedBuffer>();
+    }
+
+    if (result.action_ == TransportIoResult::CLOSE || !result.ok() ||
+        bytes_written < pending_bytes.size()) {
+      return total_written;
+    }
+  }
+
   // Check pending data
   size_t pending = BIO_ctrl_pending(network_bio_);
   GOPHER_LOG_DEBUG("moveFromBio pending={}", pending);
   if (pending == 0) {
-    return 0;
+    return total_written;
   }
 
   // Read from BIO
@@ -1426,6 +1458,7 @@ size_t SslTransportSocket::moveFromBio() {
     return 0;
   }
 
+  std::string bio_bytes(static_cast<const char*>(data), read);
   temp_buffer.commit(slice, read);
   GOPHER_LOG_DEBUG("moveFromBio buffer length after commit={}",
                    temp_buffer.length());
@@ -1434,8 +1467,18 @@ size_t SslTransportSocket::moveFromBio() {
   auto result = inner_socket_->doWrite(temp_buffer, false);
   GOPHER_LOG_DEBUG("moveFromBio doWrite bytes_processed={}, action={}",
                    result.bytes_processed_, static_cast<int>(result.action_));
+  const size_t bytes_written =
+      std::min<size_t>(static_cast<size_t>(result.bytes_processed_),
+                       bio_bytes.size());
+  total_written += bytes_written;
 
-  return result.bytes_processed_;
+  if (bytes_written < bio_bytes.size()) {
+    const size_t carried = bio_bytes.size() - bytes_written;
+    bio_write_carryover_->add(bio_bytes.data() + bytes_written, carried);
+    GOPHER_LOG_DEBUG("moveFromBio carried over {} encrypted bytes", carried);
+  }
+
+  return total_written;
 }
 
 // ============================================================================
