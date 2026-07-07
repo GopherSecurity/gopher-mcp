@@ -1364,12 +1364,14 @@ VoidResult McpConnectionManager::sendJsonMessage(
         "McpConnectionManager write callback executing, conn={}, msg_len={}",
         (void*)active_connection_.get(), json_str.length());
 
+    bool reset_current_http_headers = false;
     if (config_.current_http_headers) {
       auto merged_headers = config_.http_headers;
       for (const auto& header : http_headers) {
         merged_headers[header.first] = header.second;
       }
       *config_.current_http_headers = std::move(merged_headers);
+      reset_current_http_headers = true;
     }
 
     // Create buffer with JSON payload
@@ -1382,6 +1384,10 @@ VoidResult McpConnectionManager::sendJsonMessage(
     // - HTTP filter: HTTP request/response formatting if applicable
     // - Transport socket: raw I/O only
     active_connection_->write(buffer, false);
+
+    if (reset_current_http_headers && config_.current_http_headers) {
+      *config_.current_http_headers = config_.http_headers;
+    }
 
     GOPHER_LOG_DEBUG("McpConnectionManager write completed");
   });
