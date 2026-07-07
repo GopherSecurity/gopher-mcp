@@ -226,6 +226,20 @@ void McpServer::performListen() {
         if (protocol_callbacks_) {
           tcp_listener->setProtocolCallbacks(*protocol_callbacks_);
         }
+
+        // The config-driven chain assembles named filters and does not build
+        // the SSE transport that owns the server->client push channel, so
+        // http_sse_factory_ stays null on this path. Warn once at setup so an
+        // operator relying on notifications/resources/updated (or any
+        // server-initiated notification) is not left debugging silent
+        // non-delivery — sendNotificationToSession reports the same reason
+        // per call, but the listener is where the capability is decided.
+        GOPHER_LOG_WARN(
+            "Config-driven listener '{}' does not provide a server-initiated "
+            "notification channel; resource-update and other server->client "
+            "notifications will not be delivered on this listener. Use the "
+            "built-in HTTP+SSE listener for server push.",
+            listener_config.name);
       } else {
         // Fallback to old constructor with default HTTP/SSE factory for
         // backward compatibility
@@ -506,15 +520,24 @@ VoidResult McpServer::sendNotificationToSession(
   // filter chain (the SSE codec frames it as a `data:` event). This is the
   // only channel that reaches an HTTP+SSE client outside a request cycle.
   if (!session->getTransportSessionId().empty()) {
-    if (http_sse_factory_) {
-      auto json_val = json::to_json(notification);
-      if (http_sse_factory_->sseRegistry().sendResponse(
-              session->getTransportSessionId(), json_val.toString())) {
-        return makeVoidSuccess();
-      }
+    // No SSE registry means this listener has no server-initiated push
+    // channel at all — the config-driven filter-chain path does not build
+    // the SSE transport (see performListen). Distinguish that from a stream
+    // that merely closed, so the failure is diagnosable rather than looking
+    // like a transient disconnect.
+    if (!http_sse_factory_) {
+      return makeVoidError(
+          Error(jsonrpc::INTERNAL_ERROR,
+                "No server-initiated notification channel on this listener "
+                "(server push requires the built-in HTTP+SSE listener)"));
     }
-    // Stream already gone (client disconnected between lookup and send) or
-    // no HTTP factory — report failure so the caller doesn't assume
+    auto json_val = json::to_json(notification);
+    if (http_sse_factory_->sseRegistry().sendResponse(
+            session->getTransportSessionId(), json_val.toString())) {
+      return makeVoidSuccess();
+    }
+    // Registry exists but the stream is gone (client disconnected between
+    // lookup and send) — report failure so the caller doesn't assume
     // delivery.
     return makeVoidError(
         Error(jsonrpc::INTERNAL_ERROR,
