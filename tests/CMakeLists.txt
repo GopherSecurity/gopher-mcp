@@ -1668,6 +1668,17 @@ target_link_libraries(test_server_notification_delivery
 )
 add_test(NAME ServerNotificationDeliveryTest COMMAND test_server_notification_delivery)
 
+add_executable(test_stdio_server_push integration/test_stdio_server_push.cc)
+target_link_libraries(test_stdio_server_push
+    gopher-mcp
+    gopher-mcp-event
+    gtest
+    gtest_main
+    gmock
+    Threads::Threads
+)
+add_test(NAME StdioServerPushTest COMMAND test_stdio_server_push)
+
 add_executable(test_mcp_server_request_routing integration/test_mcp_server_request_routing.cc)
 target_link_libraries(test_mcp_server_request_routing
     gopher-mcp

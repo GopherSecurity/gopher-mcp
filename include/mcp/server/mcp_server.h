@@ -86,6 +86,12 @@ struct McpServerConfig : public application::ApplicationBase::Config {
   std::vector<TransportType> supported_transports = {TransportType::Stdio,
                                                      TransportType::HttpSse};
 
+  // Optional override for the stdio transport's socket configuration.
+  // Defaults to the process's real stdin/stdout; embedders and tests point
+  // it at pipe fds instead (with use_bridge=false) to drive a stdio server
+  // in-process.
+  optional<transport::StdioTransportSocketConfig> stdio_transport_config;
+
   // HTTP/SSE specific configuration
   std::string http_rpc_path = "/rpc";        // Path for JSON-RPC over HTTP
   std::string http_sse_path = "/sse";        // Path for SSE event stream
