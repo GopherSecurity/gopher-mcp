@@ -1,5 +1,9 @@
 #include <gtest/gtest.h>
 
+#include <atomic>
+#include <set>
+#include <thread>
+
 #include "mcp/logging/log_macros.h"
 #include "mcp/logging/logger_registry.h"
 
@@ -262,4 +266,39 @@ TEST_F(LoggerRegistryTest, ThreadSafety) {
   }
 
   EXPECT_EQ(unique_names.size(), num_threads * loggers_per_thread);
+}
+
+TEST_F(LoggerRegistryTest, ShouldLogConcurrentWithBloomFilterUpdates) {
+  registry_->setGlobalLevel(LogLevel::Info);
+  registry_->setBloomFilter(true, 512);
+
+  std::atomic<bool> stop{false};
+  std::atomic<int> ready{0};
+
+  std::thread reader([this, &stop, &ready]() {
+    ready.fetch_add(1);
+    while (!stop.load()) {
+      (void)registry_->shouldLog("concurrent.logger", LogLevel::Debug);
+      (void)registry_->shouldLog("concurrent.logger", LogLevel::Error);
+      (void)registry_->shouldLog("missing.concurrent.logger", LogLevel::Info);
+    }
+  });
+
+  std::thread writer([this, &stop, &ready]() {
+    ready.fetch_add(1);
+    while (ready.load() < 2) {
+    }
+    for (int i = 0; i < 200; ++i) {
+      registry_->getOrCreateLogger("concurrent.logger." + std::to_string(i));
+      registry_->setBloomFilter(true, 512 + static_cast<size_t>(i % 8), 3);
+      registry_->setGlobalLevel((i % 2) == 0 ? LogLevel::Debug
+                                             : LogLevel::Info);
+    }
+    stop.store(true);
+  });
+
+  writer.join();
+  reader.join();
+
+  SUCCEED();
 }
