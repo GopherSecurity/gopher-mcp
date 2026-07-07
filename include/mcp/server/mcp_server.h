@@ -960,6 +960,17 @@ class McpServer : public application::ApplicationBase,
   void onRequest(const jsonrpc::Request& request) override;
   void onNotification(const jsonrpc::Notification& notification) override;
   void onResponse(const jsonrpc::Response& response) override;
+
+  // Context-carrying dispatch entry points. The context travels with the
+  // message from the filter that parsed it, so session keying and the reply
+  // both bind to the message's own origin — never to whichever connection
+  // happened to be accepted or announced most recently. The context-free
+  // overrides above remain only as a degraded fallback for producers that
+  // do not supply origin information.
+  void onRequestWithContext(const jsonrpc::Request& request,
+                            MessageDispatchContext& context);
+  void onNotificationWithContext(const jsonrpc::Notification& notification,
+                                 MessageDispatchContext& context);
   void onConnectionEvent(network::ConnectionEvent event);
   void onError(const Error& error) override;
 
@@ -996,12 +1007,18 @@ class McpServer : public application::ApplicationBase,
   // Register built-in handlers
   void registerBuiltinHandlers();
 
-  // Resolve the session for the message currently being dispatched.
-  // Prefers the transport session id (durable across the short-lived POST
-  // connections of HTTP+SSE) and falls back to connection identity for
+  // Resolve the session for the message described by `context`. Prefers
+  // the transport session id (durable across the short-lived POST
+  // connections of HTTP+SSE) and falls back to the origin connection for
   // transports without one (stdio, plain HTTP). Returns nullptr only when
   // the session limit is reached. Dispatcher thread only.
-  SessionManager::SessionPtr getOrCreateCurrentSession();
+  SessionManager::SessionPtr getOrCreateSessionFor(
+      const MessageDispatchContext& context);
+
+  // Reply path for messages that arrived without origin information (the
+  // context-free legacy hooks): no connection to key a session on, replies
+  // fall back to the first connected stdio manager. Defined in the .cc.
+  class LegacyDispatchContext;
 
   // Deliver a notification to one session's client, routed by how the
   // session is keyed: SSE stream (via the registry), owning connection,
@@ -1093,6 +1110,19 @@ class McpServer : public application::ApplicationBase,
 
     void onNotification(const jsonrpc::Notification& notification) override {
       server_.onNotification(notification);
+    }
+
+    void onRequestWithContext(const jsonrpc::Request& request,
+                              MessageDispatchContext& context) override {
+      GOPHER_LOG_DEBUG(
+          "ServerProtocolCallbacks::onRequestWithContext for method: {}",
+          request.method);
+      server_.onRequestWithContext(request, context);
+    }
+
+    void onNotificationWithContext(const jsonrpc::Notification& notification,
+                                   MessageDispatchContext& context) override {
+      server_.onNotificationWithContext(notification, context);
     }
 
     void onResponse(const jsonrpc::Response& response) override {

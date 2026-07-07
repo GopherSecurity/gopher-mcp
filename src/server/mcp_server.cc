@@ -757,41 +757,87 @@ void McpServer::setupFilterChain(application::FilterChainBuilder& builder) {
   }
 }
 
-SessionManager::SessionPtr McpServer::getOrCreateCurrentSession() {
-  // The transport session binding is strictly single-use: consume it here
-  // and clear it immediately, so it can only ever apply to the one message
-  // whose dispatch it preceded. The transport filter announces it (via
-  // onTransportSessionBound) right before onRequest/onNotification, but a
-  // producer that does NOT announce — stdio, or any non-SSE filter chain —
-  // must not inherit the previous message's id. Clearing on consume makes a
-  // stale binding unrepresentable rather than relying on every producer to
-  // remember to announce an empty id. Dispatch is synchronous per message
-  // on the dispatcher thread, so consume-and-clear is race-free.
-  std::string transport_session_id;
-  transport_session_id.swap(current_transport_session_id_);
-
+SessionManager::SessionPtr McpServer::getOrCreateSessionFor(
+    const MessageDispatchContext& context) {
+  // The context is constructed per message by the transport that parsed
+  // it and dies when the dispatch returns, so a stale binding is
+  // unrepresentable by construction — no consume-and-clear discipline
+  // needed, unlike the ambient announce-then-dispatch scheme this
+  // replaces.
+  //
   // Transport session id wins: for HTTP+SSE each request arrives on a
   // one-shot POST connection, so keying the session on the connection
   // would hand every request a fresh session and silently drop state
   // such as resource subscriptions. The SSE stream id is the identity that
   // actually spans the client's requests — and it is also what the push
   // path needs to find the client's SSE stream.
+  const std::string& transport_session_id = context.transportSessionId();
   if (!transport_session_id.empty()) {
     return session_manager_->getOrCreateSessionByTransportId(
         transport_session_id);
   }
 
   // Connection-keyed fallback for transports where the connection is
-  // long-lived (stdio) or there is no transport session concept.
-  auto session = session_manager_->getSessionByConnection(current_connection_);
+  // long-lived (stdio) or there is no transport session concept. The
+  // origin comes from the message itself, so interleaved reads from
+  // concurrent connections each land in their own session.
+  auto session =
+      session_manager_->getSessionByConnection(context.originConnection());
   if (!session) {
-    session = session_manager_->createSession(current_connection_);
+    session = session_manager_->createSession(context.originConnection());
   }
   return session;
 }
 
+// Reply path for messages that arrived through the context-free legacy
+// hooks. There is no origin connection to reply on, so fall back to the
+// first connected stdio manager — the historical degraded behavior — and
+// fail loudly when there is none, instead of writing to an unrelated
+// connection.
+class McpServer::LegacyDispatchContext : public MessageDispatchContext {
+ public:
+  explicit LegacyDispatchContext(McpServer& server) : server_(server) {}
+
+  network::Connection* originConnection() const override { return nullptr; }
+
+  const std::string& transportSessionId() const override {
+    static const std::string empty;
+    return empty;
+  }
+
+  VoidResult sendResponse(const jsonrpc::Response& response) override {
+    for (auto& conn_manager : server_.connection_managers_) {
+      if (conn_manager->isConnected()) {
+        return conn_manager->sendResponse(response);
+      }
+    }
+    Error err;
+    err.code = jsonrpc::INTERNAL_ERROR;
+    err.message = "no dispatch context and no connected transport";
+    return makeVoidError(err);
+  }
+
+ private:
+  McpServer& server_;
+};
+
 // McpProtocolCallbacks overrides
 void McpServer::onRequest(const jsonrpc::Request& request) {
+  // Context-free legacy entry: the producer did not say where the message
+  // came from. Every in-tree transport dispatches through
+  // onRequestWithContext; reaching this path means an external producer
+  // has not been migrated, so route replies through the degraded legacy
+  // fallback rather than guessing at a connection.
+  GOPHER_LOG_WARN(
+      "Request '{}' dispatched without origin context; session and reply "
+      "routing degraded to the legacy transport fallback",
+      request.method);
+  LegacyDispatchContext context(*this);
+  onRequestWithContext(request, context);
+}
+
+void McpServer::onRequestWithContext(const jsonrpc::Request& request,
+                                     MessageDispatchContext& context) {
   GOPHER_LOG_DEBUG("McpServer::onRequest called with method: {}",
                    request.method);
 
@@ -813,38 +859,25 @@ void McpServer::onRequest(const jsonrpc::Request& request) {
   }
 
   // Resolve the session for this request: transport session id first
-  // (durable across HTTP+SSE POST connections), connection identity as
+  // (durable across HTTP+SSE POST connections), origin connection as
   // fallback.
-  auto session = getOrCreateCurrentSession();
+  auto session = getOrCreateSessionFor(context);
 
   if (session) {
     pending_req->session_id = session->getId();
   }
 
   if (!session) {
-    // Max sessions reached
+    // Max sessions reached. Reply on the requester's own return path —
+    // the context pins it to the connection the request arrived on.
     server_stats_.requests_failed++;
     auto response = jsonrpc::Response::make_error(
         request.id, Error(jsonrpc::INTERNAL_ERROR, "Max sessions reached"));
 
-    // Send response through appropriate mechanism
-    // For HTTP connections, use filter chain; for stdio, use connection manager
-    GOPHER_LOG_DEBUG("Sending error response for max sessions");
-
-    // Send response through the current connection (for TCP/HTTP connections)
-    // Following production pattern: thread-local connection context
-    if (current_connection_) {
-      filter::HttpSseFilterChainFactory::sendHttpResponse(response,
-                                                          *current_connection_);
-    }
-
-    // Also try connection managers (for stdio connections)
-    for (auto& conn_manager : connection_managers_) {
-      if (conn_manager->isConnected()) {
-        GOPHER_LOG_DEBUG("Found connected manager, sending response");
-        conn_manager->sendResponse(response);
-        break;
-      }
+    auto send_result = context.sendResponse(response);
+    if (holds_alternative<Error>(send_result)) {
+      GOPHER_LOG_ERROR("Failed to send max-sessions error response: {}",
+                       get<Error>(send_result).message);
     }
     return;
   }
@@ -901,36 +934,24 @@ void McpServer::onRequest(const jsonrpc::Request& request) {
     }
   }
 
-  // Send response through appropriate channel
-  // Following proper architecture: use filter chain for HTTP, connection
-  // manager for stdio
+  // Send the response along the request's own return path. The context
+  // pins the origin connection and its transport's framing, so concurrent
+  // connections cannot cross-wire replies and a single dispatch can never
+  // fan out to an unrelated transport. A failed send is surfaced instead
+  // of silently dropped.
   GOPHER_LOG_DEBUG("Sending response for request id: {}",
                    holds_alternative<std::string>(request.id)
                        ? get<std::string>(request.id)
                        : std::to_string(get<int64_t>(request.id)));
 
-  // Send response through the current connection (for TCP/HTTP connections)
-  // Following production pattern: server sends JSON-RPC, filter handles HTTP
-  if (current_connection_) {
-    // Convert response to JSON and send through connection
-    // The filter chain will handle HTTP protocol wrapping
-    auto json_val = json::to_json(response);
-    std::string json_str = json_val.toString();
-
-    OwnedBuffer response_buffer;
-    response_buffer.add(json_str);
-
-    // Write JSON-RPC response - HTTP filter will wrap it
-    current_connection_->write(response_buffer, false);
-  }
-
-  // Also try connection managers (for stdio transport)
-  // This is the legacy path for non-HTTP transports
-  for (auto& conn_manager : connection_managers_) {
-    if (conn_manager->isConnected()) {
-      conn_manager->sendResponse(response);
-      break;
-    }
+  auto send_result = context.sendResponse(response);
+  if (holds_alternative<Error>(send_result)) {
+    server_stats_.errors_total++;
+    GOPHER_LOG_ERROR("Failed to send response for request id {}: {}",
+                     holds_alternative<std::string>(request.id)
+                         ? get<std::string>(request.id)
+                         : std::to_string(get<int64_t>(request.id)),
+                     get<Error>(send_result).message);
   }
 
   // Remove request from pending list
@@ -945,12 +966,24 @@ void McpServer::onRequest(const jsonrpc::Request& request) {
 }
 
 void McpServer::onNotification(const jsonrpc::Notification& notification) {
+  // Context-free legacy entry; see onRequest for why this is degraded.
+  GOPHER_LOG_WARN(
+      "Notification '{}' dispatched without origin context; session "
+      "resolution degraded to the legacy transport fallback",
+      notification.method);
+  LegacyDispatchContext context(*this);
+  onNotificationWithContext(notification, context);
+}
+
+void McpServer::onNotificationWithContext(
+    const jsonrpc::Notification& notification,
+    MessageDispatchContext& context) {
   // Handle notification in dispatcher context
   server_stats_.notifications_total++;
 
   // Resolve the session the same way requests do, so a notification sent
   // on a fresh POST connection still lands in the subscriber's session.
-  auto session = getOrCreateCurrentSession();
+  auto session = getOrCreateSessionFor(context);
   if (!session) {
     return;  // Can't process notification without session
   }
