@@ -14,6 +14,7 @@
 #include "mcp/buffer.h"
 #include "mcp/filter/json_rpc_protocol_filter.h"
 #include "mcp/json/json_serialization.h"
+#include "mcp/mcp_connection_manager.h"
 #include "mcp/network/connection_impl.h"
 #include "mcp/network/socket_impl.h"
 
@@ -381,6 +382,64 @@ TEST_F(JsonRpcProtocolFilterTest, RequestDispatchCarriesContext) {
   EXPECT_TRUE(handler->last_send_failed_)
       << "sendResponse with no connection must surface an error, not "
          "silently drop the reply";
+
+  executeInDispatcher([&]() { filter.reset(); });
+}
+
+/**
+ * The config-driven constructor installs ProtocolCallbackBridge between
+ * the filter and the McpProtocolCallbacks. That bridge must forward the
+ * per-message context: if it drops to the context-free hooks, every
+ * config-driven listener chain degrades to the application layer's
+ * legacy path and replies are never written on listener-only servers.
+ */
+TEST_F(JsonRpcProtocolFilterTest, ConfigDrivenBridgeForwardsContext) {
+  class CapturingProtocolCallbacks : public McpProtocolCallbacks {
+   public:
+    void onRequest(const jsonrpc::Request&) override { legacy_requests_++; }
+    void onNotification(const jsonrpc::Notification&) override {
+      legacy_notifications_++;
+    }
+    void onResponse(const jsonrpc::Response&) override {}
+    void onConnectionEvent(network::ConnectionEvent) override {}
+    void onError(const Error&) override {}
+
+    void onRequestWithContext(const jsonrpc::Request&,
+                              MessageDispatchContext&) override {
+      context_requests_++;
+    }
+    void onNotificationWithContext(const jsonrpc::Notification&,
+                                   MessageDispatchContext&) override {
+      context_notifications_++;
+    }
+
+    int legacy_requests_{0};
+    int legacy_notifications_{0};
+    int context_requests_{0};
+    int context_notifications_{0};
+  };
+
+  auto callbacks = std::make_unique<CapturingProtocolCallbacks>();
+  std::unique_ptr<JsonRpcProtocolFilter> filter;
+  executeInDispatcher([&]() {
+    FilterCreationContext context(*dispatcher_, *callbacks,
+                                  ConnectionMode::Server, TransportMetadata());
+    filter = std::make_unique<JsonRpcProtocolFilter>(context,
+                                                     json::JsonValue::object());
+    OwnedBuffer buffer;
+    buffer.add(
+        std::string(R"({"jsonrpc":"2.0","id":9,"method":"test.method"})") +
+        "\n" + std::string(R"({"jsonrpc":"2.0","method":"note.method"})") +
+        "\n");
+    filter->onData(buffer, false);
+  });
+
+  EXPECT_EQ(callbacks->context_requests_, 1)
+      << "bridge must forward the request context, not strip it";
+  EXPECT_EQ(callbacks->legacy_requests_, 0);
+  EXPECT_EQ(callbacks->context_notifications_, 1)
+      << "bridge must forward the notification context, not strip it";
+  EXPECT_EQ(callbacks->legacy_notifications_, 0);
 
   executeInDispatcher([&]() { filter.reset(); });
 }

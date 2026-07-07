@@ -104,7 +104,7 @@ RequestLoggerFilter::~RequestLoggerFilter() {
   std::cout << "✅ [RequestLogger] Destructor completed" << std::endl;
 }
 
-void RequestLoggerFilter::onRequest(const jsonrpc::Request& request) {
+void RequestLoggerFilter::logRequest(const jsonrpc::Request& request) {
   // DEBUG TRACE
   std::cout << "\n🟢 [RequestLogger] onRequest() ENTRY" << std::endl;
   std::cout << "   Method: " << request.method << std::endl;
@@ -120,16 +120,30 @@ void RequestLoggerFilter::onRequest(const jsonrpc::Request& request) {
 
   std::cout << "✅ [RequestLogger] Request logged, propagating to next handler"
             << std::endl;
+}
+
+void RequestLoggerFilter::onRequest(const jsonrpc::Request& request) {
+  logRequest(request);
 
   if (next_callbacks_) {
     next_callbacks_->onRequest(request);
   } else {
-    std::cout << "⚠️  [RequestLogger] No next handler registered!"
-              << std::endl;
+    std::cout << "⚠️  [RequestLogger] No next handler registered!" << std::endl;
   }
 }
 
-void RequestLoggerFilter::onNotification(
+void RequestLoggerFilter::onRequestWithContext(
+    const jsonrpc::Request& request, MessageDispatchContext& context) {
+  logRequest(request);
+
+  if (next_callbacks_) {
+    next_callbacks_->onRequestWithContext(request, context);
+  } else {
+    std::cout << "⚠️  [RequestLogger] No next handler registered!" << std::endl;
+  }
+}
+
+void RequestLoggerFilter::logNotification(
     const jsonrpc::Notification& notification) {
   // DEBUG TRACE
   std::cout << "\n🟢 [RequestLogger] onNotification() ENTRY" << std::endl;
@@ -141,9 +155,24 @@ void RequestLoggerFilter::onNotification(
   json::JsonValue payload = json::to_json(notification);
   logJsonRpcMessage("notification", MessageDirection::Outgoing, summary.str(),
                     payload);
+}
+
+void RequestLoggerFilter::onNotification(
+    const jsonrpc::Notification& notification) {
+  logNotification(notification);
 
   if (next_callbacks_) {
     next_callbacks_->onNotification(notification);
+  }
+}
+
+void RequestLoggerFilter::onNotificationWithContext(
+    const jsonrpc::Notification& notification,
+    MessageDispatchContext& context) {
+  logNotification(notification);
+
+  if (next_callbacks_) {
+    next_callbacks_->onNotificationWithContext(notification, context);
   }
 }
 
@@ -168,8 +197,7 @@ void RequestLoggerFilter::onResponse(const jsonrpc::Response& response) {
   if (next_callbacks_) {
     next_callbacks_->onResponse(response);
   } else {
-    std::cout << "⚠️  [RequestLogger] No next handler registered!"
-              << std::endl;
+    std::cout << "⚠️  [RequestLogger] No next handler registered!" << std::endl;
   }
 }
 
@@ -193,8 +221,7 @@ void RequestLoggerFilter::onProtocolError(const Error& error) {
   if (next_callbacks_) {
     next_callbacks_->onProtocolError(error);
   } else {
-    std::cout << "⚠️  [RequestLogger] No next handler registered!"
-              << std::endl;
+    std::cout << "⚠️  [RequestLogger] No next handler registered!" << std::endl;
   }
 }
 

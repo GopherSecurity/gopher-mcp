@@ -59,6 +59,13 @@ class RequestLoggerFilter : public network::NetworkFilterBase,
   // JsonRpcProtocolFilter::MessageHandler overrides
   void onRequest(const jsonrpc::Request& request) override;
   void onNotification(const jsonrpc::Notification& notification) override;
+  // Context-carrying variants: log identically, then forward the
+  // per-message context so a chain spliced through this filter does not
+  // silently degrade the application layer to its context-free path.
+  void onRequestWithContext(const jsonrpc::Request& request,
+                            MessageDispatchContext& context) override;
+  void onNotificationWithContext(const jsonrpc::Notification& notification,
+                                 MessageDispatchContext& context) override;
   void onResponse(const jsonrpc::Response& response) override;
   void onProtocolError(const Error& error) override;
 
@@ -70,6 +77,11 @@ class RequestLoggerFilter : public network::NetworkFilterBase,
   void setNextCallbacks(JsonRpcProtocolFilter::MessageHandler* callbacks);
 
  private:
+  // Logging shared by the context-free and context-carrying dispatch
+  // entries, so the two can never drift.
+  void logRequest(const jsonrpc::Request& request);
+  void logNotification(const jsonrpc::Notification& notification);
+
   void logJsonRpcMessage(const std::string& message_type,
                          MessageDirection direction,
                          const std::string& summary,

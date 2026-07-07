@@ -71,6 +71,22 @@ class ProtocolCallbackBridge : public JsonRpcProtocolFilter::MessageHandler {
     callbacks_.onError(error);
   }
 
+  // Propagate the per-message origin so config-driven chains (which install
+  // this bridge via the FilterCreationContext constructor) reply on the
+  // connection the message arrived on. Without these overrides the default
+  // forwarding strips the context and the application layer falls onto its
+  // degraded context-free path — on a listener-only server that means the
+  // reply is never written at all.
+  void onRequestWithContext(const jsonrpc::Request& request,
+                            MessageDispatchContext& context) override {
+    callbacks_.onRequestWithContext(request, context);
+  }
+
+  void onNotificationWithContext(const jsonrpc::Notification& notification,
+                                 MessageDispatchContext& context) override {
+    callbacks_.onNotificationWithContext(notification, context);
+  }
+
  private:
   McpProtocolCallbacks& callbacks_;
 };

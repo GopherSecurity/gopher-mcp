@@ -138,6 +138,15 @@ class MetricsFilter : public JsonRpcProtocolFilter::MessageHandler,
   void onNotification(const jsonrpc::Notification& notification) override;
   void onResponse(const jsonrpc::Response& response) override;
   void onProtocolError(const Error& error) override;
+  /**
+   * Context-carrying variants: record the same metrics, then forward the
+   * per-message context so a chain spliced through this filter does not
+   * silently degrade the application layer to its context-free path.
+   */
+  void onRequestWithContext(const jsonrpc::Request& request,
+                            MessageDispatchContext& context) override;
+  void onNotificationWithContext(const jsonrpc::Notification& notification,
+                                 MessageDispatchContext& context) override;
 
   /** Chain to the next message handler */
   void setNextCallbacks(JsonRpcProtocolFilter::MessageHandler* callbacks);
@@ -150,6 +159,10 @@ class MetricsFilter : public JsonRpcProtocolFilter::MessageHandler,
 
   void initializeMetricsState();
   void resetConnectionMetrics();
+  // Metric recording shared by the context-free and context-carrying
+  // dispatch entries, so the two can never drift.
+  void recordRequestMetrics(const jsonrpc::Request& request);
+  void recordNotificationMetrics(const jsonrpc::Notification& notification);
   void updateReceiveRate(size_t bytes);
   void updateSendRate(size_t bytes);
   void updateLatencyMetrics(uint64_t latency_ms);
@@ -305,7 +318,8 @@ inline void MetricsFilter::recordOutgoingBytes(size_t bytes) {
   updateSendRate(bytes);
 }
 
-inline void MetricsFilter::onRequest(const jsonrpc::Request& request) {
+inline void MetricsFilter::recordRequestMetrics(
+    const jsonrpc::Request& request) {
   metrics_.requests_received++;
   recordActivity();
 
@@ -320,13 +334,26 @@ inline void MetricsFilter::onRequest(const jsonrpc::Request& request) {
     pending_requests_[requestIdToString(request.id)] =
         std::chrono::steady_clock::now();
   }
+}
+
+inline void MetricsFilter::onRequest(const jsonrpc::Request& request) {
+  recordRequestMetrics(request);
 
   if (next_callbacks_) {
     next_callbacks_->onRequest(request);
   }
 }
 
-inline void MetricsFilter::onNotification(
+inline void MetricsFilter::onRequestWithContext(
+    const jsonrpc::Request& request, MessageDispatchContext& context) {
+  recordRequestMetrics(request);
+
+  if (next_callbacks_) {
+    next_callbacks_->onRequestWithContext(request, context);
+  }
+}
+
+inline void MetricsFilter::recordNotificationMetrics(
     const jsonrpc::Notification& notification) {
   metrics_.notifications_received++;
   recordActivity();
@@ -335,9 +362,24 @@ inline void MetricsFilter::onNotification(
     std::lock_guard<std::mutex> lock(method_mutex_);
     metrics_.method_counts[notification.method]++;
   }
+}
+
+inline void MetricsFilter::onNotification(
+    const jsonrpc::Notification& notification) {
+  recordNotificationMetrics(notification);
 
   if (next_callbacks_) {
     next_callbacks_->onNotification(notification);
+  }
+}
+
+inline void MetricsFilter::onNotificationWithContext(
+    const jsonrpc::Notification& notification,
+    MessageDispatchContext& context) {
+  recordNotificationMetrics(notification);
+
+  if (next_callbacks_) {
+    next_callbacks_->onNotificationWithContext(notification, context);
   }
 }
 
