@@ -187,14 +187,17 @@ void LoggerRegistry::registerComponentLogger(Component component,
 }
 
 bool LoggerRegistry::shouldLog(const std::string& name, LogLevel level) {
-  // Fast path with bloom filter
+  std::lock_guard<std::mutex> lock(mutex_);
+
+  // Fast path with bloom filter. The filter is rebuilt and updated under the
+  // registry mutex, so read it under the same lock to avoid racing with
+  // register/update paths.
   if (!bloom_filter_.mayContain(name)) {
     // Logger doesn't exist yet, fall back to global level check
     // This allows new component loggers to work without pre-registration
     return level >= global_level_;
   }
 
-  std::lock_guard<std::mutex> lock(mutex_);
   return checkActualLevel(name, level);
 }
 
