@@ -354,6 +354,8 @@ class SslTransportSocket
   // Performance optimizations
   std::unique_ptr<Stats> stats_;           // SSL statistics
   event::TimerPtr handshake_retry_timer_;  // Retry timer with backoff
+  event::TimerPtr shutdown_retry_timer_;   // Timer for close_notify retries
+  uint32_t shutdown_retry_count_{0};       // close_notify retry count
   uint32_t retry_count_{0};                // Retry count for backoff
 
   /**
