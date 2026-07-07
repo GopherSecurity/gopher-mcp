@@ -165,15 +165,6 @@ class HttpSseFilterChainFactory : public network::FilterChainFactory {
   }
 
   /**
-   * Send a response through the connection's filter chain
-   * Following production pattern: connection context flows through
-   * @param response The JSON-RPC response to send
-   * @param connection The connection to send the response on
-   */
-  static void sendHttpResponse(const jsonrpc::Response& response,
-                               network::Connection& connection);
-
-  /**
    * Access the server-side SSE session registry, creating it on first use
    * (same lazy construction createFilterChain performs). This is the
    * server layer's handle for two things it cannot do from inside a
