@@ -966,9 +966,11 @@ class McpServer : public application::ApplicationBase,
   // Request-scoped transport session binding. The transport filter announces
   // the transport-level session id (e.g. SSE stream id from the POST
   // /callback/{id} path) immediately before dispatching each message, on the
-  // dispatcher thread. Stored like current_connection_ as dispatch context;
-  // an empty id means the current message's transport has no session concept
-  // and session lookup falls back to connection identity.
+  // dispatcher thread. It is single-use: getOrCreateCurrentSession() consumes
+  // and clears it, so it applies only to the one message whose dispatch it
+  // preceded and a non-announcing producer can never inherit a stale id. An
+  // empty id means the current message's transport has no session concept and
+  // session lookup falls back to connection identity.
   void onTransportSessionBound(const std::string& transport_session_id) {
     current_transport_session_id_ = transport_session_id;
   }
