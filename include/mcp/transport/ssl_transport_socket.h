@@ -330,6 +330,11 @@ class SslTransportSocket
   // more, otherwise the TLS byte stream is corrupted. Empty in the common case.
   std::unique_ptr<Buffer> bio_carryover_;
 
+  // Encrypted bytes read out of OpenSSL's network BIO that the underlying
+  // socket could not accept yet. BIO_read() consumes them from OpenSSL, so they
+  // must be written before reading more encrypted output from the BIO.
+  std::unique_ptr<Buffer> bio_write_carryover_;
+
   // Statistics
   uint64_t bytes_encrypted_{0};     // Total bytes encrypted
   uint64_t bytes_decrypted_{0};     // Total bytes decrypted
