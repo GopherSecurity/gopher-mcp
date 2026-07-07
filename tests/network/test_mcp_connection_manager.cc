@@ -1,13 +1,11 @@
-#include <memory>
 #include <future>
+#include <memory>
 #include <string>
 #include <thread>
-
-#include <gtest/gtest.h>
-
 #include <unistd.h>
 
 #include <arpa/inet.h>
+#include <gtest/gtest.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
 
@@ -25,23 +23,22 @@ class LoopbackHttpCapture {
     EXPECT_GE(listen_fd_, 0);
 
     int opt = 1;
-    EXPECT_EQ(::setsockopt(listen_fd_, SOL_SOCKET, SO_REUSEADDR, &opt,
-                           sizeof(opt)),
-              0);
+    EXPECT_EQ(
+        ::setsockopt(listen_fd_, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)),
+        0);
 
     sockaddr_in addr{};
     addr.sin_family = AF_INET;
     addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
     addr.sin_port = 0;
-    EXPECT_EQ(::bind(listen_fd_, reinterpret_cast<sockaddr*>(&addr),
-                     sizeof(addr)),
-              0);
+    EXPECT_EQ(
+        ::bind(listen_fd_, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)),
+        0);
     EXPECT_EQ(::listen(listen_fd_, 1), 0);
 
     socklen_t len = sizeof(addr);
-    EXPECT_EQ(::getsockname(listen_fd_, reinterpret_cast<sockaddr*>(&addr),
-                            &len),
-              0);
+    EXPECT_EQ(
+        ::getsockname(listen_fd_, reinterpret_cast<sockaddr*>(&addr), &len), 0);
     port_ = ntohs(addr.sin_port);
 
     request_future_ = request_promise_.get_future();
@@ -538,23 +535,23 @@ TEST_F(McpConnectionManagerTest, HttpPostFiltersUnsafeAndGeneratedHeaders) {
 
   McpConnectionManager http_manager(*dispatcher_, *socket_interface_,
                                     http_config);
-  http_manager.onMessageEndpoint("http://127.0.0.1:" +
-                                 std::to_string(capture.port()) + "/mcp");
+  http_manager.onMessageEndpoint(
+      "http://127.0.0.1:" + std::to_string(capture.port()) + "/mcp");
 
   std::string nul_value = "bad";
   nul_value.push_back('\0');
   nul_value += "value";
 
-  ASSERT_TRUE(http_manager.sendHttpPost(
-      "{\"jsonrpc\":\"2.0\",\"method\":\"ping\"}",
-      {{"X-Request-ID", "req-1"},
-       {"Content-Length", "9999"},
-       {"X-Injected", "ok\r\nX-Injected-Header: yes"},
-       {"X-Nul", nul_value}}));
+  ASSERT_TRUE(
+      http_manager.sendHttpPost("{\"jsonrpc\":\"2.0\",\"method\":\"ping\"}",
+                                {{"X-Request-ID", "req-1"},
+                                 {"Content-Length", "9999"},
+                                 {"X-Injected", "ok\r\nX-Injected-Header: yes"},
+                                 {"X-Nul", nul_value}}));
 
   auto& request_future = capture.requestFuture();
-  const auto deadline = std::chrono::steady_clock::now() +
-                        std::chrono::milliseconds(2000);
+  const auto deadline =
+      std::chrono::steady_clock::now() + std::chrono::milliseconds(2000);
   while (request_future.wait_for(std::chrono::milliseconds(0)) !=
              std::future_status::ready &&
          std::chrono::steady_clock::now() < deadline) {
@@ -573,8 +570,7 @@ TEST_F(McpConnectionManagerTest, HttpPostFiltersUnsafeAndGeneratedHeaders) {
       << request;
   EXPECT_EQ(request.find("Transfer-Encoding: chunked"), std::string::npos)
       << request;
-  EXPECT_EQ(request.find("Content-Length: 9999"), std::string::npos)
-      << request;
+  EXPECT_EQ(request.find("Content-Length: 9999"), std::string::npos) << request;
   EXPECT_EQ(request.find("X-Smuggled: yes"), std::string::npos) << request;
   EXPECT_EQ(request.find("X-Injected-Header: yes"), std::string::npos)
       << request;

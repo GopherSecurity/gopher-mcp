@@ -44,8 +44,8 @@ bool isGeneratedClientHeader(const std::string& name) {
   const std::string lower = toLowerHeaderName(name);
   return lower == "host" || lower == "content-length" ||
          lower == "transfer-encoding" || lower == "connection" ||
-         lower == "accept" || lower == "content-type" || lower == "user-agent" ||
-         lower == "cache-control";
+         lower == "accept" || lower == "content-type" ||
+         lower == "user-agent" || lower == "cache-control";
 }
 
 namespace {
