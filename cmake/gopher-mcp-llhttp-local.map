@@ -1,4 +1,13 @@
 {
   local:
-    llhttp*;
+    llhttp_execute;
+    llhttp_finish;
+    llhttp_get_error_pos;
+    llhttp_get_error_reason;
+    llhttp_init;
+    llhttp_pause;
+    llhttp_reset;
+    llhttp_resume;
+    llhttp_settings_init;
+    llhttp_should_keep_alive;
 };
