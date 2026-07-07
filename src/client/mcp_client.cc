@@ -68,6 +68,12 @@ std::string logTruncate(const std::string& s, size_t max = 512) {
   }
   return s.substr(0, max) + "...(" + std::to_string(s.size()) + " bytes)";
 }
+
+std::future<Response> makeReadyResponseFuture(const Response& response) {
+  std::promise<Response> promise;
+  promise.set_value(response);
+  return promise.get_future();
+}
 }  // namespace
 
 // Out-of-class definition for static constexpr member (required for C++14)
@@ -398,6 +404,7 @@ void McpClient::shutdown() {
     return;
   }
   shutting_down_ = true;
+  alive_.reset();
 
   // Close connection directly without triggering state machine
   if (connection_manager_) {
@@ -461,9 +468,21 @@ std::future<InitializeResult> McpClient::initializeProtocol() {
   // thread.
 
   auto request_future_ptr = std::make_shared<std::future<jsonrpc::Response>>();
+  std::weak_ptr<bool> alive = alive_;
+  std::string protocol_version = config_.protocol_version;
+  event::Dispatcher* dispatcher = main_dispatcher_;
+  McpClient* client = this;
 
   // Step 1: Post to dispatcher to send the request (non-blocking)
-  main_dispatcher_->post([this, request_future_ptr]() {
+  dispatcher->post([this, alive, request_future_ptr]() {
+    if (alive.expired()) {
+      *request_future_ptr = makeReadyResponseFuture(Response::make_error(
+          RequestId(0),
+          Error(::mcp::jsonrpc::INTERNAL_ERROR,
+                "Client shut down before initialize request was sent")));
+      return;
+    }
+
     // Notify protocol state machine that initialization is starting
     if (protocol_state_machine_) {
       protocol_state_machine_->handleEvent(
@@ -503,10 +522,15 @@ std::future<InitializeResult> McpClient::initializeProtocol() {
   // from the dispatcher elsewhere, so writing them from this worker thread
   // would be a data race. Only the final promise resolution runs on whichever
   // thread (dispatcher or worker) completes parsing.
-  std::thread([this, result_promise, request_future_ptr]() {
+  std::thread([alive, dispatcher, protocol_version, client, result_promise,
+               request_future_ptr]() {
     try {
       // Wait for dispatcher to publish the request future.
       while (!request_future_ptr->valid()) {
+        if (alive.expired()) {
+          throw std::runtime_error(
+              "Client shut down before initialize request was sent");
+        }
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
       }
 
@@ -525,77 +549,28 @@ std::future<InitializeResult> McpClient::initializeProtocol() {
       GOPHER_LOG_FLOW_DEBUG("MCP invoke: initialize succeeded");
 
       // Parse InitializeResult from response (pure parsing — no shared state).
-      InitializeResult init_result;
-      if (holds_alternative<Metadata>(response.result.value())) {
-        auto& metadata = get<Metadata>(response.result.value());
-
-        auto proto_it = metadata.find("protocolVersion");
-        if (proto_it != metadata.end() &&
-            holds_alternative<std::string>(proto_it->second)) {
-          init_result.protocolVersion = get<std::string>(proto_it->second);
-        }
-
-        auto name_it = metadata.find("serverInfo.name");
-        auto version_it = metadata.find("serverInfo.version");
-        if (name_it != metadata.end() && version_it != metadata.end()) {
-          Implementation server_info(
-              holds_alternative<std::string>(name_it->second)
-                  ? get<std::string>(name_it->second)
-                  : "",
-              holds_alternative<std::string>(version_it->second)
-                  ? get<std::string>(version_it->second)
-                  : "");
-          init_result.serverInfo = mcp::make_optional(server_info);
-        }
-
-        ServerCapabilities caps;
-
-        auto tools_it = metadata.find("capabilities.tools");
-        if (tools_it != metadata.end() &&
-            holds_alternative<bool>(tools_it->second)) {
-          caps.tools = mcp::make_optional(get<bool>(tools_it->second));
-        }
-
-        auto prompts_it = metadata.find("capabilities.prompts");
-        if (prompts_it != metadata.end() &&
-            holds_alternative<bool>(prompts_it->second)) {
-          caps.prompts = mcp::make_optional(get<bool>(prompts_it->second));
-        }
-
-        auto resources_it = metadata.find("capabilities.resources");
-        if (resources_it != metadata.end() &&
-            holds_alternative<bool>(resources_it->second)) {
-          caps.resources =
-              mcp::make_optional(variant<bool, ResourcesCapability>(
-                  get<bool>(resources_it->second)));
-        }
-
-        auto logging_it = metadata.find("capabilities.logging");
-        if (logging_it != metadata.end() &&
-            holds_alternative<bool>(logging_it->second)) {
-          caps.logging = mcp::make_optional(get<bool>(logging_it->second));
-        }
-
-        init_result.capabilities = caps;
-      } else {
-        init_result.protocolVersion = config_.protocol_version;
-        init_result.capabilities = ServerCapabilities();
-      }
+      InitializeResult init_result =
+          parseInitializeResponse(response, protocol_version);
 
       // Commit state on the dispatcher thread, then fulfill the promise.
       // The promise is fulfilled after the post completes so callers who
       // proceed on future.get() see initialized_/server_capabilities_
       // already published.
-      if (!main_dispatcher_) {
+      if (!dispatcher || alive.expired()) {
         result_promise->set_exception(
-            std::make_exception_ptr(std::runtime_error("No dispatcher")));
+            std::make_exception_ptr(std::runtime_error("Client shut down")));
         return;
       }
-      main_dispatcher_->post([this, result_promise, init_result]() {
-        server_capabilities_ = init_result.capabilities;
-        initialized_ = true;
-        if (protocol_state_machine_) {
-          protocol_state_machine_->handleEvent(
+      dispatcher->post([client, alive, result_promise, init_result]() {
+        if (alive.expired()) {
+          result_promise->set_exception(
+              std::make_exception_ptr(std::runtime_error("Client shut down")));
+          return;
+        }
+        client->server_capabilities_ = init_result.capabilities;
+        client->initialized_ = true;
+        if (client->protocol_state_machine_) {
+          client->protocol_state_machine_->handleEvent(
               protocol::McpProtocolEvent::INITIALIZED);
         }
         result_promise->set_value(init_result);
@@ -606,6 +581,71 @@ std::future<InitializeResult> McpClient::initializeProtocol() {
   }).detach();
 
   return result_promise->get_future();
+}
+
+InitializeResult McpClient::parseInitializeResponse(
+    const jsonrpc::Response& response, const std::string& protocol_version) {
+  if (!response.result.has_value()) {
+    throw std::runtime_error("Initialize response missing result");
+  }
+
+  InitializeResult init_result;
+  if (holds_alternative<Metadata>(response.result.value())) {
+    auto& metadata = get<Metadata>(response.result.value());
+
+    auto proto_it = metadata.find("protocolVersion");
+    if (proto_it != metadata.end() &&
+        holds_alternative<std::string>(proto_it->second)) {
+      init_result.protocolVersion = get<std::string>(proto_it->second);
+    }
+
+    auto name_it = metadata.find("serverInfo.name");
+    auto version_it = metadata.find("serverInfo.version");
+    if (name_it != metadata.end() && version_it != metadata.end()) {
+      Implementation server_info(
+          holds_alternative<std::string>(name_it->second)
+              ? get<std::string>(name_it->second)
+              : "",
+          holds_alternative<std::string>(version_it->second)
+              ? get<std::string>(version_it->second)
+              : "");
+      init_result.serverInfo = mcp::make_optional(server_info);
+    }
+
+    ServerCapabilities caps;
+
+    auto tools_it = metadata.find("capabilities.tools");
+    if (tools_it != metadata.end() &&
+        holds_alternative<bool>(tools_it->second)) {
+      caps.tools = mcp::make_optional(get<bool>(tools_it->second));
+    }
+
+    auto prompts_it = metadata.find("capabilities.prompts");
+    if (prompts_it != metadata.end() &&
+        holds_alternative<bool>(prompts_it->second)) {
+      caps.prompts = mcp::make_optional(get<bool>(prompts_it->second));
+    }
+
+    auto resources_it = metadata.find("capabilities.resources");
+    if (resources_it != metadata.end() &&
+        holds_alternative<bool>(resources_it->second)) {
+      caps.resources = mcp::make_optional(
+          variant<bool, ResourcesCapability>(get<bool>(resources_it->second)));
+    }
+
+    auto logging_it = metadata.find("capabilities.logging");
+    if (logging_it != metadata.end() &&
+        holds_alternative<bool>(logging_it->second)) {
+      caps.logging = mcp::make_optional(get<bool>(logging_it->second));
+    }
+
+    init_result.capabilities = caps;
+  } else {
+    init_result.protocolVersion = protocol_version;
+    init_result.capabilities = ServerCapabilities();
+  }
+
+  return init_result;
 }
 
 // Send request with future-based async API

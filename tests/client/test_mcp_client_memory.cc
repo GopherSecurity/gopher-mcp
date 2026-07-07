@@ -27,7 +27,16 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wkeyword-macro"
+#endif
+#define private public
 #include "mcp/client/mcp_client.h"
+#undef private
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#endif
 
 namespace mcp {
 namespace client {
@@ -396,6 +405,28 @@ TEST_F(ClientComponentLifecycleTest, RapidRecreationStress) {
 // ============================================================================
 
 class AsyncPatternMemoryTest : public ::testing::Test {};
+
+TEST_F(AsyncPatternMemoryTest, ClientLifetimeTokenExpiresOnShutdown) {
+  McpClient client(McpClientConfig{});
+  std::weak_ptr<bool> alive = client.alive_;
+
+  ASSERT_FALSE(alive.expired());
+  client.shutdown();
+
+  EXPECT_TRUE(alive.expired());
+}
+
+TEST_F(AsyncPatternMemoryTest, InitializeResponseWithoutResultFails) {
+  McpClientConfig config;
+  jsonrpc::Response response(RequestId(1));
+
+  try {
+    (void)McpClient::parseInitializeResponse(response, config.protocol_version);
+    FAIL() << "Expected initialize response without result to fail";
+  } catch (const std::runtime_error& e) {
+    EXPECT_THAT(std::string(e.what()), testing::HasSubstr("missing result"));
+  }
+}
 
 /**
  * Test 4.1: shared_ptr captures in detached threads survive scope exit

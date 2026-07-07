@@ -629,6 +629,7 @@ class McpClient : public application::ApplicationBase {
   // Protocol state
   bool initialized_{false};
   ServerCapabilities server_capabilities_;
+  std::shared_ptr<bool> alive_{std::make_shared<bool>(true)};
 
   // Protocol state machine for managing MCP protocol lifecycle
   std::unique_ptr<protocol::McpProtocolStateMachine> protocol_state_machine_;
@@ -646,6 +647,8 @@ class McpClient : public application::ApplicationBase {
   std::mutex connect_promise_mutex_;
 
   // Protocol state coordination
+  static InitializeResult parseInitializeResponse(
+      const jsonrpc::Response& response, const std::string& protocol_version);
   void coordinateProtocolState();
   void handleProtocolStateChange(
       const protocol::ProtocolStateTransitionContext& context);
