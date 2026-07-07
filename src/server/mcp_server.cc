@@ -789,6 +789,21 @@ SessionManager::SessionPtr McpServer::getOrCreateSessionFor(
         transport_session_id);
   }
 
+  // No origin at all: a context-free legacy dispatch. A null-keyed
+  // session can never be found again by getSessionByConnection, so
+  // creating one per message would leak an unretrievable session per
+  // message until max_sessions starves every transport. Keep exactly one
+  // shared session for this path instead — which also preserves a legacy
+  // client's initialize/subscription state across messages. Re-create it
+  // only if the expiry sweep removed it.
+  if (context.originConnection() == nullptr) {
+    if (!legacy_session_ ||
+        !session_manager_->getSession(legacy_session_->getId())) {
+      legacy_session_ = session_manager_->createSession(nullptr);
+    }
+    return legacy_session_;
+  }
+
   // Connection-keyed fallback for transports where the connection is
   // long-lived (stdio) or there is no transport session concept. The
   // origin comes from the message itself, so interleaved reads from
@@ -839,11 +854,19 @@ void McpServer::onRequest(const jsonrpc::Request& request) {
   // came from. Every in-tree transport dispatches through
   // onRequestWithContext; reaching this path means an external producer
   // has not been migrated, so route replies through the degraded legacy
-  // fallback rather than guessing at a connection.
-  GOPHER_LOG_WARN(
-      "Request '{}' dispatched without origin context; session and reply "
-      "routing degraded to the legacy transport fallback",
-      request.method);
+  // fallback rather than guessing at a connection. Warn once per server —
+  // a legacy producer hits this on every message, and repeating the same
+  // warning per message is flooding, not signal.
+  if (!legacy_dispatch_warned_) {
+    legacy_dispatch_warned_ = true;
+    GOPHER_LOG_WARN(
+        "Request '{}' dispatched without origin context; session and reply "
+        "routing degraded to the legacy transport fallback (warned once; "
+        "further context-free dispatches log at debug)",
+        request.method);
+  } else {
+    GOPHER_LOG_DEBUG("Context-free dispatch of request '{}'", request.method);
+  }
   LegacyDispatchContext context(*this);
   onRequestWithContext(request, context);
 }
@@ -978,11 +1001,19 @@ void McpServer::onRequestWithContext(const jsonrpc::Request& request,
 }
 
 void McpServer::onNotification(const jsonrpc::Notification& notification) {
-  // Context-free legacy entry; see onRequest for why this is degraded.
-  GOPHER_LOG_WARN(
-      "Notification '{}' dispatched without origin context; session "
-      "resolution degraded to the legacy transport fallback",
-      notification.method);
+  // Context-free legacy entry; see onRequest for why this is degraded and
+  // why the warning fires only once per server.
+  if (!legacy_dispatch_warned_) {
+    legacy_dispatch_warned_ = true;
+    GOPHER_LOG_WARN(
+        "Notification '{}' dispatched without origin context; session "
+        "resolution degraded to the legacy transport fallback (warned once; "
+        "further context-free dispatches log at debug)",
+        notification.method);
+  } else {
+    GOPHER_LOG_DEBUG("Context-free dispatch of notification '{}'",
+                     notification.method);
+  }
   LegacyDispatchContext context(*this);
   onNotificationWithContext(notification, context);
 }

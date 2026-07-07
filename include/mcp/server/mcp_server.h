@@ -1014,6 +1014,18 @@ class McpServer : public application::ApplicationBase,
   // fall back to the first connected stdio manager. Defined in the .cc.
   class LegacyDispatchContext;
 
+  // The single shared session for context-free dispatches. A null-keyed
+  // session is unretrievable by any lookup, so creating one per message
+  // would leak sessions until max_sessions starves every transport;
+  // reusing one also preserves a legacy client's state across messages.
+  // Dispatcher thread only.
+  SessionManager::SessionPtr legacy_session_;
+
+  // The context-free dispatch warning fires once per server, not per
+  // message: a legacy producer emits it on every single message, which is
+  // log flooding, not signal. Dispatcher thread only.
+  bool legacy_dispatch_warned_{false};
+
   // Deliver a notification to one session's client, routed by how the
   // session is keyed: SSE stream (via the registry), owning connection,
   // or the stdio connection manager. Dispatcher thread only.
