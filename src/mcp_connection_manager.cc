@@ -1,8 +1,6 @@
 #include "mcp/mcp_connection_manager.h"
 
-#include <algorithm>
 #include <cassert>
-#include <cctype>
 #include <cstring>
 #include <iostream>
 #include <sstream>
@@ -24,6 +22,7 @@
 #endif
 
 #include "mcp/core/result.h"
+#include "mcp/filter/http_codec_filter.h"
 #include "mcp/filter/http_sse_filter_chain_factory.h"
 #include "mcp/filter/protocol_detection_filter_chain_factory.h"
 #include "mcp/filter/stdio_filter_chain_factory.h"
@@ -1055,16 +1054,8 @@ bool McpConnectionManager::sendHttpPost(
     merged_headers[header.first] = header.second;
   }
   for (const auto& header : merged_headers) {
-    if (header.first.empty() || header.second.empty()) {
-      continue;
-    }
-    const std::string name = header.first;
-    std::string lower = name;
-    std::transform(
-        lower.begin(), lower.end(), lower.begin(),
-        [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-    if (lower == "host" || lower == "content-type" ||
-        lower == "content-length" || lower == "connection") {
+    if (!filter::isValidClientHeader(header.first, header.second) ||
+        filter::isGeneratedClientHeader(header.first)) {
       continue;
     }
     request << header.first << ": " << header.second << "\r\n";

@@ -1,7 +1,15 @@
 #include <memory>
+#include <future>
 #include <string>
+#include <thread>
 
 #include <gtest/gtest.h>
+
+#include <unistd.h>
+
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
 
 #include "mcp/event/event_loop.h"
 #include "mcp/mcp_connection_manager.h"
@@ -9,6 +17,81 @@
 
 namespace mcp {
 namespace {
+
+class LoopbackHttpCapture {
+ public:
+  LoopbackHttpCapture() {
+    listen_fd_ = ::socket(AF_INET, SOCK_STREAM, 0);
+    EXPECT_GE(listen_fd_, 0);
+
+    int opt = 1;
+    EXPECT_EQ(::setsockopt(listen_fd_, SOL_SOCKET, SO_REUSEADDR, &opt,
+                           sizeof(opt)),
+              0);
+
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    addr.sin_port = 0;
+    EXPECT_EQ(::bind(listen_fd_, reinterpret_cast<sockaddr*>(&addr),
+                     sizeof(addr)),
+              0);
+    EXPECT_EQ(::listen(listen_fd_, 1), 0);
+
+    socklen_t len = sizeof(addr);
+    EXPECT_EQ(::getsockname(listen_fd_, reinterpret_cast<sockaddr*>(&addr),
+                            &len),
+              0);
+    port_ = ntohs(addr.sin_port);
+
+    request_future_ = request_promise_.get_future();
+    server_thread_ = std::thread([this]() { acceptOne(); });
+  }
+
+  ~LoopbackHttpCapture() {
+    if (listen_fd_ >= 0) {
+      ::close(listen_fd_);
+    }
+    if (server_thread_.joinable()) {
+      server_thread_.join();
+    }
+  }
+
+  uint16_t port() const { return port_; }
+
+  std::future<std::string>& requestFuture() { return request_future_; }
+
+ private:
+  void acceptOne() {
+    int fd = ::accept(listen_fd_, nullptr, nullptr);
+    if (fd < 0) {
+      request_promise_.set_value("");
+      return;
+    }
+
+    std::string request;
+    char buf[512];
+    while (request.find("\r\n\r\n") == std::string::npos) {
+      ssize_t n = ::recv(fd, buf, sizeof(buf), 0);
+      if (n <= 0) {
+        break;
+      }
+      request.append(buf, static_cast<size_t>(n));
+    }
+
+    const char response[] =
+        "HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+    (void)::send(fd, response, sizeof(response) - 1, 0);
+    ::close(fd);
+    request_promise_.set_value(request);
+  }
+
+  int listen_fd_{-1};
+  uint16_t port_{0};
+  std::promise<std::string> request_promise_;
+  std::future<std::string> request_future_;
+  std::thread server_thread_;
+};
 
 // Mock MCP message callbacks
 class MockMcpProtocolCallbacks : public McpProtocolCallbacks {
@@ -442,6 +525,60 @@ TEST_F(McpConnectionManagerTest, HttpSseConfig) {
   EXPECT_FALSE(http_manager->isConnected());
 
   // TODO: Add integration test with real dispatcher for HTTP/SSE connections
+}
+
+TEST_F(McpConnectionManagerTest, HttpPostFiltersUnsafeAndGeneratedHeaders) {
+  LoopbackHttpCapture capture;
+
+  McpConnectionConfig http_config;
+  http_config.transport_type = TransportType::HttpSse;
+  http_config.http_headers = {{"Authorization", "Bearer base-token"},
+                              {"Transfer-Encoding", "chunked"},
+                              {"X-Bad-Base", "ok\r\nX-Smuggled: yes"}};
+
+  McpConnectionManager http_manager(*dispatcher_, *socket_interface_,
+                                    http_config);
+  http_manager.onMessageEndpoint("http://127.0.0.1:" +
+                                 std::to_string(capture.port()) + "/mcp");
+
+  std::string nul_value = "bad";
+  nul_value.push_back('\0');
+  nul_value += "value";
+
+  ASSERT_TRUE(http_manager.sendHttpPost(
+      "{\"jsonrpc\":\"2.0\",\"method\":\"ping\"}",
+      {{"X-Request-ID", "req-1"},
+       {"Content-Length", "9999"},
+       {"X-Injected", "ok\r\nX-Injected-Header: yes"},
+       {"X-Nul", nul_value}}));
+
+  auto& request_future = capture.requestFuture();
+  const auto deadline = std::chrono::steady_clock::now() +
+                        std::chrono::milliseconds(2000);
+  while (request_future.wait_for(std::chrono::milliseconds(0)) !=
+             std::future_status::ready &&
+         std::chrono::steady_clock::now() < deadline) {
+    dispatcher_->run(event::RunType::NonBlock);
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  }
+
+  ASSERT_EQ(request_future.wait_for(std::chrono::milliseconds(0)),
+            std::future_status::ready);
+  const std::string request = request_future.get();
+
+  EXPECT_NE(request.find("Authorization: Bearer base-token\r\n"),
+            std::string::npos)
+      << request;
+  EXPECT_NE(request.find("X-Request-ID: req-1\r\n"), std::string::npos)
+      << request;
+  EXPECT_EQ(request.find("Transfer-Encoding: chunked"), std::string::npos)
+      << request;
+  EXPECT_EQ(request.find("Content-Length: 9999"), std::string::npos)
+      << request;
+  EXPECT_EQ(request.find("X-Smuggled: yes"), std::string::npos) << request;
+  EXPECT_EQ(request.find("X-Injected-Header: yes"), std::string::npos)
+      << request;
+  EXPECT_EQ(request.find("X-Nul:"), std::string::npos) << request;
 }
 
 TEST_F(McpConnectionManagerTest, FactoryFunction) {
