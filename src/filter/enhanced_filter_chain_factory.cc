@@ -333,6 +333,25 @@ class EnhancedProtocolFilter : public network::Filter,
     mcp_callbacks_.onNotification(notification);
   }
 
+  // Context-carrying variants: track metrics identically, then propagate
+  // the per-message origin so the application layer can reply on the
+  // connection the message arrived on.
+  void onRequestWithContext(const jsonrpc::Request& request,
+                            MessageDispatchContext& context) override {
+    if (metrics_collector_) {
+      metrics_collector_->onRequest(request);
+    }
+    mcp_callbacks_.onRequestWithContext(request, context);
+  }
+
+  void onNotificationWithContext(const jsonrpc::Notification& notification,
+                                 MessageDispatchContext& context) override {
+    if (metrics_collector_) {
+      metrics_collector_->onNotification(notification);
+    }
+    mcp_callbacks_.onNotificationWithContext(notification, context);
+  }
+
   void onProtocolError(const Error& error) override {
     // Track errors
     if (circuit_breaker_) {

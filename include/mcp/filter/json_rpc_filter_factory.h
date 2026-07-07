@@ -33,6 +33,18 @@ class DirectJsonRpcCallbacks : public JsonRpcProtocolFilter::MessageHandler {
     mcp_callbacks_.onError(error);
   }
 
+  // Propagate the per-message origin built by the JSON-RPC filter so the
+  // application layer can reply on the connection the message arrived on.
+  void onRequestWithContext(const jsonrpc::Request& request,
+                            MessageDispatchContext& context) override {
+    mcp_callbacks_.onRequestWithContext(request, context);
+  }
+
+  void onNotificationWithContext(const jsonrpc::Notification& notification,
+                                 MessageDispatchContext& context) override {
+    mcp_callbacks_.onNotificationWithContext(notification, context);
+  }
+
  private:
   McpProtocolCallbacks& mcp_callbacks_;
 };

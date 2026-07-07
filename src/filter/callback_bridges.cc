@@ -153,6 +153,24 @@ void JsonRpcToProtocolBridge::onNotification(
   callbacks_.onNotification(notification);
 }
 
+void JsonRpcToProtocolBridge::onRequestWithContext(
+    const jsonrpc::Request& request, MessageDispatchContext& context) {
+  GOPHER_LOG_DEBUG(
+      "JsonRpcToProtocolBridge::onRequestWithContext called with method='{}'",
+      request.method);
+  callbacks_.onRequestWithContext(request, context);
+}
+
+void JsonRpcToProtocolBridge::onNotificationWithContext(
+    const jsonrpc::Notification& notification,
+    MessageDispatchContext& context) {
+  GOPHER_LOG_DEBUG(
+      "JsonRpcToProtocolBridge::onNotificationWithContext called with "
+      "method='{}'",
+      notification.method);
+  callbacks_.onNotificationWithContext(notification, context);
+}
+
 void JsonRpcToProtocolBridge::onResponse(const jsonrpc::Response& response) {
   if (response.id.has_value()) {
     GOPHER_LOG_DEBUG("JsonRpcToProtocolBridge::onResponse called with id={}",
