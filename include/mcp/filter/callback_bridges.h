@@ -99,6 +99,12 @@ class JsonRpcToProtocolBridge : public JsonRpcProtocolFilter::MessageHandler {
   void onNotification(const jsonrpc::Notification& notification) override;
   void onResponse(const jsonrpc::Response& response) override;
   void onProtocolError(const Error& error) override;
+  // Propagate the per-message origin built by the JSON-RPC filter so the
+  // application layer can reply on the connection the message arrived on.
+  void onRequestWithContext(const jsonrpc::Request& request,
+                            MessageDispatchContext& context) override;
+  void onNotificationWithContext(const jsonrpc::Notification& notification,
+                                 MessageDispatchContext& context) override;
 
  private:
   McpProtocolCallbacks& callbacks_;

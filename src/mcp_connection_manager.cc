@@ -767,6 +767,22 @@ void McpConnectionManager::onRequest(const jsonrpc::Request& request) {
   }
 }
 
+void McpConnectionManager::onRequestWithContext(
+    const jsonrpc::Request& request, MessageDispatchContext& context) {
+  if (protocol_callbacks_) {
+    protocol_callbacks_->onRequestWithContext(request, context);
+  }
+}
+
+void McpConnectionManager::onNotificationWithContext(
+    const jsonrpc::Notification& notification,
+    MessageDispatchContext& context) {
+  if (protocol_callbacks_) {
+    protocol_callbacks_->onNotificationWithContext(notification, context);
+  }
+  // HTTP 202 response is sent by HttpSseJsonRpcProtocolFilter::onNotification
+}
+
 void McpConnectionManager::onNotification(
     const jsonrpc::Notification& notification) {
   if (protocol_callbacks_) {

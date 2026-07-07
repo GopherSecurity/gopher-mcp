@@ -926,6 +926,55 @@ class HttpSseJsonRpcProtocolFilter
   // ===== JsonRpcProtocolFilter::MessageHandler =====
 
   /**
+   * Per-message dispatch context for messages decoded on this composite
+   * chain. Origin is the connection the message physically arrived on (for
+   * HTTP+SSE, the short-lived POST connection); the transport session id is
+   * the SSE stream id parsed from POST /callback/{id} — the durable client
+   * identity the server keys its session on.
+   *
+   * The reply sink writes the bare JSON to the origin connection, exactly
+   * the bytes the server used to write to its ambient current-connection
+   * pointer: this composite's own onWrite then decides the wire form
+   * (reroute through the SSE registry for a callback proxy, HTTP-frame for
+   * plain HTTP). Same wire behavior, but the destination is the message's
+   * own connection by construction.
+   */
+  class DispatchContext : public MessageDispatchContext {
+   public:
+    explicit DispatchContext(HttpSseJsonRpcProtocolFilter& parent)
+        : parent_(parent) {}
+
+    network::Connection* originConnection() const override {
+      return parent_.write_callbacks_ ? &parent_.write_callbacks_->connection()
+                                      : nullptr;
+    }
+
+    const std::string& transportSessionId() const override {
+      return parent_.sse_callback_session_id_;
+    }
+
+    VoidResult sendResponse(const jsonrpc::Response& response) override {
+      // Fail loudly when the reply path is gone instead of pretending the
+      // response went out.
+      if (!parent_.write_callbacks_) {
+        Error err;
+        err.code = jsonrpc::INTERNAL_ERROR;
+        err.message = "response dropped: origin connection is gone";
+        return makeVoidError(err);
+      }
+      auto json_val = json::to_json(response);
+      std::string json_str = json_val.toString();
+      OwnedBuffer buffer;
+      buffer.add(json_str);
+      parent_.write_callbacks_->connection().write(buffer, false);
+      return makeVoidSuccess();
+    }
+
+   private:
+    HttpSseJsonRpcProtocolFilter& parent_;
+  };
+
+  /**
    * Called by JsonRpcProtocolFilter when a complete JSON-RPC request is parsed
    * Creates a RequestStream to track this request-response pair
    * Server only - clients don't receive requests
@@ -940,12 +989,31 @@ class HttpSseJsonRpcProtocolFilter
     // reads from different connections interleave; an empty id explicitly
     // clears any previous connection's binding.
     mcp_callbacks_.onTransportSessionBound(sse_callback_session_id_);
-    mcp_callbacks_.onRequest(request);
+    DispatchContext context(*this);
+    mcp_callbacks_.onRequestWithContext(request, context);
+  }
+
+  /**
+   * The JSON-RPC sub-filter dispatches through here with its own generic
+   * context, but that context knows neither the SSE stream id nor this
+   * composite's write semantics — replace it with the composite's own.
+   */
+  void onRequestWithContext(const jsonrpc::Request& request,
+                            MessageDispatchContext& context) override {
+    (void)context;
+    onRequest(request);
+  }
+
+  void onNotificationWithContext(const jsonrpc::Notification& notification,
+                                 MessageDispatchContext& context) override {
+    (void)context;
+    onNotification(notification);
   }
 
   void onNotification(const jsonrpc::Notification& notification) override {
     mcp_callbacks_.onTransportSessionBound(sse_callback_session_id_);
-    mcp_callbacks_.onNotification(notification);
+    DispatchContext context(*this);
+    mcp_callbacks_.onNotificationWithContext(notification, context);
 
     // For HTTP transport, send HTTP 202 Accepted response
     // JSON-RPC notifications don't have responses, but HTTP requires one

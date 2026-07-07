@@ -143,6 +143,18 @@ class McpToJsonRpcAdapter
     callbacks_.onError(error);
   }
 
+  // Propagate the per-message origin built by the JSON-RPC filter so the
+  // application layer can reply on the connection the message arrived on.
+  void onRequestWithContext(const jsonrpc::Request& request,
+                            MessageDispatchContext& context) override {
+    callbacks_.onRequestWithContext(request, context);
+  }
+
+  void onNotificationWithContext(const jsonrpc::Notification& notification,
+                                 MessageDispatchContext& context) override {
+    callbacks_.onNotificationWithContext(notification, context);
+  }
+
  private:
   McpProtocolCallbacks& callbacks_;
 };

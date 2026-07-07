@@ -232,6 +232,12 @@ class McpConnectionManager : public McpProtocolCallbacks,
   void onRequest(const jsonrpc::Request& request) override;
   void onNotification(const jsonrpc::Notification& notification) override;
   void onResponse(const jsonrpc::Response& response) override;
+  // Forward the per-message origin alongside the message so the application
+  // layer can key sessions and route replies without ambient state.
+  void onRequestWithContext(const jsonrpc::Request& request,
+                            MessageDispatchContext& context) override;
+  void onNotificationWithContext(const jsonrpc::Notification& notification,
+                                 MessageDispatchContext& context) override;
   void onConnectionEvent(network::ConnectionEvent event) override;
   void onError(const Error& error) override;
   void onMessageEndpoint(const std::string& endpoint) override;
