@@ -40,6 +40,49 @@ class MockJsonRpcCallbacks : public JsonRpcProtocolFilter::MessageHandler {
 };
 
 /**
+ * Handler that records the dispatch context contract: the per-message
+ * context must arrive together with the message (context path, not the
+ * context-free fallback), report the filter's actual origin, and refuse
+ * to pretend a reply was sent when there is no connection to send it on.
+ */
+class ContextCapturingHandler : public JsonRpcProtocolFilter::MessageHandler {
+ public:
+  void onRequest(const jsonrpc::Request&) override { legacy_requests_++; }
+  void onNotification(const jsonrpc::Notification&) override {
+    legacy_notifications_++;
+  }
+  void onResponse(const jsonrpc::Response&) override {}
+  void onProtocolError(const Error&) override {}
+
+  void onRequestWithContext(const jsonrpc::Request& request,
+                            MessageDispatchContext& context) override {
+    context_requests_++;
+    last_origin_ = context.originConnection();
+    last_transport_session_id_ = context.transportSessionId();
+    // Try to reply while the context is live; record whether the filter
+    // surfaced the missing reply path as an error.
+    auto result = context.sendResponse(jsonrpc::Response::make_error(
+        request.id, Error(jsonrpc::INTERNAL_ERROR, "test reply")));
+    last_send_failed_ = holds_alternative<Error>(result);
+  }
+
+  void onNotificationWithContext(const jsonrpc::Notification&,
+                                 MessageDispatchContext& context) override {
+    context_notifications_++;
+    last_origin_ = context.originConnection();
+    last_transport_session_id_ = context.transportSessionId();
+  }
+
+  int legacy_requests_{0};
+  int legacy_notifications_{0};
+  int context_requests_{0};
+  int context_notifications_{0};
+  network::Connection* last_origin_{reinterpret_cast<network::Connection*>(1)};
+  std::string last_transport_session_id_{"<unset>"};
+  bool last_send_failed_{false};
+};
+
+/**
  * Test fixture for JsonRpcProtocolFilter using real I/O
  */
 class JsonRpcProtocolFilterTest : public test::RealIoTestBase {
@@ -304,6 +347,65 @@ TEST_F(JsonRpcProtocolFilterTest, WriteFilterAddsFraming) {
     length = ntohl(length);  // Convert from big-endian
     EXPECT_EQ(data.length(), length);
   });
+}
+
+/**
+ * A parsed request must be dispatched through the context-carrying hook
+ * with a context that travels with the message. This filter is not wired
+ * to a connection, so the contract under test is the honest degraded
+ * form: no origin, no transport session id, and a reply attempt that
+ * FAILS instead of silently succeeding (the pre-context encoder returned
+ * success while writing nothing).
+ */
+TEST_F(JsonRpcProtocolFilterTest, RequestDispatchCarriesContext) {
+  auto handler = std::make_unique<ContextCapturingHandler>();
+  std::unique_ptr<JsonRpcProtocolFilter> filter;
+  executeInDispatcher([&]() {
+    filter = std::make_unique<JsonRpcProtocolFilter>(*handler, *dispatcher_,
+                                                     /*is_server=*/true);
+    OwnedBuffer buffer;
+    buffer.add(
+        std::string(R"({"jsonrpc":"2.0","id":7,"method":"test.method"})") +
+        "\n");
+    filter->onData(buffer, false);
+  });
+
+  EXPECT_EQ(handler->context_requests_, 1)
+      << "request must dispatch through the context-carrying hook";
+  EXPECT_EQ(handler->legacy_requests_, 0)
+      << "context-free fallback must not run when a context was built";
+  EXPECT_EQ(handler->last_origin_, nullptr)
+      << "unwired filter must report no origin, not a stale pointer";
+  EXPECT_EQ(handler->last_transport_session_id_, "")
+      << "bare JSON-RPC chain has no transport session concept";
+  EXPECT_TRUE(handler->last_send_failed_)
+      << "sendResponse with no connection must surface an error, not "
+         "silently drop the reply";
+
+  executeInDispatcher([&]() { filter.reset(); });
+}
+
+/**
+ * Same contract for notifications: context path, not the fallback.
+ */
+TEST_F(JsonRpcProtocolFilterTest, NotificationDispatchCarriesContext) {
+  auto handler = std::make_unique<ContextCapturingHandler>();
+  std::unique_ptr<JsonRpcProtocolFilter> filter;
+  executeInDispatcher([&]() {
+    filter = std::make_unique<JsonRpcProtocolFilter>(*handler, *dispatcher_,
+                                                     /*is_server=*/true);
+    OwnedBuffer buffer;
+    buffer.add(std::string(R"({"jsonrpc":"2.0","method":"notify.method"})") +
+               "\n");
+    filter->onData(buffer, false);
+  });
+
+  EXPECT_EQ(handler->context_notifications_, 1);
+  EXPECT_EQ(handler->legacy_notifications_, 0);
+  EXPECT_EQ(handler->last_origin_, nullptr);
+  EXPECT_EQ(handler->last_transport_session_id_, "");
+
+  executeInDispatcher([&]() { filter.reset(); });
 }
 
 /**
