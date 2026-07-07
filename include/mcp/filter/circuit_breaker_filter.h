@@ -127,33 +127,25 @@ class CircuitBreakerFilter : public network::NetworkFilterBase,
 
   // JsonRpcProtocolFilter::MessageHandler implementation
   void onRequest(const jsonrpc::Request& request) override {
-    std::lock_guard<std::mutex> lock(mutex_);
+    if (!admitRequest(request)) {
+      // No reply path on the context-free entry: block silently, as this
+      // filter always has.
+      return;
+    }
 
-    // TEMPORARY DEBUG: Verify filter is being called
-    std::cout << "[CIRCUIT_BREAKER] onRequest called: method=" << request.method
-              << " state=" << stateToString(state_) << std::endl;
+    // Forward request. The admission lock is released before forwarding so
+    // downstream dispatch never runs under this filter's mutex.
+    if (next_callbacks_) {
+      next_callbacks_->onRequest(request);
+    }
+  }
 
-    GOPHER_LOG(Debug, "onRequest: method=%s id=%s circuit_state=%s",
-               request.method.c_str(), requestIdToString(request.id).c_str(),
-               stateToString(state_));
-
-    // Check circuit state
-    if (!allowRequest(request.method)) {
-      // Circuit is open - fail fast
-      std::cout << "[CIRCUIT_BREAKER] ⛔ REQUEST BLOCKED: " << request.method
-                << std::endl;
-      if (emitter_) {
-        std::cout
-            << "[CIRCUIT_BREAKER] 📡 Emitting CIRCUIT_REQUEST_BLOCKED event"
-            << std::endl;
-        json::JsonObjectBuilder event_data;
-        event_data.add("method", request.method);
-        event_data.add("state", stateToString(state_));
-        emitter_->emit(FilterEventType::CIRCUIT_REQUEST_BLOCKED,
-                       FilterEventSeverity::WARN, event_data.build());
-      }
-
-      // Send error response
+  void onRequestWithContext(const jsonrpc::Request& request,
+                            MessageDispatchContext& context) override {
+    if (!admitRequest(request)) {
+      // The dispatch context supplies the reply path the context-free
+      // entry never had: fail fast to the client instead of letting the
+      // blocked request time out silently.
       jsonrpc::Response error_response;
       error_response.jsonrpc = "2.0";
       error_response.id = request.id;
@@ -161,19 +153,12 @@ class CircuitBreakerFilter : public network::NetworkFilterBase,
       error.data = mcp::make_optional(ErrorData(
           std::map<std::string, std::string>{{"circuit_state", "open"}}));
       error_response.error = mcp::make_optional(error);
-
-      // Would need write callbacks to send this
-      // For now, just block the request
+      context.sendResponse(error_response);
       return;
     }
 
-    // Track request start time
-    pending_requests_[requestIdToString(request.id)] = {
-        request.method, std::chrono::steady_clock::now()};
-
-    // Forward request
     if (next_callbacks_) {
-      next_callbacks_->onRequest(request);
+      next_callbacks_->onRequestWithContext(request, context);
     }
   }
 
@@ -241,6 +226,15 @@ class CircuitBreakerFilter : public network::NetworkFilterBase,
     }
   }
 
+  void onNotificationWithContext(const jsonrpc::Notification& notification,
+                                 MessageDispatchContext& context) override {
+    // Notifications don't affect circuit breaker; preserve the per-message
+    // context across the hop.
+    if (next_callbacks_) {
+      next_callbacks_->onNotificationWithContext(notification, context);
+    }
+  }
+
   void onProtocolError(const Error& error) override {
     std::lock_guard<std::mutex> lock(mutex_);
 
@@ -287,6 +281,47 @@ class CircuitBreakerFilter : public network::NetworkFilterBase,
     bool success;
     uint64_t latency_ms;
   };
+
+  // Admission control shared by both dispatch entries so they can never
+  // drift: checks circuit state, emits the blocked event, and tracks the
+  // pending request under the mutex. Returns false when the circuit is
+  // open and the request must not be forwarded; the caller decides how to
+  // fail (silent block vs error reply through the dispatch context). The
+  // lock is scoped here so downstream forwarding runs without it.
+  bool admitRequest(const jsonrpc::Request& request) {
+    std::lock_guard<std::mutex> lock(mutex_);
+
+    // TEMPORARY DEBUG: Verify filter is being called
+    std::cout << "[CIRCUIT_BREAKER] onRequest called: method=" << request.method
+              << " state=" << stateToString(state_) << std::endl;
+
+    GOPHER_LOG(Debug, "onRequest: method=%s id=%s circuit_state=%s",
+               request.method.c_str(), requestIdToString(request.id).c_str(),
+               stateToString(state_));
+
+    // Check circuit state
+    if (!allowRequest(request.method)) {
+      // Circuit is open - fail fast
+      std::cout << "[CIRCUIT_BREAKER] ⛔ REQUEST BLOCKED: " << request.method
+                << std::endl;
+      if (emitter_) {
+        std::cout
+            << "[CIRCUIT_BREAKER] 📡 Emitting CIRCUIT_REQUEST_BLOCKED event"
+            << std::endl;
+        json::JsonObjectBuilder event_data;
+        event_data.add("method", request.method);
+        event_data.add("state", stateToString(state_));
+        emitter_->emit(FilterEventType::CIRCUIT_REQUEST_BLOCKED,
+                       FilterEventSeverity::WARN, event_data.build());
+      }
+      return false;
+    }
+
+    // Track request start time
+    pending_requests_[requestIdToString(request.id)] = {
+        request.method, std::chrono::steady_clock::now()};
+    return true;
+  }
 
   bool allowRequest(const std::string& method) {
     auto now = std::chrono::steady_clock::now();

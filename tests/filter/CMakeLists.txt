@@ -413,3 +413,18 @@ target_link_libraries(test_http_sse_factory_constructor
   Threads::Threads
 )
 add_test(NAME HttpSseFactoryConstructorTest COMMAND test_http_sse_factory_constructor)
+
+add_executable(test_message_handler_context_forwarding
+  test_message_handler_context_forwarding.cc
+)
+target_link_libraries(test_message_handler_context_forwarding
+  PRIVATE
+  gopher-mcp
+  gopher-mcp-logging
+  gtest
+  gtest_main
+  gmock
+  Threads::Threads
+  fmt::fmt
+)
+add_test(NAME MessageHandlerContextForwardingTest COMMAND test_message_handler_context_forwarding)

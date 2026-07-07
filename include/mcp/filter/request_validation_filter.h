@@ -159,6 +159,29 @@ class RequestValidationFilter : public network::NetworkFilterBase,
     }
   }
 
+  // Context-carrying variants: validate identically, then forward the
+  // per-message context so a chain spliced through this filter does not
+  // silently degrade the application layer to its context-free path.
+  void onRequestWithContext(const jsonrpc::Request& request,
+                            MessageDispatchContext& context) override {
+    if (!validateRequest(request)) {
+      return;
+    }
+    if (next_callbacks_) {
+      next_callbacks_->onRequestWithContext(request, context);
+    }
+  }
+
+  void onNotificationWithContext(const jsonrpc::Notification& notification,
+                                 MessageDispatchContext& context) override {
+    if (!validateNotification(notification)) {
+      return;
+    }
+    if (next_callbacks_) {
+      next_callbacks_->onNotificationWithContext(notification, context);
+    }
+  }
+
   void onResponse(const jsonrpc::Response& response) override {
     // Responses typically don't need validation in server context
     // Just forward them
