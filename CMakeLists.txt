@@ -228,7 +228,9 @@ message(STATUS "")
 option(MCP_USE_LLHTTP "Use llhttp for HTTP/1.x parsing" ON)
 
 if(MCP_USE_LLHTTP)
-    # Use Git repository approach for better compatibility with older CMake
+    # Fetch llhttp sources without configuring its upstream CMake project. The
+    # upstream project defaults to a shared library, which can re-expose llhttp
+    # symbols to the host process and defeat the private-parser build.
     FetchContent_Declare(
         llhttp
         GIT_REPOSITORY https://github.com/nodejs/llhttp.git
@@ -236,12 +238,19 @@ if(MCP_USE_LLHTTP)
     )
     
     message(STATUS "Downloading llhttp... This may take a moment depending on your connection speed.")
-    FetchContent_MakeAvailable(llhttp)
+    FetchContent_GetProperties(llhttp)
+    if(NOT llhttp_POPULATED)
+        FetchContent_Populate(llhttp)
+    endif()
     message(STATUS "llhttp download complete.")
     
-    # Build llhttp as a simple static library
-    # The release archive contains pre-generated C files
-    file(GLOB LLHTTP_SOURCES ${llhttp_SOURCE_DIR}/src/*.c)
+    # Build llhttp as an SDK-private static library from the release's
+    # pre-generated C files.
+    set(LLHTTP_SOURCES
+        ${llhttp_SOURCE_DIR}/src/api.c
+        ${llhttp_SOURCE_DIR}/src/http.c
+        ${llhttp_SOURCE_DIR}/src/llhttp.c
+    )
     
     if(NOT TARGET llhttp)
         add_library(llhttp STATIC ${LLHTTP_SOURCES})
@@ -253,6 +262,7 @@ if(MCP_USE_LLHTTP)
         # Disable warnings for third-party code
         if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
             target_compile_options(llhttp PRIVATE -w)
+            set_target_properties(llhttp PROPERTIES C_VISIBILITY_PRESET hidden)
         elseif(MSVC)
             target_compile_options(llhttp PRIVATE /W3 /WX-)
         endif()
