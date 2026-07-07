@@ -75,6 +75,8 @@ constexpr int kBioBufferSize = 0;
 
 namespace detail {
 
+void clearOpenSSLErrorQueue() { ERR_clear_error(); }
+
 std::string drainOpenSSLErrorQueue() {
   std::string error_details;
   bool first = true;
@@ -298,6 +300,7 @@ SslTransportSocket::~SslTransportSocket() {
   if (ssl_) {
     // Ensure graceful shutdown if still connected
     if (state_machine_->isConnected() && !shutdown_sent_) {
+      detail::clearOpenSSLErrorQueue();
       SSL_shutdown(ssl_);
     }
 
@@ -425,6 +428,7 @@ void SslTransportSocket::closeSocket(network::ConnectionEvent event) {
   // Send close_notify if connected (best effort, don't wait for peer's
   // response)
   if (state == SslSocketState::Connected && ssl_ && !shutdown_sent_) {
+    detail::clearOpenSSLErrorQueue();
     SSL_shutdown(ssl_);  // Best effort, ignore return value
     shutdown_sent_ = true;
     moveFromBio();  // Flush the close_notify to the network
@@ -840,6 +844,7 @@ void SslTransportSocket::performHandshakeStep() {
   GOPHER_LOG_DEBUG("moveToBio returned {} bytes", bytes_to_bio);
 
   // Perform handshake
+  detail::clearOpenSSLErrorQueue();
   int ret = SSL_do_handshake(ssl_);
   GOPHER_LOG_DEBUG("SSL_do_handshake returned {}", ret);
 
@@ -1152,6 +1157,7 @@ TransportIoResult SslTransportSocket::performOptimizedSslRead(Buffer& buffer) {
     void* data = buffer.reserveSingleSlice(slice_size, slice);
 
     // Read from SSL
+    detail::clearOpenSSLErrorQueue();
     int ret = SSL_read(ssl_, data, slice.len_);
 
     if (ret > 0) {
@@ -1256,6 +1262,7 @@ TransportIoResult SslTransportSocket::performOptimizedSslWrite(
     size_t actual_write = std::min(write_size, slices[0].len_);
 
     // Write to SSL
+    detail::clearOpenSSLErrorQueue();
     int ret = SSL_write(ssl_, slices[0].mem_, actual_write);
 
     if (ret > 0) {
@@ -1540,6 +1547,7 @@ void SslTransportSocket::initiateShutdown() {
   state_machine_->transition(SslSocketState::ShutdownInitiated);
 
   // Send close_notify
+  detail::clearOpenSSLErrorQueue();
   int ret = SSL_shutdown(ssl_);
 
   if (ret == 0) {
@@ -1590,6 +1598,7 @@ void SslTransportSocket::scheduleShutdownCheck() {
       }
 
       ++shutdown_retry_count_;
+      detail::clearOpenSSLErrorQueue();
       int ret = SSL_shutdown(ssl_);
       if (ret == 1) {
         shutdown_received_ = true;

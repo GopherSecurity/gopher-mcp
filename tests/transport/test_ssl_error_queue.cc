@@ -61,6 +61,16 @@ TEST_F(SslErrorQueueTest, EmptyQueueReturnsSentinel) {
   EXPECT_EQ(detail::drainOpenSSLErrorQueue(), kEmptyQueueSentinel);
 }
 
+TEST_F(SslErrorQueueTest, ClearHelperRemovesStaleErrorsBeforeSslOperation) {
+  SSLerr(SSL_F_SSL_READ, ERR_R_INTERNAL_ERROR);
+  ASSERT_NE(detail::drainOpenSSLErrorQueue(), kEmptyQueueSentinel);
+
+  SSLerr(SSL_F_SSL_READ, ERR_R_INTERNAL_ERROR);
+  detail::clearOpenSSLErrorQueue();
+
+  EXPECT_EQ(detail::drainOpenSSLErrorQueue(), kEmptyQueueSentinel);
+}
+
 TEST_F(SslErrorQueueTest, SingleErrorIsFormatted) {
   // Stage one synthetic error using a real OpenSSL API. We pick a known
   // library/reason from the standard set so the formatting code has values
