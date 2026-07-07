@@ -42,11 +42,19 @@ using namespace std::chrono_literals;
 class ServerModeCallbacks : public McpProtocolCallbacks {
  public:
   void onRequest(const jsonrpc::Request& req) override {
+    // Context-free fallback: nothing traveled with the message. If the
+    // filter ever regresses to this path, the seeded sentinel below
+    // surfaces in binding_at_request_ and fails the assertions.
     requests_.push_back(req);
-    // Capture which transport session id was in effect when this request
-    // was dispatched — the filter's contract is to announce it (possibly
-    // empty) immediately beforehand, per message.
     binding_at_request_.push_back(current_binding_);
+  }
+  void onRequestWithContext(const jsonrpc::Request& req,
+                            MessageDispatchContext& context) override {
+    requests_.push_back(req);
+    // Capture the transport session id that traveled WITH this message —
+    // the filter's contract is to build a fresh context per dispatched
+    // message (possibly with an empty id).
+    binding_at_request_.push_back(context.transportSessionId());
   }
   void onNotification(const jsonrpc::Notification&) override {}
   void onResponse(const jsonrpc::Response&) override {}
@@ -54,13 +62,10 @@ class ServerModeCallbacks : public McpProtocolCallbacks {
   void onError(const Error&) override { error_count_++; }
   void onMessageEndpoint(const std::string&) override {}
   bool sendHttpPost(const std::string&) override { return true; }
-  void onTransportSessionBound(const std::string& id) override {
-    current_binding_ = id;
-  }
 
   std::vector<jsonrpc::Request> requests_;
   std::vector<std::string> binding_at_request_;
-  std::string current_binding_{"<never-announced>"};
+  std::string current_binding_{"<context-free-dispatch>"};
   int error_count_{0};
 };
 
@@ -304,7 +309,9 @@ TEST_F(ServerModeFilterTest, PlainPost_AnnouncesEmptyBinding) {
   network::IoHandlePtr peer;
   std::shared_ptr<HttpSseFilterChainFactory> factory;
 
-  // Pretend a callback POST on another connection just dispatched.
+  // Seed the context-free sentinel: if dispatch ever bypasses the
+  // per-message context, this value leaks into binding_at_request_ and
+  // the empty-id assertion below fails.
   callbacks.current_binding_ = "client_from_previous_connection";
 
   executeInDispatcher([&]() {
