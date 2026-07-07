@@ -48,6 +48,9 @@ namespace {
 // 16KB balances memory usage and throughput
 constexpr size_t kSslMaxReadChunk = 16384;
 constexpr size_t kSslMaxWriteChunk = 16384;
+constexpr size_t kMaxEncryptedReadPerEvent = 64 * 1024;
+constexpr size_t kMaxPlaintextReadPerEvent = 64 * 1024;
+constexpr int kMaxMoveToBioIterations = 16;
 
 // Maximum handshake attempts before giving up
 constexpr uint32_t kMaxHandshakeAttempts = 100;
@@ -1119,11 +1122,19 @@ TransportIoResult SslTransportSocket::performOptimizedSslRead(Buffer& buffer) {
   size_t total_bytes_read = 0;
   bool keep_reading = true;
   bool eof = false;
+  bool budget_exhausted = false;
 
   while (keep_reading) {
+    if (total_bytes_read >= kMaxPlaintextReadPerEvent) {
+      budget_exhausted = true;
+      break;
+    }
+
     // Prepare buffer slice for read
     RawSlice slice;
-    size_t slice_size = kSslMaxReadChunk;
+    size_t slice_size =
+        std::min(kSslMaxReadChunk,
+                 kMaxPlaintextReadPerEvent - total_bytes_read);
 
     if (slice_size == 0) {
       // Buffer full
@@ -1144,6 +1155,12 @@ TransportIoResult SslTransportSocket::performOptimizedSslRead(Buffer& buffer) {
       total_bytes_read += ret;
       stats_->bytes_decrypted += ret;
 
+      if (total_bytes_read >= kMaxPlaintextReadPerEvent) {
+        budget_exhausted = true;
+        keep_reading = false;
+        break;
+      }
+
       // Check if more data is immediately available (optimization)
       if (SSL_pending(ssl_) == 0) {
         keep_reading = false;
@@ -1154,6 +1171,12 @@ TransportIoResult SslTransportSocket::performOptimizedSslRead(Buffer& buffer) {
 
       switch (ssl_error) {
         case SSL_ERROR_WANT_READ:
+          if (total_bytes_read >= kMaxPlaintextReadPerEvent) {
+            budget_exhausted = true;
+            keep_reading = false;
+            break;
+          }
+
           // SSL has drained the readable BIO. Try to refill it from any
           // carried-over bytes and/or fresh socket data. If we managed to feed
           // more encrypted data, keep decrypting so a response larger than the
@@ -1186,6 +1209,10 @@ TransportIoResult SslTransportSocket::performOptimizedSslRead(Buffer& buffer) {
 
   if (eof) {
     return TransportIoResult::endStream(total_bytes_read);
+  }
+
+  if (budget_exhausted && transport_callbacks_) {
+    transport_callbacks_->setTransportSocketIsReadable();
   }
 
   return total_bytes_read > 0 ? TransportIoResult::success(total_bytes_read)
@@ -1341,8 +1368,8 @@ size_t SslTransportSocket::moveToBio() {
    */
 
   size_t total_written = 0;
-  constexpr int max_iterations = 100;  // Safety limit to prevent infinite loops
   int iterations = 0;
+  size_t total_read_from_socket = 0;
 
   // First, flush bytes carried over from a previous call. These were already
   // consumed from the kernel socket buffer, so they take priority over fresh
@@ -1359,7 +1386,8 @@ size_t SslTransportSocket::moveToBio() {
     }
   }
 
-  while (iterations++ < max_iterations) {
+  while (iterations++ < kMaxMoveToBioIterations &&
+         total_read_from_socket < kMaxEncryptedReadPerEvent) {
     // Read from inner socket
     OwnedBuffer temp_buffer;
     auto result = inner_socket_->doRead(temp_buffer);
@@ -1374,6 +1402,7 @@ size_t SslTransportSocket::moveToBio() {
 
     GOPHER_LOG_DEBUG("moveToBio: read {} bytes from socket (iteration {})",
                      bytes_read, iterations);
+    total_read_from_socket += bytes_read;
 
     // Write to the network BIO; anything it cannot accept is left in
     // temp_buffer.
@@ -1395,9 +1424,15 @@ size_t SslTransportSocket::moveToBio() {
     }
   }
 
-  if (iterations >= max_iterations) {
-    GOPHER_LOG_WARN("moveToBio: reached max iterations ({}), total_written={}",
-                    max_iterations, total_written);
+  if (iterations > kMaxMoveToBioIterations ||
+      total_read_from_socket >= kMaxEncryptedReadPerEvent) {
+    GOPHER_LOG_DEBUG(
+        "moveToBio: event budget exhausted (iterations={}, encrypted_read={}, "
+        "written={})",
+        iterations - 1, total_read_from_socket, total_written);
+    if (transport_callbacks_) {
+      transport_callbacks_->setTransportSocketIsReadable();
+    }
   }
 
   GOPHER_LOG_DEBUG("moveToBio: total {} bytes written to BIO", total_written);
