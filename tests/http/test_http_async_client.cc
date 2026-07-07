@@ -264,9 +264,10 @@ TEST_F(HttpAsyncClientTest, HighBitHeaderNameCanBeRedactedForLogging) {
   EXPECT_NE(request_wire.find(high_bit_header + ": secret-token-value"),
             std::string::npos);
 
-  const std::string reply = "HTTP/1.1 204 No Content\r\n"
-                            "Content-Length: 0\r\n"
-                            "Connection: close\r\n\r\n";
+  const std::string reply =
+      "HTTP/1.1 204 No Content\r\n"
+      "Content-Length: 0\r\n"
+      "Connection: close\r\n\r\n";
   writeResponse(*accepted, reply);
 
   ASSERT_TRUE(sink.wait());
