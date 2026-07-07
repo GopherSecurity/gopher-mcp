@@ -4,6 +4,7 @@
 #include "mcp/event/event_loop.h"
 #include "mcp/filter/filter_context.h"
 #include "mcp/json/json_bridge.h"
+#include "mcp/message_dispatch_context.h"
 #include "mcp/network/filter.h"
 #include "mcp/types.h"
 
@@ -66,6 +67,30 @@ class JsonRpcProtocolFilter : public network::Filter {
      * @param error The error details
      */
     virtual void onProtocolError(const Error& error) = 0;
+
+    /**
+     * Context-carrying variants. The filter that parsed the message builds
+     * a per-message context (origin connection + a reply path through this
+     * filter's own encoder) and dispatches through these; the defaults
+     * forward to the context-free hooks so existing handlers keep working.
+     * Handlers that forward toward McpProtocolCallbacks should override
+     * these and propagate the context so origin information travels with
+     * the message all the way to the application layer. Distinct names
+     * (not overloads) keep existing handlers outside the
+     * -Woverloaded-virtual hiding trap.
+     */
+    virtual void onRequestWithContext(const jsonrpc::Request& request,
+                                      MessageDispatchContext& context) {
+      (void)context;
+      onRequest(request);
+    }
+
+    virtual void onNotificationWithContext(
+        const jsonrpc::Notification& notification,
+        MessageDispatchContext& context) {
+      (void)context;
+      onNotification(notification);
+    }
   };
 
   /**
@@ -147,6 +172,12 @@ class JsonRpcProtocolFilter : public network::Filter {
  private:
   class EncoderImpl;
   friend class EncoderImpl;  // Allow encoder to access private members
+
+  // Per-message dispatch context handed to the MessageHandler: origin is
+  // this filter's connection, reply path is this filter's encoder. Nested
+  // (like EncoderImpl) so it can read write_callbacks_.
+  class DispatchContextImpl;
+  friend class DispatchContextImpl;
 
   /**
    * Parse messages from buffer

@@ -165,6 +165,51 @@ class JsonRpcProtocolFilter::EncoderImpl
   JsonRpcProtocolFilter& parent_;
 };
 
+// DispatchContextImpl - per-message origin + reply path for the handler.
+//
+// Why the encoder is the reply path: the response must be framed exactly
+// like any other outbound message on the connection the request arrived on
+// (newline-delimited or length-prefixed, per this filter's configuration).
+// Routing the reply through the parsing filter's own encoder pairs decode
+// and encode on the same connection, so a handler can never answer on a
+// different connection than the one that asked.
+//
+// Stack-constructed immediately before each dispatch; dies when the
+// dispatch returns, which is what makes a stale origin unrepresentable.
+class JsonRpcProtocolFilter::DispatchContextImpl
+    : public MessageDispatchContext {
+ public:
+  explicit DispatchContextImpl(JsonRpcProtocolFilter& parent)
+      : parent_(parent) {}
+
+  network::Connection* originConnection() const override {
+    return parent_.write_callbacks_ ? &parent_.write_callbacks_->connection()
+                                    : nullptr;
+  }
+
+  const std::string& transportSessionId() const override {
+    // A bare JSON-RPC chain has no transport session concept; composite
+    // transports (HTTP+SSE) supply their own context with the stream id.
+    static const std::string empty;
+    return empty;
+  }
+
+  VoidResult sendResponse(const jsonrpc::Response& response) override {
+    // Fail loudly when the reply path is gone: a null result here would
+    // otherwise read as "sent" to the caller while nothing went out.
+    if (!parent_.write_callbacks_) {
+      Error err;
+      err.code = jsonrpc::INTERNAL_ERROR;
+      err.message = "response dropped: origin connection is gone";
+      return makeVoidError(err);
+    }
+    return parent_.encoder_->encodeResponse(response);
+  }
+
+ private:
+  JsonRpcProtocolFilter& parent_;
+};
+
 // JsonRpcProtocolFilter implementation
 
 JsonRpcProtocolFilter::JsonRpcProtocolFilter(MessageHandler& handler,
@@ -328,13 +373,15 @@ bool JsonRpcProtocolFilter::parseMessage(const std::string& json_str) {
         GOPHER_LOG_DEBUG("JsonRpcFilter dispatching request for method: {}",
                          request.method);
         requests_received_++;
-        handler_.onRequest(request);
+        DispatchContextImpl context(*this);
+        handler_.onRequestWithContext(request, context);
       } else {
         // JSON-RPC Notification
         jsonrpc::Notification notification =
             json::from_json<jsonrpc::Notification>(json_val);
         notifications_received_++;
-        handler_.onNotification(notification);
+        DispatchContextImpl context(*this);
+        handler_.onNotificationWithContext(notification, context);
       }
     } else if (json_val.contains("result") || json_val.contains("error")) {
       // JSON-RPC Response
