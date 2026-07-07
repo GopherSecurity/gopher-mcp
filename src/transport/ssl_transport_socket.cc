@@ -51,6 +51,8 @@ constexpr size_t kSslMaxWriteChunk = 16384;
 constexpr size_t kMaxEncryptedReadPerEvent = 64 * 1024;
 constexpr size_t kMaxPlaintextReadPerEvent = 64 * 1024;
 constexpr int kMaxMoveToBioIterations = 16;
+constexpr auto kShutdownRetryDelay = std::chrono::milliseconds(10);
+constexpr uint32_t kMaxShutdownRetries = 100;
 
 // Maximum handshake attempts before giving up
 constexpr uint32_t kMaxHandshakeAttempts = 100;
@@ -283,6 +285,9 @@ SslTransportSocket::~SslTransportSocket() {
   if (handshake_retry_timer_) {
     handshake_retry_timer_->disableTimer();
   }
+  if (shutdown_retry_timer_) {
+    shutdown_retry_timer_->disableTimer();
+  }
 
   // Unregister state listener
   if (state_listener_id_ && state_machine_) {
@@ -412,6 +417,9 @@ void SslTransportSocket::closeSocket(network::ConnectionEvent event) {
   }
   if (handshake_retry_timer_) {
     handshake_retry_timer_->disableTimer();
+  }
+  if (shutdown_retry_timer_) {
+    shutdown_retry_timer_->disableTimer();
   }
 
   // Send close_notify if connected (best effort, don't wait for peer's
@@ -1543,6 +1551,7 @@ void SslTransportSocket::initiateShutdown() {
     moveFromBio();
 
     // Schedule check for peer's close_notify
+    shutdown_retry_count_ = 0;
     scheduleShutdownCheck();
   } else if (ret == 1) {
     // Bidirectional shutdown complete
@@ -1564,23 +1573,35 @@ void SslTransportSocket::scheduleShutdownCheck() {
    * Schedule periodic check for shutdown completion
    */
 
-  std::weak_ptr<bool> alive = alive_;
-  dispatcher_.post([this, alive]() {
-    if (alive.expired())
-      return;
-    auto state = state_machine_->getCurrentState();
-    if (state == SslSocketState::ShutdownSent) {
+  if (!shutdown_retry_timer_) {
+    std::weak_ptr<bool> alive = alive_;
+    shutdown_retry_timer_ = dispatcher_.createTimer([this, alive]() {
+      if (alive.expired())
+        return;
+
+      auto state = state_machine_->getCurrentState();
+      if (state != SslSocketState::ShutdownSent) {
+        return;
+      }
+
+      if (!ssl_ || shutdown_retry_count_ >= kMaxShutdownRetries) {
+        state_machine_->transition(SslSocketState::Closed);
+        return;
+      }
+
+      ++shutdown_retry_count_;
       int ret = SSL_shutdown(ssl_);
       if (ret == 1) {
         shutdown_received_ = true;
         state_machine_->transition(SslSocketState::ShutdownComplete);
         state_machine_->scheduleTransition(SslSocketState::Closed);
       } else {
-        // Retry later
         scheduleShutdownCheck();
       }
-    }
-  });
+    });
+  }
+
+  shutdown_retry_timer_->enableTimer(kShutdownRetryDelay);
 }
 
 // ============================================================================

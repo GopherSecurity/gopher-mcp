@@ -174,24 +174,54 @@ class TestCertificateGenerator {
  */
 class MockDispatcher : public ::mcp::event::Dispatcher {
  public:
+  class MockTimer : public ::mcp::event::Timer {
+   public:
+    explicit MockTimer(::mcp::event::TimerCb cb) : cb_(std::move(cb)) {}
+
+    void enableTimer(std::chrono::milliseconds d) override {
+      enabled_ = true;
+      last_delay_ = d;
+      ++enable_count_;
+    }
+
+    void enableHRTimer(std::chrono::microseconds d) override {
+      enabled_ = true;
+      last_delay_ = std::chrono::duration_cast<std::chrono::milliseconds>(d);
+      ++enable_count_;
+    }
+
+    void disableTimer() override { enabled_ = false; }
+    bool enabled() override { return enabled_; }
+
+    void fire() {
+      if (cb_) {
+        cb_();
+      }
+    }
+
+    bool enabled_{false};
+    int enable_count_{0};
+    std::chrono::milliseconds last_delay_{0};
+
+   private:
+    ::mcp::event::TimerCb cb_;
+  };
+
   MockDispatcher() : name_("mock") {}
 
   const std::string& name() override { return name_; }
 
   void post(std::function<void()> callback) override {
+    ++post_count_;
     if (callback)
       callback();  // Execute immediately
   }
 
   ::mcp::event::TimerPtr createTimer(::mcp::event::TimerCb cb) override {
-    class MockTimer : public ::mcp::event::Timer {
-     public:
-      void enableTimer(std::chrono::milliseconds d) override {}
-      void enableHRTimer(std::chrono::microseconds d) override {}
-      void disableTimer() override {}
-      bool enabled() override { return false; }
-    };
-    return std::make_unique<MockTimer>();
+    auto timer = std::make_unique<MockTimer>(std::move(cb));
+    last_timer_ = timer.get();
+    ++timer_count_;
+    return timer;
   }
 
   ::mcp::event::TimerPtr createScaledTimer(::mcp::event::ScaledTimerType type,
@@ -267,8 +297,15 @@ class MockDispatcher : public ::mcp::event::Dispatcher {
   void initializeStats(::mcp::event::DispatcherStats& stats) override {}
   void shutdown() override {}
 
+  int postCount() const { return post_count_; }
+  int timerCount() const { return timer_count_; }
+  MockTimer* lastTimer() const { return last_timer_; }
+
  private:
   std::string name_;
+  int post_count_{0};
+  int timer_count_{0};
+  MockTimer* last_timer_{nullptr};
 };
 
 /**
@@ -402,6 +439,36 @@ TEST_F(SslTransportSocketUnitTest, InitialStatistics) {
   EXPECT_EQ(stats.sessions_reused, 0);
   EXPECT_EQ(stats.bytes_encrypted, 0);
   EXPECT_EQ(stats.bytes_decrypted, 0);
+}
+
+TEST_F(SslTransportSocketUnitTest,
+       ShutdownCheckSchedulesTimerWithoutImmediatePost) {
+  if (!ssl_context_) {
+    GTEST_SKIP() << "SSL context creation failed";
+  }
+
+  auto mock = std::make_unique<MockTransportSocket>();
+  auto ssl_socket = std::make_unique<SslTransportSocket>(
+      std::move(mock), ssl_context_, SslTransportSocket::InitialRole::Client,
+      *dispatcher_);
+
+  const int posts_before = dispatcher_->postCount();
+  const int timers_before = dispatcher_->timerCount();
+
+  ssl_socket->scheduleShutdownCheck();
+
+  EXPECT_EQ(dispatcher_->postCount(), posts_before);
+  EXPECT_EQ(dispatcher_->timerCount(), timers_before + 1);
+  ASSERT_NE(dispatcher_->lastTimer(), nullptr);
+  EXPECT_TRUE(dispatcher_->lastTimer()->enabled_);
+  EXPECT_EQ(dispatcher_->lastTimer()->enable_count_, 1);
+  EXPECT_GT(dispatcher_->lastTimer()->last_delay_.count(), 0);
+
+  ssl_socket->scheduleShutdownCheck();
+
+  EXPECT_EQ(dispatcher_->postCount(), posts_before);
+  EXPECT_EQ(dispatcher_->timerCount(), timers_before + 1);
+  EXPECT_EQ(dispatcher_->lastTimer()->enable_count_, 2);
 }
 
 // Unit Test 3: Connection Info
