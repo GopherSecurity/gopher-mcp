@@ -25,6 +25,14 @@
 namespace mcp {
 namespace filter {
 
+bool isValidClientHeader(const std::string& name, const std::string& value) {
+  auto has_invalid_byte = [](const std::string& text) {
+    return text.find_first_of("\r\n\0", 0, 3) != std::string::npos;
+  };
+  return !name.empty() && !value.empty() && !has_invalid_byte(name) &&
+         !has_invalid_byte(value);
+}
+
 namespace {
 std::string toLowerHeaderName(std::string value) {
   std::transform(
@@ -44,7 +52,7 @@ bool isGeneratedClientHeader(const std::string& name) {
 void appendClientHeaders(std::ostringstream& request,
                          const std::map<std::string, std::string>& headers) {
   for (const auto& header : headers) {
-    if (header.first.empty() || header.second.empty() ||
+    if (!isValidClientHeader(header.first, header.second) ||
         isGeneratedClientHeader(header.first)) {
       continue;
     }

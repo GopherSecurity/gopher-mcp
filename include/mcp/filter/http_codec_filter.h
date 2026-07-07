@@ -17,6 +17,13 @@ namespace mcp {
 namespace filter {
 
 /**
+ * Validate client-supplied HTTP header names and values before serialization.
+ * Generated headers are added separately; this only checks that passthrough
+ * headers cannot inject extra lines or terminate the request.
+ */
+bool isValidClientHeader(const std::string& name, const std::string& value);
+
+/**
  * HttpCodecFilter - HTTP/1.1 codec supporting both client and server modes
  *
  * Following production design principles:
