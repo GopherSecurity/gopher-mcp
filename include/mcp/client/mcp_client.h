@@ -567,6 +567,7 @@ class McpClient : public application::ApplicationBase {
 
   // Internal reconnection logic (must be called on dispatcher thread)
   VoidResult reconnectInternal();
+  void clearConnectionCallbacksForShutdown();
 
   // Timer-based timeout management following production patterns
   void enableRequestTimeout(std::shared_ptr<RequestContext> context);
