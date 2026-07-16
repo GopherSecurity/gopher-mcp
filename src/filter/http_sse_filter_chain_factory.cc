@@ -51,6 +51,7 @@
 #include "mcp/filter/http_sse_filter_chain_factory.h"
 
 #include <cassert>
+#include <cctype>
 #include <cstdint>
 #include <ctime>
 #include <map>
@@ -771,6 +772,31 @@ class HttpSseJsonRpcProtocolFilter
           server_mode_->currentMode() == ServerConnMode::Undetermined) {
         server_mode_->handleEvent(ServerConnEvent::PlainHttpDetected);
       }
+      streamable_http_session_id_.clear();
+      auto session_it = headers.find("mcp-session-id");
+      if (session_it != headers.end()) {
+        streamable_http_session_id_ = session_it->second;
+      } else {
+        static constexpr const char* expected = "mcp-session-id";
+        static constexpr size_t expected_len = 14;
+        for (const auto& header : headers) {
+          if (header.first.size() != expected_len) {
+            continue;
+          }
+          bool matches = true;
+          for (size_t i = 0; i < expected_len; ++i) {
+            if (std::tolower(static_cast<unsigned char>(header.first[i])) !=
+                expected[i]) {
+              matches = false;
+              break;
+            }
+          }
+          if (matches) {
+            streamable_http_session_id_ = header.second;
+            break;
+          }
+        }
+      }
       auto accept = headers.find("accept");
       if (accept != headers.end() &&
           accept->second.find("text/event-stream") != std::string::npos) {
@@ -1263,6 +1289,10 @@ class HttpSseJsonRpcProtocolFilter
   // registered under this ID instead of writing back to the POST
   // connection.
   std::string sse_callback_session_id_;
+  // Session ID from Mcp-Session-Id on Streamable HTTP requests. This is the
+  // durable request-session identity for POST /mcp clients that do not use the
+  // SSE callback path.
+  std::string streamable_http_session_id_;
 
   // Messages queued during SSE endpoint negotiation (client mode only).
   // Drained once the state machine reaches EndpointReceived.
