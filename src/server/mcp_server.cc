@@ -870,6 +870,11 @@ void McpServer::onRequestWithContext(const jsonrpc::Request& request,
                                      MessageDispatchContext& context) {
   GOPHER_LOG_DEBUG("McpServer::onRequest called with method: {}",
                    request.method);
+  GOPHER_LOG_FLOW_DEBUG(
+      "MCP server dispatch request method={} transport_session={}",
+      request.method,
+      context.transportSessionId().empty() ? "<none>"
+                                           : context.transportSessionId());
 
   // Handle request in dispatcher context - already in dispatcher
   server_stats_.requests_total++;
@@ -1016,6 +1021,12 @@ void McpServer::onNotification(const jsonrpc::Notification& notification) {
 void McpServer::onNotificationWithContext(
     const jsonrpc::Notification& notification,
     MessageDispatchContext& context) {
+  GOPHER_LOG_FLOW_DEBUG(
+      "MCP server dispatch notification method={} transport_session={}",
+      notification.method,
+      context.transportSessionId().empty() ? "<none>"
+                                           : context.transportSessionId());
+
   // Handle notification in dispatcher context
   server_stats_.notifications_total++;
 

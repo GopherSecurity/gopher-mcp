@@ -744,10 +744,19 @@ void McpClient::sendRequestInternal(std::shared_ptr<RequestContext> context) {
       "is_stale={}",
       idle_seconds, kConnectionIdleTimeoutSec, is_stale);
 
-  // Check if connection is stale or not open - need to reconnect
-  // Maximum retries to wait for connection after reconnect (50 * 10ms = 500ms
-  // max)
-  static constexpr int kMaxReconnectRetries = 50;
+  // Check if connection is stale or not open - need to reconnect.
+  //
+  // Reconnect readiness is driven by dispatcher I/O and can take several
+  // seconds for remote HTTPS/SSE backends. The previous fixed 500ms budget was
+  // enough for local tests but too short for real gateway backends after an
+  // idle connection went stale.
+  static constexpr int kReconnectRetryDelayMs = 10;
+  const auto reconnect_wait_budget = std::min(
+      std::max(config_.request_timeout, std::chrono::milliseconds(5000)),
+      std::chrono::milliseconds(30000));
+  const auto kMaxReconnectRetries =
+      static_cast<size_t>(std::max<int64_t>(
+          1, reconnect_wait_budget.count() / kReconnectRetryDelayMs));
 
   // THREAD SAFETY: Use atomic connected_ flag instead of isConnectionOpen()
   // isConnectionOpen() reads McpConnectionManager::active_connection_ without
@@ -765,7 +774,8 @@ void McpClient::sendRequestInternal(std::shared_ptr<RequestContext> context) {
         context->retry_count++;
         context->retry_timer = main_dispatcher_->createTimer(
             [this, context]() { sendRequestInternal(context); });
-        context->retry_timer->enableTimer(std::chrono::milliseconds(10));
+        context->retry_timer->enableTimer(
+            std::chrono::milliseconds(kReconnectRetryDelayMs));
         return;
       }
       // Connected now, proceed with send below
