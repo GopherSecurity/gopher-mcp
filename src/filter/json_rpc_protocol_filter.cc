@@ -298,6 +298,43 @@ network::FilterStatus JsonRpcProtocolFilter::onData(Buffer& data,
                                                     bool end_stream) {
   GOPHER_LOG_TRACE("onData called - buffer size: {}, end_stream: {}",
                    data.length(), end_stream);
+  GOPHER_LOG_FLOW_DEBUG(
+      "JSON-RPC parser received bytes={} end_stream={} partial_before={}",
+      data.length(), end_stream ? "true" : "false", partial_message_.size());
+
+  // Streamable HTTP POST bodies are complete JSON documents. They may be
+  // pretty-printed and contain whitespace newlines, which are not message
+  // delimiters in HTTP body mode. Prefer parsing the full end-of-stream body as
+  // one JSON value; fall back to newline-delimited parsing when it is not a
+  // single JSON document, preserving stream/NDJSON behavior.
+  if (end_stream && !use_framing_) {
+    std::string body = partial_message_ + data.toString();
+    data.drain(data.length());
+
+    const auto first = body.find_first_not_of(" \t\r\n");
+    const auto last = body.find_last_not_of(" \t\r\n");
+    if (first != std::string::npos) {
+      std::string trimmed = body.substr(first, last - first + 1);
+      try {
+        (void)json::JsonValue::parse(trimmed);
+        GOPHER_LOG_FLOW_DEBUG(
+            "JSON-RPC parser treating end_stream body as single message "
+            "bytes={}",
+            trimmed.size());
+        parseMessage(trimmed);
+        partial_message_.clear();
+        return network::FilterStatus::Continue;
+      } catch (const json::JsonException&) {
+        // Not a single JSON document; restore the bytes and use the legacy
+        // newline-delimited parser below.
+        partial_message_ = std::move(body);
+      }
+    } else {
+      partial_message_.clear();
+      return network::FilterStatus::Continue;
+    }
+  }
+
   // Parse JSON-RPC messages from the data buffer
   // This data has already been processed by lower protocol layers (HTTP/SSE)
   parseMessages(data);
@@ -306,6 +343,9 @@ network::FilterStatus JsonRpcProtocolFilter::onData(Buffer& data,
   // message This handles HTTP requests where the body doesn't end with a
   // newline
   if (end_stream && !partial_message_.empty() && !use_framing_) {
+    GOPHER_LOG_FLOW_DEBUG(
+        "JSON-RPC parser flushing partial message bytes={} on end_stream",
+        partial_message_.size());
     parseMessage(partial_message_);
     partial_message_.clear();
   }
@@ -382,6 +422,8 @@ void JsonRpcProtocolFilter::parseMessages(Buffer& buffer) {
 
 bool JsonRpcProtocolFilter::parseMessage(const std::string& json_str) {
   GOPHER_LOG_TRACE("JsonRpcProtocolFilter attempting to parse: {}", json_str);
+  GOPHER_LOG_FLOW_DEBUG("JSON-RPC parser parsing message bytes={}",
+                        json_str.size());
   try {
     // Parse JSON string
     auto json_val = json::JsonValue::parse(json_str);
@@ -391,6 +433,8 @@ bool JsonRpcProtocolFilter::parseMessage(const std::string& json_str) {
       if (json_val.contains("id")) {
         // JSON-RPC Request
         jsonrpc::Request request = json::from_json<jsonrpc::Request>(json_val);
+        GOPHER_LOG_FLOW_DEBUG("JSON-RPC parser dispatch request method={}",
+                              request.method);
         GOPHER_LOG_DEBUG("JsonRpcFilter dispatching request for method: {}",
                          request.method);
         requests_received_++;
@@ -400,6 +444,9 @@ bool JsonRpcProtocolFilter::parseMessage(const std::string& json_str) {
         // JSON-RPC Notification
         jsonrpc::Notification notification =
             json::from_json<jsonrpc::Notification>(json_val);
+        GOPHER_LOG_FLOW_DEBUG(
+            "JSON-RPC parser dispatch notification method={}",
+            notification.method);
         notifications_received_++;
         DispatchContextImpl context(*this);
         handler_.onNotificationWithContext(notification, context);

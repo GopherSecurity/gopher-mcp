@@ -823,11 +823,19 @@ class HttpSseJsonRpcProtocolFilter
   }
 
   void onBody(const std::string& data, bool end_stream) override {
+    GOPHER_LOG_FLOW_DEBUG(
+        "HTTP/SSE server body received mode={} bytes={} end_stream={}",
+        server_mode_
+            ? ServerConnectionMode::getModeName(server_mode_->currentMode())
+            : "<none>",
+        data.size(), end_stream ? "true" : "false");
+
     // The long-lived GET /sse request has no request body — but if the
     // codec surfaces any trailing bytes we don't want to push them down
     // into the JSON-RPC parser. Ignore bodies on the SSE stream
     // connection entirely.
     if (server_mode_ && server_mode_->isSseStream()) {
+      GOPHER_LOG_FLOW_DEBUG("HTTP/SSE server body ignored on SSE stream");
       return;
     }
     // Server receives JSON-RPC in request body regardless of SSE mode
@@ -836,6 +844,9 @@ class HttpSseJsonRpcProtocolFilter
       // Server always receives JSON-RPC in request body
       pending_json_data_.add(data);
       if (end_stream) {
+        GOPHER_LOG_FLOW_DEBUG(
+            "HTTP/SSE server forwarding JSON-RPC body bytes={} to parser",
+            pending_json_data_.length());
         jsonrpc_filter_->onData(pending_json_data_, true);
         pending_json_data_.drain(pending_json_data_.length());
       }
@@ -868,11 +879,18 @@ class HttpSseJsonRpcProtocolFilter
   }
 
   void onMessageComplete() override {
+    GOPHER_LOG_FLOW_DEBUG(
+        "HTTP/SSE message complete sse_active={} pending_json_bytes={}",
+        isSseActive() ? "true" : "false", pending_json_data_.length());
+
     // HTTP message complete — flush any remaining JSON-RPC data that
     // was not yet processed. In SSE mode the data flows through the
     // SSE codec instead, so we only flush for non-SSE connections.
     if (!isSseActive() && pending_json_data_.length() > 0) {
       // Process any remaining JSON-RPC data
+      GOPHER_LOG_FLOW_DEBUG(
+          "HTTP/SSE message complete forwarding pending JSON-RPC bytes={}",
+          pending_json_data_.length());
       jsonrpc_filter_->onData(pending_json_data_, true);
       pending_json_data_.drain(pending_json_data_.length());
     }
