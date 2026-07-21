@@ -444,9 +444,8 @@ bool JsonRpcProtocolFilter::parseMessage(const std::string& json_str) {
         // JSON-RPC Notification
         jsonrpc::Notification notification =
             json::from_json<jsonrpc::Notification>(json_val);
-        GOPHER_LOG_FLOW_DEBUG(
-            "JSON-RPC parser dispatch notification method={}",
-            notification.method);
+        GOPHER_LOG_FLOW_DEBUG("JSON-RPC parser dispatch notification method={}",
+                              notification.method);
         notifications_received_++;
         DispatchContextImpl context(*this);
         handler_.onNotificationWithContext(notification, context);

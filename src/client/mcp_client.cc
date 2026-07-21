@@ -754,9 +754,8 @@ void McpClient::sendRequestInternal(std::shared_ptr<RequestContext> context) {
   const auto reconnect_wait_budget = std::min(
       std::max(config_.request_timeout, std::chrono::milliseconds(5000)),
       std::chrono::milliseconds(30000));
-  const auto kMaxReconnectRetries =
-      static_cast<size_t>(std::max<int64_t>(
-          1, reconnect_wait_budget.count() / kReconnectRetryDelayMs));
+  const auto kMaxReconnectRetries = static_cast<size_t>(std::max<int64_t>(
+      1, reconnect_wait_budget.count() / kReconnectRetryDelayMs));
 
   // THREAD SAFETY: Use atomic connected_ flag instead of isConnectionOpen()
   // isConnectionOpen() reads McpConnectionManager::active_connection_ without
