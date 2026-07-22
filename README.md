@@ -20,7 +20,9 @@
 - [Examples](#examples)
 - [Installation](#installation)
 - [Documentation](#documentation)
+- [Comparison with Other C++ MCP SDKs](#comparison-with-other-c-mcp-sdks)
 - [FAQ](#faq)
+- [Adopters](#adopters)
 - [Contributing](#contributing)
 - [License](#license)
 
@@ -299,6 +301,30 @@ Install [Cygwin](https://www.cygwin.com/) with these packages:
 - [CTAD Alternatives](docs/CTAD_alternatives.md) - Class Template Argument Deduction alternatives for C++14
 - [MCP Serialization Coverage](docs/MCP_serialization_coverage.md) - JSON serialization implementation details
 
+## Comparison with Other C++ MCP SDKs
+
+Several C++ implementations of the Model Context Protocol exist. They serve
+different needs — this table is meant to help you pick the right one:
+
+| | **gopher-mcp** (this SDK) | [hkr04/cpp-mcp](https://github.com/hkr04/cpp-mcp) | [Neumann-Labs/mcp-cpp](https://github.com/Neumann-Labs/mcp-cpp) |
+|---|---|---|---|
+| Focus | Production / enterprise deployments | Lightweight, minimal footprint | Modern C++20 framework |
+| MCP spec version | 2025-06-18 | 2025-03-26 | 2025-11-25 (in progress) |
+| C++ standard | C++14 / 17 / 20 | C++17 | C++20 |
+| Transports | stdio, HTTP+SSE, HTTPS, Streamable HTTP, WebSocket, TCP | stdio, HTTP+SSE | stdio, HTTP |
+| Client + server | Yes | Yes | Yes |
+| TLS | Yes | Yes (build flag) | — |
+| Event model | Event-driven dispatcher (libevent), thread-safe by design | — | — |
+| Resilience | Connection pooling, circuit breaker, rate limiting, backpressure | — | — |
+| Observability | Metrics, tracing hooks, structured logging | — | — |
+| Language bindings | Python, TypeScript, Go, Rust, Java, C#, Ruby via stable C API | C++ only | C++ only |
+| License | Apache-2.0 | MIT | MIT |
+
+If you need a small dependency for a quick stdio tool, a lightweight SDK like
+`cpp-mcp` is a fine choice. If you need an MCP C++ SDK for production —
+long-lived connections, multiple transports, observability, or calling the
+SDK from other languages — that is what gopher-mcp is built for.
+
 ## FAQ
 
 ### What is the Model Context Protocol?
@@ -329,9 +355,23 @@ Yes. The SDK includes connection pooling, circuit breakers, rate limiting, TLS s
 - **WebSocket** - Bidirectional real-time
 - **TCP** - Raw TCP sockets
 
+### How does this compare to cpp-mcp and other C++ MCP libraries?
+
+See the [comparison table](#comparison-with-other-c-mcp-sdks). In short:
+gopher-mcp targets production use — more transports (Streamable HTTP,
+WebSocket, TCP), connection pooling, circuit breakers, observability, and
+multi-language bindings — while lighter SDKs optimize for minimal footprint.
+
 ### How do I contribute?
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines. Issues and pull requests welcome!
+
+## Adopters
+
+Using this MCP C++ SDK in your product or project? We'd love to list you
+here — open a pull request or issue to add yourself.
+
+- [Gopher Security](https://gopher.security) - MCP-native zero-trust security platform
 
 ## Keywords & Search Terms
 
