@@ -309,7 +309,7 @@ different needs — this table is meant to help you pick the right one:
 | | **gopher-mcp** (this SDK) | [hkr04/cpp-mcp](https://github.com/hkr04/cpp-mcp) | [Neumann-Labs/mcp-cpp](https://github.com/Neumann-Labs/mcp-cpp) |
 |---|---|---|---|
 | Focus | Production / enterprise deployments | Lightweight, minimal footprint | Modern C++20 framework |
-| MCP spec version | 2025-06-18 | 2025-03-26 | 2025-11-25 (in progress) |
+| MCP spec version | 2025-06-18, 2025-11-25 (in progress) | 2025-03-26 | 2025-11-25 (in progress) |
 | C++ standard | C++14 / 17 / 20 | C++17 | C++20 |
 | Transports | stdio, HTTP+SSE, HTTPS, Streamable HTTP, WebSocket, TCP | stdio, HTTP+SSE | stdio, HTTP |
 | Client + server | Yes | Yes | Yes |
@@ -371,7 +371,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines. Issues and pull requests 
 Using this MCP C++ SDK in your product or project? We'd love to list you
 here — open a pull request or issue to add yourself.
 
-- [Gopher Security](https://gopher.security) - MCP-native zero-trust security platform
+- [Gopher Security](https://gopher.security) - MCP-native AI security platform
 
 ## Keywords & Search Terms
 
