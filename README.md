@@ -121,7 +121,7 @@ This MCP C++ SDK implements the [official MCP specification](https://modelcontex
 
 | Category | Features |
 |----------|----------|
-| **Protocol** | Full MCP 2025-06-18 specification, JSON-RPC 2.0, resources, tools, prompts |
+| **Protocol** | Full MCP 2025-06-18 and 2025-11-25 specifications, 2026-07-28 (in progress), JSON-RPC 2.0, resources, tools, prompts |
 | **Transports** | stdio, HTTP+SSE, HTTPS+SSE, WebSocket, TCP |
 | **Performance** | Zero-copy buffers, lock-free operations, connection pooling |
 | **Reliability** | Circuit breaker, rate limiting, retry with backoff, graceful shutdown |
@@ -309,7 +309,7 @@ different needs — this table is meant to help you pick the right one:
 | | **gopher-mcp** (this SDK) | [hkr04/cpp-mcp](https://github.com/hkr04/cpp-mcp) | [Neumann-Labs/mcp-cpp](https://github.com/Neumann-Labs/mcp-cpp) |
 |---|---|---|---|
 | Focus | Production / enterprise deployments | Lightweight, minimal footprint | Modern C++20 framework |
-| MCP spec version | 2025-06-18, 2025-11-25 (in progress) | 2025-03-26 | 2025-11-25 (in progress) |
+| MCP spec version | 2025-06-18, 2025-11-25, 2026-07-28 (in progress) | 2025-03-26 | 2025-11-25 (in progress) |
 | C++ standard | C++14 / 17 / 20 | C++17 | C++20 |
 | Transports | stdio, HTTP+SSE, HTTPS, Streamable HTTP, WebSocket, TCP | stdio, HTTP+SSE | stdio, HTTP |
 | Client + server | Yes | Yes | Yes |
