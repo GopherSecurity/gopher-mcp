@@ -287,6 +287,25 @@ TEST_F(JsonRpcProtocolFilterTest, EndStreamMalformedBodyReportsParseError) {
   EXPECT_EQ(network::FilterStatus::Continue, status);
 }
 
+TEST_F(JsonRpcProtocolFilterTest,
+       EndStreamMalformedPrettyBodyReportsOneParseError) {
+  EXPECT_CALL(*callbacks_, onRequest(_)).Times(0);
+  EXPECT_CALL(*callbacks_, onNotification(_)).Times(0);
+  EXPECT_CALL(*callbacks_, onResponse(_)).Times(0);
+  EXPECT_CALL(*callbacks_, onProtocolError(_)).WillOnce([](const Error& error) {
+    EXPECT_EQ(jsonrpc::PARSE_ERROR, error.code);
+  });
+
+  const std::string json_str =
+      "{\n"
+      "  \"jsonrpc\": \"2.0\",\n"
+      "  \"id\": 9,\n"
+      "  \"method\": \"broken\"\n";
+
+  auto status = processData(json_str, true);
+  EXPECT_EQ(network::FilterStatus::Continue, status);
+}
+
 /**
  * Test message framing mode
  */
