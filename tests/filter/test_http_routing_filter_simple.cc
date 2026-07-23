@@ -182,6 +182,132 @@ TEST_F(HttpRoutingFilterSimpleTest, CustomDefaultHandler) {
   EXPECT_FALSE(default_handler_called);
 }
 
+TEST_F(HttpRoutingFilterSimpleTest, UnmatchedRequestUsesDefaultHandler) {
+  std::atomic<bool> default_handler_called(false);
+
+  executeInDispatcher([this, &default_handler_called]() {
+    filter_->registerDefaultHandler(
+        [&default_handler_called](
+            const HttpRoutingFilter::RequestContext& req) {
+          default_handler_called = true;
+          EXPECT_EQ(req.method, "GET");
+          EXPECT_EQ(req.path, "/missing?source=test");
+          HttpRoutingFilter::Response resp;
+          resp.status_code = 404;
+          resp.body = "not found";
+          resp.headers["content-length"] = std::to_string(resp.body.length());
+          return resp;
+        });
+
+    EXPECT_CALL(*next_callbacks_, onHeaders(_, _)).Times(0);
+
+    std::map<std::string, std::string> headers;
+    headers[":method"] = "GET";
+    headers[":path"] = "/missing?source=test";
+
+    filter_->onHeaders(headers, true);
+  });
+
+  EXPECT_TRUE(default_handler_called);
+}
+
+TEST_F(HttpRoutingFilterSimpleTest, DefaultHandlerStatusZeroPassesThrough) {
+  std::atomic<bool> default_handler_called(false);
+
+  executeInDispatcher([this, &default_handler_called]() {
+    filter_->registerDefaultHandler(
+        [&default_handler_called](
+            const HttpRoutingFilter::RequestContext& req) {
+          default_handler_called = true;
+          EXPECT_EQ(req.path, "/mcp");
+          HttpRoutingFilter::Response resp;
+          resp.status_code = 0;
+          return resp;
+        });
+
+    EXPECT_CALL(*next_callbacks_, onHeaders(_, true)).Times(1);
+
+    std::map<std::string, std::string> headers;
+    headers[":method"] = "POST";
+    headers[":path"] = "/mcp";
+
+    filter_->onHeaders(headers, true);
+  });
+
+  EXPECT_TRUE(default_handler_called);
+}
+
+TEST_F(HttpRoutingFilterSimpleTest, HandlerStatusZeroFallsBackToDefault) {
+  std::atomic<bool> handler_called(false);
+  std::atomic<bool> default_handler_called(false);
+
+  executeInDispatcher([this, &handler_called, &default_handler_called]() {
+    filter_->registerHandler(
+        "GET", "/passthrough",
+        [&handler_called](const HttpRoutingFilter::RequestContext& req) {
+          handler_called = true;
+          HttpRoutingFilter::Response resp;
+          resp.status_code = 0;
+          return resp;
+        });
+    filter_->registerDefaultHandler(
+        [&default_handler_called](
+            const HttpRoutingFilter::RequestContext& req) {
+          default_handler_called = true;
+          EXPECT_EQ(req.path, "/passthrough");
+          HttpRoutingFilter::Response resp;
+          resp.status_code = 404;
+          resp.body = "not found";
+          resp.headers["content-length"] = std::to_string(resp.body.length());
+          return resp;
+        });
+
+    EXPECT_CALL(*next_callbacks_, onHeaders(_, _)).Times(0);
+
+    std::map<std::string, std::string> headers;
+    headers[":method"] = "GET";
+    headers[":path"] = "/passthrough";
+
+    filter_->onHeaders(headers, true);
+  });
+
+  EXPECT_TRUE(handler_called);
+  EXPECT_TRUE(default_handler_called);
+}
+
+TEST_F(HttpRoutingFilterSimpleTest, HandledDefaultResponseConsumesRequestBody) {
+  std::atomic<bool> default_handler_called(false);
+
+  executeInDispatcher([this, &default_handler_called]() {
+    filter_->registerDefaultHandler(
+        [&default_handler_called](
+            const HttpRoutingFilter::RequestContext& req) {
+          default_handler_called = true;
+          EXPECT_EQ(req.method, "POST");
+          EXPECT_EQ(req.path, "/unknown");
+          HttpRoutingFilter::Response resp;
+          resp.status_code = 404;
+          resp.body = "not found";
+          resp.headers["content-length"] = std::to_string(resp.body.length());
+          return resp;
+        });
+
+    EXPECT_CALL(*next_callbacks_, onHeaders(_, _)).Times(0);
+    EXPECT_CALL(*next_callbacks_, onBody(_, _)).Times(0);
+    EXPECT_CALL(*next_callbacks_, onMessageComplete()).Times(0);
+
+    std::map<std::string, std::string> headers;
+    headers[":method"] = "POST";
+    headers[":path"] = "/unknown";
+
+    filter_->onHeaders(headers, true);
+    filter_->onBody(R"({"jsonrpc":"2.0","method":"ping","id":1})", true);
+    filter_->onMessageComplete();
+  });
+
+  EXPECT_TRUE(default_handler_called);
+}
+
 // Test request context structure
 TEST_F(HttpRoutingFilterSimpleTest, RequestContext) {
   HttpRoutingFilter::RequestContext ctx;

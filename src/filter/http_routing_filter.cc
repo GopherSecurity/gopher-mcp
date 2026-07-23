@@ -109,18 +109,41 @@ void HttpRoutingFilter::onHeaders(
     if (resp.status_code != 0) {
       // Handler wants to handle this - send response immediately
       // This is appropriate for endpoints that don't need the body
+      suppress_current_request_ = true;
       sendResponse(resp);
       return;  // Don't forward to next layer
     }
   }
 
-  // No handler or handler returned 0 - pass through
+  // No registered handler matched, or the matched handler explicitly returned
+  // status 0. Give the default handler a chance to answer before forwarding to
+  // the protocol layer. Transport paths can still opt into pass-through by
+  // returning status 0 from the default handler.
+  {
+    RequestContext ctx;
+    ctx.method = method;
+    ctx.path = full_url;
+    ctx.headers = headers;
+    ctx.keep_alive = keep_alive;
+    Response resp = default_handler_(ctx);
+    if (resp.status_code != 0) {
+      suppress_current_request_ = true;
+      sendResponse(resp);
+      return;  // Handled or rejected; do not forward to next layer.
+    }
+  }
+
+  // Default handler signalled pass-through - forward to next layer
   if (next_callbacks_) {
     next_callbacks_->onHeaders(headers, keep_alive);
   }
 }
 
 void HttpRoutingFilter::onBody(const std::string& data, bool end_stream) {
+  if (suppress_current_request_) {
+    return;
+  }
+
   // If we're accumulating body for a POST handler, buffer it
   if (pending_post_request_) {
     accumulated_body_ += data;
@@ -135,6 +158,11 @@ void HttpRoutingFilter::onBody(const std::string& data, bool end_stream) {
 
 void HttpRoutingFilter::onMessageComplete() {
   GOPHER_LOG_DEBUG("HttpRoutingFilter::onMessageComplete called");
+
+  if (suppress_current_request_) {
+    suppress_current_request_ = false;
+    return;
+  }
 
   // If we have a pending POST request, now we have the complete body
   if (pending_post_request_) {
