@@ -758,7 +758,7 @@ void McpClient::sendRequestInternal(std::shared_ptr<RequestContext> context) {
   static constexpr int kReconnectRetryDelayMs = 10;
   const auto reconnect_wait_budget =
       reconnectWaitBudgetForRequestTimeout(config_.request_timeout);
-  const auto kMaxReconnectRetries = static_cast<size_t>(std::max<int64_t>(
+  const auto max_reconnect_retries = static_cast<size_t>(std::max<int64_t>(
       1, reconnect_wait_budget.count() / kReconnectRetryDelayMs));
 
   // THREAD SAFETY: Use atomic connected_ flag instead of isConnectionOpen()
@@ -768,7 +768,7 @@ void McpClient::sendRequestInternal(std::shared_ptr<RequestContext> context) {
   if (is_stale || !connected_) {
     // Track if this is a retry after reconnect
     if (context->retry_count > 0 &&
-        context->retry_count <= kMaxReconnectRetries) {
+        context->retry_count <= max_reconnect_retries) {
       // This is a retry - check if we're connected now
       if (!connected_) {
         // Still not connected, schedule another retry with timer delay
@@ -782,7 +782,7 @@ void McpClient::sendRequestInternal(std::shared_ptr<RequestContext> context) {
         return;
       }
       // Connected now, proceed with send below
-    } else if (context->retry_count > kMaxReconnectRetries) {
+    } else if (context->retry_count > max_reconnect_retries) {
       // Too many retries
       context->promise.set_value(Response::make_error(
           context->id, Error(::mcp::jsonrpc::INTERNAL_ERROR,
