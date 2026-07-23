@@ -297,7 +297,7 @@ TEST_F(ClientReconnectionTest, RetryCountCanBeIncremented) {
   context.retry_count++;
   EXPECT_EQ(context.retry_count, 2);
 
-  // Can increment up to kMaxReconnectRetries (50)
+  // Retry count remains ordinary mutable request context state.
   context.retry_count = 50;
   EXPECT_EQ(context.retry_count, 50);
 }
