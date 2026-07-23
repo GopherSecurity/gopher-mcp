@@ -265,11 +265,10 @@ TEST_F(JsonRpcProtocolFilterTest, EndStreamFallsBackToNdjsonBodies) {
       });
   EXPECT_CALL(*callbacks_, onProtocolError(_)).Times(0);
 
-  const std::string json_str =
-      R"({"jsonrpc":"2.0","method":"first"})"
-      "\n"
-      R"({"jsonrpc":"2.0","method":"second"})"
-      "\n";
+  const std::string json_str = R"({"jsonrpc":"2.0","method":"first"})"
+                               "\n"
+                               R"({"jsonrpc":"2.0","method":"second"})"
+                               "\n";
 
   auto status = processData(json_str, true);
   EXPECT_EQ(network::FilterStatus::Continue, status);
