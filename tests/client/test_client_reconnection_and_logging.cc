@@ -365,22 +365,29 @@ TEST_F(ClientReconnectionTest, RetryTimerDelayIs10Milliseconds) {
   EXPECT_LE(elapsed, 50);  // But not more than 50ms
 }
 
-// Test maximum retry count is 50
-TEST_F(ClientReconnectionTest, MaximumRetryCountIs50) {
-  // The code defines kMaxReconnectRetries = 50
-  // This gives 50 * 10ms = 500ms maximum retry time
+TEST_F(ClientReconnectionTest, ReconnectWaitBudgetLeavesRequestHeadroom) {
+  EXPECT_EQ(McpClient::reconnectWaitBudgetForRequestTimeout(
+                std::chrono::milliseconds(30000)),
+            std::chrono::milliseconds(5000))
+      << "Default request timeout should not be fully consumed by reconnect "
+         "readiness polling";
+  EXPECT_EQ(McpClient::reconnectWaitBudgetForRequestTimeout(
+                std::chrono::milliseconds(15000)),
+            std::chrono::milliseconds(5000));
+  EXPECT_EQ(McpClient::reconnectWaitBudgetForRequestTimeout(
+                std::chrono::milliseconds(5000)),
+            std::chrono::milliseconds(1666));
+}
 
-  using namespace jsonrpc;
-  RequestId id = 1;
-  RequestContext context(id, "test.method");
-
-  // Simulate reaching max retries
-  context.retry_count = 50;
-  EXPECT_EQ(context.retry_count, 50);
-
-  // At 51 retries, the code should fail the request
-  context.retry_count = 51;
-  EXPECT_GT(context.retry_count, 50);
+TEST_F(ClientReconnectionTest, ReconnectWaitBudgetHonorsShortTimeouts) {
+  EXPECT_EQ(McpClient::reconnectWaitBudgetForRequestTimeout(
+                std::chrono::milliseconds(1000)),
+            std::chrono::milliseconds(333));
+  EXPECT_EQ(McpClient::reconnectWaitBudgetForRequestTimeout(
+                std::chrono::milliseconds(100)),
+            std::chrono::milliseconds(250))
+      << "Very small request timeouts get only a small readiness floor, not "
+         "the old multi-second minimum";
 }
 
 // ============================================================================
