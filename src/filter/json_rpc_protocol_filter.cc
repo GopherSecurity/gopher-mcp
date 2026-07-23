@@ -9,6 +9,9 @@
 
 #include "mcp/filter/json_rpc_protocol_filter.h"
 
+#include <sstream>
+#include <vector>
+
 #include "mcp/json/json_serialization.h"
 #include "mcp/logging/log_macros.h"
 #include "mcp/mcp_connection_manager.h"
@@ -324,10 +327,44 @@ network::FilterStatus JsonRpcProtocolFilter::onData(Buffer& data,
         dispatchMessage(json_val);
         partial_message_.clear();
         return network::FilterStatus::Continue;
-      } catch (const json::JsonException&) {
-        // Not a single JSON document; restore the bytes and use the legacy
-        // newline-delimited parser below.
-        partial_message_ = std::move(body);
+      } catch (const json::JsonException& e) {
+        std::vector<json::JsonValue> ndjson_messages;
+        bool valid_ndjson = true;
+        std::istringstream lines(trimmed);
+        std::string line;
+        while (std::getline(lines, line)) {
+          const auto line_first = line.find_first_not_of(" \t\r");
+          if (line_first == std::string::npos) {
+            continue;
+          }
+          const auto line_last = line.find_last_not_of(" \t\r");
+          const std::string line_trimmed =
+              line.substr(line_first, line_last - line_first + 1);
+          try {
+            ndjson_messages.push_back(json::JsonValue::parse(line_trimmed));
+          } catch (const json::JsonException&) {
+            valid_ndjson = false;
+            break;
+          }
+        }
+
+        if (valid_ndjson && !ndjson_messages.empty()) {
+          GOPHER_LOG_FLOW_DEBUG(
+              "JSON-RPC parser treating end_stream body as NDJSON messages "
+              "count={}",
+              ndjson_messages.size());
+          for (const auto& json_val : ndjson_messages) {
+            dispatchMessage(json_val);
+          }
+        } else {
+          Error error;
+          error.code = jsonrpc::PARSE_ERROR;
+          error.message = "JSON parse error: " + std::string(e.what());
+          protocol_errors_++;
+          handler_.onProtocolError(error);
+        }
+        partial_message_.clear();
+        return network::FilterStatus::Continue;
       }
     } else {
       partial_message_.clear();
