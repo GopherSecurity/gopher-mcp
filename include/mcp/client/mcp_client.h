@@ -433,6 +433,8 @@ class McpClient : public application::ApplicationBase {
   void disconnect();
   bool isConnected() const { return connected_; }
   bool isConnectionOpen() const;  // Check actual connection state
+  static std::chrono::milliseconds reconnectWaitBudgetForRequestTimeout(
+      std::chrono::milliseconds request_timeout);
 
   // Shutdown the client (stops workers and event loop)
   void shutdown() override;

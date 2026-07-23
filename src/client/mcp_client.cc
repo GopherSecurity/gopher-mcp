@@ -311,6 +311,12 @@ bool McpClient::isConnectionOpen() const {
   return connection_manager_->isConnected();
 }
 
+std::chrono::milliseconds McpClient::reconnectWaitBudgetForRequestTimeout(
+    std::chrono::milliseconds request_timeout) {
+  return std::min(std::max(request_timeout / 3, std::chrono::milliseconds(250)),
+                  std::chrono::milliseconds(5000));
+}
+
 // Reconnect using stored URI
 VoidResult McpClient::reconnect() {
   if (current_uri_.empty()) {
@@ -747,13 +753,11 @@ void McpClient::sendRequestInternal(std::shared_ptr<RequestContext> context) {
   // Check if connection is stale or not open - need to reconnect.
   //
   // Reconnect readiness is driven by dispatcher I/O and can take several
-  // seconds for remote HTTPS/SSE backends. The previous fixed 500ms budget was
-  // enough for local tests but too short for real gateway backends after an
-  // idle connection went stale.
+  // seconds for remote HTTPS/SSE backends, but it must leave request-deadline
+  // headroom for the actual send and response.
   static constexpr int kReconnectRetryDelayMs = 10;
-  const auto reconnect_wait_budget = std::min(
-      std::max(config_.request_timeout, std::chrono::milliseconds(5000)),
-      std::chrono::milliseconds(30000));
+  const auto reconnect_wait_budget =
+      reconnectWaitBudgetForRequestTimeout(config_.request_timeout);
   const auto kMaxReconnectRetries = static_cast<size_t>(std::max<int64_t>(
       1, reconnect_wait_budget.count() / kReconnectRetryDelayMs));
 
