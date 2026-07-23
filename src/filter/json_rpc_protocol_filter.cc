@@ -316,12 +316,12 @@ network::FilterStatus JsonRpcProtocolFilter::onData(Buffer& data,
     if (first != std::string::npos) {
       std::string trimmed = body.substr(first, last - first + 1);
       try {
-        (void)json::JsonValue::parse(trimmed);
+        auto json_val = json::JsonValue::parse(trimmed);
         GOPHER_LOG_FLOW_DEBUG(
             "JSON-RPC parser treating end_stream body as single message "
             "bytes={}",
             trimmed.size());
-        parseMessage(trimmed);
+        dispatchMessage(json_val);
         partial_message_.clear();
         return network::FilterStatus::Continue;
       } catch (const json::JsonException&) {
@@ -427,7 +427,30 @@ bool JsonRpcProtocolFilter::parseMessage(const std::string& json_str) {
   try {
     // Parse JSON string
     auto json_val = json::JsonValue::parse(json_str);
+    return dispatchMessage(json_val);
 
+  } catch (const json::JsonException& e) {
+    // JSON parse error
+    Error error;
+    error.code = jsonrpc::PARSE_ERROR;
+    error.message = "JSON parse error: " + std::string(e.what());
+    protocol_errors_++;
+    handler_.onProtocolError(error);
+    return false;
+
+  } catch (const std::exception& e) {
+    // Other errors
+    Error error;
+    error.code = jsonrpc::INTERNAL_ERROR;
+    error.message = "Internal error: " + std::string(e.what());
+    protocol_errors_++;
+    handler_.onProtocolError(error);
+    return false;
+  }
+}
+
+bool JsonRpcProtocolFilter::dispatchMessage(const json::JsonValue& json_val) {
+  try {
     // Determine message type and dispatch to callbacks
     if (json_val.contains("method")) {
       if (json_val.contains("id")) {
@@ -470,7 +493,6 @@ bool JsonRpcProtocolFilter::parseMessage(const std::string& json_str) {
     return true;
 
   } catch (const json::JsonException& e) {
-    // JSON parse error
     Error error;
     error.code = jsonrpc::PARSE_ERROR;
     error.message = "JSON parse error: " + std::string(e.what());
@@ -479,7 +501,6 @@ bool JsonRpcProtocolFilter::parseMessage(const std::string& json_str) {
     return false;
 
   } catch (const std::exception& e) {
-    // Other errors
     Error error;
     error.code = jsonrpc::INTERNAL_ERROR;
     error.message = "Internal error: " + std::string(e.what());
