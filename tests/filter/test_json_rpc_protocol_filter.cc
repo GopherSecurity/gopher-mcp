@@ -230,6 +230,63 @@ TEST_F(JsonRpcProtocolFilterTest, InvalidJson) {
   EXPECT_EQ(network::FilterStatus::Continue, status);
 }
 
+TEST_F(JsonRpcProtocolFilterTest, EndStreamParsesPrettyPrintedBodyAsOneJson) {
+  EXPECT_CALL(*callbacks_, onRequest(_))
+      .WillOnce([](const jsonrpc::Request& req) {
+        EXPECT_EQ("test.pretty", req.method);
+        EXPECT_TRUE(holds_alternative<int64_t>(req.id));
+        EXPECT_EQ(7, get<int64_t>(req.id));
+      });
+  EXPECT_CALL(*callbacks_, onProtocolError(_)).Times(0);
+
+  const std::string json_str =
+      "{\n"
+      "  \"jsonrpc\": \"2.0\",\n"
+      "  \"id\": 7,\n"
+      "  \"method\": \"test.pretty\",\n"
+      "  \"params\": {\n"
+      "    \"message\": \"line one\\nline two\"\n"
+      "  }\n"
+      "}";
+
+  auto status = processData(json_str, true);
+  EXPECT_EQ(network::FilterStatus::Continue, status);
+}
+
+TEST_F(JsonRpcProtocolFilterTest, EndStreamFallsBackToNdjsonBodies) {
+  InSequence seq;
+  EXPECT_CALL(*callbacks_, onNotification(_))
+      .WillOnce([](const jsonrpc::Notification& notification) {
+        EXPECT_EQ("first", notification.method);
+      });
+  EXPECT_CALL(*callbacks_, onNotification(_))
+      .WillOnce([](const jsonrpc::Notification& notification) {
+        EXPECT_EQ("second", notification.method);
+      });
+  EXPECT_CALL(*callbacks_, onProtocolError(_)).Times(0);
+
+  const std::string json_str =
+      R"({"jsonrpc":"2.0","method":"first"})"
+      "\n"
+      R"({"jsonrpc":"2.0","method":"second"})"
+      "\n";
+
+  auto status = processData(json_str, true);
+  EXPECT_EQ(network::FilterStatus::Continue, status);
+}
+
+TEST_F(JsonRpcProtocolFilterTest, EndStreamMalformedBodyReportsParseError) {
+  EXPECT_CALL(*callbacks_, onRequest(_)).Times(0);
+  EXPECT_CALL(*callbacks_, onNotification(_)).Times(0);
+  EXPECT_CALL(*callbacks_, onResponse(_)).Times(0);
+  EXPECT_CALL(*callbacks_, onProtocolError(_)).WillOnce([](const Error& error) {
+    EXPECT_EQ(jsonrpc::PARSE_ERROR, error.code);
+  });
+
+  auto status = processData("{ invalid json }", true);
+  EXPECT_EQ(network::FilterStatus::Continue, status);
+}
+
 /**
  * Test message framing mode
  */
