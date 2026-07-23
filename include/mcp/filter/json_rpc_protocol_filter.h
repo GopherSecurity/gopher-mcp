@@ -193,6 +193,13 @@ class JsonRpcProtocolFilter : public network::Filter {
   bool parseMessage(const std::string& json_str);
 
   /**
+   * Dispatch a parsed JSON-RPC message
+   * @param json_val Parsed JSON value
+   * @return True if message shape was valid
+   */
+  bool dispatchMessage(const json::JsonValue& json_val);
+
+  /**
    * Frame outgoing message with length prefix if needed
    * @param data Buffer containing message to frame
    */
