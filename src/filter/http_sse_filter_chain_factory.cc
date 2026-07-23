@@ -1206,10 +1206,15 @@ class HttpSseJsonRpcProtocolFilter
           return resp;
         });
 
-    // Default handler - handle OPTIONS for CORS preflight on any path,
-    // pass through other methods to MCP protocol handling
+    // Default handler - handle OPTIONS for CORS preflight on any path, pass
+    // through the real MCP transport paths to protocol handling, and return a
+    // definitive 404 for everything else. Unknown non-RPC paths must get an
+    // immediate response; otherwise they fall through to a protocol layer that
+    // has no request to answer and the connection can wait until client timeout.
+    const std::string rpc_path = configured_rpc_path_;
+    const std::string sse_path = configured_sse_path_;
     routing_filter_->registerDefaultHandler(
-        [](const HttpRoutingFilter::RequestContext& req) {
+        [rpc_path, sse_path](const HttpRoutingFilter::RequestContext& req) {
           // Handle OPTIONS for CORS preflight on any path
           if (req.method == "OPTIONS") {
             HttpRoutingFilter::Response resp;
@@ -1223,9 +1228,30 @@ class HttpSseJsonRpcProtocolFilter
             resp.headers["Content-Length"] = "0";
             return resp;
           }
-          // Return status 0 to indicate pass-through for MCP endpoints
+
+          std::string path = req.path;
+          auto query_start = path.find('?');
+          if (query_start != std::string::npos) {
+            path = path.substr(0, query_start);
+          }
+
+          const bool is_transport_path =
+              path == rpc_path || path == sse_path || path == "/rpc" ||
+              path == "/events" || path == "/mcp/events" ||
+              (req.method == "POST" &&
+               path.find("/callback/") != std::string::npos);
+          if (is_transport_path) {
+            HttpRoutingFilter::Response resp;
+            resp.status_code = 0;
+            return resp;
+          }
+
           HttpRoutingFilter::Response resp;
-          resp.status_code = 0;
+          resp.status_code = 404;
+          resp.headers["content-type"] = "application/json";
+          resp.headers["Access-Control-Allow-Origin"] = "*";
+          resp.body = R"({"error":"not_found"})";
+          resp.headers["content-length"] = std::to_string(resp.body.length());
           return resp;
         });
 

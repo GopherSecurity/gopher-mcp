@@ -248,6 +248,35 @@ TEST_F(ServerModeFilterTest, GetSseWithQueryString_StillSseStream) {
   closeOnDispatcher(std::move(conn), std::move(factory));
 }
 
+TEST_F(ServerModeFilterTest, UnknownHttpPath_ReturnsNotFoundImmediately) {
+  ServerModeCallbacks callbacks;
+  std::unique_ptr<network::ServerConnection> conn;
+  network::IoHandlePtr peer;
+  std::shared_ptr<HttpSseFilterChainFactory> factory;
+
+  executeInDispatcher([&]() {
+    auto h = makeServerHarness(callbacks);
+    conn = std::move(h.conn);
+    peer = std::move(h.peer);
+    factory = std::move(h.factory);
+
+    writeClientBytes(*peer,
+                     "GET /.well-known/oauth-protected-resource HTTP/1.1\r\n"
+                     "Host: localhost\r\n"
+                     "\r\n");
+  });
+
+  std::string wire = drainPeer(*peer, 500ms);
+  EXPECT_NE(wire.find("HTTP/1.1 404"), std::string::npos)
+      << "Expected immediate 404, got: " << wire;
+  EXPECT_NE(wire.find(R"({"error":"not_found"})"), std::string::npos)
+      << "Expected JSON not_found body, got: " << wire;
+  EXPECT_TRUE(callbacks.requests_.empty())
+      << "Unknown HTTP paths must not reach JSON-RPC dispatch";
+
+  closeOnDispatcher(std::move(conn), std::move(factory));
+}
+
 // ── POST /mcp → PlainHttp mode ────────────────────────────────────
 
 TEST_F(ServerModeFilterTest, PostMcp_PlainHttpMode) {
