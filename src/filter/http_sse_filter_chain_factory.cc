@@ -51,7 +51,6 @@
 #include "mcp/filter/http_sse_filter_chain_factory.h"
 
 #include <cassert>
-#include <cctype>
 #include <cstdint>
 #include <ctime>
 #include <map>
@@ -776,26 +775,6 @@ class HttpSseJsonRpcProtocolFilter
       auto session_it = headers.find("mcp-session-id");
       if (session_it != headers.end()) {
         streamable_http_session_id_ = session_it->second;
-      } else {
-        static constexpr const char* expected = "mcp-session-id";
-        static constexpr size_t expected_len = 14;
-        for (const auto& header : headers) {
-          if (header.first.size() != expected_len) {
-            continue;
-          }
-          bool matches = true;
-          for (size_t i = 0; i < expected_len; ++i) {
-            if (std::tolower(static_cast<unsigned char>(header.first[i])) !=
-                expected[i]) {
-              matches = false;
-              break;
-            }
-          }
-          if (matches) {
-            streamable_http_session_id_ = header.second;
-            break;
-          }
-        }
       }
       auto accept = headers.find("accept");
       if (accept != headers.end() &&
