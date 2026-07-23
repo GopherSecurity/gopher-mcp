@@ -1210,7 +1210,8 @@ class HttpSseJsonRpcProtocolFilter
     // through the real MCP transport paths to protocol handling, and return a
     // definitive 404 for everything else. Unknown non-RPC paths must get an
     // immediate response; otherwise they fall through to a protocol layer that
-    // has no request to answer and the connection can wait until client timeout.
+    // has no request to answer and the connection can wait until client
+    // timeout.
     const std::string rpc_path = configured_rpc_path_;
     const std::string sse_path = configured_sse_path_;
     routing_filter_->registerDefaultHandler(
