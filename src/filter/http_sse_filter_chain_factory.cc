@@ -977,11 +977,11 @@ class HttpSseJsonRpcProtocolFilter
   // ===== JsonRpcProtocolFilter::MessageHandler =====
 
   /**
-   * Per-message dispatch context for messages decoded on this composite
-   * chain. Origin is the connection the message physically arrived on (for
-   * HTTP+SSE, the short-lived POST connection); the transport session id is
-   * the SSE stream id parsed from POST /callback/{id} — the durable client
-   * identity the server keys its session on.
+   * Per-message dispatch context for messages decoded on this composite chain.
+   * Origin is the connection the message physically arrived on. The transport
+   * session id is the durable client identity for transports where logical MCP
+   * sessions span short-lived HTTP connections: the callback id parsed from
+   * POST /callback/{id}, or Mcp-Session-Id from Streamable HTTP POST /mcp.
    *
    * The reply sink writes the bare JSON to the origin connection, exactly
    * the bytes the server used to write to its ambient current-connection
@@ -1001,7 +1001,10 @@ class HttpSseJsonRpcProtocolFilter
     }
 
     const std::string& transportSessionId() const override {
-      return parent_.sse_callback_session_id_;
+      if (!parent_.sse_callback_session_id_.empty()) {
+        return parent_.sse_callback_session_id_;
+      }
+      return parent_.streamable_http_session_id_;
     }
 
     VoidResult sendResponse(const jsonrpc::Response& response) override {

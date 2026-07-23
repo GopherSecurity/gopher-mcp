@@ -431,6 +431,43 @@ TEST_F(ServerModeFilterTest, PlainPost_AnnouncesEmptyBinding) {
   closeOnDispatcher(std::move(conn), std::move(factory));
 }
 
+TEST_F(ServerModeFilterTest, StreamablePost_AnnouncesMcpSessionIdBinding) {
+  ServerModeCallbacks callbacks;
+  std::unique_ptr<network::ServerConnection> conn;
+  network::IoHandlePtr peer;
+  std::shared_ptr<HttpSseFilterChainFactory> factory;
+
+  executeInDispatcher([&]() {
+    auto h = makeServerHarness(callbacks);
+    conn = std::move(h.conn);
+    peer = std::move(h.peer);
+    factory = std::move(h.factory);
+
+    std::string body = R"({"jsonrpc":"2.0","method":"ping","id":3})";
+    std::string request =
+        "POST /mcp HTTP/1.1\r\n"
+        "Host: localhost\r\n"
+        "Content-Type: application/json\r\n"
+        "Mcp-Session-Id: streamable-client-1\r\n"
+        "Content-Length: " +
+        std::to_string(body.size()) +
+        "\r\n"
+        "\r\n" +
+        body;
+    writeClientBytes(*peer, request);
+  });
+
+  std::this_thread::sleep_for(200ms);
+
+  ASSERT_EQ(callbacks.requests_.size(), 1u);
+  EXPECT_EQ(callbacks.requests_[0].method, "ping");
+  EXPECT_EQ(callbacks.binding_at_request_[0], "streamable-client-1")
+      << "Streamable HTTP dispatch must propagate Mcp-Session-Id as the "
+         "transport session id";
+
+  closeOnDispatcher(std::move(conn), std::move(factory));
+}
+
 // ── Callback-proxy notification must not leak a 202 onto the SSE stream ──
 //
 // A notification POSTed to /callback/{id} is already answered with a 202
