@@ -7,246 +7,177 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
-
 ### Added
 
 ### Changed
+
+### Fixed
 
 ## [0.1.14] - 2026-07-22
 
 ### Fixed
 
-- Fix streamable HTTP tool call parsing
-- Capture Streamable HTTP MCP session id
+- Fix Streamable HTTP tool-call body parsing for pretty-printed JSON, newline-delimited JSON fallback, and malformed body error reporting.
+- Propagate `Mcp-Session-Id` from Streamable HTTP requests as the transport session id.
+- Bound reconnect readiness polling so it cannot consume the full request timeout.
 
 ## [0.1.13] - 2026-07-08
 
 ### Added
 
-- Add MCP HTTP header passthrough support (#250)
+- Add MCP HTTP header passthrough support (#250).
 
 ### Fixed
 
-- Fix SSL transport use-after-free in posted lambdas (#245)
-- Null-guard OpenSSL 3.x error-string accessors to prevent crash (#246)
-- Fix SSL transport data loss on full network BIO (#247)
-- Route MCP responses to the originating connection (#248)
-- Improve transport and MCP flow logging (#249)
-- Skip TLS peer metadata when verification is disabled (#251)
-- Avoid retaining streamed HTTP client bodies (#260)
-- Guard oversized HTTP body callbacks (#255)
-- Defer HTTP parser callback errors (#256)
-- Post HTTP parser error callbacks (#252)
-- Defer active connection destruction on close (#257)
-- Bind llhttp symbols inside shared library (#259)
-- Honor preferred HTTP transport (#253)
+- Fix SSL transport use-after-free in posted lambdas (#245).
+- Null-guard OpenSSL 3.x error-string accessors to prevent crash (#246).
+- Fix SSL transport data loss on full network BIO (#247).
+- Route MCP responses to the originating connection (#248).
+- Improve transport and MCP flow logging (#249).
+- Skip TLS peer metadata when verification is disabled (#251).
+- Avoid retaining streamed HTTP client bodies (#260).
+- Guard oversized HTTP body callbacks (#255).
+- Defer HTTP parser callback errors (#256).
+- Post HTTP parser error callbacks (#252).
+- Defer active connection destruction on close (#257).
+- Bind llhttp symbols inside the shared library (#259).
+- Honor preferred HTTP transport (#253).
 
 ## [0.1.12] - 2026-07-03
 
 ### Added
 
-- Add MCP HTTP header passthrough support
-- Add invoke logging to MCP client and HTTP transport with GOPHER_LOG_LEVEL switch
+- Add MCP HTTP header passthrough support.
+- Add MCP client and HTTP transport invoke logging controlled by `GOPHER_LOG_LEVEL`.
 
 ## [0.1.11] - 2026-07-02
 
-### Added
-
-- Add MCP HTTP header passthrough support
-- Add invoke logging to MCP client and HTTP transport with GOPHER_LOG_LEVEL switch
-
 ### Changed
 
-- make format
-- Bind llhttp symbols inside shared library
-- Defer active connection destruction on close
-- Post HTTP parser error callbacks
-- Defer HTTP parser callback errors
-- Guard oversized HTTP body callbacks
-- Avoid retaining streamed HTTP client bodies
-- Skip TLS peer metadata when verification is disabled
+- Bind llhttp symbols inside the shared library.
+- Defer active connection destruction on close.
+- Post and defer HTTP parser error callbacks safely.
+- Guard oversized HTTP body callbacks.
+- Avoid retaining streamed HTTP client bodies.
+- Skip TLS peer metadata when verification is disabled.
 
 ### Fixed
 
-- Fix SSL transport data loss on full network BIO
-- Fix SSL transport use-after-free in posted lambdas
+- Fix SSL transport data loss on full network BIO.
+- Fix SSL transport use-after-free in posted lambdas.
 
 ## [0.1.10] - 2026-06-30
 
 ### Added
 
-- Add MCP HTTP header passthrough support
-- Add invoke logging to MCP client and HTTP transport with GOPHER_LOG_LEVEL switch
-
+- Add MCP HTTP header passthrough support.
+- Add MCP client and HTTP transport invoke logging controlled by `GOPHER_LOG_LEVEL`.
 
 ## [0.1.9] - 2026-06-30
 
 ### Added
 
-- Add invoke logging to MCP client and HTTP transport with GOPHER_LOG_LEVEL switch
+- Add MCP client and HTTP transport invoke logging controlled by `GOPHER_LOG_LEVEL`.
 
 ### Changed
 
-- Route MCP responses to the originating connection (fix concurrent-request hangs)
+- Route MCP responses to the originating connection to fix concurrent request hangs.
 
 ### Fixed
 
-- Fix SSL transport data loss on full network BIO
-- Fix SSL transport use-after-free in posted lambdas
+- Fix SSL transport data loss on full network BIO.
+- Fix SSL transport use-after-free in posted lambdas.
 
 ## [0.1.8] - 2026-06-24
 
 ### Added
 
-- Add invoke logging to MCP client and HTTP transport with GOPHER_LOG_LEVEL switch
+- Add MCP client and HTTP transport invoke logging controlled by `GOPHER_LOG_LEVEL`.
 
 ### Changed
 
-- Scope MCP flow logging to a dedicated GOPHER_MCP_LOG_FLOW switch
-- Demote filter registry init/registration logs to Debug
-- Surface SSL errors via warning log
-- Null-guard OpenSSL 3.x error-string accessors to prevent crash
+- Scope MCP flow logging to a dedicated `GOPHER_MCP_LOG_FLOW` switch.
+- Demote filter registry initialization and registration logs to debug level.
+- Surface SSL errors through warning logs.
+- Null-guard OpenSSL 3.x error-string accessors.
 
 ### Fixed
 
-- Fix SSL transport data loss on full network BIO
-- Fix SSL transport use-after-free in posted lambdas
+- Fix SSL transport data loss on full network BIO.
+- Fix SSL transport use-after-free in posted lambdas.
 
 ## [0.1.7] - 2026-06-22
 
-### Added
-
 ### Changed
 
-- Demote filter registry init/registration logs to Debug
-- Surface SSL errors via warning log
-- Null-guard OpenSSL 3.x error-string accessors to prevent crash
-- Unstaged changes: CMakeLists.txt
+- Demote filter registry initialization and registration logs to debug level.
+- Surface SSL errors through warning logs.
+- Null-guard OpenSSL 3.x error-string accessors.
 
 ### Fixed
 
-- Fix SSL transport use-after-free in posted lambdas
+- Fix SSL transport use-after-free in posted lambdas.
 
 ## [0.1.6] - 2026-06-11
 
 ### Added
 
-- Add a request-scoped _meta carrier to SessionContext (#236) - set/getRequestMeta hold the in-flight request's params._meta as its   stringified-JSON form, so a tool handler can read out-of-band metadata   (e.g. correlation ids) without the dispatch forking - The value is per-request but stored on the per-session SessionContext; this is   safe because a session handles one request at a time on the dispatcher thread   and handleCallTool sets it fresh before each dispatch, so it always reflects the   current request
-- Add client-side notification handler registration to McpClient (#237)
-- Add integration tests for ServerConnectionMode wiring in filter (#226)
-- Add comprehensive unit tests for ServerConnectionMode (#226)
-- Add ServerConnectionMode for server-side connection lifecycle (#226)
-- Add integration tests for ClientSseStateMachine wiring in filter (#226)
-- Add comprehensive unit tests for ClientSseStateMachine (#226)
-- Add ClientSseStateMachine for client-side SSE negotiation lifecycle (#226)
-- Add fmt::runtime calls to all runtime format strings
+- Add request-scoped `_meta` storage to `SessionContext` for tool handlers.
+- Add client-side notification handler registration to `McpClient`.
+- Add server and client SSE state machines with integration coverage.
+- Add runtime formatting support for dynamic format strings.
 
 ### Changed
 
-- Release 0.1.5
-- Release 0.1.4
-- Enhance dump-version.sh with GitHub release check and auto-generated changelog
-- Release 0.1.3
-- Format code (#236)
-- Surface request params._meta to server-side tool handlers (#236) - handleCallTool stashes params._meta onto the session before dispatch, beside the   existing arguments extraction; cleared when absent so a prior request's _meta   never aliases this one - The tool handler already receives the session, so no handler signature changes
-- Populate ReadResourceResult contents in McpClient::readResource (#238)
-- Format code (#226)
-- Remove dead RequestStream code from HttpSseJsonRpcProtocolFilter (#226)
-- Wire state change logging for both state machines (#226)
-- Remove is_sse_mode_ and unify SSE detection through state machines (#226)
-- Integrate ServerConnectionMode into HttpSseJsonRpcProtocolFilter (#226)
-- Wire SSE negotiation timeout to error propagation and message drain (#226)
-- Replace client-side boolean flags with ClientSseStateMachine queries (#226)
-- Wire ClientSseStateMachine into HttpSseJsonRpcProtocolFilter as shadow (#226)
-- build: Add MSVC 26 support and improve build configuration
-- Restyle README architecture overview to nested-box layout and align right edges (#225)
-- Unstaged changes: CMakeLists.txt
+- Populate `ReadResourceResult` contents in `McpClient::readResource`.
+- Integrate SSE connection state machines into `HttpSseJsonRpcProtocolFilter`.
+- Remove obsolete request-stream and SSE mode state from the HTTP/SSE filter.
+- Improve MSVC build configuration.
+- Update README architecture documentation.
 
 ### Fixed
 
-- Fix ConnectionPoolImpl timeout SEGFAULT from premature write event (#226)
+- Fix `ConnectionPoolImpl` timeout crash from premature write events.
 
 ## [0.1.5] - 2026-04-21
 
 ### Added
 
-- Add idle-read timeout to ConnectionImpl (#224)
-- Add real-IO SSE server transport handshake test (#216)
-- Add unit tests for SseSessionRegistry  (#215)
-- Implement SSE server transport with per-factory session registry (#215)
-- Add SSE/RPC path and external_url params to filter chain factory (#215)
-- Add integration tests for HttpAsyncClient (#213)
-- Add HttpAsyncClient built on HttpCodecFilter (#213)
-- Add unit tests for crash-fix contracts (#212)
+- Add idle-read timeout handling to `ConnectionImpl` and `McpServer`.
+- Add SSE server transport support with a per-factory session registry.
+- Add configurable SSE/RPC paths and external URL parameters to the filter chain factory.
+- Add `HttpAsyncClient` built on `HttpCodecFilter`.
+- Add integration and lifecycle tests for HTTP, SSE, and connection cleanup behavior.
 
 ### Changed
 
-- Release 0.1.4
-- Enhance dump-version.sh with GitHub release check and auto-generated changelog
-- Release 0.1.3
-- Cover server idle-read timeout end-to-end (#224)
-- Switch idle-read close to NoFlush so LocalClose actually propagates (#224)
-- Arm idle-read timeout on every accepted McpServer connection (#224)
-- Cover abortive TCP close in McpServer connection-lifecycle test (#223)
-- Cover ConnectionPoolImpl timeout timer against stack-capture UAF (#222)
-- Stop capturing stack-local PendingConnection in pool timeout timer (#222)
-- Run deferred close through dispatcher post instead of a stack-local timer (#221)
-- Drop write-only num_connections_ in favor of public stat (#220)
-- Drop vestigial ConnectionCallbacks inheritance from McpServer (#220)
-- Cover connections_active/total across three concurrent accepts (#219)
-- Count TCP server connections in the public stats (#219)
-- Drop leak-on-teardown workaround from initialize-routing test (#218)
-- Cover McpServer connection-lifecycle cleanup and shutdown-drain (#218)
-- Drain active_connections_ during McpServer::shutdown on the dispatcher (#218)
-- Cover dispatcher-thread commit inside McpClient::initializeProtocol (#217)
-- Cover POST /callback routing back through the SSE stream (#216)
-- Extract SseSessionRegistry into its own translation unit  (#215)
-- make format (#215)
-- Match POST /callback/{id} under reverse-proxy path prefixes (#215)
-- Wire McpServerConfig endpoint paths into HttpSseFilterChainFactory (#215)
-- Rename default SSE path to /sse and add external_url config (#215)
-- Surface numeric :status pseudo-header from HTTP client codec (#213)
-- Test that client-mode HTTP codec actually disables body_timeout (#212)
-- Cover lifecycle-adapter self+peer deferred-delete pattern (#212)
-- Drive ConnectionManager event tests through the dispatcher thread (#212)
-- Disable body timeout for client-mode HTTP codec (#212)
-- Route initializeProtocol state commit back to the dispatcher thread (#212)
-- Bind server connection callbacks per connection via adapter (#212)
-- Defer closed-connection destruction via Dispatcher::deferredDelete (#212)
-- Unstaged changes: CMakeLists.txt
+- Match `/callback/{id}` requests under reverse-proxy path prefixes.
+- Rename the default SSE path to `/sse`.
+- Surface numeric `:status` pseudo-headers from the HTTP client codec.
+- Disable body timeout for client-mode HTTP codec.
+- Defer closed connection destruction through dispatcher cleanup.
+- Drain active server connections during shutdown.
 
 ### Fixed
 
-- Fix background-task timer lifetime in McpServer (#212)
-- Fix scheduleCallbackCurrentIteration to defer past caller's stack frame (#212)
+- Fix background-task timer lifetime in `McpServer`.
+- Fix callback scheduling so deferred callbacks run after caller stack unwinds.
 
 ## [0.1.4] - 2026-04-08
 
 ### Added
 
-- Add unit tests for resources/read response and ResourceManager handlers (#206)
-- Add read handlers to example server resource registrations (#206)
-- Add ResourceReadHandler callback to ResourceManager (#206)
+- Add resource read handlers to example server registrations.
+- Add `ResourceReadHandler` callback support to `ResourceManager`.
+- Add tests for `resources/read` responses and resource manager handlers.
 
 ### Changed
 
-- Enhance dump-version.sh with GitHub release check and auto-generated changelog
-- Release 0.1.3
-- Run clang-format on resource read implementation files (#206)
-- Unstaged changes: CMakeLists.txt
+- Run formatting on resource read implementation files.
 
 ### Fixed
 
-- Fix resources/read response to match MCP schema (#206)
-
-## [0.1.3] - 2026-04-08
-
-### Added
-
-### Changed
-
-### Fixed
+- Fix `resources/read` responses to match the MCP schema.
 
 ## [0.1.1] - 2026-03-03
 
