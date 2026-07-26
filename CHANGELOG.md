@@ -13,6 +13,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+## [0.1.15] - 2026-07-26
+
+### Changed
+
+- Reduce Streamable HTTP reconnect readiness waiting so request timeouts keep
+  headroom for the actual send.
+- Return `404` for unknown HTTP paths instead of leaving clients waiting for a
+  protocol-layer response that never arrives.
+
+### Fixed
+
+- Propagate `Mcp-Session-Id` from Streamable HTTP requests as the transport
+  session id used by downstream dispatch.
+- Remove redundant session-header lookup code after HTTP header names have
+  already been normalized.
+- Parse complete end-of-stream HTTP JSON-RPC bodies as one JSON document,
+  preserving pretty-printed requests while retaining newline-delimited fallback
+  behavior.
+- Avoid double parsing JSON-RPC HTTP bodies after validation.
+- Report one parse error for a malformed pretty-printed HTTP body instead of
+  emitting one error per line fragment.
+
 ## [0.1.14] - 2026-07-22
 
 ### Fixed
