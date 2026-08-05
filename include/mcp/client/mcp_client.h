@@ -62,7 +62,7 @@ class MetricsCollector;
  */
 struct McpClientConfig : public application::ApplicationBase::Config {
   // Protocol configuration
-  std::string protocol_version = "2024-11-05";
+  std::string protocol_version = protocol::kDefaultProtocolVersion;
   std::string client_name = "mcp-cpp-client";
   std::string client_version = "1.0.0";
 

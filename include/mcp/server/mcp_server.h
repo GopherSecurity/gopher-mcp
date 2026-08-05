@@ -78,7 +78,7 @@ class SessionManager;
  */
 struct McpServerConfig : public application::ApplicationBase::Config {
   // Protocol configuration
-  std::string protocol_version = "2024-11-05";
+  std::string protocol_version = protocol::kDefaultProtocolVersion;
   std::string server_name = "mcp-cpp-server";
   std::string server_version = "1.0.0";
   std::string instructions;  // Optional server instructions

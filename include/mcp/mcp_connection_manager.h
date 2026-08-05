@@ -334,7 +334,8 @@ inline std::unique_ptr<McpConnectionManager> createMcpConnectionManager(
  * }
  *
  * // Send initialize request
- * auto init_request = make_initialize_request("2024-11-05",
+ * auto init_request = make_initialize_request(
+ *     protocol::kDefaultProtocolVersion,
  *     make<ClientCapabilities>().build());
  * mcp_manager->sendRequest(init_request);
  *
