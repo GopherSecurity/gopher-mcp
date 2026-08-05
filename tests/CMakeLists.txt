@@ -1510,6 +1510,18 @@ target_link_libraries(test_http_routing_filter_simple
 )
 add_test(NAME HttpRoutingFilterSimpleTest COMMAND test_http_routing_filter_simple)
 
+# HTTP Routing Table Test - route targets, 405 + Allow, pass-through
+add_executable(test_http_routing_table filter/test_http_routing_table.cc)
+target_link_libraries(test_http_routing_table
+    gopher-mcp
+    gopher-mcp-event
+    gtest
+    gtest_main
+    gmock
+    Threads::Threads
+)
+add_test(NAME HttpRoutingTableTest COMMAND test_http_routing_table)
+
 add_executable(test_sse_codec_state_machine filter/test_sse_codec_state_machine.cc)
 target_link_libraries(test_sse_codec_state_machine
     gopher-mcp
