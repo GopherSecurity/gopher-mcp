@@ -1156,41 +1156,27 @@ class HttpSseJsonRpcProtocolFilter
       return resp;
     };
 
-    // Register OPTIONS for common MCP paths
-    routing_filter_->registerHandler("OPTIONS", "/mcp", corsHandler);
-    routing_filter_->registerHandler("OPTIONS", "/mcp/events", corsHandler);
-    routing_filter_->registerHandler("OPTIONS", "/rpc", corsHandler);
-    routing_filter_->registerHandler("OPTIONS", "/health", corsHandler);
-    routing_filter_->registerHandler("OPTIONS", "/info", corsHandler);
+    auto healthHandler = [](const HttpRoutingFilter::RequestContext& req) {
+      HttpRoutingFilter::Response resp;
+      resp.status_code = 200;
+      resp.headers["content-type"] = "application/json";
+      resp.headers["cache-control"] = "no-cache";
+      resp.headers["Access-Control-Allow-Origin"] = "*";
 
-    // Register health endpoint
-    routing_filter_->registerHandler(
-        "GET", "/health", [](const HttpRoutingFilter::RequestContext& req) {
-          HttpRoutingFilter::Response resp;
-          resp.status_code = 200;
-          resp.headers["content-type"] = "application/json";
-          resp.headers["cache-control"] = "no-cache";
-          resp.headers["Access-Control-Allow-Origin"] = "*";
+      resp.body = R"({"status":"healthy","timestamp":)" +
+                  std::to_string(std::time(nullptr)) + "}";
 
-          resp.body = R"({"status":"healthy","timestamp":)" +
-                      std::to_string(std::time(nullptr)) + "}";
+      resp.headers["content-length"] = std::to_string(resp.body.length());
+      return resp;
+    };
 
-          resp.headers["content-length"] = std::to_string(resp.body.length());
-          return resp;
-        });
+    auto infoHandler = [](const HttpRoutingFilter::RequestContext& req) {
+      HttpRoutingFilter::Response resp;
+      resp.status_code = 200;
+      resp.headers["content-type"] = "application/json";
+      resp.headers["Access-Control-Allow-Origin"] = "*";
 
-    // Don't register /rpc endpoint - it will pass through to this filter
-    // Only register endpoints that should be handled by routing filter
-
-    // Register info endpoint
-    routing_filter_->registerHandler(
-        "GET", "/info", [](const HttpRoutingFilter::RequestContext& req) {
-          HttpRoutingFilter::Response resp;
-          resp.status_code = 200;
-          resp.headers["content-type"] = "application/json";
-          resp.headers["Access-Control-Allow-Origin"] = "*";
-
-          resp.body = R"({
+      resp.body = R"({
         "server": "MCP Server",
         "protocols": ["http", "sse", "json-rpc"],
         "endpoints": {
@@ -1202,20 +1188,59 @@ class HttpSseJsonRpcProtocolFilter
         "version": "1.0.0"
       })";
 
-          resp.headers["content-length"] = std::to_string(resp.body.length());
-          return resp;
-        });
+      resp.headers["content-length"] = std::to_string(resp.body.length());
+      return resp;
+    };
 
-    // Default handler - handle OPTIONS for CORS preflight on any path, pass
-    // through the real MCP transport paths to protocol handling, and return a
-    // definitive 404 for everything else. Unknown non-RPC paths must get an
-    // immediate response; otherwise they fall through to a protocol layer that
-    // has no request to answer and the connection can wait until client
-    // timeout.
     const std::string rpc_path = configured_rpc_path_;
     const std::string sse_path = configured_sse_path_;
+    using Target = HttpRoutingFilter::RouteTarget;
+
+    // MCP endpoint. GET and DELETE are placeholders until the standalone
+    // event stream and session termination exist; they must answer 405
+    // rather than reach a protocol layer that has no reply for them and
+    // would leave the client waiting for its own timeout. The Allow
+    // header is derived from this table, so it starts naming only the
+    // methods below and widens on its own as routes are added.
+    routing_filter_->addRoute("OPTIONS", rpc_path,
+                              Target::handlerRoute(corsHandler));
+    routing_filter_->addRoute("POST", rpc_path, Target::passThrough());
+    if (rpc_path != sse_path) {
+      routing_filter_->addRoute("GET", rpc_path, Target::reject(405));
+    }
+    routing_filter_->addRoute("DELETE", rpc_path, Target::reject(405));
+
+    // Event stream and the historic transport aliases.
+    routing_filter_->addRoute("OPTIONS", sse_path,
+                              Target::handlerRoute(corsHandler));
+    routing_filter_->addRoute("GET", sse_path, Target::passThrough());
+    routing_filter_->addRoute("POST", "/rpc", Target::passThrough());
+    routing_filter_->addRoute("GET", "/events", Target::passThrough());
+    routing_filter_->addRoute("GET", "/mcp/events", Target::passThrough());
+
+    // Preflight on the well-known literal paths, which stay reachable
+    // whatever the endpoint paths are configured to.
+    for (const char* preflight_path :
+         {"/mcp", "/mcp/events", "/rpc", "/health", "/info"}) {
+      routing_filter_->addRoute("OPTIONS", preflight_path,
+                                Target::handlerRoute(corsHandler));
+    }
+
+    routing_filter_->addRoute("GET", "/health",
+                              Target::handlerRoute(healthHandler));
+    routing_filter_->addRoute("GET", "/info",
+                              Target::handlerRoute(infoHandler));
+
+    // Default handler - handle OPTIONS for CORS preflight on any path, pass
+    // through the remaining transport paths to protocol handling, and return a
+    // definitive 404 for everything else. Unknown paths must get an immediate
+    // response; otherwise they fall through to a protocol layer that has no
+    // request to answer and the connection can wait until client timeout.
+    // The MCP endpoint is deliberately absent from the pass-through list: it
+    // is fully described by the table above, so an unlisted method on it gets
+    // a 404 here instead of falling through and hanging.
     routing_filter_->registerDefaultHandler(
-        [rpc_path, sse_path](const HttpRoutingFilter::RequestContext& req) {
+        [sse_path](const HttpRoutingFilter::RequestContext& req) {
           // Handle OPTIONS for CORS preflight on any path
           if (req.method == "OPTIONS") {
             HttpRoutingFilter::Response resp;
@@ -1237,8 +1262,8 @@ class HttpSseJsonRpcProtocolFilter
           }
 
           const bool is_transport_path =
-              path == rpc_path || path == sse_path || path == "/rpc" ||
-              path == "/events" || path == "/mcp/events" ||
+              path == sse_path || path == "/rpc" || path == "/events" ||
+              path == "/mcp/events" ||
               (req.method == "POST" &&
                path.find("/callback/") != std::string::npos);
           if (is_transport_path) {
