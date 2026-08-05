@@ -580,6 +580,84 @@ TEST_F(HttpRoutingFilterSimpleTest, GetRequestImmediateExecution) {
   EXPECT_TRUE(handler_called);
 }
 
+// The Allow value names every method that would really serve the path,
+// and never a method that is only there to reject.
+TEST_F(HttpRoutingFilterSimpleTest, AllowedMethodsSkipsRejectRoutes) {
+  executeInDispatcher([this]() {
+    using Target = HttpRoutingFilter::RouteTarget;
+
+    auto preflight = [](const HttpRoutingFilter::RequestContext&) {
+      HttpRoutingFilter::Response resp;
+      resp.status_code = 204;
+      return resp;
+    };
+
+    filter_->addRoute("POST", "/mcp", Target::passThrough());
+    filter_->addRoute("OPTIONS", "/mcp", Target::handlerRoute(preflight));
+    filter_->addRoute("GET", "/mcp", Target::reject(405));
+    filter_->addRoute("DELETE", "/mcp", Target::reject(405));
+
+    EXPECT_EQ(filter_->allowedMethodsFor("/mcp"), "OPTIONS, POST");
+    EXPECT_EQ(filter_->allowedMethodsFor("/nothing-here"), "");
+  });
+}
+
+// A pass-through route hands the request straight to the next layer and
+// never consults the default handler.
+TEST_F(HttpRoutingFilterSimpleTest, PassThroughRouteSkipsDefaultHandler) {
+  std::atomic<bool> default_called(false);
+
+  EXPECT_CALL(*next_callbacks_, onHeaders(_, _)).Times(1);
+
+  executeInDispatcher([this, &default_called]() {
+    filter_->addRoute("POST", "/mcp",
+                      HttpRoutingFilter::RouteTarget::passThrough());
+    filter_->registerDefaultHandler(
+        [&default_called](const HttpRoutingFilter::RequestContext&) {
+          default_called = true;
+          HttpRoutingFilter::Response resp;
+          resp.status_code = 404;
+          return resp;
+        });
+
+    std::map<std::string, std::string> headers;
+    headers[":method"] = "POST";
+    headers[":path"] = "/mcp";
+    filter_->onHeaders(headers, true);
+  });
+
+  EXPECT_FALSE(default_called);
+}
+
+// A rejecting route answers here; nothing reaches the next layer.
+TEST_F(HttpRoutingFilterSimpleTest, RejectRouteDoesNotForward) {
+  std::atomic<bool> default_called(false);
+
+  EXPECT_CALL(*next_callbacks_, onHeaders(_, _)).Times(0);
+  EXPECT_CALL(*next_callbacks_, onBody(_, _)).Times(0);
+
+  executeInDispatcher([this, &default_called]() {
+    filter_->addRoute("GET", "/mcp",
+                      HttpRoutingFilter::RouteTarget::reject(405));
+    filter_->registerDefaultHandler(
+        [&default_called](const HttpRoutingFilter::RequestContext&) {
+          default_called = true;
+          HttpRoutingFilter::Response resp;
+          resp.status_code = 0;
+          return resp;
+        });
+
+    std::map<std::string, std::string> headers;
+    headers[":method"] = "GET";
+    headers[":path"] = "/mcp";
+    filter_->onHeaders(headers, true);
+    filter_->onBody("ignored", true);
+    filter_->onMessageComplete();
+  });
+
+  EXPECT_FALSE(default_called);
+}
+
 }  // namespace
 }  // namespace filter
 }  // namespace mcp

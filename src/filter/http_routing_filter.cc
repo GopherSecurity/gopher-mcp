@@ -7,13 +7,32 @@
 
 #include "mcp/filter/http_routing_filter.h"
 
+#include <cctype>
 #include <sstream>
 
+#include "mcp/http/http_parser.h"
 #include "mcp/logging/log_macros.h"
 #include "mcp/network/connection.h"
 
 namespace mcp {
 namespace filter {
+namespace {
+
+// Machine-readable error slug for a status code, e.g. "method_not_allowed".
+std::string statusSlug(int status_code) {
+  std::string slug = http::httpStatusCodeToString(
+      static_cast<http::HttpStatusCode>(status_code));
+  for (auto& c : slug) {
+    if (c == ' ') {
+      c = '_';
+    } else {
+      c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    }
+  }
+  return slug;
+}
+
+}  // namespace
 
 HttpRoutingFilter::HttpRoutingFilter(
     HttpCodecFilter::MessageCallbacks* next_callbacks,
@@ -31,11 +50,64 @@ HttpRoutingFilter::HttpRoutingFilter(
   };
 }
 
+HttpRoutingFilter::RouteTarget HttpRoutingFilter::RouteTarget::handlerRoute(
+    HandlerFunc handler) {
+  RouteTarget target;
+  target.kind = Kind::Handler;
+  target.handler = std::move(handler);
+  return target;
+}
+
+HttpRoutingFilter::RouteTarget HttpRoutingFilter::RouteTarget::passThrough() {
+  RouteTarget target;
+  target.kind = Kind::PassThrough;
+  return target;
+}
+
+HttpRoutingFilter::RouteTarget HttpRoutingFilter::RouteTarget::reject(
+    int status_code, const std::string& allow_header) {
+  RouteTarget target;
+  target.kind = Kind::Reject;
+  target.status_code = status_code;
+  target.allow_header = allow_header;
+  return target;
+}
+
+void HttpRoutingFilter::addRoute(const std::string& method,
+                                 const std::string& path,
+                                 RouteTarget target) {
+  routes_[buildRouteKey(method, path)] = std::move(target);
+}
+
 void HttpRoutingFilter::registerHandler(const std::string& method,
                                         const std::string& path,
                                         HandlerFunc handler) {
-  std::string key = buildRouteKey(method, path);
-  handlers_[key] = handler;
+  addRoute(method, path, RouteTarget::handlerRoute(std::move(handler)));
+}
+
+std::string HttpRoutingFilter::allowedMethodsFor(
+    const std::string& path) const {
+  // Route keys are "METHOD path" in a sorted map, so methods come out in
+  // a stable order regardless of the order routes were added.
+  std::string allow;
+  for (const auto& entry : routes_) {
+    const std::string& key = entry.first;
+    const size_t separator = key.find(' ');
+    if (separator == std::string::npos) {
+      continue;
+    }
+    if (key.compare(separator + 1, std::string::npos, path) != 0) {
+      continue;
+    }
+    if (!entry.second.servesRequests()) {
+      continue;
+    }
+    if (!allow.empty()) {
+      allow += ", ";
+    }
+    allow.append(key, 0, separator);
+  }
+  return allow;
 }
 
 void HttpRoutingFilter::registerDefaultHandler(HandlerFunc handler) {
@@ -63,7 +135,16 @@ void HttpRoutingFilter::onHeaders(
     return;
   }
 
-  // Server mode: route incoming requests
+  // Server mode: route incoming requests.
+  //
+  // Reset the per-request state first. These flags are otherwise only
+  // cleared once a request completes, so a request that never completes
+  // (parse error, reset mid-body) would leak suppression into the next
+  // request on a keep-alive connection and silently drop its body.
+  suppress_current_request_ = false;
+  pending_post_request_ = false;
+  accumulated_body_.clear();
+
   std::string method = extractMethod(headers);
   std::string path =
       extractPath(headers);  // Path without query string for routing
@@ -82,12 +163,32 @@ void HttpRoutingFilter::onHeaders(
 
   GOPHER_LOG_DEBUG("HttpRoutingFilter: method={} path={}", method, path);
 
-  // Check if we have a handler for this endpoint
+  // Check whether the table has a route for this endpoint
   std::string key = buildRouteKey(method, path);
-  auto handler_it = handlers_.find(key);
+  auto route_it = routes_.find(key);
 
-  if (handler_it != handlers_.end()) {
-    // We have a handler
+  if (route_it != routes_.end()) {
+    const RouteTarget& target = route_it->second;
+
+    if (target.kind == RouteTarget::Kind::PassThrough) {
+      // The table is authoritative for this route, so the default
+      // handler is not consulted. Leave the pending-body flags clear so
+      // the body keeps flowing to the next layer.
+      if (next_callbacks_) {
+        next_callbacks_->onHeaders(headers, keep_alive);
+      }
+      return;
+    }
+
+    if (target.kind == RouteTarget::Kind::Reject) {
+      // Answered from the headers alone, whatever the method. Any body
+      // is parsed by the codec and dropped below, which keeps the
+      // connection framed for the next request.
+      suppress_current_request_ = true;
+      sendResponse(buildRejectResponse(target, path));
+      return;
+    }
+
     RequestContext ctx;
     ctx.method = method;
     ctx.path = full_url;  // Full URL with query string for handler
@@ -99,13 +200,13 @@ void HttpRoutingFilter::onHeaders(
     if (method == "POST" || method == "PUT" || method == "PATCH") {
       pending_post_request_ = true;
       pending_context_ = ctx;
-      pending_handler_ = handler_it->second;
+      pending_handler_ = target.handler;
       accumulated_body_.clear();
       return;  // Wait for body
     }
 
     // For GET/OPTIONS etc, execute immediately
-    Response resp = handler_it->second(ctx);
+    Response resp = target.handler(ctx);
     if (resp.status_code != 0) {
       // Handler wants to handle this - send response immediately
       // This is appropriate for endpoints that don't need the body
@@ -170,6 +271,14 @@ void HttpRoutingFilter::onMessageComplete() {
     Response resp = pending_handler_(pending_context_);
     if (resp.status_code != 0) {
       sendResponse(resp);
+    } else {
+      // A deferred handler cannot ask for pass-through: the body has
+      // already been withheld from the next layer, so the request is
+      // dropped and the client never hears back.
+      GOPHER_LOG_WARN(
+          "HttpRoutingFilter: handler for {} {} requested pass-through after "
+          "the body was buffered; request dropped",
+          pending_context_.method, pending_context_.path);
     }
     // Reset state
     pending_post_request_ = false;
@@ -184,10 +293,40 @@ void HttpRoutingFilter::onMessageComplete() {
 }
 
 void HttpRoutingFilter::onError(const std::string& error) {
+  // The failed request will never complete, so drop its state rather
+  // than let it apply to whatever arrives next on this connection.
+  suppress_current_request_ = false;
+  pending_post_request_ = false;
+  accumulated_body_.clear();
+
   // Stateless - always pass through errors
   if (next_callbacks_) {
     next_callbacks_->onError(error);
   }
+}
+
+HttpRoutingFilter::Response HttpRoutingFilter::buildRejectResponse(
+    const RouteTarget& target, const std::string& path) const {
+  Response resp;
+  resp.status_code = target.status_code;
+
+  // A 405 always names the methods the endpoint does serve. Deriving it
+  // from the table keeps the header correct as routes are added.
+  std::string allow = target.allow_header;
+  if (allow.empty() &&
+      target.status_code ==
+          static_cast<int>(http::HttpStatusCode::MethodNotAllowed)) {
+    allow = allowedMethodsFor(path);
+  }
+  if (!allow.empty()) {
+    resp.headers["Allow"] = allow;
+  }
+
+  resp.headers["content-type"] = "application/json";
+  resp.headers["Access-Control-Allow-Origin"] = "*";
+  resp.body = "{\"error\":\"" + statusSlug(target.status_code) + "\"}";
+  resp.headers["content-length"] = std::to_string(resp.body.length());
+  return resp;
 }
 
 void HttpRoutingFilter::sendResponse(const Response& response) {
@@ -198,33 +337,10 @@ void HttpRoutingFilter::sendResponse(const Response& response) {
   std::ostringstream http_response;
 
   // Status line (use HTTP/1.1 for now)
-  http_response << "HTTP/1.1 " << response.status_code << " ";
-
-  // Add status text based on code
-  switch (response.status_code) {
-    case 200:
-      http_response << "OK";
-      break;
-    case 201:
-      http_response << "Created";
-      break;
-    case 204:
-      http_response << "No Content";
-      break;
-    case 400:
-      http_response << "Bad Request";
-      break;
-    case 404:
-      http_response << "Not Found";
-      break;
-    case 500:
-      http_response << "Internal Server Error";
-      break;
-    default:
-      http_response << "Unknown";
-      break;
-  }
-  http_response << "\r\n";
+  http_response << "HTTP/1.1 " << response.status_code << " "
+                << http::httpStatusCodeToString(
+                       static_cast<http::HttpStatusCode>(response.status_code))
+                << "\r\n";
 
   // Add headers
   for (const auto& header : response.headers) {

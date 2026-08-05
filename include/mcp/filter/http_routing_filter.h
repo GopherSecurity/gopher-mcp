@@ -52,6 +52,61 @@ class HttpRoutingFilter : public HttpCodecFilter::MessageCallbacks {
   using HandlerFunc = std::function<Response(const RequestContext&)>;
 
   /**
+   * What the route table does with a matched (method, path).
+   *
+   * Handler     - run the registered callback.
+   * PassThrough - hand the request to the next protocol layer untouched.
+   *               The table is authoritative for such a route, so the
+   *               default handler is not consulted for it.
+   * Reject      - answer immediately from the request headers. Any body
+   *               is drained and discarded, so a rejecting route can
+   *               never inspect a payload. A 405 always carries an Allow
+   *               header: the explicit allow_header when set, otherwise
+   *               the value rendered from this table for the path.
+   */
+  struct RouteTarget {
+    enum class Kind { Handler, PassThrough, Reject };
+
+    Kind kind = Kind::Handler;
+    HandlerFunc handler;       // Kind::Handler only
+    int status_code = 0;       // Kind::Reject only
+    std::string allow_header;  // Kind::Reject only; empty means derive
+
+    static RouteTarget handlerRoute(HandlerFunc handler);
+    static RouteTarget passThrough();
+    static RouteTarget reject(int status_code,
+                              const std::string& allow_header = "");
+
+    // A method may only be advertised in Allow when its route would
+    // really serve the request. Rejections must never be advertised.
+    bool servesRequests() const {
+      return kind == Kind::Handler || kind == Kind::PassThrough;
+    }
+  };
+
+  /**
+   * Add a route to the table, replacing any route with the same method
+   * and path.
+   */
+  void addRoute(const std::string& method,
+                const std::string& path,
+                RouteTarget target);
+
+  /**
+   * Render the Allow header value for a path from the table itself:
+   * every method whose route would serve a request, comma separated and
+   * in a stable order. Empty when nothing serves the path.
+   *
+   * The path must already have its query string stripped.
+   */
+  std::string allowedMethodsFor(const std::string& path) const;
+
+  /**
+   * Read-only view of the route table, keyed by "METHOD /path".
+   */
+  const std::map<std::string, RouteTarget>& routes() const { return routes_; }
+
+  /**
    * Constructor
    * @param next_callbacks The next layer of callbacks to forward unhandled
    * requests to
@@ -108,12 +163,13 @@ class HttpRoutingFilter : public HttpCodecFilter::MessageCallbacks {
   void sendResponse(const Response& response);
 
  private:
-  // Process HTTP request and route to appropriate handler
-  void processRequest();
-
   // Route key is "METHOD /path"
   std::string buildRouteKey(const std::string& method,
                             const std::string& path) const;
+
+  // Build the immediate response for a Reject route.
+  Response buildRejectResponse(const RouteTarget& target,
+                               const std::string& path) const;
 
   // Extract method from request line or headers
   std::string extractMethod(const std::map<std::string, std::string>& headers);
@@ -129,8 +185,8 @@ class HttpRoutingFilter : public HttpCodecFilter::MessageCallbacks {
       nullptr;  // For sending responses
   bool is_server_;
 
-  // Registered handlers
-  std::map<std::string, HandlerFunc> handlers_;
+  // Route table, keyed by "METHOD /path"
+  std::map<std::string, RouteTarget> routes_;
 
   // Default handler for unmatched requests
   HandlerFunc default_handler_;
