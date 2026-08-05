@@ -17,6 +17,7 @@
 #include "mcp/filter/json_rpc_protocol_filter.h"
 #include "mcp/filter/sse_session_registry.h"
 #include "mcp/logging/log_macros.h"
+#include "mcp/protocol/protocol_versions.h"
 #include "mcp/transport/http_sse_transport_socket.h"
 // NOTE: We'll implement connection handler directly in server for now
 // to avoid conflicts with existing connection management in
@@ -1213,18 +1214,33 @@ jsonrpc::Response McpServer::handleInitialize(const jsonrpc::Request& request,
                                               SessionContext& session) {
   // Parse initialize request
   // TODO: Deserialize InitializeRequest from request.params
+  // TODO: Extract client info and store in session via session.setClientInfo()
 
-  // Store client info in session
+  // Read the revision the client asked for. Anything missing or of the
+  // wrong type leaves this empty, which negotiates to our newest.
+  std::string requested_version;
   if (request.params.has_value()) {
-    auto params = request.params.value();
-    // Extract client info and store in session
-    // session.setClientInfo(...);
+    const auto& params = request.params.value();
+    auto version_it = params.find("protocolVersion");
+    if (version_it != params.end() &&
+        holds_alternative<std::string>(version_it->second)) {
+      requested_version = get<std::string>(version_it->second);
+    }
+  }
+
+  // Negotiate against the revisions we can serve. An empty list means the
+  // single configured version is all we speak.
+  std::vector<std::string> supported =
+      config_.streamable_http.protocol_versions;
+  if (supported.empty()) {
+    supported.push_back(config_.protocol_version);
   }
 
   // Build initialize result as proper nested JSON structure
   // MCP protocol requires nested objects, not flattened dot notation
   json::JsonValue result_json;
-  result_json["protocolVersion"] = config_.protocol_version;
+  result_json["protocolVersion"] =
+      protocol::negotiateProtocolVersion(requested_version, supported);
 
   // Add serverInfo as nested object
   json::JsonValue server_info;
