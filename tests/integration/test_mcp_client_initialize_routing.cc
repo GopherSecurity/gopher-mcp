@@ -222,8 +222,9 @@ TEST_F(McpClientInitializeRoutingTest, ReturnsCapabilitiesAndUnblocksFollowUp) {
   ASSERT_NE(client_, nullptr);
 
   // StreamableHttp is the transport McpClient negotiates for a plain
-  // http:// URL whose path is neither /sse nor /events. That lines up
-  // with the server's default http_rpc_path = "/rpc".
+  // http:// URL whose path is neither /sse nor /events. "/rpc" is the
+  // historic alias of the server's endpoint, kept routable so older
+  // clients still reach it.
   const std::string uri = "http://127.0.0.1:" + std::to_string(port_) + "/rpc";
   auto connect_result = client_->connect(uri);
   ASSERT_TRUE(holds_alternative<std::nullptr_t>(connect_result))

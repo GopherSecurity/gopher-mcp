@@ -94,7 +94,9 @@ struct McpServerConfig : public application::ApplicationBase::Config {
   optional<transport::StdioTransportSocketConfig> stdio_transport_config;
 
   // HTTP/SSE specific configuration
-  std::string http_rpc_path = "/rpc";        // Path for JSON-RPC over HTTP
+  // Path for JSON-RPC over HTTP. Matches the streamable HTTP endpoint
+  // below; "/rpc" stays routable as an alias for older deployments.
+  std::string http_rpc_path = "/mcp";
   std::string http_sse_path = "/sse";        // Path for SSE event stream
   std::string http_health_path = "/health";  // Path for health check endpoint
   // Absolute URL the server is reachable at from the client's perspective
