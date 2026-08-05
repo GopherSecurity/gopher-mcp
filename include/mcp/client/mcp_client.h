@@ -40,6 +40,7 @@
 #include "mcp/mcp_connection_manager.h"
 #include "mcp/network/filter.h"
 #include "mcp/protocol/mcp_protocol_state_machine.h"
+#include "mcp/transport/streamable_http_config.h"
 #include "mcp/types.h"
 
 namespace mcp {
@@ -69,6 +70,10 @@ struct McpClientConfig : public application::ApplicationBase::Config {
   TransportType preferred_transport = TransportType::Stdio;
   bool auto_negotiate_transport = true;
   std::map<std::string, std::string> http_headers;
+
+  // Streamable HTTP endpoint path and the protocol revisions this client
+  // is willing to speak over it.
+  transport::StreamableHttpClientConfig streamable_http;
 
   // Connection pool settings
   size_t connection_pool_size = 10;

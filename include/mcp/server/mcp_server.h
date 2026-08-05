@@ -44,6 +44,7 @@
 #include "mcp/mcp_application_base.h"  // TODO: Migrate to mcp_application_base_refactored.h
 #include "mcp/mcp_connection_manager.h"
 #include "mcp/network/filter.h"
+#include "mcp/transport/streamable_http_config.h"
 #include "mcp/types.h"
 
 // Define log component for this file
@@ -103,6 +104,10 @@ struct McpServerConfig : public application::ApplicationBase::Config {
   // explicitly when the server sits behind a reverse proxy that rewrites
   // scheme or path so clients don't try to POST back to an internal URL.
   std::string external_url;
+
+  // Streamable HTTP endpoint settings: path, session and stream policy,
+  // and the protocol revisions this server can actually serve.
+  transport::StreamableHttpConfig streamable_http;
 
   // Session management
   size_t max_sessions = 100;
