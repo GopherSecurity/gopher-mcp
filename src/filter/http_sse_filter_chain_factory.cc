@@ -447,6 +447,19 @@ class HttpSseJsonRpcProtocolFilter
       return network::FilterStatus::Continue;
     }
 
+    // An exchange that is streaming frames its own bytes, prelude and
+    // chunks alike. Everything below this point exists to frame an answer
+    // that has not been framed yet, and applying it to a chunk would wrap
+    // that chunk in a second complete response — which is what a client
+    // would then read as the end of the first one.
+    //
+    // Nothing else can be writing here: while a response streams, the
+    // decoder is gated and no further request on this connection is being
+    // dispatched.
+    if (is_server_ && exchanges_.hasActiveStream()) {
+      return network::FilterStatus::Continue;
+    }
+
     // SSE callback routing: the JSON-RPC filter is emitting the response
     // for a POST /callback/{id}. We already sent 202 Accepted on that
     // POST connection, so we must NOT let these bytes continue down the
