@@ -113,6 +113,31 @@ void RequestExchange::assertOnDispatcher() const {
          "RequestExchange used off its dispatcher thread");
 }
 
+bool RequestExchange::setPhase(Phase phase) {
+  assertOnDispatcher();
+  if (phase_ == Phase::Done && phase != Phase::Done) {
+    GOPHER_LOG_ERROR("RequestExchange: phase changed after the request ended");
+    return false;
+  }
+  phase_ = phase;
+  return true;
+}
+
+bool RequestExchange::setRequestId(const RequestId& id) {
+  assertOnDispatcher();
+  if (request_id_.has_value()) {
+    GOPHER_LOG_ERROR("RequestExchange: request id already set");
+    return false;
+  }
+  if (first_byte_written_) {
+    GOPHER_LOG_ERROR(
+        "RequestExchange: request id set after the response began");
+    return false;
+  }
+  request_id_ = mcp::make_optional(id);
+  return true;
+}
+
 void RequestExchange::setResponseOptions(bool http_1_1, bool keep_alive) {
   assertOnDispatcher();
   writer_options_.http_1_1 = http_1_1;
@@ -194,6 +219,58 @@ VoidResult RequestExchange::respondJson(const jsonrpc::Response& response) {
     // response the way it always has.
     written = writeBytes(body);
   }
+
+  mode_ = Mode::Complete;
+  setPhase(Phase::RespondingJson);
+
+  if (!written) {
+    Error err;
+    err.code = jsonrpc::INTERNAL_ERROR;
+    err.message = "response dropped: the reply path is gone";
+    return makeVoidError(err);
+  }
+  return makeVoidSuccess();
+}
+
+VoidResult RequestExchange::respondUnary(const std::string& content_type,
+                                         const std::string& body) {
+  assertOnDispatcher();
+  auto self = shared_from_this();
+
+  if (mode_ != Mode::Open) {
+    Error err;
+    err.code = jsonrpc::INTERNAL_ERROR;
+    err.message = "response dropped: this request was already answered";
+    GOPHER_LOG_ERROR("RequestExchange: second response refused");
+    return makeVoidError(err);
+  }
+
+  http::ResponseWriter::HeaderList headers = headers_;
+  if (!content_type.empty()) {
+    bool present = false;
+    for (const auto& header : headers) {
+      if (header.first == "Content-Type") {
+        present = true;
+        break;
+      }
+    }
+    if (!present) {
+      headers.emplace_back("Content-Type", content_type);
+    }
+  }
+
+  http::ResponseWriter writer(writer_options_);
+  if (!writer.startUnary(status_code_, headers, body)) {
+    Error err;
+    err.code = jsonrpc::INTERNAL_ERROR;
+    err.message = "response dropped: could not be serialized";
+    return makeVoidError(err);
+  }
+
+  OwnedBuffer framed;
+  writer.drainTo(framed);
+  first_byte_written_ = true;
+  const bool written = sink_->write(framed);
 
   mode_ = Mode::Complete;
 
@@ -292,7 +369,11 @@ bool RequestExchange::complete() {
   assertOnDispatcher();
   auto self = shared_from_this();
 
-  if (mode_ == Mode::Complete) {
+  // Guarded on the phase rather than the mode: an exchange answered with a
+  // single response is already in Mode::Complete, and guarding on that
+  // would leave it stuck one step short of finished with its completion
+  // observer never told.
+  if (phase_ == Phase::Done) {
     return true;
   }
 
@@ -306,6 +387,7 @@ bool RequestExchange::complete() {
   }
 
   mode_ = Mode::Complete;
+  phase_ = Phase::Done;
 
   if (completion_observer_) {
     // Taken out before running so it cannot fire twice, and so an observer

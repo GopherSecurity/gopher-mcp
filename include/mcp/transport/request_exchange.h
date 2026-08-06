@@ -167,6 +167,18 @@ struct ExchangeClientContext {
    * actually needs a field out of it.
    */
   optional<std::string> raw_meta;
+
+  /**
+   * What the request said it would accept. Recorded rather than acted on:
+   * a response that streams and a response that does not are framed
+   * differently and irreversibly, so whoever chooses between them needs to
+   * know what the peer can read before the first byte goes out.
+   *
+   * Both default to true, which is what a request with no Accept header
+   * means — anything.
+   */
+  bool accepts_json{true};
+  bool accepts_sse{true};
 };
 
 /**
@@ -193,6 +205,24 @@ class RequestExchange : public std::enable_shared_from_this<RequestExchange> {
   };
 
   /**
+   * Where the request is in its own lifetime.
+   *
+   * Separate from Mode, which says how the response is framed. This says
+   * what the request is doing, and it belongs here rather than on the
+   * connection because a connection serves many requests in sequence and
+   * its own mode is fixed for its whole life — there is nowhere on it to
+   * record something that differs from one keep-alive request to the next.
+   */
+  enum class Phase {
+    ReceivingBody,    // the request is still arriving
+    Dispatching,      // handed to the application, no answer yet
+    RespondingJson,   // answered with a single JSON-RPC response
+    Responding202,    // accepted; there is nothing to answer with
+    RespondingError,  // answered with a transport-level error
+    Done              // nothing further will happen
+  };
+
+  /**
    * @param dispatcher The thread this exchange belongs to.
    * @param sink       Where its bytes go, initially.
    * @param id         The inbound request id, when there is one. A stream
@@ -208,6 +238,24 @@ class RequestExchange : public std::enable_shared_from_this<RequestExchange> {
 
   const optional<RequestId>& requestId() const { return request_id_; }
   Mode mode() const { return mode_; }
+  Phase phase() const { return phase_; }
+
+  /**
+   * Record where the request has got to. Refused once the exchange is Done,
+   * so a late callback cannot reopen something that is over.
+   */
+  bool setPhase(Phase phase);
+
+  /**
+   * Name the request this exchange is answering.
+   *
+   * Separate from construction because an exchange is made when the request
+   * headers arrive, and the id is not known until the body has been parsed.
+   * Settable once, and not after the answer has begun: the id is what a
+   * correlation lookup finds the exchange by, and moving it would strand
+   * anything already holding the old one.
+   */
+  bool setRequestId(const RequestId& id);
 
   /**
    * Whether the response should say the client is speaking HTTP/1.1 and may
@@ -239,6 +287,21 @@ class RequestExchange : public std::enable_shared_from_this<RequestExchange> {
    * fixed status and header set.
    */
   VoidResult respondJson(const jsonrpc::Response& response);
+
+  /**
+   * Answer with a body this exchange frames itself, and finish.
+   *
+   * For answers that are not a JSON-RPC response: an empty 202, or an error
+   * whose id is null. Neither can go through respondJson — a
+   * jsonrpc::Response must carry an id, and there is no null id to give it —
+   * and neither can go through the downstream codec, which emits one fixed
+   * status and header set.
+   *
+   * @param content_type Sent as Content-Type; omitted when empty.
+   * @param body         The body, which may be empty.
+   */
+  VoidResult respondUnary(const std::string& content_type,
+                          const std::string& body);
 
   /** Begin streaming. Mutually exclusive with respondJson. */
   bool beginStream();
@@ -317,6 +380,7 @@ class RequestExchange : public std::enable_shared_from_this<RequestExchange> {
   optional<RequestId> request_id_;
 
   Mode mode_{Mode::Open};
+  Phase phase_{Phase::ReceivingBody};
   bool first_byte_written_{false};
   bool retain_on_disconnect_{false};
   bool detached_{false};

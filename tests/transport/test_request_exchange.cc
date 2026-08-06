@@ -63,6 +63,17 @@ class RequestExchangeTest : public ::testing::Test {
                                    optional<RequestId>(RequestId(int64_t(1))));
   }
 
+  // An exchange made before the request id is known, as one is when the
+  // headers arrive ahead of the body.
+  RequestExchangePtr makeAnonymousExchange(
+      RetainedExchangeSink** sink_out = nullptr) {
+    std::unique_ptr<RetainedExchangeSink> sink(new RetainedExchangeSink());
+    if (sink_out != nullptr) {
+      *sink_out = sink.get();
+    }
+    return RequestExchange::create(*dispatcher_, std::move(sink), nullopt);
+  }
+
   event::DispatcherFactoryPtr factory_;
   event::DispatcherPtr dispatcher_;
 };
@@ -193,6 +204,109 @@ TEST_F(RequestExchangeTest, CompleteIsIdempotent) {
   EXPECT_TRUE(exchange->complete());
   EXPECT_TRUE(exchange->complete());
   EXPECT_EQ(exchange->mode(), RequestExchange::Mode::Complete);
+}
+
+// ── Request identity and phase ─────────────────────────────────────────────
+
+TEST_F(RequestExchangeTest, TheRequestIdArrivesAfterTheExchangeDoes) {
+  // An exchange is made when the request headers arrive; the id is not
+  // known until the body has been parsed.
+  RetainedExchangeSink* sink = nullptr;
+  auto exchange = makeAnonymousExchange(&sink);
+  EXPECT_FALSE(exchange->requestId().has_value());
+
+  EXPECT_TRUE(exchange->setRequestId(RequestId(int64_t(7))));
+  ASSERT_TRUE(exchange->requestId().has_value());
+  EXPECT_EQ(get<int64_t>(exchange->requestId().value()), 7);
+
+  EXPECT_FALSE(exchange->setRequestId(RequestId(int64_t(8))))
+      << "moving the id would strand anything already holding the old one";
+}
+
+TEST_F(RequestExchangeTest, TheRequestIdCannotChangeOnceAnsweringHasBegun) {
+  auto exchange = makeAnonymousExchange();
+  ASSERT_FALSE(holds_alternative<Error>(exchange->respondJson(okResponse(1))));
+
+  EXPECT_FALSE(exchange->setRequestId(RequestId(int64_t(7))));
+}
+
+TEST_F(RequestExchangeTest, PhaseFollowsTheRequestThroughItsLifetime) {
+  auto exchange = makeExchange();
+  EXPECT_EQ(exchange->phase(), RequestExchange::Phase::ReceivingBody);
+
+  EXPECT_TRUE(exchange->setPhase(RequestExchange::Phase::Dispatching));
+  EXPECT_EQ(exchange->phase(), RequestExchange::Phase::Dispatching);
+
+  ASSERT_FALSE(holds_alternative<Error>(exchange->respondJson(okResponse(1))));
+  EXPECT_EQ(exchange->phase(), RequestExchange::Phase::RespondingJson);
+
+  ASSERT_TRUE(exchange->complete());
+  EXPECT_EQ(exchange->phase(), RequestExchange::Phase::Done);
+}
+
+TEST_F(RequestExchangeTest, AFinishedRequestCannotBeReopened) {
+  auto exchange = makeExchange();
+  ASSERT_TRUE(exchange->complete());
+
+  EXPECT_FALSE(exchange->setPhase(RequestExchange::Phase::Dispatching));
+  EXPECT_EQ(exchange->phase(), RequestExchange::Phase::Done);
+}
+
+TEST_F(RequestExchangeTest, WithoutAnAcceptHeaderThePeerTakesAnything) {
+  auto exchange = makeExchange();
+  EXPECT_TRUE(exchange->clientContext().accepts_json);
+  EXPECT_TRUE(exchange->clientContext().accepts_sse);
+}
+
+// ── Answers that are not a JSON-RPC response ───────────────────────────────
+
+TEST_F(RequestExchangeTest, AnAcceptedRequestIsAnsweredWithNoBodyAtAll) {
+  RetainedExchangeSink* sink = nullptr;
+  auto exchange = makeExchange(&sink);
+
+  ASSERT_TRUE(exchange->setStatus(202));
+  ASSERT_FALSE(holds_alternative<Error>(exchange->respondUnary("", "")));
+
+  EXPECT_EQ(sink->bytes().find("HTTP/1.1 202 Accepted\r\n"), 0u)
+      << sink->bytes();
+  EXPECT_NE(sink->bytes().find("\r\nContent-Length: 0\r\n"), std::string::npos)
+      << sink->bytes();
+  EXPECT_EQ(sink->bytes().substr(sink->bytes().size() - 4), "\r\n\r\n")
+      << "nothing may follow the headers: " << sink->bytes();
+}
+
+TEST_F(RequestExchangeTest, AnErrorWithoutAnIdIsFramedHere) {
+  // A jsonrpc::Response cannot express this: its id is a RequestId, and
+  // there is no null alternative to put in one.
+  RetainedExchangeSink* sink = nullptr;
+  auto exchange = makeExchange(&sink);
+
+  const std::string body =
+      "{\"jsonrpc\":\"2.0\",\"id\":null,"
+      "\"error\":{\"code\":-32700,\"message\":\"Parse error\"}}";
+  ASSERT_TRUE(exchange->setStatus(400));
+  ASSERT_FALSE(holds_alternative<Error>(
+      exchange->respondUnary("application/json", body)));
+
+  EXPECT_EQ(sink->bytes().find("HTTP/1.1 400 Bad Request\r\n"), 0u)
+      << sink->bytes();
+  EXPECT_NE(sink->bytes().find("\r\nContent-Type: application/json\r\n"),
+            std::string::npos)
+      << sink->bytes();
+  EXPECT_NE(sink->bytes().find("\r\n\r\n" + body), std::string::npos)
+      << sink->bytes();
+}
+
+TEST_F(RequestExchangeTest, ARawAnswerIsStillOnlyAllowedOnce) {
+  RetainedExchangeSink* sink = nullptr;
+  auto exchange = makeExchange(&sink);
+
+  ASSERT_FALSE(holds_alternative<Error>(exchange->respondUnary("", "")));
+  const size_t after_first = sink->bytes().size();
+
+  EXPECT_TRUE(holds_alternative<Error>(exchange->respondUnary("", "")));
+  EXPECT_TRUE(holds_alternative<Error>(exchange->respondJson(okResponse(1))));
+  EXPECT_EQ(sink->bytes().size(), after_first);
 }
 
 // ── Cancellation ───────────────────────────────────────────────────────────
