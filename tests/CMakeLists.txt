@@ -1640,6 +1640,17 @@ target_link_libraries(test_mcp_server_bind_address
 )
 add_test(NAME McpServerBindAddressTest COMMAND test_mcp_server_bind_address)
 
+# HTTP Security Test - origin, preflight and CORS on the wire
+add_executable(test_http_security integration/test_http_security.cc)
+target_link_libraries(test_http_security
+    gopher-mcp
+    gopher-mcp-event
+    gtest
+    gtest_main
+    Threads::Threads
+)
+add_test(NAME HttpSecurityTest COMMAND test_http_security)
+
 add_executable(test_sse_codec_state_machine filter/test_sse_codec_state_machine.cc)
 target_link_libraries(test_sse_codec_state_machine
     gopher-mcp
