@@ -115,8 +115,11 @@ static std::string requestIdToString(const RequestId& id) {
 class HttpSseJsonRpcProtocolFilter
     : public network::Filter,
       public HttpCodecFilter::MessageCallbacks,
+      public HttpCodecFilter::GateCallbacks,
+      public network::ConnectionCallbacks,
       public SseCodecFilter::EventCallbacks,
-      public JsonRpcProtocolFilter::MessageHandler {
+      public JsonRpcProtocolFilter::MessageHandler,
+      public http::ResponseWriter::Observer {
  public:
   HttpSseJsonRpcProtocolFilter(
       event::Dispatcher& dispatcher,
@@ -132,7 +135,9 @@ class HttpSseJsonRpcProtocolFilter
       const std::map<std::string, std::string>& client_headers = {},
       const std::shared_ptr<std::map<std::string, std::string>>&
           client_header_source = nullptr,
-      SseSessionRegistry* sse_registry = nullptr)
+      SseSessionRegistry* sse_registry = nullptr,
+      StreamGatePolicy stream_gate_policy = StreamGatePolicy::Off,
+      size_t gated_input_limit = 64 * 1024)
       : dispatcher_(dispatcher),
         mcp_callbacks_(mcp_callbacks),
         is_server_(is_server),
@@ -144,6 +149,7 @@ class HttpSseJsonRpcProtocolFilter
         configured_rpc_path_(configured_rpc_path),
         configured_external_url_(configured_external_url),
         sse_registry_(sse_registry),
+        stream_gate_policy_(stream_gate_policy),
         route_registration_callback_(route_callback) {
     // Following production pattern: all operations for this filter
     // happen in the single dispatcher thread
@@ -176,6 +182,15 @@ class HttpSseJsonRpcProtocolFilter
 
     // Now set the encoder in routing filter
     routing_filter_->setEncoder(&http_filter_->messageEncoder());
+
+    // Wire the stream connection policy. With the gate Off the codec never
+    // holds anything back, so this only takes effect once a deployment
+    // opts in.
+    response_writer_.setObserver(this);
+    if (stream_gate_policy_ != StreamGatePolicy::Off) {
+      http_filter_->setGateCallbacks(this);
+      http_filter_->setGatedInputLimit(gated_input_limit);
+    }
 
     // Configure routing filter with health endpoint
     setupRoutingHandlers();
@@ -246,6 +261,11 @@ class HttpSseJsonRpcProtocolFilter
   }
 
   ~HttpSseJsonRpcProtocolFilter() {
+    if (connection_callbacks_registered_ && read_callbacks_) {
+      read_callbacks_->connection().removeConnectionCallbacks(*this);
+      connection_callbacks_registered_ = false;
+    }
+
     // SSE stream connection is closing — drop this session from the
     // registry so a POST /callback/{id} that arrives between close and
     // destructor doesn't route a response into a dead connection. Runs
@@ -564,6 +584,15 @@ class HttpSseJsonRpcProtocolFilter
     read_callbacks_ = &callbacks;
     connection_ = &callbacks.connection();
 
+    // The peer going away is delivered as a connection event, not through
+    // the read path — on end-of-file the connection closes rather than
+    // handing the filters a final empty read. A response stream has to
+    // learn about it from here.
+    if (!connection_callbacks_registered_) {
+      callbacks.connection().addConnectionCallbacks(*this);
+      connection_callbacks_registered_ = true;
+    }
+
     http_filter_->initializeReadFilterCallbacks(callbacks);
     sse_filter_->initializeReadFilterCallbacks(callbacks);
     jsonrpc_filter_->initializeReadFilterCallbacks(callbacks);
@@ -657,7 +686,13 @@ class HttpSseJsonRpcProtocolFilter
         // persistent connection, which is how the stream used to go out.
         http::ResponseWriter::Options writer_options;
         writer_options.http_1_1 = http_filter_->currentRequestIsHttp11();
+        // Under the single-use policy the response says up front that the
+        // connection ends with it, which is the other wire-legal answer to
+        // a request arriving behind an open stream.
+        writer_options.keep_alive =
+            stream_gate_policy_ != StreamGatePolicy::SingleUseClose;
         response_writer_ = http::ResponseWriter(writer_options);
+        response_writer_.setObserver(this);
 
         const auto start = response_writer_.startSse(
             static_cast<int>(http::HttpStatusCode::OK),
@@ -1058,6 +1093,65 @@ class HttpSseJsonRpcProtocolFilter
     mcp_callbacks_.onResponse(response);
   }
 
+  // ===== http::ResponseWriter::Observer =====
+
+  void onSseStreamStarted() override {
+    if (stream_gate_policy_ == StreamGatePolicy::DecoderGate && http_filter_) {
+      // Anything that arrives from here on cannot be answered until this
+      // stream ends, so stop turning it into requests.
+      http_filter_->pauseRequestProcessing();
+    }
+  }
+
+  void onSseStreamFinished(bool close_connection) override {
+    if (http_filter_) {
+      http_filter_->resumeRequestProcessing();
+    }
+    if (close_connection) {
+      closeConnectionSoon();
+    }
+  }
+
+  // ===== HttpCodecFilter::GateCallbacks =====
+
+  void onGatedInputOverflow() override {
+    // The client sent more than will be held while its stream runs. No
+    // status can be sent — a response body is already going out — so the
+    // connection is all there is to take away.
+    GOPHER_LOG_WARN("Closing connection: gated input exceeded its limit");
+    closeConnectionSoon();
+  }
+
+  void onGatedEof() override {
+    // The client is gone. Nothing more will be read from this stream, so
+    // end it rather than keep writing events nobody will collect.
+    GOPHER_LOG_DEBUG("Peer half-closed during a response stream");
+    finishResponseStream();
+  }
+
+  // ===== network::ConnectionCallbacks =====
+
+  void onEvent(network::ConnectionEvent event) override {
+    if (event != network::ConnectionEvent::RemoteClose &&
+        event != network::ConnectionEvent::LocalClose) {
+      return;
+    }
+    // Reaching here promptly is the reason the gate never disables socket
+    // reads: an unarmed read event would delay or hide this entirely, and
+    // a response stream would go on being written to nobody.
+    if (response_writer_.mode() == http::ResponseWriter::Mode::Sse) {
+      GOPHER_LOG_DEBUG("Connection closed with a response stream open");
+      // The socket is going away, so there is nothing to flush — just
+      // settle the writer and let the gate go.
+      response_writer_.finish();
+      response_writer_.drainTo(discard_);
+      discard_.drain(discard_.length());
+    }
+  }
+
+  void onAboveWriteBufferHighWatermark() override {}
+  void onBelowWriteBufferLowWatermark() override {}
+
   void onProtocolError(const Error& error) override {
     mcp_callbacks_.onError(error);
   }
@@ -1336,6 +1430,61 @@ class HttpSseJsonRpcProtocolFilter
   // and RAII handshake write guard. Null for client-mode filters.
   std::unique_ptr<ServerConnectionMode> server_mode_;
 
+  /**
+   * End the response stream this connection is serving, if one is open,
+   * putting the terminating bytes on the wire.
+   */
+  void finishResponseStream() {
+    if (response_writer_.mode() != http::ResponseWriter::Mode::Sse) {
+      return;
+    }
+    // finish() notifies the observer, which is us: the gate reopens and a
+    // close is scheduled if the exchange asked for one. Both are deferred
+    // or harmless, so the terminating bytes below still go out first.
+    response_writer_.finish();
+
+    OwnedBuffer tail;
+    response_writer_.drainTo(tail);
+    if (tail.length() > 0 && write_callbacks_ && server_mode_) {
+      HandshakeWriteGuard guard(*server_mode_);
+      write_callbacks_->connection().write(tail, false);
+    }
+  }
+
+  /**
+   * Close the connection from a later dispatcher turn.
+   *
+   * Never inline: the stream lifecycle is driven from inside onWrite,
+   * which itself runs inside a connection write. Closing there hands
+   * control back to a write that is still holding a buffer, and the bytes
+   * just serialized are the ones that get dropped.
+   */
+  void closeConnectionSoon() {
+    if (!write_callbacks_) {
+      return;
+    }
+    network::Connection* connection = &write_callbacks_->connection();
+    std::weak_ptr<LifetimeToken> lifetime = lifetime_token_;
+    dispatcher_.post([lifetime, connection]() {
+      if (lifetime.expired()) {
+        return;
+      }
+      connection->close(network::ConnectionCloseType::FlushWrite);
+    });
+  }
+
+  struct LifetimeToken {};
+  std::shared_ptr<LifetimeToken> lifetime_token_{
+      std::make_shared<LifetimeToken>()};
+
+  bool connection_callbacks_registered_{false};
+  // Somewhere to put bytes that can no longer be sent.
+  OwnedBuffer discard_;
+
+  // What this connection does with requests that arrive while a response
+  // stream is open.
+  StreamGatePolicy stream_gate_policy_{StreamGatePolicy::Off};
+
   // Frames the response for the event stream this connection is serving,
   // from the prelude through every event. One writer per stream, so the
   // framing it chose up front stays consistent for the life of the stream.
@@ -1470,7 +1619,7 @@ bool HttpSseFilterChainFactory::createFilterChain(
       dispatcher_, message_callbacks_, is_server_, http_path_, http_host_,
       use_sse_, route_registration_callback_, sse_path_, rpc_path_,
       external_url_, client_headers_, client_header_source_,
-      sse_registry_.get());
+      sse_registry_.get(), stream_gate_policy_, gated_input_limit_);
 
   // Add as both read and write filter. The FilterManager owns the filter
   // for the connection's lifetime (per-connection filter ownership): when

@@ -22,6 +22,7 @@
 
 #include "mcp/buffer.h"
 #include "mcp/filter/http_sse_filter_chain_factory.h"
+#include "mcp/filter/sse_session_registry.h"
 #include "mcp/mcp_connection_manager.h"
 #include "mcp/network/connection_impl.h"
 #include "mcp/network/socket_impl.h"
@@ -71,6 +72,8 @@ class ResponseStreamFramingTest : public test::RealIoTestBase {
         /*is_server=*/true, /*http_path=*/"/mcp",
         /*http_host=*/"localhost",
         /*use_sse=*/true, /*sse_path=*/"/sse", /*rpc_path=*/"/mcp");
+    factory->setStreamGatePolicy(gate_policy_);
+    factory->setGatedInputLimit(gated_input_limit_);
 
     auto pair = createSocketPair();
     auto local = network::Address::parseInternetAddress("127.0.0.1", 0);
@@ -164,6 +167,29 @@ class ResponseStreamFramingTest : public test::RealIoTestBase {
            "\r\n";
   }
 
+  static std::string postRequest(const std::string& path,
+                                 const std::string& body) {
+    return "POST " + path +
+           " HTTP/1.1\r\n"
+           "Host: localhost\r\n"
+           "Content-Type: application/json\r\n"
+           "Content-Length: " +
+           std::to_string(body.size()) + "\r\n\r\n" + body;
+  }
+
+  static std::string initializeBody() {
+    return R"({"jsonrpc":"2.0","method":"initialize","id":1,"params":{)"
+           R"("protocolVersion":"2025-06-18","capabilities":{},)"
+           R"("clientInfo":{"name":"test","version":"1.0"}}})";
+  }
+
+  bool connectionClosed() {
+    return executeInDispatcher(
+        [&]() { return conn_->state() != network::ConnectionState::Open; });
+  }
+
+  StreamGatePolicy gate_policy_{StreamGatePolicy::Off};
+  size_t gated_input_limit_{64 * 1024};
   std::unique_ptr<network::ServerConnection> conn_;
   network::IoHandlePtr peer_;
   std::shared_ptr<HttpSseFilterChainFactory> factory_;
@@ -226,6 +252,62 @@ TEST_F(ResponseStreamFramingTest, UnaryResponseStaysLengthDelimited) {
   EXPECT_NE(wire.find("HTTP/1.1 200 OK\r\n"), std::string::npos) << wire;
   EXPECT_TRUE(hasHeader(wire, "content-length")) << wire;
   EXPECT_FALSE(hasHeader(wire, "transfer-encoding")) << wire;
+}
+
+// ── Stream connection policy ───────────────────────────────────────────────
+
+// Overflowing the held-input budget leaves nowhere to put an error: a
+// response body is already on the wire, so a status line spliced into it
+// would corrupt the stream. The connection goes instead.
+TEST_F(ResponseStreamFramingTest, OverflowingHeldInputTearsDownTheStream) {
+  gate_policy_ = StreamGatePolicy::DecoderGate;
+  gated_input_limit_ = 512;
+  FramingCallbacks callbacks;
+  startServer(callbacks, sseGetRequest());
+  const std::string prelude = drainPeer(*peer_);
+  ASSERT_FALSE(prelude.empty());
+  ASSERT_FALSE(connectionClosed());
+
+  writeClientBytes(*peer_, std::string(4096, 'x'));
+
+  EXPECT_TRUE(waitFor([&]() { return connectionClosed(); }, 2000ms))
+      << "connection survived an overflow of the held-input budget";
+
+  // Nothing that looks like a second response may have been spliced into
+  // the stream body on the way out.
+  OwnedBuffer buf;
+  auto r = peer_->read(buf, 4096);
+  if (r.ok() && *r > 0) {
+    const std::string tail = buf.toString();
+    EXPECT_EQ(tail.find("HTTP/1.1"), std::string::npos) << tail;
+  }
+  EXPECT_TRUE(callbacks.requests_.empty());
+}
+
+// The other wire-legal answer to a request behind an open stream: say up
+// front that the connection ends with this response.
+TEST_F(ResponseStreamFramingTest, SingleUseStreamAnnouncesConnectionClose) {
+  gate_policy_ = StreamGatePolicy::SingleUseClose;
+  FramingCallbacks callbacks;
+  startServer(callbacks, sseGetRequest());
+  const std::string wire = drainPeer(*peer_);
+
+  EXPECT_NE(wire.find("HTTP/1.1 200 OK\r\n"), std::string::npos) << wire;
+  EXPECT_NE(wire.find("\r\nConnection: close\r\n"), std::string::npos) << wire;
+  // Still chunked: how the body is delimited and whether the connection is
+  // reusable are separate questions.
+  EXPECT_NE(wire.find("\r\nTransfer-Encoding: chunked\r\n"), std::string::npos)
+      << wire;
+}
+
+// Arming the gate must not disturb a connection that is behaving normally.
+TEST_F(ResponseStreamFramingTest, GateDoesNotDisturbAnOrdinaryExchange) {
+  gate_policy_ = StreamGatePolicy::DecoderGate;
+  FramingCallbacks callbacks;
+  startServer(callbacks, postRequest("/mcp", initializeBody()));
+
+  EXPECT_TRUE(waitFor([&]() { return !callbacks.requests_.empty(); }, 2000ms));
+  EXPECT_EQ(callbacks.requests_.size(), 1u);
 }
 
 }  // namespace

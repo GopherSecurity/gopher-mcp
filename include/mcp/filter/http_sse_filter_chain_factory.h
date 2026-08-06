@@ -34,6 +34,27 @@ namespace filter {
 using HttpRouteRegistrationCallback = std::function<void(HttpRoutingFilter*)>;
 
 /**
+ * What a connection does about further requests while it is streaming a
+ * response.
+ *
+ * HTTP/1.1 delivers responses in request order, so a request arriving
+ * behind an open stream cannot be answered until that stream ends. There
+ * are only two wire-legal answers to that, and which one applies is a
+ * deployment decision:
+ *
+ *   Off             Nothing is held back. Correct only while no response on
+ *                   the connection actually streams.
+ *   DecoderGate     Hold the request unparsed until the stream finishes,
+ *                   then answer it in order. Keeps the connection reusable.
+ *   SingleUseClose  Tell the client the connection ends with this response
+ *                   and close when the stream does.
+ *
+ * Answering a queued request early with an error is not an option — that
+ * is not something the protocol permits.
+ */
+enum class StreamGatePolicy { Off, DecoderGate, SingleUseClose };
+
+/**
  * MCP HTTP+SSE Filter Chain Factory
  *
  * Following production FilterChainFactory pattern:
@@ -170,6 +191,20 @@ class HttpSseFilterChainFactory : public network::FilterChainFactory {
   }
 
   /**
+   * Choose what connections do about requests that arrive while a response
+   * is streaming. Defaults to Off, which is correct as long as no response
+   * on this chain streams while another request could be in flight.
+   */
+  void setStreamGatePolicy(StreamGatePolicy policy) {
+    stream_gate_policy_ = policy;
+  }
+
+  StreamGatePolicy streamGatePolicy() const { return stream_gate_policy_; }
+
+  /** Cap on input held back while a stream is open. */
+  void setGatedInputLimit(size_t bytes) { gated_input_limit_ = bytes; }
+
+  /**
    * Access the server-side SSE session registry, creating it on first use
    * (same lazy construction createFilterChain performs). This is the
    * server layer's handle for two things it cannot do from inside a
@@ -222,6 +257,11 @@ class HttpSseFilterChainFactory : public network::FilterChainFactory {
 
   // Callback for registering custom HTTP routes
   HttpRouteRegistrationCallback route_registration_callback_;
+
+  // How connections handle requests arriving behind an open response
+  // stream. Off until a caller opts in, so existing chains are unchanged.
+  StreamGatePolicy stream_gate_policy_{StreamGatePolicy::Off};
+  size_t gated_input_limit_{64 * 1024};
 };
 
 }  // namespace filter
