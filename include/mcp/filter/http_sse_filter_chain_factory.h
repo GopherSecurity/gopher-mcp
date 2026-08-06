@@ -218,6 +218,23 @@ class HttpSseFilterChainFactory : public network::FilterChainFactory {
     security_options_.allowed_origins = config.allowed_origins;
   }
 
+  /**
+   * What connections here do about a request that arrives while a response
+   * is still streaming.
+   *
+   * Taken from configuration rather than left at the default, because a
+   * chain that can stream and does not hold the next request will answer
+   * it out of order, which HTTP/1.1 gives a client no way to read.
+   */
+  void setStreamConfig(const transport::StreamableHttpConfig& config) {
+    stream_gate_policy_ = config.stream_conn_policy ==
+                                  transport::StreamableHttpConfig::
+                                      StreamConnPolicy::SingleUseClose
+                              ? StreamGatePolicy::SingleUseClose
+                              : StreamGatePolicy::DecoderGate;
+    gated_input_limit_ = config.gated_input_buffer_bytes;
+  }
+
   /** Resolves who each request is from. Defaults to serving everyone. */
   void setAuthCallback(AuthCallback callback) {
     security_options_.auth = std::move(callback);

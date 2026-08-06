@@ -267,6 +267,15 @@ class SessionContext {
     return transport_session_id_;
   }
 
+  // Somewhere to put an answer that is not ready yet, for a handler
+  // registered as streaming. Set for the length of one dispatch and null
+  // otherwise, since a stream belongs to a request rather than a session.
+  // A handler that means to finish later keeps its own copy.
+  void setResponseStream(const ResponseStreamPtr& stream) {
+    response_stream_ = stream;
+  }
+  const ResponseStreamPtr& responseStream() const { return response_stream_; }
+
   // Update activity timestamp
   void updateActivity() { last_activity_ = std::chrono::steady_clock::now(); }
 
@@ -328,8 +337,9 @@ class SessionContext {
 
  private:
   SessionId id_;
-  network::Connection* connection_;   // Store raw pointer
-  std::string transport_session_id_;  // Durable transport identity, may be ""
+  network::Connection* connection_;    // Store raw pointer
+  std::string transport_session_id_;   // Durable transport identity, may be ""
+  ResponseStreamPtr response_stream_;  // Live only during one dispatch
   std::chrono::steady_clock::time_point created_time_;
   std::chrono::steady_clock::time_point last_activity_;
   optional<Implementation> client_info_;
@@ -963,6 +973,28 @@ class McpServer : public application::ApplicationBase,
       std::function<jsonrpc::Response(const jsonrpc::Request&, SessionContext&)>
           handler);
 
+  /**
+   * Register a handler that answers with more than one message.
+   *
+   * The mode has to be declared rather than discovered, because how a
+   * response is framed is settled before the handler runs. Optional means
+   * the handler reports progress but is still answerable without it;
+   * Required means it will ask the client something and wait, so a client
+   * that cannot read a stream is refused rather than served an answer its
+   * handler will never finish.
+   *
+   * The handler reaches its stream through SessionContext::responseStream(),
+   * which is set for the length of the dispatch.
+   */
+  void registerRequestHandler(
+      const std::string& method,
+      std::function<jsonrpc::Response(const jsonrpc::Request&, SessionContext&)>
+          handler,
+      StreamingMode streaming);
+
+  /** What kind of response a request will need, asked before dispatch. */
+  StreamingMode streamingFor(const jsonrpc::Request& request) const;
+
   void registerNotificationHandler(
       const std::string& method,
       std::function<void(const jsonrpc::Notification&, SessionContext&)>
@@ -1215,6 +1247,10 @@ class McpServer : public application::ApplicationBase,
 
     void onError(const Error& error) override { server_.onError(error); }
 
+    StreamingMode streamingFor(const jsonrpc::Request& request) const override {
+      return server_.streamingFor(request);
+    }
+
    private:
     McpServer& server_;
   };
@@ -1298,7 +1334,11 @@ class McpServer : public application::ApplicationBase,
   std::map<std::string,
            std::function<void(const jsonrpc::Notification&, SessionContext&)>>
       notification_handlers_;
-  std::mutex handlers_mutex_;
+  // Methods whose handler answers with more than one message. Absent means
+  // None, so a handler registered without saying anything stays on the
+  // unary path.
+  std::map<std::string, StreamingMode> streaming_methods_;
+  mutable std::mutex handlers_mutex_;
 
   // Background task state
   std::atomic<bool> background_threads_running_{false};

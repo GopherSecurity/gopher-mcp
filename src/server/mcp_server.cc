@@ -370,6 +370,10 @@ void McpServer::performListen() {
         // an operator who configured an origin list asked for.
         http_sse_factory->setSecurityConfig(config_.streamable_http);
 
+        // A response on this chain can stream, so a request arriving behind
+        // one has to wait rather than be answered out of order.
+        http_sse_factory->setStreamConfig(config_.streamable_http);
+
         // Tools can designate parameters to travel as request headers, and
         // a browser cannot send a header CORS preflight did not advertise.
         // Read per preflight rather than captured here: tools may be
@@ -621,6 +625,29 @@ void McpServer::registerRequestHandler(
         handler) {
   std::lock_guard<std::mutex> lock(handlers_mutex_);
   request_handlers_[method] = handler;
+  streaming_methods_.erase(method);
+}
+
+void McpServer::registerRequestHandler(
+    const std::string& method,
+    std::function<jsonrpc::Response(const jsonrpc::Request&, SessionContext&)>
+        handler,
+    StreamingMode streaming) {
+  std::lock_guard<std::mutex> lock(handlers_mutex_);
+  request_handlers_[method] = handler;
+  if (streaming == StreamingMode::None) {
+    streaming_methods_.erase(method);
+  } else {
+    streaming_methods_[method] = streaming;
+  }
+}
+
+StreamingMode McpServer::streamingFor(const jsonrpc::Request& request) const {
+  // Asked from the dispatcher thread while handlers may be registered from
+  // another, so it reads under the same lock registration takes.
+  std::lock_guard<std::mutex> lock(handlers_mutex_);
+  auto it = streaming_methods_.find(request.method);
+  return it == streaming_methods_.end() ? StreamingMode::None : it->second;
 }
 
 // Register notification handler
@@ -1079,6 +1106,16 @@ void McpServer::onRequestWithContext(const jsonrpc::Request& request,
 
   session->updateActivity();
 
+  // A handler registered as streaming gets somewhere to report progress on
+  // its way to an answer. Attached to the session only for the length of
+  // this dispatch: a stream belongs to the request that opened it, and one
+  // left behind would collect the next request's output.
+  ResponseStreamPtr stream;
+  if (streamingFor(request) != StreamingMode::None) {
+    stream = context.beginResponseStream();
+    session->setResponseStream(stream);
+  }
+
   // Route request to appropriate handler
   jsonrpc::Response response;
 
@@ -1139,7 +1176,13 @@ void McpServer::onRequestWithContext(const jsonrpc::Request& request,
                        ? get<std::string>(request.id)
                        : std::to_string(get<int64_t>(request.id)));
 
-  auto send_result = context.sendResponse(response);
+  session->setResponseStream(nullptr);
+
+  // Down the same stream the progress went, when there was one: the
+  // response is the last thing on it, and a second path out would leave
+  // the stream open with the client still waiting.
+  auto send_result =
+      stream ? stream->sendResponse(response) : context.sendResponse(response);
   if (holds_alternative<Error>(send_result)) {
     server_stats_.errors_total++;
     GOPHER_LOG_ERROR("Failed to send response for request id {}: {}",
