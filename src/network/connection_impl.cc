@@ -1416,8 +1416,13 @@ void ConnectionImpl::doWrite() {
    *
    * Thread safety: All operations in dispatcher thread
    */
-  if (state_ != ConnectionState::Open) {
-    GOPHER_LOG_TRACE("doWrite(): state != Open, returning");
+  // Closing is deliberately allowed through. A flush-write close puts the
+  // connection into Closing and then asks for exactly this drain, and the
+  // tail of this function is what finally closes the socket once the
+  // buffer empties. Refusing to run here made close(FlushWrite) drop
+  // whatever was still queued — the last response a peer was owed.
+  if (state_ != ConnectionState::Open && state_ != ConnectionState::Closing) {
+    GOPHER_LOG_TRACE("doWrite(): connection is closed, returning");
     return;
   }
 
