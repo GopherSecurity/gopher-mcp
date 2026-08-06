@@ -1588,6 +1588,17 @@ target_link_libraries(test_request_exchange
 )
 add_test(NAME RequestExchangeTest COMMAND test_request_exchange)
 
+# Exchange Registry Test - per-connection tracking and retention hand-off
+add_executable(test_exchange_registry transport/test_exchange_registry.cc)
+target_link_libraries(test_exchange_registry
+    gopher-mcp
+    gopher-mcp-event
+    gtest
+    gtest_main
+    Threads::Threads
+)
+add_test(NAME ExchangeRegistryTest COMMAND test_exchange_registry)
+
 add_executable(test_sse_codec_state_machine filter/test_sse_codec_state_machine.cc)
 target_link_libraries(test_sse_codec_state_machine
     gopher-mcp
