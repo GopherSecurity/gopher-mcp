@@ -146,6 +146,28 @@ struct AuthResult {
 using AuthCallback = std::function<AuthResult(const RequestHeadersView&)>;
 
 /**
+ * Everything a connection needs to decide who it serves.
+ *
+ * Carried as one value because it travels together: a filter chain is
+ * built from a configuration and a pair of hooks, and threading three
+ * more arguments through a constructor that already takes a dozen would
+ * make the call sites unreadable.
+ */
+struct HttpSecurityOptions {
+  /** Empty applies the policy's default set. */
+  std::vector<std::string> allowed_origins;
+
+  /** Absent serves everyone as "anonymous". */
+  AuthCallback auth;
+
+  /**
+   * Extra request header names to advertise in preflight, asked for on
+   * every preflight because the set follows the registered tools.
+   */
+  std::function<std::vector<std::string>()> extra_allowed_headers;
+};
+
+/**
  * Refuses requests that should not be served, before anything can act on
  * them.
  *

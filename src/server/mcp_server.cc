@@ -266,6 +266,29 @@ void McpServer::performListen() {
                 /*rpc_path=*/config_.http_rpc_path,
                 /*external_url=*/config_.external_url);
 
+        // Who this server serves. Without this the chain applies its own
+        // defaults, which are the local machine only — safe, but not what
+        // an operator who configured an origin list asked for.
+        http_sse_factory->setSecurityConfig(config_.streamable_http);
+
+        // Tools can designate parameters to travel as request headers, and
+        // a browser cannot send a header CORS preflight did not advertise.
+        // Read per preflight rather than captured here: tools may be
+        // registered long after the listener starts.
+        http_sse_factory->setExtraAllowedHeaders([this]() {
+          std::vector<std::string> names;
+          // listTools() copies under the registry's own lock, which is
+          // what makes this safe to call from a dispatcher thread while
+          // another registers a tool.
+          for (const auto& tool : tool_registry_->listTools().tools) {
+            for (const auto& name :
+                 filter::HttpSecurityPolicy::paramHeadersFor(tool)) {
+              names.push_back(name);
+            }
+          }
+          return names;
+        });
+
         // Add filter factories from config (e.g., auth filters)
         // This follows the existing FilterFactoryCb pattern
         for (const auto& factory : config_.filter_factories) {

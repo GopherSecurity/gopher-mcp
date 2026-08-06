@@ -62,6 +62,7 @@
 #include "mcp/filter/client_sse_state_machine.h"
 #include "mcp/filter/http_codec_filter.h"
 #include "mcp/filter/http_routing_filter.h"
+#include "mcp/filter/http_security_filter.h"
 #include "mcp/filter/json_rpc_protocol_filter.h"
 #include "mcp/filter/metrics_filter.h"
 #include "mcp/filter/server_connection_mode.h"
@@ -123,7 +124,8 @@ class HttpSseJsonRpcProtocolFilter
       public SseCodecFilter::EventCallbacks,
       public JsonRpcProtocolFilter::MessageHandler,
       public http::ResponseWriter::Observer,
-      public StreamableHttpFilter::Host {
+      public StreamableHttpFilter::Host,
+      public HttpSecurityFilter::Host {
  public:
   HttpSseJsonRpcProtocolFilter(
       event::Dispatcher& dispatcher,
@@ -142,7 +144,8 @@ class HttpSseJsonRpcProtocolFilter
       SseSessionRegistry* sse_registry = nullptr,
       StreamGatePolicy stream_gate_policy = StreamGatePolicy::Off,
       size_t gated_input_limit = 64 * 1024,
-      transport::RetainedExchangeStore* retained_exchanges = nullptr)
+      transport::RetainedExchangeStore* retained_exchanges = nullptr,
+      const HttpSecurityOptions& security_options = HttpSecurityOptions())
       : dispatcher_(dispatcher),
         mcp_callbacks_(mcp_callbacks),
         is_server_(is_server),
@@ -179,14 +182,30 @@ class HttpSseJsonRpcProtocolFilter
         nullptr,  // Will be set after HTTP filter is created
         is_server_);
 
+    // Requests are judged before they are routed, so a refusal costs a
+    // response and nothing else: no handler runs, no route is consulted,
+    // and no protocol layer sees a body it might act on.
+    HttpCodecFilter::MessageCallbacks* after_codec = routing_filter_.get();
+    if (is_server_) {
+      security_policy_.setAllowedOrigins(security_options.allowed_origins);
+      security_policy_.setExtraAllowedHeaders(
+          security_options.extra_allowed_headers);
+      security_filter_.reset(new HttpSecurityFilter(
+          *routing_filter_, security_policy_, security_, *this));
+      if (security_options.auth) {
+        security_filter_->setAuthCallback(security_options.auth);
+      }
+      after_codec = security_filter_.get();
+    }
+
     // Create the protocol filters
     // Single HTTP codec that sends callbacks to routing filter first
     GOPHER_LOG_DEBUG(
         "HttpSseJsonRpcProtocolFilter: Creating HttpCodecFilter with "
         "is_server={}",
         is_server_);
-    http_filter_ = std::make_shared<HttpCodecFilter>(*routing_filter_,
-                                                     dispatcher_, is_server_);
+    http_filter_ = std::make_shared<HttpCodecFilter>(*after_codec, dispatcher_,
+                                                     is_server_);
 
     // Set client endpoint for HTTP requests
     if (!is_server) {
@@ -1214,8 +1233,29 @@ class HttpSseJsonRpcProtocolFilter
     return write_callbacks_ ? &write_callbacks_->connection() : nullptr;
   }
 
+  // Shared with HttpSecurityFilter::Host, which asks the same question for
+  // the same reason.
   bool requestIsHttp11() const override {
     return http_filter_ && http_filter_->currentRequestIsHttp11();
+  }
+
+  // ===== HttpSecurityFilter::Host =====
+
+  void writeResponse(Buffer& data, bool close_connection) override {
+    if (!write_callbacks_) {
+      return;
+    }
+    // Guarded because these bytes are already a complete HTTP response.
+    // Unguarded, a connection that previously proxied a callback POST
+    // would capture them and ship the status line down someone's event
+    // stream as message data.
+    {
+      HandshakeWriteGuard guard(*server_mode_);
+      write_callbacks_->connection().write(data, false);
+    }
+    if (close_connection) {
+      closeConnectionSoon();
+    }
   }
 
   // ===== http::ResponseWriter::Observer =====
@@ -1641,6 +1681,14 @@ class HttpSseJsonRpcProtocolFilter
   // framing it chose up front stays consistent for the life of the stream.
   http::ResponseWriter response_writer_;
 
+  // Who this connection serves, and what it decided about the request it
+  // is serving now. Server mode only: a client receives no requests, so
+  // there is nothing to judge. The record is read by whoever frames the
+  // answer, which by then is several layers away from the request.
+  HttpSecurityPolicy security_policy_;
+  RequestSecurity security_;
+  std::unique_ptr<HttpSecurityFilter> security_filter_;
+
   // Serves the MCP endpoint. Server mode only; a client never receives a
   // request on it.
   std::unique_ptr<StreamableHttpFilter> streamable_filter_;
@@ -1787,7 +1835,7 @@ bool HttpSseFilterChainFactory::createFilterChain(
       use_sse_, route_registration_callback_, sse_path_, rpc_path_,
       external_url_, client_headers_, client_header_source_,
       sse_registry_.get(), stream_gate_policy_, gated_input_limit_,
-      &retainedExchanges());
+      &retainedExchanges(), security_options_);
 
   // Add as both read and write filter. The FilterManager owns the filter
   // for the connection's lifetime (per-connection filter ownership): when

@@ -7,11 +7,13 @@
 
 #include "mcp/event/event_loop.h"
 #include "mcp/filter/http_codec_filter.h"
+#include "mcp/filter/http_security_filter.h"
 #include "mcp/filter/json_rpc_protocol_filter.h"
 #include "mcp/filter/sse_codec_filter.h"
 #include "mcp/network/connection.h"
 #include "mcp/network/filter.h"
 #include "mcp/transport/exchange_registry.h"
+#include "mcp/transport/streamable_http_config.h"
 
 // Forward declarations
 namespace mcp {
@@ -206,6 +208,32 @@ class HttpSseFilterChainFactory : public network::FilterChainFactory {
   void setGatedInputLimit(size_t bytes) { gated_input_limit_ = bytes; }
 
   /**
+   * Which origins the connections this factory builds will serve.
+   *
+   * A setter rather than more constructor arguments: the constructor
+   * already takes twelve, and none of its callers should have to change
+   * to say nothing about security. Applies to chains built afterwards.
+   */
+  void setSecurityConfig(const transport::StreamableHttpConfig& config) {
+    security_options_.allowed_origins = config.allowed_origins;
+  }
+
+  /** Resolves who each request is from. Defaults to serving everyone. */
+  void setAuthCallback(AuthCallback callback) {
+    security_options_.auth = std::move(callback);
+  }
+
+  /**
+   * Extra request header names to advertise in CORS preflight — the ones
+   * registered tools designate for their parameters. Asked on every
+   * preflight, since a tool may be registered at any time.
+   */
+  void setExtraAllowedHeaders(
+      std::function<std::vector<std::string>()> source) {
+    security_options_.extra_allowed_headers = std::move(source);
+  }
+
+  /**
    * Access the server-side SSE session registry, creating it on first use
    * (same lazy construction createFilterChain performs). This is the
    * server layer's handle for two things it cannot do from inside a
@@ -276,6 +304,11 @@ class HttpSseFilterChainFactory : public network::FilterChainFactory {
   // stream. Off until a caller opts in, so existing chains are unchanged.
   StreamGatePolicy stream_gate_policy_{StreamGatePolicy::Off};
   size_t gated_input_limit_{64 * 1024};
+
+  // Who the connections built here serve. Its defaults — the local
+  // machine, everyone anonymous — are what a server gets when it says
+  // nothing about security.
+  HttpSecurityOptions security_options_;
 };
 
 }  // namespace filter
