@@ -1556,6 +1556,17 @@ target_link_libraries(test_response_stream_framing
 )
 add_test(NAME ResponseStreamFramingTest COMMAND test_response_stream_framing)
 
+# HTTP Codec Gate Test - holding back requests while a response streams
+add_executable(test_http_codec_gate filter/test_http_codec_gate.cc)
+target_link_libraries(test_http_codec_gate
+    gopher-mcp
+    gopher-mcp-event
+    gtest
+    gtest_main
+    Threads::Threads
+)
+add_test(NAME HttpCodecGateTest COMMAND test_http_codec_gate)
+
 add_executable(test_sse_codec_state_machine filter/test_sse_codec_state_machine.cc)
 target_link_libraries(test_sse_codec_state_machine
     gopher-mcp

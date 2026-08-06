@@ -238,6 +238,58 @@ class HttpCodecFilter : public network::Filter {
   void markSseGetSent() { sse_get_sent_ = true; }
 
   /**
+   * Told about events that only matter while request processing is held
+   * back. Implemented by whoever opened the response stream.
+   */
+  class GateCallbacks {
+   public:
+    virtual ~GateCallbacks() = default;
+
+    /**
+     * More gated input arrived than the buffer is allowed to hold. There is
+     * no way to report this in-band — a response is already in flight — so
+     * the only honest answer is to close the transport.
+     */
+    virtual void onGatedInputOverflow() = 0;
+
+    /**
+     * The peer half-closed while input was held back. Delivered
+     * immediately rather than queued: for a client, closing the connection
+     * is how a request in flight gets cancelled, and a cancellation that
+     * arrives after the stream ends is worthless.
+     */
+    virtual void onGatedEof() = 0;
+  };
+
+  void setGateCallbacks(GateCallbacks* callbacks) {
+    gate_callbacks_ = callbacks;
+  }
+
+  /** Cap on input held while the gate is shut. */
+  void setGatedInputLimit(size_t bytes) { gated_input_limit_ = bytes; }
+
+  /**
+   * Stop parsing and dispatching further requests on this connection.
+   *
+   * HTTP/1.1 requires responses in request order, so while a response is
+   * streaming, a second request cannot be answered — it has to wait. This
+   * holds the bytes rather than acting on them.
+   *
+   * Socket reads stay armed throughout. Disabling them would also hide
+   * end-of-file, and EOF is exactly the signal a streaming exchange needs
+   * to notice promptly.
+   */
+  void pauseRequestProcessing();
+
+  /**
+   * Resume parsing and work through whatever arrived while shut, in the
+   * order it arrived.
+   */
+  void resumeRequestProcessing();
+
+  bool requestProcessingPaused() const { return request_processing_paused_; }
+
+  /**
    * Whether the request currently being answered came in as HTTP/1.1.
    * Callers that frame their own response need this: chunked encoding does
    * not exist before 1.1, and sending chunk syntax to a 1.0 client corrupts
@@ -306,6 +358,11 @@ class HttpCodecFilter : public network::Filter {
    * Following production dispatch pattern
    */
   void dispatch(Buffer& data);
+
+  /**
+   * Take custody of input that cannot be parsed yet, enforcing the cap.
+   */
+  void bufferGatedInput(Buffer& data);
 
   /**
    * Handle parser errors
@@ -383,6 +440,15 @@ class HttpCodecFilter : public network::Filter {
 
   // Message buffering (connection-level, not per-request)
   OwnedBuffer message_buffer_;
+
+  // Request processing gate. While shut, incoming bytes accumulate here
+  // unparsed instead of turning into requests that could not be answered
+  // in order anyway.
+  GateCallbacks* gate_callbacks_{nullptr};
+  bool request_processing_paused_{false};
+  bool gate_overflowed_{false};
+  size_t gated_input_limit_{64 * 1024};
+  OwnedBuffer gated_input_;
 };
 
 }  // namespace filter

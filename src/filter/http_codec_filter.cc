@@ -244,6 +244,22 @@ network::FilterStatus HttpCodecFilter::onData(Buffer& data, bool end_stream) {
       "HttpCodecFilter::onData called with {} bytes, end_stream={}",
       data.length(), end_stream);
 
+  if (request_processing_paused_) {
+    // A response is still going out, so nothing that arrives now can be
+    // answered yet. Hold the bytes and parse them once the gate opens.
+    if (data.length() > 0) {
+      bufferGatedInput(data);
+    }
+    // End-of-file is not something to hold: the peer going away is how a
+    // streaming exchange learns it should stop, and that has to be acted on
+    // while there is still something to stop.
+    if (end_stream && gate_callbacks_) {
+      GOPHER_LOG_DEBUG("HttpCodecFilter: peer half-closed while gated");
+      gate_callbacks_->onGatedEof();
+    }
+    return network::FilterStatus::StopIteration;
+  }
+
   // Check if we need to reset for next message
   if (state_machine_->currentState() == HttpCodecState::Closed) {
     // Reset for next message if connection was closed
@@ -447,6 +463,66 @@ network::FilterStatus HttpCodecFilter::onWrite(Buffer& data, bool end_stream) {
   return network::FilterStatus::Continue;
 }
 
+void HttpCodecFilter::bufferGatedInput(Buffer& data) {
+  const size_t incoming = data.length();
+  if (incoming == 0) {
+    return;
+  }
+
+  if (gated_input_.length() + incoming > gated_input_limit_) {
+    // Nothing useful can be said on the wire here: a response is already in
+    // flight, so an error status would land in the middle of its body.
+    data.drain(incoming);
+    if (!gate_overflowed_) {
+      gate_overflowed_ = true;
+      GOPHER_LOG_WARN(
+          "HttpCodecFilter: gated input exceeded {} bytes, closing transport",
+          gated_input_limit_);
+      if (gate_callbacks_) {
+        gate_callbacks_->onGatedInputOverflow();
+      }
+    }
+    return;
+  }
+
+  data.move(gated_input_);
+}
+
+void HttpCodecFilter::pauseRequestProcessing() {
+  if (request_processing_paused_) {
+    return;
+  }
+  request_processing_paused_ = true;
+  gate_overflowed_ = false;
+  GOPHER_LOG_DEBUG("HttpCodecFilter: request processing paused");
+}
+
+void HttpCodecFilter::resumeRequestProcessing() {
+  if (!request_processing_paused_) {
+    return;
+  }
+  request_processing_paused_ = false;
+  GOPHER_LOG_DEBUG("HttpCodecFilter: request processing resumed, {} bytes held",
+                   gated_input_.length());
+
+  // The parser stopped itself mid-buffer when the gate shut; let it go on.
+  if (parser_ && parser_->getStatus() == http::ParserStatus::Paused) {
+    parser_->resume();
+  }
+
+  if (gated_input_.length() == 0) {
+    return;
+  }
+
+  // Feed what was held back through the normal path so those requests are
+  // answered in the order they arrived. dispatch() may shut the gate again
+  // partway through, in which case whatever is left goes back into the
+  // buffer and waits for the next resume.
+  OwnedBuffer pending;
+  gated_input_.move(pending);
+  onData(pending, /*end_stream=*/false);
+}
+
 // Process incoming HTTP data
 void HttpCodecFilter::dispatch(Buffer& data) {
   size_t data_len = data.length();
@@ -462,6 +538,16 @@ void HttpCodecFilter::dispatch(Buffer& data) {
 
   // Drain consumed data from buffer
   data.drain(consumed);
+
+  if (parser_->getStatus() == http::ParserStatus::Paused) {
+    // A response stream opened while these bytes were being parsed. Take
+    // custody of the remainder so nothing downstream mistakes it for body
+    // data, and leave it for resumeRequestProcessing to work through.
+    GOPHER_LOG_DEBUG("HttpCodecFilter: parser paused with {} bytes unparsed",
+                     data.length());
+    bufferGatedInput(data);
+    return;
+  }
 
   if (pending_parser_error_.has_value()) {
     std::string error = std::move(pending_parser_error_.value());
@@ -687,6 +773,15 @@ HttpCodecFilter::ParserCallbacks::onHeadersComplete() {
                                           parent_.current_stream_->keep_alive);
   }
 
+  // Handling those headers may have opened a response stream, which shuts
+  // the gate. Stop the parser here rather than returning: anything else in
+  // this buffer is a pipelined request that cannot be answered until the
+  // stream in front of it finishes, and without this it would be parsed and
+  // dispatched before the gate ever took effect.
+  if (parent_.request_processing_paused_) {
+    return parent_.parser_->pause();
+  }
+
   return http::ParserCallbackResult::Success;
 }
 
@@ -787,6 +882,14 @@ HttpCodecFilter::ParserCallbacks::onMessageComplete() {
   if (parent_.message_callbacks_) {
     parent_.message_callbacks_->onMessageComplete();
   }
+
+  // Dispatching the request may have opened a response stream. This is the
+  // message boundary, so stopping here leaves any pipelined request behind
+  // it untouched until the response in front of it is done.
+  if (parent_.request_processing_paused_) {
+    return parent_.parser_->pause();
+  }
+
   return http::ParserCallbackResult::Success;
 }
 
