@@ -293,6 +293,9 @@ bool RequestExchange::beginStream() {
   }
 
   stream_writer_.reset(new http::ResponseWriter(writer_options_));
+  // Set before the stream opens, so the connection learns it has to stop
+  // answering anything else from the moment it actually does.
+  stream_writer_->setObserver(stream_observer_);
   const auto start = stream_writer_->startSse(status_code_, headers_);
   if (start != http::ResponseWriter::SseStart::Streaming) {
     // The writer put a complete answer in place of the stream; send it and

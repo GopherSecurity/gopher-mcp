@@ -74,6 +74,19 @@ class StreamableHttpFilter : public HttpCodecFilter::MessageCallbacks,
      * whoever judged it. Empty when nothing did.
      */
     virtual const std::string& principal() const = 0;
+
+    /**
+     * Told when a response on this connection starts and stops streaming,
+     * so the connection can stop turning arriving bytes into requests it
+     * would have no way to answer in order.
+     */
+    virtual http::ResponseWriter::Observer* streamObserver() = 0;
+
+    /**
+     * Whether a streamed response leaves the connection unusable, so the
+     * answer says so up front rather than leaving a client to discover it.
+     */
+    virtual bool streamEndsConnection() const = 0;
   };
 
   /**

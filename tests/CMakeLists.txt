@@ -1651,6 +1651,17 @@ target_link_libraries(test_http_security
 )
 add_test(NAME HttpSecurityTest COMMAND test_http_security)
 
+# Streamed POST responses - chunked SSE framing on the MCP endpoint
+add_executable(test_streamable_http_sse_response integration/test_streamable_http_sse_response.cc)
+target_link_libraries(test_streamable_http_sse_response
+    gopher-mcp
+    gopher-mcp-event
+    gtest
+    gtest_main
+    Threads::Threads
+)
+add_test(NAME StreamableHttpSseResponseTest COMMAND test_streamable_http_sse_response)
+
 add_executable(test_sse_codec_state_machine filter/test_sse_codec_state_machine.cc)
 target_link_libraries(test_sse_codec_state_machine
     gopher-mcp

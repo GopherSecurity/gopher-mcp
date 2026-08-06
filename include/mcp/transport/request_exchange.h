@@ -334,6 +334,17 @@ class RequestExchange : public std::enable_shared_from_this<RequestExchange> {
    */
   void setEmitEventIds(bool emit) { emit_event_ids_ = emit; }
 
+  /**
+   * Told when this exchange's stream opens and closes.
+   *
+   * The connection needs to know: while a response streams, HTTP/1.1 gives
+   * it no way to answer anything else, so it has to stop turning arriving
+   * bytes into requests until the stream ends.
+   */
+  void setStreamObserver(http::ResponseWriter::Observer* observer) {
+    stream_observer_ = observer;
+  }
+
   /** Append one event to an open stream. */
   bool writeEvent(const std::string& event,
                   const std::string& data,
@@ -427,6 +438,7 @@ class RequestExchange : public std::enable_shared_from_this<RequestExchange> {
   size_t retained_event_limit_{256};
   size_t next_event_id_{1};
   bool emit_event_ids_{false};
+  http::ResponseWriter::Observer* stream_observer_{nullptr};
 };
 
 using RequestExchangePtr = std::shared_ptr<RequestExchange>;

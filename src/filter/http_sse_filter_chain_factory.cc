@@ -1258,6 +1258,12 @@ class HttpSseJsonRpcProtocolFilter
 
   const std::string& principal() const override { return security_.principal; }
 
+  http::ResponseWriter::Observer* streamObserver() override { return this; }
+
+  bool streamEndsConnection() const override {
+    return stream_gate_policy_ == StreamGatePolicy::SingleUseClose;
+  }
+
   // ===== HttpSecurityFilter::Host =====
 
   void writeResponse(Buffer& data, bool close_connection) override {

@@ -241,7 +241,9 @@ void StreamableHttpFilter::beginRequest(
 
   // Captured now rather than read when the answer is written: by then this
   // connection may be serving a different request, or none.
-  exchange_->setResponseOptions(host_.requestIsHttp11(), /*keep_alive=*/true);
+  exchange_->setResponseOptions(host_.requestIsHttp11(),
+                                !host_.streamEndsConnection());
+  exchange_->setStreamObserver(host_.streamObserver());
 
   auto& client = exchange_->clientContext();
   auto accept = headers.find("accept");
