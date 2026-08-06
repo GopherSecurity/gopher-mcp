@@ -1,7 +1,9 @@
 #ifndef MCP_TRANSPORT_EXCHANGE_REGISTRY_H
 #define MCP_TRANSPORT_EXCHANGE_REGISTRY_H
 
+#include <chrono>
 #include <map>
+#include <utility>
 #include <vector>
 
 #include "mcp/core/request_id_key.h"
@@ -109,14 +111,39 @@ class RetainedExchangeStore {
 
   size_t size() const { return exchanges_.size(); }
 
+  /**
+   * How long a finished exchange is kept before being given up on. The
+   * window exists so a client whose connection dropped has a chance to come
+   * back for what it missed; a client that never returns must not pin the
+   * result forever.
+   */
+  void setRetention(std::chrono::milliseconds retention) {
+    retention_ = retention;
+  }
+
+  /**
+   * Start the clock on an exchange that has finished producing. Called when
+   * its work is done; until then there is still something to wait for.
+   */
+  void scheduleRelease(const RequestExchangePtr& exchange);
+
   /** Drop everything. Called when the owner is shutting down. */
   void clear();
 
  private:
   void assertOnDispatcher() const;
+  void releaseExpired();
 
   event::Dispatcher& dispatcher_;
   std::vector<RequestExchangePtr> exchanges_;
+
+  // Exchanges whose retention has started, with the moment it runs out.
+  std::vector<
+      std::pair<RequestExchangePtr, std::chrono::steady_clock::time_point>>
+      expiring_;
+  event::TimerPtr expiry_timer_;
+  std::chrono::milliseconds retention_{60000};
+  bool running_{true};
 };
 
 }  // namespace transport

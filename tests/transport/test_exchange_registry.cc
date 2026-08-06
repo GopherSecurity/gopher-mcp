@@ -9,8 +9,10 @@
  * mid-stream cannot answer anything else yet.
  */
 
+#include <chrono>
 #include <memory>
 #include <string>
+#include <thread>
 
 #include <gtest/gtest.h>
 
@@ -42,6 +44,16 @@ class ExchangeRegistryTest : public ::testing::Test {
     std::unique_ptr<RetainedExchangeSink> sink(new RetainedExchangeSink());
     return RequestExchange::create(*dispatcher_, std::move(sink),
                                    optional<RequestId>(RequestId(id)));
+  }
+
+  // Drive the dispatcher on this thread so timers actually fire, without
+  // handing the exchanges to a second thread they do not belong to.
+  void runDispatcherFor(std::chrono::milliseconds budget) {
+    const auto deadline = std::chrono::steady_clock::now() + budget;
+    while (std::chrono::steady_clock::now() < deadline) {
+      dispatcher_->run(event::RunType::NonBlock);
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
   }
 
   RequestExchangePtr makeAnonymousExchange() {
@@ -182,6 +194,79 @@ TEST_F(ExchangeRegistryTest, ASurvivorStaysUsableThroughTheStore) {
   store_->release(store_->find(requestIdKey(RequestId(int64_t(7)))));
   EXPECT_EQ(store_->size(), 0u);
   EXPECT_TRUE(observer.expired());
+}
+
+// ── Retention ──────────────────────────────────────────────────────────────
+
+TEST_F(ExchangeRegistryTest, AnUnfinishedExchangeIsHeldIndefinitely) {
+  // The window is for a client that might still come back, so it does not
+  // start until there is a final answer to come back for.
+  store_->setRetention(std::chrono::milliseconds(0));
+
+  auto retained = makeExchange(1);
+  retained->setRetainOnDisconnect(true);
+  ASSERT_TRUE(retained->beginStream());
+  ASSERT_TRUE(retained->onConnectionGone());
+  store_->retain(retained);
+
+  runDispatcherFor(std::chrono::milliseconds(50));
+  EXPECT_EQ(store_->size(), 1u) << "work still in progress must not be reaped";
+}
+
+TEST_F(ExchangeRegistryTest, AFinishedExchangeIsReleasedAfterItsWindow) {
+  store_->setRetention(std::chrono::milliseconds(10));
+
+  auto retained = makeExchange(1);
+  retained->setRetainOnDisconnect(true);
+  ASSERT_TRUE(retained->beginStream());
+  ASSERT_TRUE(retained->onConnectionGone());
+  store_->retain(retained);
+
+  std::weak_ptr<RequestExchange> observer = retained;
+  retained.reset();
+  ASSERT_EQ(store_->size(), 1u);
+
+  // Finishing starts the clock.
+  store_->find(requestIdKey(RequestId(int64_t(1))))->complete();
+  EXPECT_EQ(store_->size(), 1u) << "the window has not elapsed yet";
+
+  runDispatcherFor(std::chrono::milliseconds(200));
+
+  EXPECT_EQ(store_->size(), 0u);
+  EXPECT_TRUE(observer.expired())
+      << "the exchange should be gone once nobody came back for it";
+}
+
+TEST_F(ExchangeRegistryTest, AnAlreadyFinishedExchangeStartsItsWindowAtOnce) {
+  store_->setRetention(std::chrono::milliseconds(10));
+
+  auto retained = makeExchange(1);
+  retained->setRetainOnDisconnect(true);
+  ASSERT_TRUE(retained->beginStream());
+  ASSERT_TRUE(retained->onConnectionGone());
+  retained->complete();
+  store_->retain(retained);
+  retained.reset();
+
+  runDispatcherFor(std::chrono::milliseconds(200));
+  EXPECT_EQ(store_->size(), 0u);
+}
+
+TEST_F(ExchangeRegistryTest, RetentionSurvivesTheStoreBeingTornDownFirst) {
+  // A pending release must not fire against a store that is going away.
+  store_->setRetention(std::chrono::milliseconds(10));
+
+  auto retained = makeExchange(1);
+  retained->setRetainOnDisconnect(true);
+  ASSERT_TRUE(retained->beginStream());
+  ASSERT_TRUE(retained->onConnectionGone());
+  store_->retain(retained);
+  retained->complete();
+
+  store_.reset();
+  runDispatcherFor(std::chrono::milliseconds(100));
+  // Reaching here without a crash is the assertion.
+  SUCCEED();
 }
 
 TEST_F(ExchangeRegistryTest, ClearingTheStoreReleasesEverything) {

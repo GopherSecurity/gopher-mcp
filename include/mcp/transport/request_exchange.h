@@ -251,6 +251,14 @@ class RequestExchange : public std::enable_shared_from_this<RequestExchange> {
   /** Finish the exchange. Idempotent. */
   bool complete();
 
+  /**
+   * Told once, when the exchange finishes producing. Whoever is holding a
+   * detached exchange uses this to start counting down to letting it go.
+   */
+  void setCompletionObserver(std::function<void()> observer) {
+    completion_observer_ = std::move(observer);
+  }
+
   CancellationToken& cancellation() { return cancellation_; }
   ExchangeClientContext& clientContext() { return client_context_; }
   const ExchangeClientContext& clientContext() const { return client_context_; }
@@ -320,6 +328,7 @@ class RequestExchange : public std::enable_shared_from_this<RequestExchange> {
 
   CancellationToken cancellation_;
   ExchangeClientContext client_context_;
+  std::function<void()> completion_observer_;
 
   /** Present only while detached; the sink then points at it. */
   RetainedExchangeSink* retained_{nullptr};

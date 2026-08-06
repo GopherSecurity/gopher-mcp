@@ -25,6 +25,7 @@
 #ifndef MCP_FILTER_SERVER_CONNECTION_MODE_H
 #define MCP_FILTER_SERVER_CONNECTION_MODE_H
 
+#include <cassert>
 #include <chrono>
 #include <deque>
 #include <functional>
@@ -230,7 +231,11 @@ class ServerConnectionMode {
 
  protected:
   void assertInDispatcherThread() const {
-    // All methods must be called from dispatcher thread.
+    // The mode is read and written without a lock, which is only safe
+    // because everything that touches it runs on one thread. Fail loudly
+    // rather than corrupt it quietly if that ever stops being true.
+    assert(dispatcher_.isThreadSafe() &&
+           "ServerConnectionMode used off its dispatcher thread");
   }
 
  private:

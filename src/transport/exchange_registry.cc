@@ -14,6 +14,17 @@ namespace transport {
 
 namespace {
 
+/**
+ * Carries the last reference to an exchange into the dispatcher's deferred
+ * delete queue, so it is destroyed after the current callback has unwound
+ * rather than inside it.
+ */
+struct ExchangeHolder : public event::DeferredDeletable {
+  explicit ExchangeHolder(RequestExchangePtr held)
+      : exchange(std::move(held)) {}
+  RequestExchangePtr exchange;
+};
+
 // Whether an exchange is answering the given request id.
 bool answers(const RequestExchangePtr& exchange, const RequestIdKey& key) {
   if (!exchange || !exchange->requestId().has_value()) {
@@ -120,7 +131,14 @@ std::vector<RequestExchangePtr> ExchangeRegistry::onConnectionGone() {
 RetainedExchangeStore::RetainedExchangeStore(event::Dispatcher& dispatcher)
     : dispatcher_(dispatcher) {}
 
-RetainedExchangeStore::~RetainedExchangeStore() = default;
+RetainedExchangeStore::~RetainedExchangeStore() {
+  running_ = false;
+  if (expiry_timer_) {
+    // Disable before anything else goes away, so a pending fire cannot run
+    // against a half-destroyed store.
+    expiry_timer_->disableTimer();
+  }
+}
 
 void RetainedExchangeStore::assertOnDispatcher() const {
   assert(dispatcher_.isThreadSafe() &&
@@ -133,6 +151,22 @@ void RetainedExchangeStore::retain(const RequestExchangePtr& exchange) {
     return;
   }
   exchanges_.push_back(exchange);
+
+  if (exchange->mode() == RequestExchange::Mode::Complete) {
+    // Already finished when it got here; the clock starts now.
+    scheduleRelease(exchange);
+    return;
+  }
+
+  // Otherwise wait until it stops producing. Weak, so the exchange holding
+  // this callback does not hold itself alive through it.
+  std::weak_ptr<RequestExchange> weak = exchange;
+  exchange->setCompletionObserver([this, weak]() {
+    auto finished = weak.lock();
+    if (finished) {
+      scheduleRelease(finished);
+    }
+  });
 }
 
 void RetainedExchangeStore::release(const RequestExchangePtr& exchange) {
@@ -151,8 +185,81 @@ RequestExchangePtr RetainedExchangeStore::find(const RequestIdKey& key) const {
   return nullptr;
 }
 
+void RetainedExchangeStore::scheduleRelease(
+    const RequestExchangePtr& exchange) {
+  assertOnDispatcher();
+  if (!exchange || !running_) {
+    return;
+  }
+
+  const auto deadline = std::chrono::steady_clock::now() + retention_;
+  expiring_.emplace_back(exchange, deadline);
+
+  if (!expiry_timer_) {
+    expiry_timer_ = dispatcher_.createTimer([this]() { releaseExpired(); });
+  }
+  // One timer re-armed as needed rather than one per exchange: a retained
+  // exchange is a rare thing, and a timer each would be a lot of machinery
+  // for something that only has to be roughly on time.
+  expiry_timer_->enableTimer(retention_);
+}
+
+void RetainedExchangeStore::releaseExpired() {
+  assertOnDispatcher();
+  if (!running_) {
+    return;
+  }
+
+  const auto now = std::chrono::steady_clock::now();
+
+  // Collect what has run out first, and let go of it only after the list is
+  // consistent: releasing an exchange runs its destructor, which is not
+  // something to do while walking the container it lives in.
+  std::vector<RequestExchangePtr> expired;
+  auto it = expiring_.begin();
+  while (it != expiring_.end()) {
+    if (it->second <= now) {
+      expired.push_back(it->first);
+      it = expiring_.erase(it);
+    } else {
+      ++it;
+    }
+  }
+
+  for (const auto& exchange : expired) {
+    GOPHER_LOG_DEBUG("Releasing a retained exchange nobody came back for");
+    release(exchange);
+  }
+  // Hand the last references to the dispatcher rather than dropping them
+  // here: this runs inside a timer callback, and destroying an object from
+  // inside the callback that is still executing on its behalf is how
+  // use-after-free happens.
+  for (auto& exchange : expired) {
+    dispatcher_.deferredDelete(
+        event::DeferredDeletablePtr(new ExchangeHolder(std::move(exchange))));
+  }
+  expired.clear();
+
+  if (!expiring_.empty() && expiry_timer_) {
+    // Something is still waiting; come back when the nearest one is due.
+    auto nearest = expiring_.front().second;
+    for (const auto& entry : expiring_) {
+      nearest = std::min(nearest, entry.second);
+    }
+    const auto remaining =
+        std::chrono::duration_cast<std::chrono::milliseconds>(nearest - now);
+    expiry_timer_->enableTimer(remaining > std::chrono::milliseconds(0)
+                                   ? remaining
+                                   : std::chrono::milliseconds(0));
+  }
+}
+
 void RetainedExchangeStore::clear() {
   assertOnDispatcher();
+  expiring_.clear();
+  if (expiry_timer_) {
+    expiry_timer_->disableTimer();
+  }
   exchanges_.clear();
 }
 

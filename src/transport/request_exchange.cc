@@ -306,6 +306,14 @@ bool RequestExchange::complete() {
   }
 
   mode_ = Mode::Complete;
+
+  if (completion_observer_) {
+    // Taken out before running so it cannot fire twice, and so an observer
+    // that drops the last reference does not leave a live callback behind.
+    auto observer = std::move(completion_observer_);
+    completion_observer_ = nullptr;
+    observer();
+  }
   return true;
 }
 
