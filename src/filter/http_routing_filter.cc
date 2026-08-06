@@ -323,7 +323,6 @@ HttpRoutingFilter::Response HttpRoutingFilter::buildRejectResponse(
   }
 
   resp.headers["content-type"] = "application/json";
-  resp.headers["Access-Control-Allow-Origin"] = "*";
   resp.body = "{\"error\":\"" + statusSlug(target.status_code) + "\"}";
   resp.headers["content-length"] = std::to_string(resp.body.length());
   return resp;
@@ -342,8 +341,16 @@ void HttpRoutingFilter::sendResponse(const Response& response) {
                        static_cast<http::HttpStatusCode>(response.status_code))
                 << "\r\n";
 
-  // Add headers
+  // Whether a browser may read this answer is not a handler's decision;
+  // a handler that set the header itself keeps its value.
+  std::map<std::string, std::string> headers =
+      response_headers_ ? response_headers_()
+                        : std::map<std::string, std::string>();
   for (const auto& header : response.headers) {
+    headers[header.first] = header.second;
+  }
+
+  for (const auto& header : headers) {
     http_response << header.first << ": " << header.second << "\r\n";
   }
 

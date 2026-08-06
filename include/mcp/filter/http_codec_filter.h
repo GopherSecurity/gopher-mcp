@@ -269,6 +269,20 @@ class HttpCodecFilter : public network::Filter {
   void setGatedInputLimit(size_t bytes) { gated_input_limit_ = bytes; }
 
   /**
+   * Extra headers to put on responses this codec frames itself.
+   *
+   * Asked per response rather than set once, because what belongs on an
+   * answer depends on the request it answers — which the codec has long
+   * stopped tracking by the time it frames one. Unset means no extra
+   * headers, which is what a client-mode codec and a codec used on its
+   * own both want.
+   */
+  void setResponseHeaderProvider(
+      std::function<std::map<std::string, std::string>()> provider) {
+    response_headers_ = std::move(provider);
+  }
+
+  /**
    * Stop parsing and dispatching further requests on this connection.
    *
    * HTTP/1.1 requires responses in request order, so while a response is
@@ -449,6 +463,9 @@ class HttpCodecFilter : public network::Filter {
   bool gate_overflowed_{false};
   size_t gated_input_limit_{64 * 1024};
   OwnedBuffer gated_input_;
+
+  // Extra headers for responses this codec frames itself.
+  std::function<std::map<std::string, std::string>()> response_headers_;
 };
 
 }  // namespace filter

@@ -131,10 +131,14 @@ class HttpRoutingTableTest : public test::RealIoTestBase {
 
   static std::string request(const std::string& method,
                              const std::string& path,
-                             const std::string& body = "") {
+                             const std::string& body = "",
+                             const std::string& origin = "") {
     std::string out = method + " " + path +
                       " HTTP/1.1\r\n"
                       "Host: localhost\r\n";
+    if (!origin.empty()) {
+      out += "Origin: " + origin + "\r\n";
+    }
     if (!body.empty()) {
       out += "Content-Type: application/json\r\n";
       out += "Content-Length: " + std::to_string(body.size()) + "\r\n";
@@ -398,8 +402,12 @@ TEST_F(HttpRoutingTableTest, HealthAndPreflightStillAnswered) {
   EXPECT_NE(health.find("\"status\":\"healthy\""), std::string::npos)
       << "Expected the health body, got: " << health;
 
-  executeInDispatcher(
-      [&]() { writeClientBytes(*peer, request("OPTIONS", "/mcp")); });
+  // A preflight only ever comes from a browser, and a browser always says
+  // which page it is on.
+  executeInDispatcher([&]() {
+    writeClientBytes(*peer,
+                     request("OPTIONS", "/mcp", "", "http://localhost:3000"));
+  });
 
   std::string preflight = drainPeer(*peer, 2000ms);
   EXPECT_NE(preflight.find("HTTP/1.1 204"), std::string::npos)

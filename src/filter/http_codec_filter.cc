@@ -334,18 +334,20 @@ network::FilterStatus HttpCodecFilter::onWrite(Buffer& data, bool end_stream) {
       GOPHER_LOG_TRACE("onWrite: Content-Length={} body_preview={}...",
                        body_length, body_data.substr(0, 50));
 
+      http::ResponseWriter::HeaderList headers{
+          {"Content-Type", "application/json"}, {"Cache-Control", "no-cache"}};
+      // Whether a browser may read this answer is decided by whoever
+      // judged the request, not here. Unset — client mode, and anyone
+      // using the codec on its own — means no such headers at all.
+      if (response_headers_) {
+        for (const auto& header : response_headers_()) {
+          headers.emplace_back(header.first, header.second);
+        }
+      }
+
       http::ResponseWriter writer(options);
-      writer.startUnary(
-          static_cast<int>(http::HttpStatusCode::OK),
-          {{"Content-Type", "application/json"},
-           {"Cache-Control", "no-cache"},
-           // CORS headers for browser-based clients (e.g., MCP Inspector)
-           {"Access-Control-Allow-Origin", "*"},
-           {"Access-Control-Allow-Methods", "GET, POST, OPTIONS"},
-           {"Access-Control-Allow-Headers",
-            "Content-Type, Authorization, Accept, Mcp-Session-Id, "
-            "Mcp-Protocol-Version"}},
-          body_data);
+      writer.startUnary(static_cast<int>(http::HttpStatusCode::OK), headers,
+                        body_data);
       writer.drainTo(data);
 
       // Update state machine

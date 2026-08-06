@@ -149,6 +149,19 @@ class HttpRoutingFilter : public HttpCodecFilter::MessageCallbacks {
     write_callbacks_ = callbacks;
   }
 
+  /**
+   * Extra headers to put on every response this filter sends.
+   *
+   * Asked per response, because what belongs on an answer depends on the
+   * request it answers, and a handler has no business deciding who may
+   * read what it returned. A handler's own header of the same name wins,
+   * so a route that needs something different can still say so.
+   */
+  void setResponseHeaderProvider(
+      std::function<std::map<std::string, std::string>()> provider) {
+    response_headers_ = std::move(provider);
+  }
+
   // HttpCodecFilter::MessageCallbacks interface
   void onHeaders(const std::map<std::string, std::string>& headers,
                  bool keep_alive) override;
@@ -190,6 +203,9 @@ class HttpRoutingFilter : public HttpCodecFilter::MessageCallbacks {
 
   // Default handler for unmatched requests
   HandlerFunc default_handler_;
+
+  // Extra headers for every response this filter sends.
+  std::function<std::map<std::string, std::string>()> response_headers_;
 
   // State for POST requests that need body
   bool pending_post_request_ = false;

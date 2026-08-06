@@ -222,6 +222,16 @@ class HttpSseJsonRpcProtocolFilter
     // Now set the encoder in routing filter
     routing_filter_->setEncoder(&http_filter_->messageEncoder());
 
+    // Every answer this connection frames says who may read it, and says
+    // it in one place. Between them these two cover every response that
+    // is not written by hand below: the codec frames protocol responses,
+    // the route table frames everything it serves itself.
+    if (is_server_) {
+      http_filter_->setResponseHeaderProvider(corsSource(/*preflight=*/false));
+      routing_filter_->setResponseHeaderProvider(
+          corsSource(/*preflight=*/false));
+    }
+
     // Wire the stream connection policy. With the gate Off the codec never
     // holds anything back, so this only takes effect once a deployment
     // opts in.
@@ -739,8 +749,7 @@ class HttpSseJsonRpcProtocolFilter
         response_writer_.setObserver(this);
 
         const auto start = response_writer_.startSse(
-            static_cast<int>(http::HttpStatusCode::OK),
-            {{"Access-Control-Allow-Origin", "*"}});
+            static_cast<int>(http::HttpStatusCode::OK), corsHeaderList());
         if (start == http::ResponseWriter::SseStart::Streaming) {
           response_writer_.writeEvent("endpoint", callback_url);
         } else {
@@ -804,7 +813,7 @@ class HttpSseJsonRpcProtocolFilter
         if (write_callbacks_) {
           http::ResponseWriter writer;
           writer.startUnary(static_cast<int>(http::HttpStatusCode::Accepted),
-                            {{"Access-Control-Allow-Origin", "*"}});
+                            corsHeaderList());
           OwnedBuffer resp_buf;
           writer.drainTo(resp_buf);
           // RAII guard ensures isWritingHandshake() is cleared even
@@ -1198,13 +1207,8 @@ class HttpSseJsonRpcProtocolFilter
         !(server_mode_ && server_mode_->isCallbackProxy())) {
       // Build minimal HTTP 202 response
       http::ResponseWriter writer;
-      writer.startUnary(
-          static_cast<int>(http::HttpStatusCode::Accepted),
-          {{"Access-Control-Allow-Origin", "*"},
-           {"Access-Control-Allow-Methods", "GET, POST, OPTIONS"},
-           {"Access-Control-Allow-Headers",
-            "Content-Type, Authorization, Accept, Mcp-Session-Id, "
-            "Mcp-Protocol-Version"}});
+      writer.startUnary(static_cast<int>(http::HttpStatusCode::Accepted),
+                        corsHeaderList());
 
       OwnedBuffer response_buffer;
       writer.drainTo(response_buffer);
@@ -1392,28 +1396,59 @@ class HttpSseJsonRpcProtocolFilter
         "HttpSseJsonRpcProtocolFilter: Finished processing pending messages");
   }
 
+  /**
+   * A source of CORS headers for the request being answered.
+   *
+   * Handed to the codec and the route table, both of which can outlive
+   * this filter in a caller's hands, so it stops answering once this
+   * filter is gone rather than reading freed state.
+   */
+  std::function<std::map<std::string, std::string>()> corsSource(
+      bool preflight) {
+    std::weak_ptr<LifetimeToken> lifetime = lifetime_token_;
+    auto* self = this;
+    return [self, lifetime, preflight]() {
+      if (lifetime.expired()) {
+        return std::map<std::string, std::string>();
+      }
+      return preflight
+                 ? self->security_policy_.preflightHeaders(self->security_)
+                 : self->security_policy_.responseHeaders(self->security_);
+    };
+  }
+
+  /** The same headers, in the form the response writer takes. */
+  http::ResponseWriter::HeaderList corsHeaderList() const {
+    http::ResponseWriter::HeaderList list;
+    for (const auto& header : security_policy_.responseHeaders(security_)) {
+      list.emplace_back(header.first, header.second);
+    }
+    return list;
+  }
+
   void setupRoutingHandlers() {
     // Register CORS preflight handler for all paths
     // Browser-based clients (like MCP Inspector) send OPTIONS before POST
-    auto corsHandler = [](const HttpRoutingFilter::RequestContext& req) {
-      HttpRoutingFilter::Response resp;
-      resp.status_code = 204;  // No Content
-      resp.headers["Access-Control-Allow-Origin"] = "*";
-      resp.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS";
-      resp.headers["Access-Control-Allow-Headers"] =
-          "Content-Type, Authorization, Accept, Mcp-Session-Id, "
-          "Mcp-Protocol-Version";
-      resp.headers["Access-Control-Max-Age"] = "86400";  // Cache for 24 hours
-      resp.headers["Content-Length"] = "0";
-      return resp;
-    };
+    auto preflight = corsSource(/*preflight=*/true);
+    auto corsHandler =
+        [preflight](const HttpRoutingFilter::RequestContext& req) {
+          HttpRoutingFilter::Response resp;
+          resp.status_code = 204;  // No Content
+          // What an actual request may use — methods, headers and how long the
+          // answer may be cached — all decided from live configuration, since
+          // the header list follows what the tools registered so far designate.
+          for (const auto& header : preflight()) {
+            resp.headers[header.first] = header.second;
+          }
+          resp.headers["Content-Length"] = "0";
+          return resp;
+        };
 
     auto healthHandler = [](const HttpRoutingFilter::RequestContext& req) {
       HttpRoutingFilter::Response resp;
       resp.status_code = 200;
       resp.headers["content-type"] = "application/json";
       resp.headers["cache-control"] = "no-cache";
-      resp.headers["Access-Control-Allow-Origin"] = "*";
 
       resp.body = R"({"status":"healthy","timestamp":)" +
                   std::to_string(std::time(nullptr)) + "}";
@@ -1426,7 +1461,6 @@ class HttpSseJsonRpcProtocolFilter
       HttpRoutingFilter::Response resp;
       resp.status_code = 200;
       resp.headers["content-type"] = "application/json";
-      resp.headers["Access-Control-Allow-Origin"] = "*";
 
       resp.body = R"({
         "server": "MCP Server",
@@ -1492,17 +1526,14 @@ class HttpSseJsonRpcProtocolFilter
     // is fully described by the table above, so an unlisted method on it gets
     // a 404 here instead of falling through and hanging.
     routing_filter_->registerDefaultHandler(
-        [sse_path](const HttpRoutingFilter::RequestContext& req) {
+        [sse_path, preflight](const HttpRoutingFilter::RequestContext& req) {
           // Handle OPTIONS for CORS preflight on any path
           if (req.method == "OPTIONS") {
             HttpRoutingFilter::Response resp;
             resp.status_code = 204;  // No Content
-            resp.headers["Access-Control-Allow-Origin"] = "*";
-            resp.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS";
-            resp.headers["Access-Control-Allow-Headers"] =
-                "Content-Type, Authorization, Accept, Mcp-Session-Id, "
-                "Mcp-Protocol-Version";
-            resp.headers["Access-Control-Max-Age"] = "86400";
+            for (const auto& header : preflight()) {
+              resp.headers[header.first] = header.second;
+            }
             resp.headers["Content-Length"] = "0";
             return resp;
           }
@@ -1527,7 +1558,6 @@ class HttpSseJsonRpcProtocolFilter
           HttpRoutingFilter::Response resp;
           resp.status_code = 404;
           resp.headers["content-type"] = "application/json";
-          resp.headers["Access-Control-Allow-Origin"] = "*";
           resp.body = R"({"error":"not_found"})";
           resp.headers["content-length"] = std::to_string(resp.body.length());
           return resp;

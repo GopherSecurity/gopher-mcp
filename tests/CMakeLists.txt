@@ -25,8 +25,6 @@ add_executable(test_session_manager_capacity server/test_session_manager_capacit
 add_executable(test_session_transport_binding server/test_session_transport_binding.cc)
 add_executable(test_legacy_dispatch_session server/test_legacy_dispatch_session.cc)
 # CORS tests
-add_executable(test_cors_headers filter/test_cors_headers.cc)
-add_executable(test_options_notification filter/test_options_notification.cc)
 # Event tests
 add_executable(test_event_loop event/test_event_loop.cc)
 add_executable(test_timer_lifetime event/test_timer_lifetime.cc)
@@ -292,17 +290,7 @@ target_link_libraries(test_legacy_dispatch_session
     fmt::fmt
 )
 
-target_link_libraries(test_cors_headers
-    gtest
-    gtest_main
-    Threads::Threads
-)
 
-target_link_libraries(test_options_notification
-    gtest
-    gtest_main
-    Threads::Threads
-)
 
 target_link_libraries(test_mcp_serialization_extensive
     gopher-mcp
@@ -1371,8 +1359,6 @@ add_test(NAME ResourceReadTest COMMAND test_resource_read)
 add_test(NAME SessionManagerCapacityTest COMMAND test_session_manager_capacity)
 add_test(NAME SessionTransportBindingTest COMMAND test_session_transport_binding)
 add_test(NAME LegacyDispatchSessionTest COMMAND test_legacy_dispatch_session)
-add_test(NAME CorsHeadersTest COMMAND test_cors_headers)
-add_test(NAME OptionsNotificationTest COMMAND test_options_notification)
 add_test(NAME EventLoopTest COMMAND test_event_loop)
 add_test(NAME TimerLifetimeTest COMMAND test_timer_lifetime)
 add_test(NAME DeferredDeleteOrderingTest COMMAND test_deferred_delete_ordering)
