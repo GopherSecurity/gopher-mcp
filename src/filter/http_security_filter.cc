@@ -1,6 +1,6 @@
 /**
- * Origin policy and CORS header generation. See the header for the
- * contract.
+ * Origin policy, CORS header generation, and the filter that applies them.
+ * See the header for the contract.
  */
 
 #include "mcp/filter/http_security_filter.h"
@@ -8,7 +8,11 @@
 #include <algorithm>
 #include <cctype>
 
+#include "mcp/buffer.h"
+#include "mcp/http/http_parser.h"
+#include "mcp/http/response_writer.h"
 #include "mcp/json/json_bridge.h"
+#include "mcp/logging/log_macros.h"
 
 namespace mcp {
 namespace filter {
@@ -169,6 +173,25 @@ const char* const kFixedAllowedHeaders[] = {
     "Content-Type",         "Accept",        "Authorization", "Mcp-Session-Id",
     "MCP-Protocol-Version", "Last-Event-ID", "Mcp-Method",    "Mcp-Name"};
 
+/**
+ * A JSON-RPC error with no id.
+ *
+ * A request refused on its headers alone was never read, so there is no id
+ * to quote back — and jsonrpc::Response cannot express one, its id having
+ * no null alternative.
+ */
+std::string idLessError(int code, const std::string& message) {
+  json::JsonValue error = json::JsonValue::object();
+  error.set("code", json::JsonValue(static_cast<int64_t>(code)));
+  error.set("message", json::JsonValue(message));
+
+  json::JsonValue body = json::JsonValue::object();
+  body.set("jsonrpc", json::JsonValue("2.0"));
+  body.set("id", json::JsonValue());
+  body.set("error", error);
+  return body.toString();
+}
+
 }  // namespace
 
 void HttpSecurityPolicy::setAllowedOrigins(
@@ -245,6 +268,151 @@ std::vector<std::string> HttpSecurityPolicy::paramHeadersFor(const Tool& tool) {
     collectParamNames(tool.inputSchema.value(), &names);
   }
   return names;
+}
+
+// ===== RequestHeadersView =====
+
+std::string RequestHeadersView::get(const std::string& name) const {
+  const std::string wanted = lowered(name);
+  for (const auto& entry : headers_) {
+    if (lowered(entry.first) == wanted) {
+      return entry.second;
+    }
+  }
+  return std::string();
+}
+
+bool RequestHeadersView::has(const std::string& name) const {
+  const std::string wanted = lowered(name);
+  for (const auto& entry : headers_) {
+    if (lowered(entry.first) == wanted) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// ===== AuthResult =====
+
+AuthResult AuthResult::allow(const std::string& principal) {
+  AuthResult result;
+  result.allowed = true;
+  result.principal = principal;
+  return result;
+}
+
+AuthResult AuthResult::deny(int status_code, const std::string& reason) {
+  AuthResult result;
+  result.allowed = false;
+  result.status_code = status_code;
+  result.reason = reason;
+  return result;
+}
+
+// ===== HttpSecurityFilter =====
+
+HttpSecurityFilter::HttpSecurityFilter(HttpCodecFilter::MessageCallbacks& next,
+                                       const HttpSecurityPolicy& policy,
+                                       RequestSecurity& security,
+                                       Host& host)
+    : next_(next), policy_(policy), security_(security), host_(host) {}
+
+HttpSecurityFilter::~HttpSecurityFilter() = default;
+
+void HttpSecurityFilter::setAuthCallback(AuthCallback callback) {
+  auth_ = std::move(callback);
+}
+
+void HttpSecurityFilter::onHeaders(
+    const std::map<std::string, std::string>& headers, bool keep_alive) {
+  refused_ = false;
+
+  const RequestHeadersView view(headers);
+  const std::string origin = view.get("origin");
+
+  if (!policy_.originAllowed(origin)) {
+    // Nothing about this request is recorded: an answer that reflected the
+    // origin back would tell the browser the request had been allowed.
+    security_ = RequestSecurity();
+    security_.allowed = false;
+    GOPHER_LOG_WARN("request refused: origin not permitted: {}", origin);
+    refuse(static_cast<int>(http::HttpStatusCode::Forbidden),
+           jsonrpc::INVALID_REQUEST, "Forbidden: origin not permitted",
+           /*close_connection=*/true);
+    return;
+  }
+
+  security_ = RequestSecurity();
+  security_.origin = origin;
+  security_.principal = "anonymous";
+
+  if (auth_) {
+    const AuthResult decision = auth_(view);
+    if (!decision.allowed) {
+      // The origin was fine, so the answer still carries its CORS headers —
+      // otherwise a browser cannot read why it was turned away, and a
+      // client that could have retried with credentials never learns to.
+      security_.allowed = false;
+      GOPHER_LOG_DEBUG("request refused by auth hook: {}", decision.reason);
+      refuse(decision.status_code, jsonrpc::INVALID_REQUEST,
+             decision.reason.empty() ? "Unauthorized" : decision.reason,
+             /*close_connection=*/false);
+      return;
+    }
+    if (!decision.principal.empty()) {
+      security_.principal = decision.principal;
+    }
+  }
+
+  next_.onHeaders(headers, keep_alive);
+}
+
+void HttpSecurityFilter::onBody(const std::string& data, bool end_stream) {
+  if (refused_) {
+    return;
+  }
+  next_.onBody(data, end_stream);
+}
+
+void HttpSecurityFilter::onMessageComplete() {
+  if (refused_) {
+    return;
+  }
+  next_.onMessageComplete();
+}
+
+void HttpSecurityFilter::onError(const std::string& error) {
+  // A request that failed to parse will never complete, so whatever was
+  // decided about it no longer applies to what arrives next.
+  refused_ = false;
+  next_.onError(error);
+}
+
+void HttpSecurityFilter::refuse(int status_code,
+                                int code,
+                                const std::string& message,
+                                bool close_connection) {
+  // Set before anything is written: the body of the request being refused
+  // is still arriving, and it must not reach the layer behind this one
+  // even if the write below fails.
+  refused_ = true;
+
+  http::ResponseWriter::Options options;
+  options.http_1_1 = host_.requestIsHttp11();
+  options.keep_alive = !close_connection;
+
+  http::ResponseWriter::HeaderList headers;
+  headers.emplace_back("Content-Type", "application/json");
+  for (const auto& header : policy_.responseHeaders(security_)) {
+    headers.emplace_back(header.first, header.second);
+  }
+
+  http::ResponseWriter writer(options);
+  writer.startUnary(status_code, headers, idLessError(code, message));
+
+  OwnedBuffer response;
+  writer.drainTo(response);
+  host_.writeResponse(response, close_connection);
 }
 
 }  // namespace filter

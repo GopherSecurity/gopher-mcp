@@ -1589,6 +1589,17 @@ target_link_libraries(test_http_security_policy
 )
 add_test(NAME HttpSecurityPolicyTest COMMAND test_http_security_policy)
 
+# HTTP Security Filter Test - refusing a request before anything acts on it
+add_executable(test_http_security_filter filter/test_http_security_filter.cc)
+target_link_libraries(test_http_security_filter
+    gopher-mcp
+    gopher-mcp-event
+    gtest
+    gtest_main
+    Threads::Threads
+)
+add_test(NAME HttpSecurityFilterTest COMMAND test_http_security_filter)
+
 # Request Id Key Test - map key that keeps string and numeric ids distinct
 add_executable(test_request_id_key core/test_request_id_key.cc)
 target_link_libraries(test_request_id_key
