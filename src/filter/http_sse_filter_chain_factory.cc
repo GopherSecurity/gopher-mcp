@@ -67,6 +67,7 @@
 #include "mcp/filter/server_connection_mode.h"
 #include "mcp/filter/sse_codec_filter.h"
 #include "mcp/filter/sse_session_registry.h"
+#include "mcp/filter/streamable_http_filter.h"
 #include "mcp/http/response_writer.h"
 #include "mcp/json/json_serialization.h"
 #include "mcp/logging/log_macros.h"
@@ -121,7 +122,8 @@ class HttpSseJsonRpcProtocolFilter
       public network::ConnectionCallbacks,
       public SseCodecFilter::EventCallbacks,
       public JsonRpcProtocolFilter::MessageHandler,
-      public http::ResponseWriter::Observer {
+      public http::ResponseWriter::Observer,
+      public StreamableHttpFilter::Host {
  public:
   HttpSseJsonRpcProtocolFilter(
       event::Dispatcher& dispatcher,
@@ -158,9 +160,22 @@ class HttpSseJsonRpcProtocolFilter
         route_registration_callback_(route_callback) {
     // Following production pattern: all operations for this filter
     // happen in the single dispatcher thread
+
+    // The MCP endpoint is served by its own filter, which sits between
+    // routing and this one and hands back everything it does not serve.
+    // Built before the routing filter because that filter takes the layer
+    // behind it as a constructor argument.
+    HttpCodecFilter::MessageCallbacks* after_routing = this;
+    if (is_server_) {
+      streamable_filter_.reset(
+          new StreamableHttpFilter(dispatcher_, mcp_callbacks_, *this,
+                                   exchanges_, *this, configured_rpc_path_));
+      after_routing = streamable_filter_.get();
+    }
+
     // Create routing filter first (it will receive HTTP callbacks)
     routing_filter_ = std::make_shared<HttpRoutingFilter>(
-        this,     // We are the next callbacks layer after routing
+        after_routing,
         nullptr,  // Will be set after HTTP filter is created
         is_server_);
 
@@ -1068,10 +1083,11 @@ class HttpSseJsonRpcProtocolFilter
    * Build the exchange for an inbound request, when this connection is one
    * that has them.
    *
-   * Only plain HTTP requests to the MCP endpoint get one. The legacy SSE
-   * transport answers through its own machinery — a long-lived stream on
-   * one connection and one-shot callback POSTs on others — and has no use
-   * for a per-request runtime.
+   * Only plain HTTP requests get one. The legacy SSE transport answers
+   * through its own machinery — a long-lived stream on one connection and
+   * one-shot callback POSTs on others — and has no use for a per-request
+   * runtime. Requests to the MCP endpoint never arrive here at all; the
+   * filter in front of this one keeps them and makes their exchange itself.
    */
   transport::RequestExchangePtr makeExchangeFor(
       const jsonrpc::Request& request) {
@@ -1181,6 +1197,25 @@ class HttpSseJsonRpcProtocolFilter
 
   void onResponse(const jsonrpc::Response& response) override {
     mcp_callbacks_.onResponse(response);
+  }
+
+  // ===== StreamableHttpFilter::Host =====
+
+  transport::ExchangeSinkPtr makeSink() override {
+    // Null when the connection is not writable yet; the sink reports itself
+    // dead in that case rather than pretending bytes went out.
+    network::Connection* connection =
+        write_callbacks_ ? &write_callbacks_->connection() : nullptr;
+    return transport::ExchangeSinkPtr(
+        new transport::ConnectionExchangeSink(connection));
+  }
+
+  network::Connection* connection() override {
+    return write_callbacks_ ? &write_callbacks_->connection() : nullptr;
+  }
+
+  bool requestIsHttp11() const override {
+    return http_filter_ && http_filter_->currentRequestIsHttp11();
   }
 
   // ===== http::ResponseWriter::Observer =====
@@ -1605,6 +1640,10 @@ class HttpSseJsonRpcProtocolFilter
   // from the prelude through every event. One writer per stream, so the
   // framing it chose up front stays consistent for the life of the stream.
   http::ResponseWriter response_writer_;
+
+  // Serves the MCP endpoint. Server mode only; a client never receives a
+  // request on it.
+  std::unique_ptr<StreamableHttpFilter> streamable_filter_;
 
   // Protocol filters
   std::shared_ptr<HttpCodecFilter> http_filter_;
