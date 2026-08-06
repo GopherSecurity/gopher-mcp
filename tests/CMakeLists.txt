@@ -1533,6 +1533,17 @@ target_link_libraries(test_sse_formatter
 )
 add_test(NAME SseFormatterTest COMMAND test_sse_formatter)
 
+# Response Writer Test - HTTP framing, chunked SSE, self round-trip
+add_executable(test_response_writer http/test_response_writer.cc)
+target_link_libraries(test_response_writer
+    gopher-mcp
+    gopher-mcp-event
+    gtest
+    gtest_main
+    Threads::Threads
+)
+add_test(NAME ResponseWriterTest COMMAND test_response_writer)
+
 add_executable(test_sse_codec_state_machine filter/test_sse_codec_state_machine.cc)
 target_link_libraries(test_sse_codec_state_machine
     gopher-mcp
