@@ -1770,6 +1770,18 @@ target_link_libraries(test_http_sse_filter_server_mode
 )
 add_test(NAME ServerModeFilterTest COMMAND test_http_sse_filter_server_mode)
 
+# Streamable HTTP POST Test - what the MCP endpoint puts on the wire
+add_executable(test_streamable_http_post integration/test_streamable_http_post.cc)
+target_link_libraries(test_streamable_http_post
+    gopher-mcp
+    gopher-mcp-event
+    gtest
+    gtest_main
+    gmock
+    Threads::Threads
+)
+add_test(NAME StreamableHttpPostTest COMMAND test_streamable_http_post)
+
 add_executable(test_http_sse_filter_client_sse_sm integration/test_http_sse_filter_client_sse_sm.cc)
 target_link_libraries(test_http_sse_filter_client_sse_sm
     gopher-mcp
