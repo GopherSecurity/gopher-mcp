@@ -1599,6 +1599,17 @@ target_link_libraries(test_exchange_registry
 )
 add_test(NAME ExchangeRegistryTest COMMAND test_exchange_registry)
 
+# Client Response Correlation Test - answers reaching the request that asked
+add_executable(test_client_response_correlation server/test_client_response_correlation.cc)
+target_link_libraries(test_client_response_correlation
+    gopher-mcp
+    gopher-mcp-event
+    gtest
+    gtest_main
+    Threads::Threads
+)
+add_test(NAME ClientResponseCorrelationTest COMMAND test_client_response_correlation)
+
 add_executable(test_sse_codec_state_machine filter/test_sse_codec_state_machine.cc)
 target_link_libraries(test_sse_codec_state_machine
     gopher-mcp

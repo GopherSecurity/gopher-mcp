@@ -824,6 +824,43 @@ SessionManager::SessionPtr McpServer::getOrCreateSessionFor(
 // back to the first connected stdio manager — the historical degraded
 // behavior — and fail loudly when there is none, instead of writing to
 // an unrelated connection.
+// ===== ClientRequestCorrelator =====
+
+void ClientRequestCorrelator::expect(const RequestId& id, Waiter waiter) {
+  if (!waiter) {
+    return;
+  }
+  std::lock_guard<std::mutex> lock(mutex_);
+  waiters_[requestIdKey(id)] = std::move(waiter);
+}
+
+bool ClientRequestCorrelator::deliver(const jsonrpc::Response& response) {
+  Waiter waiter;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto it = waiters_.find(requestIdKey(response.id));
+    if (it == waiters_.end()) {
+      return false;
+    }
+    // Take the waiter out before running it: it is entitled to register
+    // another request, and it must not be invoked twice for one answer.
+    waiter = std::move(it->second);
+    waiters_.erase(it);
+  }
+  waiter(response);
+  return true;
+}
+
+bool ClientRequestCorrelator::forget(const RequestId& id) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  return waiters_.erase(requestIdKey(id)) > 0;
+}
+
+size_t ClientRequestCorrelator::pending() const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  return waiters_.size();
+}
+
 class McpServer::LegacyDispatchContext : public NullMessageDispatchContext {
  public:
   explicit LegacyDispatchContext(McpServer& server) : server_(server) {}
@@ -1093,8 +1130,17 @@ void McpServer::onNotificationWithContext(
 }
 
 void McpServer::onResponse(const jsonrpc::Response& response) {
-  // Server typically doesn't receive responses
-  // This could happen if server makes requests to client (e.g., elicitation)
+  // A response arriving here is the answer to something this server asked a
+  // client. Hand it to whoever asked; if nobody did, say so rather than
+  // letting it disappear — an unmatched answer means either a confused peer
+  // or a waiter released too early, and both are worth seeing.
+  if (client_requests_.deliver(response)) {
+    return;
+  }
+
+  server_stats_.responses_unmatched++;
+  GOPHER_LOG_WARN("Dropping a client response nothing was waiting for: id={}",
+                  requestIdKeyToString(requestIdKey(response.id)));
 }
 
 void McpServer::onConnectionEvent(network::ConnectionEvent event) {
@@ -1236,11 +1282,18 @@ jsonrpc::Response McpServer::handleInitialize(const jsonrpc::Request& request,
     supported.push_back(config_.protocol_version);
   }
 
+  const std::string negotiated =
+      protocol::negotiateProtocolVersion(requested_version, supported);
+
+  // Remember what was agreed. Later decisions on this session turn on the
+  // revision actually negotiated, not on the configured default or on
+  // re-deriving it from a header.
+  session.setProtocolVersion(negotiated);
+
   // Build initialize result as proper nested JSON structure
   // MCP protocol requires nested objects, not flattened dot notation
   json::JsonValue result_json;
-  result_json["protocolVersion"] =
-      protocol::negotiateProtocolVersion(requested_version, supported);
+  result_json["protocolVersion"] = negotiated;
 
   // Add serverInfo as nested object
   json::JsonValue server_info;

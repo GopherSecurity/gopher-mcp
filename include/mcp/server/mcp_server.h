@@ -34,6 +34,7 @@
 
 #include "mcp/buffer.h"
 #include "mcp/builders.h"
+#include "mcp/core/request_id_key.h"
 #include "mcp/event/event_loop.h"
 #include "mcp/filter/filter_chain_callbacks.h"
 #include "mcp/filter/filter_chain_event_hub.h"
@@ -192,6 +193,48 @@ struct McpServerStats : public application::ApplicationStats {
   std::atomic<uint64_t> threshold_violations{0};
   std::atomic<double> current_success_rate{1.0};
   std::atomic<uint64_t> average_latency_ms{0};
+
+  // Responses that arrived from a client with no request of ours waiting
+  // for them. Counted rather than ignored: a non-zero value means either a
+  // confused peer or a waiter released too early, and neither is visible
+  // any other way.
+  std::atomic<uint64_t> responses_unmatched{0};
+};
+
+/**
+ * Matches responses arriving from a client to the server-initiated requests
+ * waiting for them.
+ *
+ * A server that asks a client something — to sample a model, to elicit
+ * input — has to recognize the answer when it comes back, and the answer
+ * arrives as an ordinary inbound message with nothing but a JSON-RPC id
+ * connecting it to the question. Without this the answer has nowhere to go.
+ *
+ * Guarded by a mutex rather than confined to a dispatcher: over HTTP the
+ * answer arrives on whichever connection the client chose to send it on,
+ * which is not the one the question went out on.
+ */
+class ClientRequestCorrelator {
+ public:
+  using Waiter = std::function<void(const jsonrpc::Response&)>;
+
+  /** Register interest in the answer to a request already sent. */
+  void expect(const RequestId& id, Waiter waiter);
+
+  /**
+   * Hand a response to whoever was waiting for it.
+   * @return False when nobody was; the caller should count and drop it.
+   */
+  bool deliver(const jsonrpc::Response& response);
+
+  /** Give up on a request, so a waiter is not left pending forever. */
+  bool forget(const RequestId& id);
+
+  size_t pending() const;
+
+ private:
+  mutable std::mutex mutex_;
+  std::map<RequestIdKey, Waiter> waiters_;
 };
 
 /**
@@ -240,6 +283,15 @@ class SessionContext {
 
   const optional<Implementation>& getClientInfo() const { return client_info_; }
 
+  // Protocol revision agreed with this client. Recorded when initialize is
+  // answered, so later decisions consult what was actually negotiated
+  // rather than re-deriving it or assuming the configured default.
+  void setProtocolVersion(const std::string& version) {
+    protocol_version_ = version;
+  }
+
+  const std::string& getProtocolVersion() const { return protocol_version_; }
+
   // Request-scoped metadata: the in-flight request's params._meta, carried as
   // its stringified-JSON form (consistent with how nested arguments are
   // represented in Metadata). Set immediately before each tool handler is
@@ -281,6 +333,7 @@ class SessionContext {
   std::chrono::steady_clock::time_point created_time_;
   std::chrono::steady_clock::time_point last_activity_;
   optional<Implementation> client_info_;
+  std::string protocol_version_;        // negotiated at initialize
   optional<std::string> request_meta_;  // params._meta of the in-flight request
 
   mutable std::mutex mutex_;
@@ -987,6 +1040,13 @@ class McpServer : public application::ApplicationBase,
   void onConnectionEvent(network::ConnectionEvent event);
   void onError(const Error& error) override;
 
+  /**
+   * Answers this server is waiting on from clients. A caller that sends a
+   * request to a client registers here so the reply reaches it rather than
+   * being dropped as unrecognized.
+   */
+  ClientRequestCorrelator& clientRequests() { return client_requests_; }
+
   // Request tracking helpers
   bool isRequestCancelled(const RequestId& id) const {
     std::lock_guard<std::mutex> lock(pending_requests_mutex_);
@@ -1214,6 +1274,9 @@ class McpServer : public application::ApplicationBase,
   std::unordered_map<std::string, std::shared_ptr<PendingRequest>>
       pending_requests_;
   mutable std::mutex pending_requests_mutex_;
+
+  // Answers we are waiting on from clients, for questions this server asked.
+  ClientRequestCorrelator client_requests_;
 
   // Resource, tool, and prompt management
   std::unique_ptr<ResourceManager> resource_manager_;
