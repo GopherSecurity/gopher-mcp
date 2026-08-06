@@ -1567,6 +1567,17 @@ target_link_libraries(test_http_codec_gate
 )
 add_test(NAME HttpCodecGateTest COMMAND test_http_codec_gate)
 
+# Streamable HTTP Filter Test - one answer per MCP endpoint request
+add_executable(test_streamable_http_filter filter/test_streamable_http_filter.cc)
+target_link_libraries(test_streamable_http_filter
+    gopher-mcp
+    gopher-mcp-event
+    gtest
+    gtest_main
+    Threads::Threads
+)
+add_test(NAME StreamableHttpFilterTest COMMAND test_streamable_http_filter)
+
 # Request Id Key Test - map key that keeps string and numeric ids distinct
 add_executable(test_request_id_key core/test_request_id_key.cc)
 target_link_libraries(test_request_id_key
