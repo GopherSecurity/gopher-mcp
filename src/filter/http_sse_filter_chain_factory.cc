@@ -71,7 +71,9 @@
 #include "mcp/json/json_serialization.h"
 #include "mcp/logging/log_macros.h"
 #include "mcp/mcp_connection_manager.h"
+#include "mcp/protocol/protocol_versions.h"
 #include "mcp/stream_info/stream_info.h"
+#include "mcp/transport/exchange_registry.h"
 
 namespace mcp {
 namespace filter {
@@ -137,7 +139,8 @@ class HttpSseJsonRpcProtocolFilter
           client_header_source = nullptr,
       SseSessionRegistry* sse_registry = nullptr,
       StreamGatePolicy stream_gate_policy = StreamGatePolicy::Off,
-      size_t gated_input_limit = 64 * 1024)
+      size_t gated_input_limit = 64 * 1024,
+      transport::RetainedExchangeStore* retained_exchanges = nullptr)
       : dispatcher_(dispatcher),
         mcp_callbacks_(mcp_callbacks),
         is_server_(is_server),
@@ -149,6 +152,8 @@ class HttpSseJsonRpcProtocolFilter
         configured_rpc_path_(configured_rpc_path),
         configured_external_url_(configured_external_url),
         sse_registry_(sse_registry),
+        retained_exchanges_(retained_exchanges),
+        exchanges_(dispatcher),
         stream_gate_policy_(stream_gate_policy),
         route_registration_callback_(route_callback) {
     // Following production pattern: all operations for this filter
@@ -788,6 +793,14 @@ class HttpSseJsonRpcProtocolFilter
       if (session_it != headers.end()) {
         streamable_http_session_id_ = session_it->second;
       }
+
+      // The protocol version header only became required after a certain
+      // revision, so a request without one identifies a peer speaking the
+      // revision before it.
+      auto version_it = headers.find("mcp-protocol-version");
+      request_protocol_version_ = version_it != headers.end()
+                                      ? version_it->second
+                                      : protocol::kLegacyAssumedVersion;
       auto accept = headers.find("accept");
       if (accept != headers.end() &&
           accept->second.find("text/event-stream") != std::string::npos) {
@@ -981,10 +994,22 @@ class HttpSseJsonRpcProtocolFilter
    * plain HTTP). Same wire behavior, but the destination is the message's
    * own connection by construction.
    */
+  /**
+   * A view onto the exchange behind the message being dispatched.
+   *
+   * The view is callback-scoped, as it always was — it dies when dispatch
+   * returns, which is what makes a stale reply path unrepresentable. The
+   * exchange it points at is not: that is the object anything outliving the
+   * callback belongs to.
+   */
   class DispatchContext : public MessageDispatchContext {
    public:
-    explicit DispatchContext(HttpSseJsonRpcProtocolFilter& parent)
-        : parent_(parent) {}
+    DispatchContext(HttpSseJsonRpcProtocolFilter& parent,
+                    transport::RequestExchangePtr exchange = nullptr)
+        : parent_(parent), exchange_(std::move(exchange)) {}
+
+    /** The exchange behind this message, when there is one. */
+    const transport::RequestExchangePtr& exchange() const { return exchange_; }
 
     network::Connection* originConnection() const override {
       return parent_.write_callbacks_ ? &parent_.write_callbacks_->connection()
@@ -1021,7 +1046,53 @@ class HttpSseJsonRpcProtocolFilter
 
    private:
     HttpSseJsonRpcProtocolFilter& parent_;
+    transport::RequestExchangePtr exchange_;
   };
+
+  /**
+   * Build the exchange for an inbound request, when this connection is one
+   * that has them.
+   *
+   * Only plain HTTP requests to the MCP endpoint get one. The legacy SSE
+   * transport answers through its own machinery — a long-lived stream on
+   * one connection and one-shot callback POSTs on others — and has no use
+   * for a per-request runtime.
+   */
+  transport::RequestExchangePtr makeExchangeFor(
+      const jsonrpc::Request& request) {
+    if (!is_server_ || !write_callbacks_ || !server_mode_ ||
+        !server_mode_->isPlainHttp()) {
+      return nullptr;
+    }
+
+    std::unique_ptr<transport::ConnectionExchangeSink> sink(
+        new transport::ConnectionExchangeSink(&write_callbacks_->connection()));
+    auto exchange = transport::RequestExchange::create(
+        dispatcher_, std::move(sink), optional<RequestId>(request.id));
+
+    // Capture how to answer now rather than reading it when the response is
+    // written: by then this connection may be handling a different request,
+    // or none at all.
+    exchange->setResponseOptions(http_filter_->currentRequestIsHttp11(),
+                                 /*keep_alive=*/true);
+    exchange->clientContext().protocol_version = request_protocol_version_;
+
+    // params._meta arrives already serialized, because nested JSON is
+    // stringified on the way in. Carry it as it came; whoever needs a field
+    // out of it can parse it.
+    if (request.params.has_value()) {
+      const auto& params = request.params.value();
+      auto meta_it = params.find("_meta");
+      if (meta_it != params.end() &&
+          holds_alternative<std::string>(meta_it->second)) {
+        exchange->clientContext().raw_meta =
+            mcp::make_optional(get<std::string>(meta_it->second));
+      }
+    }
+
+    exchanges_.add(exchange);
+    return exchange;
+  }
 
   /**
    * Called by JsonRpcProtocolFilter when a complete JSON-RPC request is parsed
@@ -1035,8 +1106,12 @@ class HttpSseJsonRpcProtocolFilter
     // message itself. Built fresh per message because dispatcher-thread
     // reads from different connections interleave; a previous message's
     // binding cannot leak because the previous context is already gone.
-    DispatchContext context(*this);
+    DispatchContext context(*this, makeExchangeFor(request));
     mcp_callbacks_.onRequestWithContext(request, context);
+
+    // Anything that finished during dispatch is no longer this connection's
+    // concern. A handler that means to answer later keeps its own reference.
+    exchanges_.reapCompleted();
   }
 
   /**
@@ -1146,6 +1221,23 @@ class HttpSseJsonRpcProtocolFilter
       response_writer_.finish();
       response_writer_.drainTo(discard_);
       discard_.drain(discard_.length());
+    }
+
+    // Exchanges with work left decide for themselves whether to carry on.
+    // Those that do need an owner that outlives this connection, which is
+    // about to be destroyed along with this filter.
+    auto survivors = exchanges_.onConnectionGone();
+    if (!survivors.empty()) {
+      if (retained_exchanges_ != nullptr) {
+        for (const auto& survivor : survivors) {
+          retained_exchanges_->retain(survivor);
+        }
+      } else {
+        GOPHER_LOG_WARN(
+            "{} exchange(s) asked to outlive their connection with nowhere "
+            "to be held; releasing them",
+            survivors.size());
+      }
     }
   }
 
@@ -1481,6 +1573,15 @@ class HttpSseJsonRpcProtocolFilter
   // Somewhere to put bytes that can no longer be sent.
   OwnedBuffer discard_;
 
+  // The exchanges this connection currently has in flight, and where any
+  // that outlive it are handed off to. The store is owned by the factory,
+  // which outlives every connection it built.
+  transport::RetainedExchangeStore* retained_exchanges_{nullptr};
+  transport::ExchangeRegistry exchanges_;
+
+  // Protocol revision the request being handled states it speaks.
+  std::string request_protocol_version_{protocol::kLegacyAssumedVersion};
+
   // What this connection does with requests that arrive while a response
   // stream is open.
   StreamGatePolicy stream_gate_policy_{StreamGatePolicy::Off};
@@ -1553,6 +1654,18 @@ SseSessionRegistry& HttpSseFilterChainFactory::sseRegistry() {
   return *sse_registry_;
 }
 
+transport::RetainedExchangeStore& HttpSseFilterChainFactory::retainedExchanges()
+    const {
+  // Lazily built, like the session registry, and for the same reason: it
+  // has to outlive every connection the factory builds, and the factory is
+  // the nearest thing that does.
+  if (!retained_exchanges_) {
+    retained_exchanges_.reset(
+        new transport::RetainedExchangeStore(dispatcher_));
+  }
+  return *retained_exchanges_;
+}
+
 bool HttpSseFilterChainFactory::createFilterChain(
     network::FilterManager& filter_manager) const {
   // Following production pattern: create filters in order
@@ -1619,7 +1732,8 @@ bool HttpSseFilterChainFactory::createFilterChain(
       dispatcher_, message_callbacks_, is_server_, http_path_, http_host_,
       use_sse_, route_registration_callback_, sse_path_, rpc_path_,
       external_url_, client_headers_, client_header_source_,
-      sse_registry_.get(), stream_gate_policy_, gated_input_limit_);
+      sse_registry_.get(), stream_gate_policy_, gated_input_limit_,
+      &retainedExchanges());
 
   // Add as both read and write filter. The FilterManager owns the filter
   // for the connection's lifetime (per-connection filter ownership): when

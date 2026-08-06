@@ -11,6 +11,7 @@
 #include "mcp/filter/sse_codec_filter.h"
 #include "mcp/network/connection.h"
 #include "mcp/network/filter.h"
+#include "mcp/transport/exchange_registry.h"
 
 // Forward declarations
 namespace mcp {
@@ -218,6 +219,14 @@ class HttpSseFilterChainFactory : public network::FilterChainFactory {
    */
   SseSessionRegistry& sseRegistry();
 
+  /**
+   * Exchanges that outlived the connection they were born on, so a client
+   * that reconnects can be given what it missed. Held here because the
+   * per-connection bookkeeping dies with its connection. Created on first
+   * use, like the session registry.
+   */
+  transport::RetainedExchangeStore& retainedExchanges() const;
+
  private:
   event::Dispatcher& dispatcher_;
   McpProtocolCallbacks& message_callbacks_;
@@ -241,6 +250,11 @@ class HttpSseFilterChainFactory : public network::FilterChainFactory {
   // bounded by the factory, not process lifetime. Mutable because
   // createFilterChain is const on the base class.
   mutable std::unique_ptr<SseSessionRegistry> sse_registry_;
+
+  // Exchanges handed over by connections that died with work still in
+  // progress. Lives here rather than on a connection for the obvious
+  // reason: the connection is what went away.
+  mutable std::unique_ptr<transport::RetainedExchangeStore> retained_exchanges_;
 
   // NOTE: the factory intentionally does not retain the filters it creates.
   // Each connection's FilterManager owns its own filter-chain instance for
