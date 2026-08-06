@@ -389,6 +389,11 @@ class HttpSseJsonRpcProtocolFilter
    * recursion!
    */
   network::FilterStatus onWrite(Buffer& data, bool end_stream) override {
+    // While this runs, the connection is inside a write() and is holding a
+    // pointer to the buffer being written. An exchange that wrote now would
+    // clobber it, so tell them all to hold off until this returns.
+    transport::ExchangeRegistry::WriteGuard write_guard(exchanges_);
+
     // SSE handshake bypass: we're inside a connection().write() call
     // made from our own onHeaders (writing "HTTP/1.1 200 OK ... event:
     // endpoint" for GET /sse, or "HTTP/1.1 202 Accepted" for POST
@@ -1024,6 +1029,16 @@ class HttpSseJsonRpcProtocolFilter
     }
 
     VoidResult sendResponse(const jsonrpc::Response& response) override {
+      if (exchange_) {
+        // The exchange knows what it has already committed to, so it is the
+        // thing that can refuse a second answer rather than writing two
+        // contradictory responses onto one request.
+        return exchange_->respondJson(response);
+      }
+
+      // No exchange behind this message: the legacy SSE transport paths,
+      // which answer through their own machinery.
+      //
       // Fail loudly when the reply path is gone instead of pretending the
       // response went out. The state check matters as much as the null
       // check: write_callbacks_ is never cleared, and a write to a

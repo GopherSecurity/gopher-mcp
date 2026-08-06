@@ -46,6 +46,30 @@ class ExchangeRegistry {
   /** Whether a response is currently streaming on this connection. */
   bool hasActiveStream() const;
 
+  /**
+   * Warn every exchange on this connection that it is mid-write, so none of
+   * them writes into a connection call that is still in progress.
+   */
+  void setWriteInProgress(bool in_progress);
+
+  /**
+   * Scoped form of setWriteInProgress, so the warning is always lifted —
+   * including when a filter returns early or throws.
+   */
+  class WriteGuard {
+   public:
+    explicit WriteGuard(ExchangeRegistry& registry) : registry_(registry) {
+      registry_.setWriteInProgress(true);
+    }
+    ~WriteGuard() { registry_.setWriteInProgress(false); }
+
+    WriteGuard(const WriteGuard&) = delete;
+    WriteGuard& operator=(const WriteGuard&) = delete;
+
+   private:
+    ExchangeRegistry& registry_;
+  };
+
   size_t size() const { return exchanges_.size(); }
 
   /**

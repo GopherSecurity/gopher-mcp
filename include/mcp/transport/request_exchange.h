@@ -41,6 +41,13 @@ class ExchangeSink {
 
   /** Whether anything written now would actually reach a peer. */
   virtual bool alive() const = 0;
+
+  /**
+   * Tell the sink that its destination is currently mid-write, so writing
+   * again right now would corrupt what is already going out. Only sinks
+   * backed by something non-re-entrant care.
+   */
+  virtual void setWriteInProgress(bool in_progress) { (void)in_progress; }
 };
 
 using ExchangeSinkPtr = std::unique_ptr<ExchangeSink>;
@@ -106,9 +113,9 @@ class ConnectionExchangeSink : public ExchangeSink {
    *
    * Connection writes are not re-entrant: the connection holds a pointer to
    * the buffer being written for the duration, and a nested write clobbers
-   * it. The caller sets this while it is on such a stack.
+   * it. The owner sets this while it is on such a stack.
    */
-  void setWriteInProgress(bool in_progress) {
+  void setWriteInProgress(bool in_progress) override {
     write_in_progress_ = in_progress;
   }
 
@@ -281,6 +288,11 @@ class RequestExchange : public std::enable_shared_from_this<RequestExchange> {
 
   /** The sink, for tests and for the owner that swapped it in. */
   ExchangeSink& sink() { return *sink_; }
+
+  /** Pass a mid-write warning down to wherever this exchange writes. */
+  void setWriteInProgress(bool in_progress) {
+    sink_->setWriteInProgress(in_progress);
+  }
 
  private:
   RequestExchange(event::Dispatcher& dispatcher,

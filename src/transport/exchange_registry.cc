@@ -81,6 +81,15 @@ bool ExchangeRegistry::hasActiveStream() const {
   return false;
 }
 
+void ExchangeRegistry::setWriteInProgress(bool in_progress) {
+  assertOnDispatcher();
+  for (const auto& exchange : exchanges_) {
+    if (exchange) {
+      exchange->setWriteInProgress(in_progress);
+    }
+  }
+}
+
 std::vector<RequestExchangePtr> ExchangeRegistry::onConnectionGone() {
   assertOnDispatcher();
 
