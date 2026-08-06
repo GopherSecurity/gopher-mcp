@@ -36,7 +36,9 @@ enum class HttpStatusCode : uint16_t {
   Forbidden = 403,
   NotFound = 404,
   MethodNotAllowed = 405,
+  NotAcceptable = 406,
   RequestTimeout = 408,
+  TooManyRequests = 429,
 
   // 5xx Server Error
   InternalServerError = 500,

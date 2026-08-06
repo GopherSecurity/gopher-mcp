@@ -499,8 +499,12 @@ const char* httpStatusCodeToString(HttpStatusCode code) {
       return "Not Found";
     case HttpStatusCode::MethodNotAllowed:
       return "Method Not Allowed";
+    case HttpStatusCode::NotAcceptable:
+      return "Not Acceptable";
     case HttpStatusCode::RequestTimeout:
       return "Request Timeout";
+    case HttpStatusCode::TooManyRequests:
+      return "Too Many Requests";
     case HttpStatusCode::InternalServerError:
       return "Internal Server Error";
     case HttpStatusCode::NotImplemented:
