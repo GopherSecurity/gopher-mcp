@@ -1578,6 +1578,17 @@ target_link_libraries(test_streamable_http_filter
 )
 add_test(NAME StreamableHttpFilterTest COMMAND test_streamable_http_filter)
 
+# HTTP Security Policy Test - which origins are served, and what comes back
+add_executable(test_http_security_policy filter/test_http_security_policy.cc)
+target_link_libraries(test_http_security_policy
+    gopher-mcp
+    gopher-mcp-event
+    gtest
+    gtest_main
+    Threads::Threads
+)
+add_test(NAME HttpSecurityPolicyTest COMMAND test_http_security_policy)
+
 # Request Id Key Test - map key that keeps string and numeric ids distinct
 add_executable(test_request_id_key core/test_request_id_key.cc)
 target_link_libraries(test_request_id_key
