@@ -1567,6 +1567,16 @@ target_link_libraries(test_http_codec_gate
 )
 add_test(NAME HttpCodecGateTest COMMAND test_http_codec_gate)
 
+# Request Id Key Test - map key that keeps string and numeric ids distinct
+add_executable(test_request_id_key core/test_request_id_key.cc)
+target_link_libraries(test_request_id_key
+    gopher-mcp
+    gtest
+    gtest_main
+    Threads::Threads
+)
+add_test(NAME RequestIdKeyTest COMMAND test_request_id_key)
+
 add_executable(test_sse_codec_state_machine filter/test_sse_codec_state_machine.cc)
 target_link_libraries(test_sse_codec_state_machine
     gopher-mcp
