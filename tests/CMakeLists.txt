@@ -1629,6 +1629,17 @@ target_link_libraries(test_client_response_correlation
 )
 add_test(NAME ClientResponseCorrelationTest COMMAND test_client_response_correlation)
 
+# Bind Address Test - which addresses a server agrees to listen on
+add_executable(test_mcp_server_bind_address server/test_mcp_server_bind_address.cc)
+target_link_libraries(test_mcp_server_bind_address
+    gopher-mcp
+    gopher-mcp-event
+    gtest
+    gtest_main
+    Threads::Threads
+)
+add_test(NAME McpServerBindAddressTest COMMAND test_mcp_server_bind_address)
+
 add_executable(test_sse_codec_state_machine filter/test_sse_codec_state_machine.cc)
 target_link_libraries(test_sse_codec_state_machine
     gopher-mcp

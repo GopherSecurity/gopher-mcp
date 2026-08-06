@@ -29,6 +29,102 @@
 namespace mcp {
 namespace server {
 
+namespace {
+
+/**
+ * Split "scheme://host:port" into the host and port a listener binds.
+ *
+ * An address with no host binds the loopback interface, which is what a
+ * locally installed server should reach and nothing else. Absent both, a
+ * bare "http://" means the same as saying nothing at all.
+ */
+void parseHttpListenUrl(const std::string& url,
+                        std::string* host,
+                        uint16_t* port) {
+  *host = "127.0.0.1";
+  *port = 8080;
+
+  const size_t authority = url.find("://");
+  if (authority == std::string::npos) {
+    return;
+  }
+  std::string rest = url.substr(authority + 3);
+  const size_t path = rest.find('/');
+  if (path != std::string::npos) {
+    rest = rest.substr(0, path);
+  }
+  if (rest.empty()) {
+    return;
+  }
+
+  // Only a colon after the closing bracket separates a port; the ones
+  // inside an IPv6 literal belong to the address.
+  const size_t search_from = rest[0] == '[' ? rest.find(']') : 0;
+  const size_t colon = search_from == std::string::npos
+                           ? std::string::npos
+                           : rest.find(':', search_from);
+  if (colon != std::string::npos) {
+    try {
+      *port = static_cast<uint16_t>(std::stoi(rest.substr(colon + 1)));
+    } catch (...) {
+      // Leave the default; an unreadable port is not worth failing over
+      // when the address it belongs to is about to be checked anyway.
+    }
+    rest = rest.substr(0, colon);
+  }
+  if (!rest.empty()) {
+    *host = rest;
+  }
+}
+
+/** Strip the brackets an IPv6 literal wears in a URL. */
+std::string unbracketed(const std::string& host) {
+  if (host.size() >= 2 && host.front() == '[' && host.back() == ']') {
+    return host.substr(1, host.size() - 2);
+  }
+  return host;
+}
+
+}  // namespace
+
+VoidResult McpServer::resolveBindAddress(const std::string& url) {
+  std::string host;
+  uint16_t port = 0;
+  parseHttpListenUrl(url, &host, &port);
+
+  // Not an address, a name for one. The only name a server binds without
+  // being told to reach the network is its own machine.
+  if (host == "localhost") {
+    host = "127.0.0.1";
+  }
+
+  auto address =
+      network::Address::parseInternetAddressNoPort(unbracketed(host), port);
+  if (!address || !address->ip()) {
+    return makeVoidError(Error(
+        jsonrpc::INVALID_PARAMS,
+        "Cannot listen on '" + url + "': '" + host +
+            "' is not an address this server can bind. Give an IP literal, "
+            "or 'localhost'."));
+  }
+
+  const bool is_local = address->ip()->isLoopbackAddress();
+  if (!is_local && !config_.streamable_http.allow_public_bind) {
+    // Binding beyond the loopback interface puts the endpoint on the
+    // network, where any host that can route to it can reach it. That is
+    // a deployment decision, not a default.
+    return makeVoidError(
+        Error(jsonrpc::INVALID_PARAMS,
+              "Refusing to listen on '" + address->asString() +
+                  "': it is reachable from outside this machine. Set "
+                  "streamable_http.allow_public_bind to allow it, or listen on "
+                  "127.0.0.1."));
+  }
+
+  bind_address_ = address;
+  return makeVoidSuccess();
+}
+
 // Constructor
 McpServer::McpServer(const McpServerConfig& config)
     : ApplicationBase(config), config_(config), server_stats_() {
@@ -76,6 +172,19 @@ VoidResult McpServer::listen(const std::string& address) {
   // Store address for deferred listening in run()
   // Actual listening happens in dispatcher thread
   listen_address_ = address;
+
+  // Checked here rather than where the bind happens: that runs on the
+  // dispatcher thread, where a refusal can only be logged, and a server
+  // that logs a refusal and carries on is a server nobody notices is
+  // unreachable.
+  bind_address_.reset();
+  if (address.find("http://") == 0 || address.find("https://") == 0) {
+    auto resolved = resolveBindAddress(address);
+    if (!holds_alternative<std::nullptr_t>(resolved)) {
+      GOPHER_LOG_ERROR("{}", get<Error>(resolved).message);
+      return resolved;
+    }
+  }
 
   // Initialize the application if not already done
   if (!initialized_) {
@@ -157,26 +266,15 @@ void McpServer::performListen() {
       // IMPROVEMENT: Use TcpListenerImpl and listener management for HTTP+SSE
       // This provides better connection lifecycle management and error handling
 
-      // Parse URL to extract listening port
-      uint32_t port = 8080;  // Default HTTP port
-      if (address.find("http://") == 0 || address.find("https://") == 0) {
-        std::string url = address;
-        size_t protocol_end = url.find("://") + 3;
-        size_t port_start = url.find(':', protocol_end);
-
-        if (port_start != std::string::npos) {
-          size_t port_end = url.find('/', port_start + 1);
-          std::string port_str =
-              (port_end != std::string::npos)
-                  ? url.substr(port_start + 1, port_end - port_start - 1)
-                  : url.substr(port_start + 1);
-          port = std::stoi(port_str);
-        }
+      // Resolved and checked by listen(), which is the only place that can
+      // refuse an address and have anyone hear about it.
+      if (!bind_address_) {
+        GOPHER_LOG_ERROR("No bind address resolved for '{}'", address);
+        main_dispatcher_->exit();
+        return;
       }
-
-      // Create TCP address for listening
-      auto tcp_address =
-          network::Address::anyAddress(network::Address::IpVersion::v4, port);
+      auto tcp_address = bind_address_;
+      const uint32_t port = tcp_address->ip()->port();
 
       // Create TCP listener configuration following production patterns
       network::TcpListenerConfig tcp_config;
@@ -210,10 +308,11 @@ void McpServer::performListen() {
         // Create a ListenerConfig from the filter chain configuration
         mcp::config::ListenerConfig listener_config;
         listener_config.name = "http_sse_listener";
+        // The same checked address the built-in listener binds, so a
+        // config-driven chain cannot quietly reach further than one.
         listener_config.address.socket_address.address =
-            "127.0.0.1";  // Default to localhost
-        listener_config.address.socket_address.port_value =
-            port;  // Use port extracted from address parameter
+            tcp_address->ip()->addressAsString();
+        listener_config.address.socket_address.port_value = port;
 
         // Convert JsonValue filter chain config to FilterChainConfig
         const json::JsonValue& chain_config =

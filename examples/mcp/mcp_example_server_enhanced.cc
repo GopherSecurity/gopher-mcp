@@ -178,7 +178,7 @@ void setupServer(McpServer& server) {
 int main(int argc, char* argv[]) {
   // Parse command line
   int port = 3000;
-  std::string host = "0.0.0.0";
+  std::string host = "127.0.0.1";
   bool enable_filters = true;
 
   for (int i = 1; i < argc; ++i) {
@@ -193,7 +193,9 @@ int main(int argc, char* argv[]) {
       std::cout << "Usage: " << argv[0] << " [options]\n"
                 << "Options:\n"
                 << "  --port <port>     Listen port (default: 3000)\n"
-                << "  --host <address>  Bind address (default: 0.0.0.0)\n"
+                << "  --host <address>  Bind address (default: 127.0.0.1;\n"
+                << "                    a public address needs\n"
+                << "                    streamable_http.allow_public_bind)\n"
                 << "  --no-filters      Disable enterprise filters\n"
                 << "  --help            Show this help message\n";
       return 0;

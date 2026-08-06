@@ -18,7 +18,9 @@
  *
  * OPTIONS:
  *   --port <port>        Listen port (default: 3000)
- *   --host <address>     Bind address (default: 0.0.0.0)
+ *   --host <address>     Bind address (default: 127.0.0.1; anything
+ *                        reachable from outside this machine needs
+ *                        streamable_http.allow_public_bind)
  *   --transport <type>   Transport type: http, stdio, websocket, all (default:
  * http)
  *   --workers <n>        Number of worker threads (default: 4)
@@ -127,7 +129,7 @@ std::condition_variable g_shutdown_cv;
 // Command-line options
 struct ServerOptions {
   int port = 3000;
-  std::string host = "0.0.0.0";
+  std::string host = "127.0.0.1";
   std::string transport = "http";
   int workers = 4;
   int max_sessions = 100;
@@ -240,7 +242,9 @@ void printUsage(const char* program) {
   std::cerr << "USAGE: " << program << " [options]\n\n";
   std::cerr << "OPTIONS:\n";
   std::cerr << "  --port <port>        Listen port (default: 3000)\n";
-  std::cerr << "  --host <address>     Bind address (default: 0.0.0.0)\n";
+  std::cerr << "  --host <address>     Bind address (default: 127.0.0.1;\n"
+               "                       a public address needs\n"
+               "                       streamable_http.allow_public_bind)\n";
   std::cerr << "  --transport <type>   Transport type: http, stdio, websocket, "
                "all (default: http)\n";
   std::cerr << "  --workers <n>        Number of worker threads (default: 4)\n";

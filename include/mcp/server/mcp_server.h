@@ -1103,6 +1103,13 @@ class McpServer : public application::ApplicationBase,
   // Internal method to perform actual listening (called from dispatcher thread)
   void performListen();
 
+  /**
+   * Work out which address an HTTP listen URL asks for, and refuse it if
+   * binding it would put the endpoint on the network without being told
+   * to. Sets bind_address_ on success.
+   */
+  VoidResult resolveBindAddress(const std::string& url);
+
   // Built-in request handlers
   jsonrpc::Response handleInitialize(const jsonrpc::Request& request,
                                      SessionContext& session);
@@ -1304,6 +1311,13 @@ class McpServer : public application::ApplicationBase,
 
   // Deferred listen address
   std::string listen_address_;
+
+  // The address an HTTP listener will actually bind, resolved and checked
+  // when listen() was called rather than in the dispatcher thread, where
+  // the only way to report a refusal is a log line. Null for transports
+  // that do not bind a port.
+  network::Address::InstanceConstSharedPtr bind_address_;
+
   bool need_perform_listen_ = false;
 };
 
