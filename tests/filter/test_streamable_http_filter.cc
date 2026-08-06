@@ -60,6 +60,9 @@ class TestHost : public StreamableHttpFilter::Host {
   }
   network::Connection* connection() override { return nullptr; }
   bool requestIsHttp11() const override { return true; }
+  const std::string& principal() const override { return principal_value; }
+
+  std::string principal_value{"anonymous"};
 
  private:
   std::string& wire_;
@@ -260,6 +263,17 @@ TEST_F(StreamableHttpFilterTest, TheProtocolVersionHeaderIsRecordedToo) {
   feed(post("/mcp", kRequestBody, "Mcp-Protocol-Version: 2025-06-18\r\n"));
 
   EXPECT_EQ(callbacks_.client_at_request.protocol_version, "2025-06-18");
+}
+
+TEST_F(StreamableHttpFilterTest, WhoTheRequestIsFromIsRecordedToo) {
+  host_->principal_value = "alice";
+
+  feed(post("/mcp", kRequestBody));
+
+  // Carried on the exchange rather than left in the headers, because a
+  // session is bound to the caller who created it and by the time that
+  // matters the request's headers are gone.
+  EXPECT_EQ(callbacks_.client_at_request.principal, "alice");
 }
 
 // ── Nothing to answer with ─────────────────────────────────────────────────

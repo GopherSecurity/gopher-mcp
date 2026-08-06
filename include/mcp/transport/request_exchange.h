@@ -179,6 +179,15 @@ struct ExchangeClientContext {
    */
   bool accepts_json{true};
   bool accepts_sse{true};
+
+  /**
+   * Who the request is from, as resolved when it arrived.
+   *
+   * Recorded here rather than looked up later because a session is bound
+   * to the caller who created it, and by the time that check matters the
+   * request's headers are long gone. Empty when nothing resolved one.
+   */
+  std::string principal;
 };
 
 /**

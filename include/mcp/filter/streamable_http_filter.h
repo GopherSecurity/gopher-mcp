@@ -68,6 +68,12 @@ class StreamableHttpFilter : public HttpCodecFilter::MessageCallbacks,
      * written the connection may have moved on to another request.
      */
     virtual bool requestIsHttp11() const = 0;
+
+    /**
+     * Who the request being served is from, as already resolved by
+     * whoever judged it. Empty when nothing did.
+     */
+    virtual const std::string& principal() const = 0;
   };
 
   /**

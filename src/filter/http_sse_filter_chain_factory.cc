@@ -1243,6 +1243,8 @@ class HttpSseJsonRpcProtocolFilter
     return http_filter_ && http_filter_->currentRequestIsHttp11();
   }
 
+  const std::string& principal() const override { return security_.principal; }
+
   // ===== HttpSecurityFilter::Host =====
 
   void writeResponse(Buffer& data, bool close_connection) override {

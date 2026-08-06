@@ -153,6 +153,7 @@ void StreamableHttpFilter::beginRequest(
 
   client.protocol_version =
       headerOr(headers, "mcp-protocol-version", client.protocol_version);
+  client.principal = host_.principal();
   session_id_ = headerOr(headers, "mcp-session-id", "");
 
   exchange_->setPhase(transport::RequestExchange::Phase::ReceivingBody);
