@@ -332,7 +332,8 @@ bool RequestExchange::writeEvent(const std::string& event,
 
   // Every event gets an id, whether or not the caller supplied one: a
   // client that reconnects asks for everything after some id, and an event
-  // without one cannot be placed in that sequence.
+  // without one cannot be placed in that sequence. Whether the id also
+  // goes out on the wire is a separate question — see setEmitEventIds.
   std::string event_id =
       id.has_value() ? id.value() : std::to_string(next_event_id_);
   ++next_event_id_;
@@ -351,8 +352,9 @@ bool RequestExchange::writeEvent(const std::string& event,
   if (!stream_writer_) {
     return false;
   }
-  if (!stream_writer_->writeEvent(event, data,
-                                  optional<std::string>(event_id))) {
+  if (!stream_writer_->writeEvent(
+          event, data,
+          emit_event_ids_ ? optional<std::string>(event_id) : nullopt)) {
     return false;
   }
 

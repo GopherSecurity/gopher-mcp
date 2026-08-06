@@ -244,6 +244,65 @@ TEST_F(RequestExchangeTest, PhaseFollowsTheRequestThroughItsLifetime) {
   EXPECT_EQ(exchange->phase(), RequestExchange::Phase::Done);
 }
 
+TEST_F(RequestExchangeTest, PhaseFollowsAStreamedAnswerToo) {
+  auto exchange = makeExchange();
+  ASSERT_TRUE(exchange->beginStream());
+
+  // A streamed answer is the one kind that is not over the moment it
+  // begins, so it needs somewhere to say how far through it is.
+  EXPECT_TRUE(exchange->setPhase(RequestExchange::Phase::RespondingSseOpen));
+  EXPECT_EQ(exchange->phase(), RequestExchange::Phase::RespondingSseOpen);
+
+  EXPECT_TRUE(
+      exchange->setPhase(RequestExchange::Phase::RespondingSseDraining));
+  EXPECT_TRUE(exchange->setPhase(RequestExchange::Phase::RespondingSseClosed));
+
+  ASSERT_TRUE(exchange->complete());
+  EXPECT_EQ(exchange->phase(), RequestExchange::Phase::Done);
+}
+
+TEST_F(RequestExchangeTest, AnEventCarriesNoIdOnTheWireByDefault) {
+  RetainedExchangeSink* sink = nullptr;
+  auto exchange = makeExchange(&sink);
+  ASSERT_TRUE(exchange->beginStream());
+
+  ASSERT_TRUE(exchange->writeEvent("message", "hello"));
+
+  // An id is a promise a client may come back and hold us to. Until it can
+  // be honoured, it is not made.
+  EXPECT_EQ(sink->bytes().find("id:"), std::string::npos) << sink->bytes();
+  EXPECT_NE(sink->bytes().find("data: hello"), std::string::npos)
+      << sink->bytes();
+}
+
+TEST_F(RequestExchangeTest, AnEventCarriesItsIdOnceAskedTo) {
+  RetainedExchangeSink* sink = nullptr;
+  auto exchange = makeExchange(&sink);
+  exchange->setEmitEventIds(true);
+  ASSERT_TRUE(exchange->beginStream());
+
+  ASSERT_TRUE(exchange->writeEvent("message", "hello"));
+
+  EXPECT_NE(sink->bytes().find("id: 1"), std::string::npos) << sink->bytes();
+}
+
+TEST_F(RequestExchangeTest, AnEventIsAddressableWhetherOrNotItSaysSo) {
+  auto exchange = makeExchange();
+  exchange->setRetainOnDisconnect(true);
+  ASSERT_TRUE(exchange->beginStream());
+  ASSERT_TRUE(exchange->onConnectionGone());
+
+  exchange->writeEvent("message", "a");
+  exchange->writeEvent("message", "b");
+
+  // Withholding the id from the wire does not mean forgetting it: the
+  // retained copy is what a returning client is replayed from.
+  const auto& retained = exchange->retainedEvents();
+  ASSERT_EQ(retained.size(), 2u);
+  EXPECT_FALSE(retained[0].id.empty());
+  EXPECT_NE(retained[0].id, retained[1].id);
+}
+
 TEST_F(RequestExchangeTest, AFinishedRequestCannotBeReopened) {
   auto exchange = makeExchange();
   ASSERT_TRUE(exchange->complete());

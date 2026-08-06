@@ -228,7 +228,16 @@ class RequestExchange : public std::enable_shared_from_this<RequestExchange> {
     RespondingJson,   // answered with a single JSON-RPC response
     Responding202,    // accepted; there is nothing to answer with
     RespondingError,  // answered with a transport-level error
-    Done              // nothing further will happen
+
+    // A streamed answer, which unlike the others is not over the moment it
+    // begins. Open is still producing; Draining has emitted the response
+    // and is finishing the framing; Closed has nothing left to send but is
+    // not yet released.
+    RespondingSseOpen,
+    RespondingSseDraining,
+    RespondingSseClosed,
+
+    Done  // nothing further will happen
   };
 
   /**
@@ -314,6 +323,16 @@ class RequestExchange : public std::enable_shared_from_this<RequestExchange> {
 
   /** Begin streaming. Mutually exclusive with respondJson. */
   bool beginStream();
+
+  /**
+   * Whether events carry an "id:" field on the wire.
+   *
+   * Off by default. An id is a promise: a client that reads one may come
+   * back asking for everything after it, and until replay exists there is
+   * nothing behind that promise. Events keep their ids internally either
+   * way — those are what a retained stream is replayed from.
+   */
+  void setEmitEventIds(bool emit) { emit_event_ids_ = emit; }
 
   /** Append one event to an open stream. */
   bool writeEvent(const std::string& event,
@@ -407,6 +426,7 @@ class RequestExchange : public std::enable_shared_from_this<RequestExchange> {
   RetainedExchangeSink* retained_{nullptr};
   size_t retained_event_limit_{256};
   size_t next_event_id_{1};
+  bool emit_event_ids_{false};
 };
 
 using RequestExchangePtr = std::shared_ptr<RequestExchange>;
