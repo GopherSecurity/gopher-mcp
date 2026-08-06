@@ -59,14 +59,25 @@ void SseSessionRegistry::removeConnection(network::Connection* connection) {
   }
 }
 
-bool SseSessionRegistry::sendResponse(const std::string& session_id,
-                                      const std::string& json_data) {
+bool SseSessionRegistry::sendResponse(
+    const std::string& session_id,
+    const std::string& json_data,
+    const network::Connection* writing_connection) {
   assert(dispatcher_.isThreadSafe() &&
          "SseSessionRegistry::sendResponse off-dispatcher-thread");
   auto it = sessions_.find(session_id);
   if (it == sessions_.end()) {
     GOPHER_LOG_WARN("SSE session not found for response routing: {}",
                     session_id);
+    return false;
+  }
+  if (writing_connection != nullptr && it->second == writing_connection) {
+    // Re-entering write() on the connection we are already writing would
+    // clobber the buffer that write is holding.
+    GOPHER_LOG_WARN(
+        "SSE response not routed: session {} streams over the connection "
+        "currently being written",
+        session_id);
     return false;
   }
   OwnedBuffer buffer;

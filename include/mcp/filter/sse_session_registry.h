@@ -82,8 +82,15 @@ class SseSessionRegistry {
   // Returns false if the session has gone away (e.g. client already
   // disconnected); the caller should drop the response rather than
   // pretending it was delivered.
+  //
+  // writing_connection is the connection the caller is currently inside a
+  // write() on, when there is one. Connection writes are not re-entrant, so
+  // routing a response back into that same connection would corrupt the
+  // write in progress; the registry refuses instead. This only happens if a
+  // client POSTs a callback down its own event stream.
   bool sendResponse(const std::string& session_id,
-                    const std::string& json_data);
+                    const std::string& json_data,
+                    const network::Connection* writing_connection = nullptr);
 
   // Test / introspection: current session count. Asserts dispatcher
   // thread to match the rest of the API.

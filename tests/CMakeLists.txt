@@ -1544,6 +1544,18 @@ target_link_libraries(test_response_writer
 )
 add_test(NAME ResponseWriterTest COMMAND test_response_writer)
 
+# Response Stream Framing Test - wire-level framing of server responses
+add_executable(test_response_stream_framing filter/test_response_stream_framing.cc)
+target_link_libraries(test_response_stream_framing
+    gopher-mcp
+    gopher-mcp-event
+    gtest
+    gtest_main
+    gmock
+    Threads::Threads
+)
+add_test(NAME ResponseStreamFramingTest COMMAND test_response_stream_framing)
+
 add_executable(test_sse_codec_state_machine filter/test_sse_codec_state_machine.cc)
 target_link_libraries(test_sse_codec_state_machine
     gopher-mcp

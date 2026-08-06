@@ -238,6 +238,16 @@ class HttpCodecFilter : public network::Filter {
   void markSseGetSent() { sse_get_sent_ = true; }
 
   /**
+   * Whether the request currently being answered came in as HTTP/1.1.
+   * Callers that frame their own response need this: chunked encoding does
+   * not exist before 1.1, and sending chunk syntax to a 1.0 client corrupts
+   * the body. Defaults to true when no request is in flight.
+   */
+  bool currentRequestIsHttp11() const {
+    return !current_stream_ || current_stream_->http_minor != 0;
+  }
+
+  /**
    * Body timeout actually configured on the state machine. In client mode
    * this is disabled (0) because SSE response streams may sit idle between
    * server-pushed events; in server mode it is bounded. Exposed for

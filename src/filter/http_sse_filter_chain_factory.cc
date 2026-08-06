@@ -23,7 +23,7 @@
  * Application → McpConnectionManager::sendRequest/Response() →
  * sendJsonMessage() → ConnectionImpl::write() → FilterManager::onWrite()
  * (REVERSE order) → HttpSseJsonRpcProtocolFilter::onWrite():
- *   - SSE mode: Format as SSE events with HTTP headers on first write
+ *   - SSE mode: Frame each event through the connection's ResponseWriter
  *   - Normal mode: Pass through JsonRpcFilter → HttpCodecFilter
  * → ConnectionImpl::doWrite() → Socket
  *
@@ -32,8 +32,10 @@
  * - Client: Content-Type header contains "text/event-stream"
  *
  * SSE STREAMING:
- * - First response: HTTP/1.1 200 OK + SSE headers + first event
- * - Subsequent responses: SSE events only (data: {json}\n\n)
+ * - The stream opens in onHeaders: status line, SSE headers, the framing
+ *   header, and the endpoint event, all through one ResponseWriter
+ * - Later events go through that same writer so their framing matches the
+ *   prelude it emitted
  * - Long-lived connection, multiple events over time
  *
  * THREAD SAFETY:
@@ -65,6 +67,7 @@
 #include "mcp/filter/server_connection_mode.h"
 #include "mcp/filter/sse_codec_filter.h"
 #include "mcp/filter/sse_session_registry.h"
+#include "mcp/http/response_writer.h"
 #include "mcp/json/json_serialization.h"
 #include "mcp/logging/log_macros.h"
 #include "mcp/mcp_connection_manager.h"
@@ -341,9 +344,10 @@ class HttpSseJsonRpcProtocolFilter
    * 5. HttpSseJsonRpcProtocolFilter::onWrite() - This method, processes based
    * on mode:
    *
-   *    Server SSE mode (is_sse_mode_ == true):
-   *    - First write: Add HTTP headers + format as SSE event
-   *    - Subsequent writes: Format as SSE events only
+   *    Server SSE mode (connection is serving an event stream):
+   *    - The prelude was already written when the stream opened, so every
+   *      write here is another event on a response in flight
+   *    - Framed by the connection's ResponseWriter to match that prelude
    *    - Data flows directly to transport, bypassing other filters
    *
    *    Normal HTTP mode:
@@ -382,7 +386,10 @@ class HttpSseJsonRpcProtocolFilter
       data.drain(len);
 
       if (sse_registry_) {
-        sse_registry_->sendResponse(sse_callback_session_id_, json_data);
+        const network::Connection* writing =
+            write_callbacks_ ? &write_callbacks_->connection() : nullptr;
+        sse_registry_->sendResponse(sse_callback_session_id_, json_data,
+                                    writing);
       } else {
         GOPHER_LOG_WARN(
             "SSE callback response dropped: no registry available (session={})",
@@ -516,63 +523,21 @@ class HttpSseJsonRpcProtocolFilter
     // - All operations happen in single dispatcher thread (no races)
     // - SSE connections are long-lived with one stream at a time
     if (server_mode_ && server_mode_->isSseStream()) {
-      // Check if this is the first SSE data write on this connection.
-      // The first write needs HTTP response headers prepended.
-      bool is_first_write = false;
-      if (write_callbacks_) {
-        is_first_write = !server_mode_->sseHeadersWritten();
-      }
+      // The stream was opened in onHeaders, prelude and all, so everything
+      // arriving here is a further event on a response already in flight.
+      // It goes through the same writer, which frames it to match the
+      // prelude it emitted.
+      if (data.length() > 0) {
+        size_t data_len = data.length();
+        std::string json_data(
+            static_cast<const char*>(data.linearize(data_len)), data_len);
+        data.drain(data_len);
 
-      if (is_first_write) {
-        // First SSE write - send headers
-
-        // Build complete HTTP response with SSE headers and first event
-        std::ostringstream response;
-        response << "HTTP/1.1 200 OK\r\n";
-        response << "Content-Type: text/event-stream\r\n";
-        response << "Cache-Control: no-cache\r\n";
-        response << "Connection: keep-alive\r\n";
-        response << "Access-Control-Allow-Origin: *\r\n";
-        response << "\r\n";  // End of headers
-
-        // Format the JSON data as SSE event
-        if (data.length() > 0) {
-          size_t data_len = data.length();
-          std::string json_data(
-              static_cast<const char*>(data.linearize(data_len)), data_len);
-          data.drain(data_len);
-
-          response << "data: " << json_data << "\n\n";
+        if (!response_writer_.writeEvent("", json_data)) {
+          GOPHER_LOG_ERROR(
+              "SSE event dropped: no open stream on this connection");
         }
-
-        // Replace buffer with complete response
-        std::string response_str = response.str();
-        data.add(response_str.c_str(), response_str.length());
-
-        // Mark that headers have been written for this SSE connection.
-        // The state machine tracks this as a monotonic sub-state.
-        if (server_mode_) {
-          server_mode_->handleEvent(ServerConnEvent::SseHeadersWritten);
-        }
-      } else {
-        // Subsequent SSE events - just format as SSE without HTTP headers
-        // Subsequent SSE write
-        if (data.length() > 0) {
-          size_t data_len = data.length();
-          std::string json_data(
-              static_cast<const char*>(data.linearize(data_len)), data_len);
-          data.drain(data_len);
-
-          // Format as SSE event
-          std::ostringstream sse_event;
-          sse_event << "data: " << json_data << "\n\n";
-          std::string event_str = sse_event.str();
-
-          // SSE event formatted
-
-          // Replace buffer contents with SSE-formatted data
-          data.add(event_str.c_str(), event_str.length());
-        }
+        response_writer_.drainTo(data);
       }
       // Let the formatted data flow to transport
       return network::FilterStatus::Continue;
@@ -686,28 +651,42 @@ class HttpSseJsonRpcProtocolFilter
           callback_url = "callback/" + sse_session_id_;
         }
 
-        // Write the SSE response prelude + endpoint event straight onto
-        // The RAII HandshakeWriteGuard ensures isWritingHandshake()
-        // returns true while we're writing the raw HTTP prelude, so
-        // our own onWrite passes these bytes through untouched.
-        std::ostringstream sse_response;
-        sse_response << "HTTP/1.1 200 OK\r\n";
-        sse_response << "Content-Type: text/event-stream\r\n";
-        sse_response << "Cache-Control: no-cache\r\n";
-        sse_response << "Access-Control-Allow-Origin: *\r\n";
-        sse_response << "\r\n";
-        sse_response << "event: endpoint\n";
-        sse_response << "data: " << callback_url << "\n\n";
+        // Open the stream through the response writer so the body is
+        // actually framed. An event stream with no Content-Length and no
+        // Transfer-Encoding is indistinguishable from an empty body on a
+        // persistent connection, which is how the stream used to go out.
+        http::ResponseWriter::Options writer_options;
+        writer_options.http_1_1 = http_filter_->currentRequestIsHttp11();
+        response_writer_ = http::ResponseWriter(writer_options);
 
-        const std::string response_str = sse_response.str();
+        const auto start = response_writer_.startSse(
+            static_cast<int>(http::HttpStatusCode::OK),
+            {{"Access-Control-Allow-Origin", "*"}});
+        if (start == http::ResponseWriter::SseStart::Streaming) {
+          response_writer_.writeEvent("endpoint", callback_url);
+        } else {
+          // The client cannot take a stream; the writer has already put a
+          // complete answer in its place. Drop the session we just made so
+          // nothing tries to route responses into a stream that never
+          // opened.
+          GOPHER_LOG_WARN("SSE stream refused for session {}", sse_session_id_);
+          sse_registry_->removeSession(sse_session_id_);
+          sse_session_id_.clear();
+        }
+
         OwnedBuffer response_buffer;
-        response_buffer.add(response_str.c_str(), response_str.length());
+        response_writer_.drainTo(response_buffer);
 
         // RAII guard ensures isWritingHandshake() is cleared even if
-        // connection().write() throws or triggers a callback chain.
+        // connection().write() throws or triggers a callback chain, so our
+        // own onWrite passes these already-framed bytes through untouched.
         {
           HandshakeWriteGuard guard(*server_mode_);
           write_callbacks_->connection().write(response_buffer, false);
+        }
+
+        if (start != http::ResponseWriter::SseStart::Streaming) {
+          return;
         }
 
         // Mark headers as written via the state machine. The mode was
@@ -744,13 +723,11 @@ class HttpSseJsonRpcProtocolFilter
                          sse_callback_session_id_);
 
         if (write_callbacks_) {
-          const std::string http_202 =
-              "HTTP/1.1 202 Accepted\r\n"
-              "Content-Length: 0\r\n"
-              "Access-Control-Allow-Origin: *\r\n"
-              "\r\n";
+          http::ResponseWriter writer;
+          writer.startUnary(static_cast<int>(http::HttpStatusCode::Accepted),
+                            {{"Access-Control-Allow-Origin", "*"}});
           OwnedBuffer resp_buf;
-          resp_buf.add(http_202.c_str(), http_202.length());
+          writer.drainTo(resp_buf);
           // RAII guard ensures isWritingHandshake() is cleared even
           // on early return or exception.
           {
@@ -1060,18 +1037,17 @@ class HttpSseJsonRpcProtocolFilter
     if (is_server_ && write_callbacks_ &&
         !(server_mode_ && server_mode_->isCallbackProxy())) {
       // Build minimal HTTP 202 response
-      std::string http_response =
-          "HTTP/1.1 202 Accepted\r\n"
-          "Content-Length: 0\r\n"
-          "Access-Control-Allow-Origin: *\r\n"
-          "Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n"
-          "Access-Control-Allow-Headers: Content-Type, Authorization, Accept, "
-          "Mcp-Session-Id, Mcp-Protocol-Version\r\n"
-          "Connection: keep-alive\r\n"
-          "\r\n";
+      http::ResponseWriter writer;
+      writer.startUnary(
+          static_cast<int>(http::HttpStatusCode::Accepted),
+          {{"Access-Control-Allow-Origin", "*"},
+           {"Access-Control-Allow-Methods", "GET, POST, OPTIONS"},
+           {"Access-Control-Allow-Headers",
+            "Content-Type, Authorization, Accept, Mcp-Session-Id, "
+            "Mcp-Protocol-Version"}});
 
       OwnedBuffer response_buffer;
-      response_buffer.add(http_response);
+      writer.drainTo(response_buffer);
       write_callbacks_->connection().write(response_buffer, false);
       GOPHER_LOG_DEBUG(
           "HttpSseJsonRpcProtocolFilter: Sent HTTP 202 for notification");
@@ -1359,6 +1335,11 @@ class HttpSseJsonRpcProtocolFilter
   // mode (PlainHttp, SseStream, CallbackProxy) with validated transitions
   // and RAII handshake write guard. Null for client-mode filters.
   std::unique_ptr<ServerConnectionMode> server_mode_;
+
+  // Frames the response for the event stream this connection is serving,
+  // from the prelude through every event. One writer per stream, so the
+  // framing it chose up front stays consistent for the life of the stream.
+  http::ResponseWriter response_writer_;
 
   // Protocol filters
   std::shared_ptr<HttpCodecFilter> http_filter_;
