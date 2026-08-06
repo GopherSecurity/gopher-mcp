@@ -10,8 +10,7 @@
 
 #include "mcp/filter/sse_codec_filter.h"
 
-#include <sstream>
-
+#include "mcp/http/sse_formatter.h"
 #include "mcp/logging/log_macros.h"
 #include "mcp/network/connection.h"
 
@@ -257,19 +256,13 @@ void SseCodecFilter::sendEventData(Buffer& data) {
   }
 }
 
-// Static helper to format SSE fields
+// Static helper to format SSE fields.
+// Kept as a thin alias over the shared formatter so callers that already
+// depend on this entry point are unaffected.
 void SseCodecFilter::formatSseField(Buffer& buffer,
                                     const std::string& field,
                                     const std::string& value) {
-  // Split value by newlines and format each line
-  std::istringstream stream(value);
-  std::string line;
-  while (std::getline(stream, line)) {
-    buffer.add(field.c_str(), field.length());
-    buffer.add(": ", 2);
-    buffer.add(line.c_str(), line.length());
-    buffer.add("\n", 1);
-  }
+  http::formatSseField(buffer, field, value);
 }
 
 // ParserCallbacks implementation
@@ -303,19 +296,7 @@ void SseCodecFilter::EventEncoderImpl::encodeEvent(
 
   parent_.event_buffer_.drain(parent_.event_buffer_.length());
 
-  // Format SSE event
-  if (!event.empty()) {
-    SseCodecFilter::formatSseField(parent_.event_buffer_, "event", event);
-  }
-
-  if (id.has_value()) {
-    SseCodecFilter::formatSseField(parent_.event_buffer_, "id", id.value());
-  }
-
-  SseCodecFilter::formatSseField(parent_.event_buffer_, "data", data);
-
-  // End of event
-  parent_.event_buffer_.add("\n", 1);
+  http::formatSseEvent(parent_.event_buffer_, event, data, id);
 
   // Send event
   parent_.sendEventData(parent_.event_buffer_);
@@ -328,10 +309,7 @@ void SseCodecFilter::EventEncoderImpl::encodeComment(
     const std::string& comment) {
   parent_.event_buffer_.drain(parent_.event_buffer_.length());
 
-  // Format SSE comment
-  parent_.event_buffer_.add(": ", 2);
-  parent_.event_buffer_.add(comment.c_str(), comment.length());
-  parent_.event_buffer_.add("\n\n", 2);
+  http::formatSseComment(parent_.event_buffer_, comment);
 
   // Send comment
   parent_.sendEventData(parent_.event_buffer_);
@@ -340,9 +318,7 @@ void SseCodecFilter::EventEncoderImpl::encodeComment(
 void SseCodecFilter::EventEncoderImpl::encodeRetry(uint32_t retry_ms) {
   parent_.event_buffer_.drain(parent_.event_buffer_.length());
 
-  // Format retry directive
-  std::string retry_str = "retry: " + std::to_string(retry_ms) + "\n\n";
-  parent_.event_buffer_.add(retry_str.c_str(), retry_str.length());
+  http::formatSseRetry(parent_.event_buffer_, retry_ms);
 
   // Send retry
   parent_.sendEventData(parent_.event_buffer_);
