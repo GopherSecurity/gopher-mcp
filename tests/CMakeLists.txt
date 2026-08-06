@@ -1577,6 +1577,17 @@ target_link_libraries(test_request_id_key
 )
 add_test(NAME RequestIdKeyTest COMMAND test_request_id_key)
 
+# Request Exchange Test - per-request runtime that outlives its dispatch
+add_executable(test_request_exchange transport/test_request_exchange.cc)
+target_link_libraries(test_request_exchange
+    gopher-mcp
+    gopher-mcp-event
+    gtest
+    gtest_main
+    Threads::Threads
+)
+add_test(NAME RequestExchangeTest COMMAND test_request_exchange)
+
 add_executable(test_sse_codec_state_machine filter/test_sse_codec_state_machine.cc)
 target_link_libraries(test_sse_codec_state_machine
     gopher-mcp

@@ -463,6 +463,7 @@ set(MCP_CORE_SOURCES
     src/network/server_listener_manager_impl.cc
     src/network/connection_manager_impl.cc
     src/stream_info/stream_info_impl.cc
+    src/transport/request_exchange.cc        # Per-request runtime
     src/transport/stdio_transport_socket.cc
     src/transport/stdio_pipe_transport.cc
     src/transport/ssl_context.cc

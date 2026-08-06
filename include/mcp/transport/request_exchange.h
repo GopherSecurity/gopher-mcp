@@ -1,0 +1,323 @@
+#ifndef MCP_TRANSPORT_REQUEST_EXCHANGE_H
+#define MCP_TRANSPORT_REQUEST_EXCHANGE_H
+
+#include <cstddef>
+#include <deque>
+#include <functional>
+#include <memory>
+#include <string>
+#include <utility>
+#include <vector>
+
+#include "mcp/buffer.h"
+#include "mcp/core/compat.h"
+#include "mcp/core/result.h"
+#include "mcp/event/event_loop.h"
+#include "mcp/http/response_writer.h"
+#include "mcp/types.h"
+
+namespace mcp {
+
+namespace network {
+class Connection;
+}
+
+namespace transport {
+
+/**
+ * Where an exchange's bytes go.
+ *
+ * Separated from the exchange so the destination can change underneath it.
+ * A response that is still being produced when its connection dies has to
+ * keep going somewhere, and the exchange should not have to know whether it
+ * is still talking to a socket.
+ */
+class ExchangeSink {
+ public:
+  virtual ~ExchangeSink() = default;
+
+  /** Emit bytes. False when the destination is gone and they were dropped. */
+  virtual bool write(Buffer& data) = 0;
+
+  /** Whether anything written now would actually reach a peer. */
+  virtual bool alive() const = 0;
+};
+
+using ExchangeSinkPtr = std::unique_ptr<ExchangeSink>;
+
+/**
+ * One event held for a client that is not currently connected.
+ *
+ * Retained before framing rather than after: a resuming client asks for
+ * everything after some event id, which means the events have to be
+ * individually addressable. Framed bytes are one opaque run and cannot be
+ * replayed selectively.
+ */
+struct RetainedEvent {
+  std::string id;
+  std::string event;
+  std::string data;
+};
+
+/**
+ * A sink that keeps events instead of sending them, bounded by a count.
+ *
+ * Used once a stream is detached from its connection, and by tests that
+ * want to observe an exchange without standing up a socket.
+ */
+class RetainedExchangeSink : public ExchangeSink {
+ public:
+  explicit RetainedExchangeSink(size_t max_events = 256)
+      : max_events_(max_events) {}
+
+  bool write(Buffer& data) override;
+  bool alive() const override { return true; }
+
+  /** Record an event in its unframed form. Oldest is dropped when full. */
+  void retain(const RetainedEvent& event);
+
+  const std::deque<RetainedEvent>& events() const { return events_; }
+
+  /** Bytes handed to write(), which is how unary responses are observed. */
+  const std::string& bytes() const { return bytes_; }
+
+  size_t droppedEvents() const { return dropped_; }
+
+ private:
+  size_t max_events_;
+  std::deque<RetainedEvent> events_;
+  std::string bytes_;
+  size_t dropped_{0};
+};
+
+/** A sink that writes to a live connection. */
+class ConnectionExchangeSink : public ExchangeSink {
+ public:
+  ConnectionExchangeSink(network::Connection* connection)
+      : connection_(connection) {}
+
+  bool write(Buffer& data) override;
+  bool alive() const override;
+
+  network::Connection* connection() const { return connection_; }
+
+  /**
+   * Refuse to write while the connection is inside its own write() call.
+   *
+   * Connection writes are not re-entrant: the connection holds a pointer to
+   * the buffer being written for the duration, and a nested write clobbers
+   * it. The caller sets this while it is on such a stack.
+   */
+  void setWriteInProgress(bool in_progress) {
+    write_in_progress_ = in_progress;
+  }
+
+  void detach() { connection_ = nullptr; }
+
+ private:
+  network::Connection* connection_;
+  bool write_in_progress_{false};
+};
+
+/**
+ * Tells interested parties, once, that the work behind a request is no
+ * longer wanted.
+ *
+ * Fires when the peer goes away, so a handler that is still producing can
+ * stop. Observers registered after the fact fire immediately, because a
+ * cancellation that a late observer never hears about is worse than one
+ * delivered out of order.
+ */
+class CancellationToken {
+ public:
+  using Observer = std::function<void()>;
+
+  bool cancelled() const { return cancelled_; }
+
+  void addObserver(Observer observer);
+
+  /** Idempotent. Each observer runs exactly once. */
+  void cancel();
+
+ private:
+  bool cancelled_{false};
+  std::vector<Observer> observers_;
+};
+
+/**
+ * What a request told us about the peer that sent it.
+ *
+ * Carried per request rather than per session because a protocol revision
+ * without a handshake has no session-establishing moment to record it at —
+ * every request states its own terms.
+ */
+struct ExchangeClientContext {
+  /** Protocol revision in force for this request. */
+  std::string protocol_version;
+  /**
+   * The request's params._meta, still in its serialized form. Nested JSON
+   * arrives stringified, so it is carried as it came and parsed by whoever
+   * actually needs a field out of it.
+   */
+  optional<std::string> raw_meta;
+};
+
+/**
+ * The runtime for one inbound request, from dispatch to final byte.
+ *
+ * A dispatch context is deliberately stack-scoped — it dies when the
+ * callback returns, which is what makes a stale reply path unrepresentable.
+ * That leaves nowhere to hang anything that outlives the callback: a
+ * response still being streamed, a cancellation the peer has not sent yet,
+ * a header decided after the handler ran. This is that place.
+ *
+ * Reference-counted and explicitly allowed to outlive the dispatch that
+ * created it. Lives on its connection's dispatcher thread; every method
+ * asserts as much, and other threads reach it through dispatcher.post().
+ */
+class RequestExchange : public std::enable_shared_from_this<RequestExchange> {
+ public:
+  /** What the exchange has committed to. */
+  enum class Mode {
+    Open,     // nothing decided yet
+    Json,     // answered with a single response
+    Stream,   // streaming events
+    Complete  // finished; nothing further may be written
+  };
+
+  /**
+   * @param dispatcher The thread this exchange belongs to.
+   * @param sink       Where its bytes go, initially.
+   * @param id         The inbound request id, when there is one. A stream
+   *                   opened without a request (a client asking to be
+   *                   pushed to) has none, and inventing one would put a
+   *                   phantom entry in any correlation map.
+   */
+  static std::shared_ptr<RequestExchange> create(event::Dispatcher& dispatcher,
+                                                 ExchangeSinkPtr sink,
+                                                 const optional<RequestId>& id);
+
+  ~RequestExchange();
+
+  const optional<RequestId>& requestId() const { return request_id_; }
+  Mode mode() const { return mode_; }
+
+  /**
+   * Whether the response should say the client is speaking HTTP/1.1 and may
+   * reuse the connection. Captured when the exchange is made rather than
+   * read when it answers: by then the connection may be handling a
+   * different request, or none.
+   */
+  void setResponseOptions(bool http_1_1, bool keep_alive);
+
+  /**
+   * Set the status a JSON response will carry. Only meaningful before the
+   * first byte; false afterwards.
+   */
+  bool setStatus(int status_code);
+
+  /**
+   * Add a response header. Only meaningful before the first byte, which is
+   * what makes it possible to attach something the handler decided — a
+   * session id, say — after dispatch has run.
+   */
+  bool setResponseHeader(const std::string& name, const std::string& value);
+
+  /**
+   * Answer with a single JSON-RPC response and finish.
+   *
+   * A plain 200 with no added headers is written as bare JSON and framed by
+   * the HTTP codec downstream, exactly as an ordinary response always has
+   * been. Anything else has to be framed here, because that codec emits a
+   * fixed status and header set.
+   */
+  VoidResult respondJson(const jsonrpc::Response& response);
+
+  /** Begin streaming. Mutually exclusive with respondJson. */
+  bool beginStream();
+
+  /** Append one event to an open stream. */
+  bool writeEvent(const std::string& event,
+                  const std::string& data,
+                  const optional<std::string>& id = nullopt);
+
+  /** Finish the exchange. Idempotent. */
+  bool complete();
+
+  CancellationToken& cancellation() { return cancellation_; }
+  ExchangeClientContext& clientContext() { return client_context_; }
+  const ExchangeClientContext& clientContext() const { return client_context_; }
+
+  /**
+   * Whether this exchange should carry on after its connection dies.
+   *
+   * A completed or single-response exchange has nothing left to do and is
+   * released. A stream whose result a client is expected to come back for
+   * is not: it keeps producing into a retained buffer so a reconnecting
+   * client can pick up where it left off.
+   */
+  void setRetainOnDisconnect(bool retain) { retain_on_disconnect_ = retain; }
+  bool retainOnDisconnect() const { return retain_on_disconnect_; }
+
+  /**
+   * How many events to keep for a client that is not connected. Bounded
+   * because a producer that never stops would otherwise grow without limit
+   * behind a client that never comes back.
+   */
+  void setRetainedEventLimit(size_t events) { retained_event_limit_ = events; }
+
+  /** True once the connection is gone and the exchange kept going. */
+  bool detached() const { return detached_; }
+
+  /**
+   * The connection this exchange was born on has gone away. Either detach
+   * and keep producing, or give up and cancel.
+   * @return True when the exchange survived and still needs an owner.
+   */
+  bool onConnectionGone();
+
+  /** Events held after detaching, for a client that comes back for them. */
+  const std::deque<RetainedEvent>& retainedEvents() const;
+
+  /** The sink, for tests and for the owner that swapped it in. */
+  ExchangeSink& sink() { return *sink_; }
+
+ private:
+  RequestExchange(event::Dispatcher& dispatcher,
+                  ExchangeSinkPtr sink,
+                  const optional<RequestId>& id);
+
+  void assertOnDispatcher() const;
+  bool writeBytes(const std::string& bytes);
+  /** True when the response cannot be expressed by the downstream codec. */
+  bool needsOwnFraming() const;
+
+  event::Dispatcher& dispatcher_;
+  ExchangeSinkPtr sink_;
+  optional<RequestId> request_id_;
+
+  Mode mode_{Mode::Open};
+  bool first_byte_written_{false};
+  bool retain_on_disconnect_{false};
+  bool detached_{false};
+
+  int status_code_{200};
+  http::ResponseWriter::HeaderList headers_;
+  http::ResponseWriter::Options writer_options_;
+  std::unique_ptr<http::ResponseWriter> stream_writer_;
+
+  CancellationToken cancellation_;
+  ExchangeClientContext client_context_;
+
+  /** Present only while detached; the sink then points at it. */
+  RetainedExchangeSink* retained_{nullptr};
+  size_t retained_event_limit_{256};
+  size_t next_event_id_{1};
+};
+
+using RequestExchangePtr = std::shared_ptr<RequestExchange>;
+
+}  // namespace transport
+}  // namespace mcp
+
+#endif  // MCP_TRANSPORT_REQUEST_EXCHANGE_H
