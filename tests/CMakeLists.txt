@@ -1522,6 +1522,17 @@ target_link_libraries(test_http_routing_table
 )
 add_test(NAME HttpRoutingTableTest COMMAND test_http_routing_table)
 
+# SSE Formatter Test - pure SSE wire formatting, literal byte assertions
+add_executable(test_sse_formatter http/test_sse_formatter.cc)
+target_link_libraries(test_sse_formatter
+    gopher-mcp
+    gopher-mcp-event
+    gtest
+    gtest_main
+    Threads::Threads
+)
+add_test(NAME SseFormatterTest COMMAND test_sse_formatter)
+
 add_executable(test_sse_codec_state_machine filter/test_sse_codec_state_machine.cc)
 target_link_libraries(test_sse_codec_state_machine
     gopher-mcp
