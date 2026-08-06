@@ -121,6 +121,35 @@ class StreamableHttpFilter : public HttpCodecFilter::MessageCallbacks,
   /** What the body turned out to carry. */
   enum class Carried { Nothing, Request, Notification, Response };
 
+  /**
+   * A streamed answer, held by whoever is still producing it.
+   *
+   * Holds the exchange outright rather than through the filter: the whole
+   * point is that a handler may keep this after its dispatch returned and
+   * after the connection it arrived on has gone.
+   */
+  class ResponseStreamImpl : public ResponseStream {
+   public:
+    ResponseStreamImpl(transport::RequestExchangePtr exchange, bool may_stream)
+        : exchange_(std::move(exchange)), may_stream_(may_stream) {}
+
+    VoidResult sendNotification(
+        const jsonrpc::Notification& notification) override;
+    VoidResult sendResponse(const jsonrpc::Response& response) override;
+    bool alive() const override;
+
+    /** Open the stream now, before anything else is written. */
+    bool open();
+
+    /** Notifications discarded because the client could not read them. */
+    size_t droppedNotifications() const { return dropped_; }
+
+   private:
+    transport::RequestExchangePtr exchange_;
+    bool may_stream_;
+    size_t dropped_{0};
+  };
+
   /** A view onto the exchange behind the message being dispatched. */
   class DispatchContext : public MessageDispatchContext {
    public:
@@ -129,6 +158,7 @@ class StreamableHttpFilter : public HttpCodecFilter::MessageCallbacks,
     network::Connection* originConnection() const override;
     const std::string& transportSessionId() const override;
     VoidResult sendResponse(const jsonrpc::Response& response) override;
+    ResponseStreamPtr beginResponseStream() override;
 
    private:
     StreamableHttpFilter& parent_;
@@ -166,6 +196,11 @@ class StreamableHttpFilter : public HttpCodecFilter::MessageCallbacks,
   std::string session_id_;
   Carried carried_{Carried::Nothing};
   size_t dispatched_{0};
+
+  // The streamed answer for the request being dispatched, if it asked for
+  // one. Held only for the length of the dispatch — whoever is producing
+  // the answer holds its own reference and may outlive this filter.
+  std::shared_ptr<ResponseStreamImpl> stream_;
 };
 
 }  // namespace filter

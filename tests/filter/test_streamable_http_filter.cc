@@ -75,6 +75,10 @@ class RecordingCallbacks : public McpProtocolCallbacks {
     requests.push_back(request);
   }
 
+  StreamingMode streamingFor(const jsonrpc::Request&) const override {
+    return streaming;
+  }
+
   void onRequestWithContext(const jsonrpc::Request& request,
                             MessageDispatchContext& context) override {
     requests.push_back(request);
@@ -82,14 +86,34 @@ class RecordingCallbacks : public McpProtocolCallbacks {
     if (filter != nullptr && filter->currentExchange()) {
       client_at_request = filter->currentExchange()->clientContext();
     }
-    if (!answer_requests) {
-      return;
-    }
+
     jsonrpc::Response response;
     response.jsonrpc = "2.0";
     response.id = request.id;
     response.result = mcp::make_optional(jsonrpc::ResponseResult(Metadata()));
-    context.sendResponse(response);
+
+    if (streaming == StreamingMode::None) {
+      if (answer_requests) {
+        context.sendResponse(response);
+      }
+      return;
+    }
+
+    // A streaming handler reports progress on the way to its answer, and
+    // keeps its handle so the test can drive it after the dispatch returns.
+    stream = context.beginResponseStream();
+    if (!stream) {
+      return;
+    }
+    for (size_t i = 0; i < progress_count; ++i) {
+      jsonrpc::Notification progress;
+      progress.jsonrpc = "2.0";
+      progress.method = "notifications/progress";
+      stream->sendNotification(progress);
+    }
+    if (answer_requests) {
+      stream->sendResponse(response);
+    }
   }
 
   void onNotification(const jsonrpc::Notification& notification) override {
@@ -115,6 +139,10 @@ class RecordingCallbacks : public McpProtocolCallbacks {
   transport::ExchangeClientContext client_at_request;
 
   bool answer_requests{true};
+  StreamingMode streaming{StreamingMode::None};
+  size_t progress_count{0};
+  // Kept past the dispatch on purpose: that is what the handle is for.
+  ResponseStreamPtr stream;
   std::vector<jsonrpc::Request> requests;
   std::vector<jsonrpc::Notification> notifications;
   std::vector<jsonrpc::Response> responses;
@@ -415,6 +443,138 @@ TEST_F(StreamableHttpFilterTest, ARequestAfterOneServedElsewhereStillWorks) {
   feed(post("/mcp", kNotificationBody));
 
   EXPECT_EQ(wire_.find("HTTP/1.1 202 Accepted\r\n"), 0u) << wire_;
+}
+
+// ── Streamed answers ───────────────────────────────────────────────────────
+
+TEST_F(StreamableHttpFilterTest, AStreamingHandlerAnswersWithAnEventStream) {
+  callbacks_.streaming = StreamingMode::Optional;
+  callbacks_.progress_count = 3;
+
+  feed(post("/mcp", kRequestBody, "Accept: text/event-stream\r\n"));
+
+  EXPECT_EQ(wire_.find("HTTP/1.1 200 OK\r\n"), 0u) << wire_;
+  EXPECT_NE(wire_.find("Content-Type: text/event-stream"), std::string::npos)
+      << wire_;
+  EXPECT_NE(wire_.find("Transfer-Encoding: chunked"), std::string::npos)
+      << "a stream with no chunk framing is an empty body: " << wire_;
+
+  size_t progress = 0;
+  for (size_t at = wire_.find("notifications/progress");
+       at != std::string::npos;
+       at = wire_.find("notifications/progress", at + 1)) {
+    ++progress;
+  }
+  EXPECT_EQ(progress, 3u) << wire_;
+
+  // The response is the last thing on the stream, and the terminating
+  // chunk is what tells the client the body ended.
+  const size_t response_at = wire_.find("\"result\"");
+  ASSERT_NE(response_at, std::string::npos) << wire_;
+  EXPECT_GT(response_at, wire_.rfind("notifications/progress")) << wire_;
+  EXPECT_NE(wire_.rfind("0\r\n\r\n"), std::string::npos) << wire_;
+}
+
+TEST_F(StreamableHttpFilterTest, AStreamedEventCarriesNoIdYet) {
+  callbacks_.streaming = StreamingMode::Optional;
+  callbacks_.progress_count = 1;
+
+  feed(post("/mcp", kRequestBody, "Accept: text/event-stream\r\n"));
+
+  // Nothing can resume from an id yet, so none is promised.
+  EXPECT_EQ(wire_.find("\nid: "), std::string::npos) << wire_;
+}
+
+TEST_F(StreamableHttpFilterTest, AHandlerThatOnlyAnswersStaysUnary) {
+  // Asking for a stream and then never using it before the response costs
+  // nothing: the fast path is still the fast path.
+  callbacks_.streaming = StreamingMode::Optional;
+  callbacks_.progress_count = 0;
+
+  feed(post("/mcp", kRequestBody, "Accept: text/event-stream\r\n"));
+
+  EXPECT_EQ(wire_.find("HTTP/1.1"), std::string::npos) << wire_;
+  EXPECT_EQ(wire_.find('{'), 0u) << wire_;
+}
+
+TEST_F(StreamableHttpFilterTest, ProgressIsDroppedForAClientThatCannotReadIt) {
+  callbacks_.streaming = StreamingMode::Optional;
+  callbacks_.progress_count = 3;
+
+  feed(post("/mcp", kRequestBody, "Accept: application/json\r\n"));
+
+  // Answerable without the progress, so it is answered — the progress is
+  // simply not sent.
+  EXPECT_EQ(callbacks_.requests.size(), 1u);
+  EXPECT_EQ(wire_.find("HTTP/1.1"), std::string::npos) << wire_;
+  EXPECT_EQ(wire_.find("notifications/progress"), std::string::npos) << wire_;
+  EXPECT_NE(wire_.find("\"result\""), std::string::npos) << wire_;
+}
+
+TEST_F(StreamableHttpFilterTest, ARequiredStreamIsRefusedBeforeTheHandlerRuns) {
+  callbacks_.streaming = StreamingMode::Required;
+
+  feed(post("/mcp", kRequestBody, "Accept: application/json\r\n"));
+
+  EXPECT_EQ(wire_.find("HTTP/1.1 406 Not Acceptable\r\n"), 0u) << wire_;
+  EXPECT_NE(wire_.find("text/event-stream"), std::string::npos) << wire_;
+  // Running it would leave it waiting on a question the client can never
+  // be shown.
+  EXPECT_TRUE(callbacks_.requests.empty());
+}
+
+TEST_F(StreamableHttpFilterTest, ARequiredStreamOpensBeforeTheHandlerRuns) {
+  callbacks_.streaming = StreamingMode::Required;
+  callbacks_.progress_count = 0;
+  callbacks_.answer_requests = false;
+
+  feed(post("/mcp", kRequestBody, "Accept: text/event-stream\r\n"));
+
+  // The handler has said nothing at all, and the response headers are
+  // already out: it can be asked something the moment it wants to be.
+  EXPECT_EQ(callbacks_.requests.size(), 1u);
+  EXPECT_EQ(wire_.find("HTTP/1.1 200 OK\r\n"), 0u) << wire_;
+  EXPECT_NE(wire_.find("Content-Type: text/event-stream"), std::string::npos)
+      << wire_;
+}
+
+TEST_F(StreamableHttpFilterTest, AHandlerKeepsItsStreamAfterTheDispatchEnds) {
+  callbacks_.streaming = StreamingMode::Required;
+  callbacks_.answer_requests = false;
+
+  feed(post("/mcp", kRequestBody, "Accept: text/event-stream\r\n"));
+  ASSERT_TRUE(callbacks_.stream);
+  const size_t after_dispatch = wire_.size();
+
+  // The dispatch is over and the handler is still producing.
+  jsonrpc::Notification progress;
+  progress.jsonrpc = "2.0";
+  progress.method = "notifications/progress";
+  ASSERT_FALSE(
+      holds_alternative<Error>(callbacks_.stream->sendNotification(progress)));
+
+  jsonrpc::Response response;
+  response.jsonrpc = "2.0";
+  response.id = RequestId(static_cast<int64_t>(1));
+  response.result = mcp::make_optional(jsonrpc::ResponseResult(Metadata()));
+  ASSERT_FALSE(
+      holds_alternative<Error>(callbacks_.stream->sendResponse(response)));
+
+  const std::string tail = wire_.substr(after_dispatch);
+  EXPECT_NE(tail.find("notifications/progress"), std::string::npos) << tail;
+  EXPECT_NE(tail.find("\"result\""), std::string::npos) << tail;
+  EXPECT_FALSE(callbacks_.stream->alive())
+      << "the response was the last thing the stream had to say";
+}
+
+TEST_F(StreamableHttpFilterTest, ANotificationIsNeverAnsweredWithAStream) {
+  callbacks_.streaming = StreamingMode::Required;
+
+  feed(post("/mcp", kNotificationBody, "Accept: text/event-stream\r\n"));
+
+  // There is no request here to stream an answer to.
+  EXPECT_EQ(wire_.find("HTTP/1.1 202 Accepted\r\n"), 0u) << wire_;
+  EXPECT_EQ(wire_.find("text/event-stream"), std::string::npos) << wire_;
 }
 
 }  // namespace

@@ -7,6 +7,7 @@
 #include "mcp/buffer.h"
 #include "mcp/http/http_parser.h"
 #include "mcp/json/json_bridge.h"
+#include "mcp/json/json_serialization.h"
 #include "mcp/logging/log_macros.h"
 #include "mcp/mcp_connection_manager.h"
 
@@ -64,6 +65,100 @@ std::string idLessError(int code, const std::string& message) {
 
 }  // namespace
 
+// ===== ResponseStreamImpl =====
+
+bool StreamableHttpFilter::ResponseStreamImpl::open() {
+  if (!may_stream_ || !exchange_) {
+    return false;
+  }
+  if (exchange_->mode() == transport::RequestExchange::Mode::Stream) {
+    return true;
+  }
+  if (exchange_->mode() != transport::RequestExchange::Mode::Open) {
+    return false;
+  }
+
+  // A streamed answer is worth keeping when its client goes away: the work
+  // behind it carries on, and a client that comes back can be given what
+  // it missed. A single response has nothing to come back for.
+  exchange_->setRetainOnDisconnect(true);
+  if (!exchange_->beginStream()) {
+    return false;
+  }
+  exchange_->setPhase(transport::RequestExchange::Phase::RespondingSseOpen);
+  return true;
+}
+
+VoidResult StreamableHttpFilter::ResponseStreamImpl::sendNotification(
+    const jsonrpc::Notification& notification) {
+  if (!exchange_) {
+    Error err;
+    err.code = jsonrpc::INTERNAL_ERROR;
+    err.message = "notification dropped: this request has no answer open";
+    return makeVoidError(err);
+  }
+
+  if (!may_stream_) {
+    // The client asked for one JSON object and progress is not it. Not an
+    // error: a handler that only reports progress is still answerable, and
+    // failing it here would refuse a request that can be served.
+    ++dropped_;
+    GOPHER_LOG_DEBUG(
+        "progress dropped: the client cannot read a streamed response ({})",
+        notification.method);
+    return makeVoidSuccess();
+  }
+
+  if (!open()) {
+    Error err;
+    err.code = jsonrpc::INTERNAL_ERROR;
+    err.message = "notification dropped: the answer is already committed";
+    return makeVoidError(err);
+  }
+
+  return exchange_->writeEvent("message",
+                               json::to_json(notification).toString())
+             ? makeVoidSuccess()
+             : makeVoidError(
+                   Error(jsonrpc::INTERNAL_ERROR, "notification not written"));
+}
+
+VoidResult StreamableHttpFilter::ResponseStreamImpl::sendResponse(
+    const jsonrpc::Response& response) {
+  if (!exchange_) {
+    Error err;
+    err.code = jsonrpc::INTERNAL_ERROR;
+    err.message = "response dropped: this request has no answer open";
+    return makeVoidError(err);
+  }
+
+  // Only a stream that actually opened ends as one. A handler that asked
+  // for a stream and then said nothing until its answer gets the plain
+  // response it would have got anyway.
+  if (exchange_->mode() != transport::RequestExchange::Mode::Stream) {
+    return exchange_->respondJson(response);
+  }
+
+  exchange_->setPhase(transport::RequestExchange::Phase::RespondingSseDraining);
+  if (!exchange_->writeEvent("message", json::to_json(response).toString())) {
+    Error err;
+    err.code = jsonrpc::INTERNAL_ERROR;
+    err.message = "response not written";
+    return makeVoidError(err);
+  }
+
+  // The response is the last thing on the stream. Closing here is what
+  // frees the connection for the next request.
+  exchange_->setPhase(transport::RequestExchange::Phase::RespondingSseClosed);
+  exchange_->complete();
+  return makeVoidSuccess();
+}
+
+bool StreamableHttpFilter::ResponseStreamImpl::alive() const {
+  return exchange_ && !exchange_->detached() &&
+         exchange_->mode() != transport::RequestExchange::Mode::Complete;
+}
+
 // ===== DispatchContext =====
 
 network::Connection* StreamableHttpFilter::DispatchContext::originConnection()
@@ -87,6 +182,17 @@ VoidResult StreamableHttpFilter::DispatchContext::sendResponse(
   // The exchange knows what it has already committed to, so it is what
   // refuses a second answer rather than writing two onto one request.
   return parent_.exchange_->respondJson(response);
+}
+
+ResponseStreamPtr StreamableHttpFilter::DispatchContext::beginResponseStream() {
+  if (!parent_.exchange_) {
+    return nullptr;
+  }
+  if (!parent_.stream_) {
+    parent_.stream_.reset(new ResponseStreamImpl(
+        parent_.exchange_, parent_.exchange_->clientContext().accepts_sse));
+  }
+  return parent_.stream_;
 }
 
 // ===== StreamableHttpFilter =====
@@ -275,6 +381,7 @@ void StreamableHttpFilter::abandonRequest() {
   carried_ = Carried::Nothing;
   dispatched_ = 0;
   exchange_.reset();
+  stream_.reset();
   // Whatever finished during this request is no longer the connection's
   // concern; a handler answering later holds its own reference.
   exchanges_.reapCompleted();
@@ -304,7 +411,39 @@ void StreamableHttpFilter::onRequest(const jsonrpc::Request& request) {
     }
   }
 
+  // How the answer will be framed is settled by its first byte, so it has
+  // to be decided before anything runs — never by looking at what a
+  // handler turned out to produce.
+  const StreamingMode streaming = mcp_callbacks_.streamingFor(request);
+  const bool accepts_sse = exchange_->clientContext().accepts_sse;
+
+  if (streaming == StreamingMode::Required && !accepts_sse) {
+    // This handler will ask the client something and wait for the answer.
+    // Serving it anyway would leave it waiting on a question the client
+    // can never be shown, so the request is refused before it starts.
+    GOPHER_LOG_DEBUG(
+        "MCP endpoint request needs a streamed response the client will not "
+        "accept: {}",
+        request.method);
+    respondWithError(static_cast<int>(http::HttpStatusCode::NotAcceptable),
+                     jsonrpc::INVALID_REQUEST,
+                     "Not Acceptable: this method answers with "
+                     "text/event-stream, which this request does not accept");
+    return;
+  }
+
   DispatchContext context(*this);
+
+  if (streaming == StreamingMode::Required) {
+    // Opened before the handler runs, so the response headers are on the
+    // wire before anything it emits.
+    auto stream = context.beginResponseStream();
+    if (stream && !stream_->open()) {
+      GOPHER_LOG_ERROR("MCP endpoint response stream failed to open");
+      return;
+    }
+  }
+
   mcp_callbacks_.onRequestWithContext(request, context);
 }
 
