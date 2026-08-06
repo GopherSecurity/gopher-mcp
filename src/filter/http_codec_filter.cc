@@ -14,11 +14,11 @@
 #include <cctype>
 #include <map>
 #include <sstream>
-#include <string_view>
 
 #if MCP_HAS_LLHTTP
 #include "mcp/http/llhttp_parser.h"
 #endif
+#include "mcp/http/response_writer.h"
 #include "mcp/logging/log_macros.h"
 #include "mcp/network/connection.h"
 
@@ -306,74 +306,31 @@ network::FilterStatus HttpCodecFilter::onWrite(Buffer& data, bool end_stream) {
       // Clear the buffer to build formatted HTTP response
       data.drain(body_length);
 
-      // Build HTTP response with headers
-      std::ostringstream response;
+      // Response framing is an explicit decision, never a guess about what
+      // the payload looks like. Anything that wants a streamed body opens
+      // one through the response writer; whatever arrives here is a complete
+      // answer and is framed with a Content-Length.
+      http::ResponseWriter::Options options;
+      // http_major is always 1; http_minor distinguishes 1.0 from 1.1.
+      options.http_1_1 = !current_stream_ || current_stream_->http_minor != 0;
+      options.keep_alive = !current_stream_ || current_stream_->keep_alive;
 
-      // Use the HTTP version from the request for transparent protocol handling
-      std::ostringstream version_str;
-      if (current_stream_) {
-        version_str << "HTTP/" << static_cast<int>(current_stream_->http_major)
-                    << "." << static_cast<int>(current_stream_->http_minor);
-      } else {
-        version_str << "HTTP/1.1";
-      }
-      response << version_str.str() << " 200 OK\r\n";
+      GOPHER_LOG_TRACE("onWrite: Content-Length={} body_preview={}...",
+                       body_length, body_data.substr(0, 50));
 
-      // Detect SSE ONLY by the formatted payload, NOT by Accept header.
-      // The Accept header just indicates client SUPPORTS SSE, not that we
-      // should use it. For JSON-RPC request/response, we need proper HTTP
-      // with Content-Length. Only use SSE format if the payload is already
-      // SSE-formatted (contains event:/data: lines).
-      bool is_sse_response = false;
-      // Heuristic: SSE payloads contain event/data lines
-      std::string_view payload_view(body_data);
-      if (payload_view.find("event:") != std::string_view::npos &&
-          payload_view.find("data:") != std::string_view::npos) {
-        is_sse_response = true;
-      }
-
-      if (is_sse_response) {
-        // SSE response headers
-        response << "Content-Type: text/event-stream\r\n";
-        response << "Cache-Control: no-cache\r\n";
-        response << "Connection: keep-alive\r\n";
-        response << "X-Accel-Buffering: no\r\n";  // Disable proxy buffering
-        // CORS headers for browser-based clients (e.g., MCP Inspector)
-        response << "Access-Control-Allow-Origin: *\r\n";
-        response << "Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n";
-        response
-            << "Access-Control-Allow-Headers: Content-Type, Authorization, "
-               "Accept, Mcp-Session-Id, Mcp-Protocol-Version\r\n";
-        response << "\r\n";
-        // SSE data is already formatted by SSE filter
-        response << body_data;
-      } else {
-        // Regular JSON response
-        response << "Content-Type: application/json\r\n";
-        response << "Content-Length: " << body_length << "\r\n";
-        GOPHER_LOG_TRACE("onWrite: Content-Length={} body_preview={}...",
-                         body_length, body_data.substr(0, 50));
-        response << "Cache-Control: no-cache\r\n";
-        // CORS headers for browser-based clients (e.g., MCP Inspector)
-        response << "Access-Control-Allow-Origin: *\r\n";
-        response << "Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n";
-        response
-            << "Access-Control-Allow-Headers: Content-Type, Authorization, "
-               "Accept, Mcp-Session-Id, Mcp-Protocol-Version\r\n";
-        if (current_stream_) {
-          response << "Connection: "
-                   << (current_stream_->keep_alive ? "keep-alive" : "close")
-                   << "\r\n";
-        } else {
-          response << "Connection: keep-alive\r\n";
-        }
-        response << "\r\n";
-        response << body_data;
-      }
-
-      // Add formatted response to buffer
-      std::string response_str = response.str();
-      data.add(response_str.c_str(), response_str.length());
+      http::ResponseWriter writer(options);
+      writer.startUnary(
+          static_cast<int>(http::HttpStatusCode::OK),
+          {{"Content-Type", "application/json"},
+           {"Cache-Control", "no-cache"},
+           // CORS headers for browser-based clients (e.g., MCP Inspector)
+           {"Access-Control-Allow-Origin", "*"},
+           {"Access-Control-Allow-Methods", "GET, POST, OPTIONS"},
+           {"Access-Control-Allow-Headers",
+            "Content-Type, Authorization, Accept, Mcp-Session-Id, "
+            "Mcp-Protocol-Version"}},
+          body_data);
+      writer.drainTo(data);
 
       // Update state machine
       state_machine_->handleEvent(HttpCodecEvent::ResponseBegin);
@@ -876,33 +833,12 @@ void HttpCodecFilter::MessageEncoderImpl::encodeHeaders(
     } else {
       version_str << "HTTP/1.1";  // Default fallback
     }
-    message << version_str.str() << " " << status_code << " ";
-
-    // Add status text
-    switch (status_code) {
-      case 200:
-        message << "OK";
-        break;
-      case 201:
-        message << "Created";
-        break;
-      case 204:
-        message << "No Content";
-        break;
-      case 400:
-        message << "Bad Request";
-        break;
-      case 404:
-        message << "Not Found";
-        break;
-      case 500:
-        message << "Internal Server Error";
-        break;
-      default:
-        message << "Unknown";
-        break;
-    }
-    message << "\r\n";
+    // Reason phrase comes from the shared status table so every code the
+    // codec can emit renders correctly, not just a handful.
+    message << version_str.str() << " " << status_code << " "
+            << http::httpStatusCodeToString(
+                   static_cast<http::HttpStatusCode>(status_code))
+            << "\r\n";
   } else {
     // Client mode: encode request using configured version
     parent_.state_machine_->handleEvent(HttpCodecEvent::RequestBegin);
