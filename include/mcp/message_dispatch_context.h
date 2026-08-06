@@ -1,5 +1,6 @@
 #pragma once
 
+#include <memory>
 #include <string>
 
 #include "mcp/core/result.h"
@@ -10,6 +11,45 @@ namespace mcp {
 namespace network {
 class Connection;
 }
+
+/**
+ * A response that is still being produced after its dispatch returned.
+ *
+ * The dispatch context deliberately dies when the callback does, which is
+ * what makes a stale reply path unrepresentable — but it also leaves a
+ * handler with nowhere to put work it has not finished. This is that
+ * place: it is reference-counted, a handler may keep it, and it stays
+ * usable until the response is sent.
+ *
+ * Notifications sent here belong to the request being answered — progress,
+ * logging — and arrive before the response. Sending the response ends the
+ * stream; nothing may follow it.
+ *
+ * Dispatcher-thread confined, like everything it writes through.
+ */
+class ResponseStream {
+ public:
+  virtual ~ResponseStream() = default;
+
+  /** Emit a notification related to the request being answered. */
+  virtual VoidResult sendNotification(
+      const jsonrpc::Notification& notification) = 0;
+
+  /** Emit the response and end the stream. */
+  virtual VoidResult sendResponse(const jsonrpc::Response& response) = 0;
+
+  /**
+   * Whether anything sent now would still reach the client.
+   *
+   * False once the client has gone. That is not a reason to stop: a
+   * disconnect is not a cancellation, and work already under way keeps its
+   * output for a client that comes back. It is a reason to stop *waiting*
+   * for anything the client would have to send.
+   */
+  virtual bool alive() const = 0;
+};
+
+using ResponseStreamPtr = std::shared_ptr<ResponseStream>;
 
 /**
  * Per-message dispatch context.
@@ -54,6 +94,15 @@ class MessageDispatchContext {
    * e.g. the origin connection already closed.
    */
   virtual VoidResult sendResponse(const jsonrpc::Response& response) = 0;
+
+  /**
+   * Ask for somewhere to put an answer that is not ready yet.
+   *
+   * Null when this transport cannot stream one, which is every transport
+   * that answers a request with exactly one message. A handler that gets
+   * null has to answer through sendResponse and cannot report progress.
+   */
+  virtual ResponseStreamPtr beginResponseStream() { return nullptr; }
 };
 
 /**

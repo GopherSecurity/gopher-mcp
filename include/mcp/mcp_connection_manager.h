@@ -57,12 +57,41 @@ struct McpConnectionConfig {
 };
 
 /**
+ * Whether answering a request needs a response that can carry more than
+ * one message.
+ *
+ * Declared rather than discovered, because the choice has to be made
+ * before the handler runs and cannot be revisited afterwards: how a
+ * response is framed is settled by its first byte.
+ *
+ *   None      one message, and nothing before it. The fast path.
+ *   Optional  may report progress on the way, but does not need to. A
+ *             client that cannot read a stream still gets its answer;
+ *             the progress is simply dropped.
+ *   Required  will ask the client something and wait for the reply. A
+ *             client that cannot read a stream cannot be served at all,
+ *             and must be told so rather than left holding a request
+ *             whose handler is waiting on a question it never saw.
+ */
+enum class StreamingMode { None, Optional, Required };
+
+/**
  * MCP protocol callbacks
  * Handles both protocol messages and connection events
  */
 class McpProtocolCallbacks {
  public:
   virtual ~McpProtocolCallbacks() = default;
+
+  /**
+   * What kind of response this request will need, asked before it is
+   * dispatched. Takes the whole request rather than the method so that a
+   * receiver can answer per tool or per parameter, not just per method.
+   */
+  virtual StreamingMode streamingFor(const jsonrpc::Request& request) const {
+    (void)request;
+    return StreamingMode::None;
+  }
 
   /**
    * Called when a request is received
