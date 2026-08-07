@@ -1537,8 +1537,10 @@ class HttpSseJsonRpcProtocolFilter
     // Serving DELETE is what advertises it: the Allow header is rendered
     // from this table, and a rejecting route is deliberately left out of
     // it. So a server that does not let clients end their own sessions
-    // answers 405 and never claims otherwise.
-    if (streamable_options_.allow_client_termination) {
+    // answers 405 and never claims otherwise — and neither does one that
+    // keeps no sessions, since there would be nothing to end.
+    if (streamable_options_.allow_client_termination &&
+        streamable_options_.sessions != nullptr) {
       routing_filter_->addRoute("DELETE", rpc_path, Target::passThrough());
     } else {
       routing_filter_->addRoute("DELETE", rpc_path, Target::reject(405));

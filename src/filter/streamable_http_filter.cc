@@ -602,26 +602,30 @@ void StreamableHttpFilter::validateThenDispatch(
 }
 
 void StreamableHttpFilter::resumeAfterValidation(SessionVerdict verdict) {
-  if (parked_) {
-    parked_ = false;
+  // Cleared first so the paths below do not lift the hold themselves, and
+  // released last — see the end of this function.
+  const bool was_parked = parked_;
+  parked_ = false;
+
+  if (exchange_) {
+    if (verdict != SessionVerdict::Serve) {
+      refuseSession(verdict);
+      abandonRequest();
+    } else if (method_ == kDeleteMethod) {
+      terminateSession();
+    } else {
+      dispatchBody();
+    }
+  }
+
+  if (was_parked) {
+    // Only now. Letting input through any earlier would parse the next
+    // request on this connection while this one still owed an answer —
+    // and the next request begins by taking over the per-request state
+    // this one is answering from, so its answer would simply never be
+    // written.
     host_.holdInput(false);
   }
-  if (!exchange_) {
-    return;
-  }
-
-  if (verdict != SessionVerdict::Serve) {
-    refuseSession(verdict);
-    abandonRequest();
-    return;
-  }
-
-  if (method_ == kDeleteMethod) {
-    terminateSession();
-    return;
-  }
-
-  dispatchBody();
 }
 
 void StreamableHttpFilter::terminateSession() {

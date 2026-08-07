@@ -12,12 +12,16 @@
  */
 
 #include <chrono>
+#include <cstdlib>
+#include <functional>
+#include <future>
 #include <string>
 #include <thread>
 
 #include <gtest/gtest.h>
 
 #include "mcp/buffer.h"
+#include "mcp/filter/http_security_filter.h"
 #include "mcp/filter/http_sse_filter_chain_factory.h"
 #include "mcp/mcp_connection_manager.h"
 #include "mcp/network/connection_impl.h"
@@ -73,9 +77,24 @@ class SessionRecordingCallbacks : public McpProtocolCallbacks {
   std::vector<std::string> sessions;
 };
 
+/** How the server under test is configured. */
+struct ServerOptions {
+  // False builds a stateless server, which mints no session and believes
+  // no session id it is sent.
+  bool keep_sessions = true;
+  bool allow_termination = true;
+  std::chrono::milliseconds timeout{300000};
+  // Empty means no opinion about protocol revisions, refusing none.
+  std::vector<std::string> protocol_versions;
+  // True resolves each request's caller from a header, so a test can
+  // present one caller's session as another.
+  bool callers_differ = false;
+};
+
 class StreamableHttpSessionsTest : public test::RealIoTestBase {
  protected:
   void TearDown() override {
+    stopOtherWorker();
     executeInDispatcher([&]() {
       closeConnection(conn_);
       closeConnection(second_conn_);
@@ -95,33 +114,44 @@ class StreamableHttpSessionsTest : public test::RealIoTestBase {
     }
   }
 
-  /**
-   * @param keep_sessions False builds a stateless server, which mints no
-   *                      session and believes no session id it is sent.
-   */
-  void startServer(bool keep_sessions = true) {
-    executeInDispatcher([&]() {
-      factory_ =
-          std::make_shared<HttpSseFilterChainFactory>(*dispatcher_, callbacks_,
-                                                      /*is_server=*/true,
-                                                      /*http_path=*/"/mcp",
-                                                      /*http_host=*/"localhost",
-                                                      /*use_sse=*/true,
-                                                      /*sse_path=*/"/sse",
-                                                      /*rpc_path=*/"/mcp");
-      transport::StreamableHttpConfig config;
-      config.enable_sessions = keep_sessions;
-      factory_->setSessionConfig(config);
-      factory_->setSecurityConfig(config);
-    });
-    connect(conn_, peer_);
+  void startServer(ServerOptions options = ServerOptions()) {
+    executeInDispatcher(
+        [&]() { factory_ = makeFactory(*dispatcher_, options); });
+    connect(conn_, peer_, factory_);
+  }
+
+  std::shared_ptr<HttpSseFilterChainFactory> makeFactory(
+      event::Dispatcher& dispatcher, const ServerOptions& options) {
+    auto factory =
+        std::make_shared<HttpSseFilterChainFactory>(dispatcher, callbacks_,
+                                                    /*is_server=*/true,
+                                                    /*http_path=*/"/mcp",
+                                                    /*http_host=*/"localhost",
+                                                    /*use_sse=*/true,
+                                                    /*sse_path=*/"/sse",
+                                                    /*rpc_path=*/"/mcp");
+    transport::StreamableHttpConfig config;
+    config.enable_sessions = options.keep_sessions;
+    config.allow_client_termination = options.allow_termination;
+    config.session_timeout = options.timeout;
+    config.protocol_versions = options.protocol_versions;
+    factory->setSessionConfig(config);
+    factory->setSecurityConfig(config);
+    if (options.callers_differ) {
+      factory->setAuthCallback([](const RequestHeadersView& headers) {
+        const std::string caller = headers.get("x-test-caller");
+        return AuthResult::allow(caller.empty() ? "anonymous" : caller);
+      });
+    }
+    return factory;
   }
 
   /** Bring up one more client, so two can be told apart on the wire. */
-  void connectSecondClient() { connect(second_conn_, second_peer_); }
+  void connectSecondClient() { connect(second_conn_, second_peer_, factory_); }
 
   void connect(std::unique_ptr<network::ServerConnection>& conn,
-               network::IoHandlePtr& peer) {
+               network::IoHandlePtr& peer,
+               const std::shared_ptr<HttpSseFilterChainFactory>& factory) {
     executeInDispatcher([&]() {
       auto pair = createSocketPair();
       auto local = network::Address::parseInternetAddress("127.0.0.1", 0);
@@ -134,28 +164,132 @@ class StreamableHttpSessionsTest : public test::RealIoTestBase {
       conn = network::ConnectionImpl::createServerConnection(
           *dispatcher_, std::move(socket), std::move(transport), *stream_info_);
       auto* impl = static_cast<network::ConnectionImpl*>(conn.get());
-      ASSERT_TRUE(factory_->createFilterChain(impl->filterManager()));
+      ASSERT_TRUE(factory->createFilterChain(impl->filterManager()));
       impl->filterManager().initializeReadFilters();
 
       peer = std::move(pair.second);
     });
   }
 
-  void sendPost(network::IoHandlePtr& peer,
-                const std::string& body,
-                const std::string& extra_headers = std::string()) {
-    const std::string request =
-        "POST /mcp HTTP/1.1\r\n"
-        "Host: localhost\r\n"
-        "Content-Type: application/json\r\n" +
-        extra_headers + "Content-Length: " + std::to_string(body.size()) +
-        "\r\n\r\n" + body;
+  static std::string requestBytes(const std::string& method,
+                                  const std::string& body,
+                                  const std::string& extra_headers) {
+    return method +
+           " /mcp HTTP/1.1\r\n"
+           "Host: localhost\r\n"
+           "Content-Type: application/json\r\n" +
+           extra_headers + "Content-Length: " + std::to_string(body.size()) +
+           "\r\n\r\n" + body;
+  }
+
+  void sendRequest(network::IoHandlePtr& peer,
+                   const std::string& method,
+                   const std::string& body,
+                   const std::string& extra_headers = std::string()) {
+    const std::string request = requestBytes(method, body, extra_headers);
     executeInDispatcher([&]() {
       OwnedBuffer buffer;
       buffer.add(request);
       auto result = peer->write(buffer);
       ASSERT_TRUE(result.ok()) << "peer write failed: errno=" << errno;
     });
+  }
+
+  void sendPost(network::IoHandlePtr& peer,
+                const std::string& body,
+                const std::string& extra_headers = std::string()) {
+    sendRequest(peer, "POST", body, extra_headers);
+  }
+
+  void sendDelete(network::IoHandlePtr& peer,
+                  const std::string& extra_headers = std::string()) {
+    sendRequest(peer, "DELETE", std::string(), extra_headers);
+  }
+
+  /**
+   * Bring up a second listener on a thread of its own, serving the same
+   * sessions as the first. This is what a deployment with more than one
+   * worker looks like: a session belongs to the thread that accepted its
+   * initialize, and the other thread has to cross over to reach it.
+   */
+  void startOtherWorker() {
+    // The base fixture's dispatcher factory, named explicitly because
+    // this fixture's own factory_ is the filter chain's.
+    other_dispatcher_ =
+        test::RealIoTestBase::factory_->createDispatcher("other_worker");
+    std::promise<void> ready;
+    auto ready_future = ready.get_future();
+    other_thread_ = std::thread([this, &ready]() {
+      other_dispatcher_->post([&ready]() { ready.set_value(); });
+      other_dispatcher_->run(event::RunType::RunUntilExit);
+    });
+    ready_future.wait();
+
+    ServerOptions options;
+    runOnOtherWorker([&]() {
+      other_factory_ = makeFactory(*other_dispatcher_, options);
+      other_factory_->setSessionManager(factory_->sessionManager());
+
+      auto pair = createSocketPair();
+      auto local = network::Address::parseInternetAddress("127.0.0.1", 0);
+      auto remote = network::Address::parseInternetAddress("127.0.0.1", 0);
+      auto socket = std::make_unique<network::ConnectionSocketImpl>(
+          std::move(pair.first), local, remote);
+      auto transport = std::make_unique<network::RawBufferTransportSocket>();
+      other_stream_info_ = std::make_shared<stream_info::StreamInfoImpl>();
+
+      other_conn_ = network::ConnectionImpl::createServerConnection(
+          *other_dispatcher_, std::move(socket), std::move(transport),
+          *other_stream_info_);
+      auto* impl = static_cast<network::ConnectionImpl*>(other_conn_.get());
+      ASSERT_TRUE(other_factory_->createFilterChain(impl->filterManager()));
+      impl->filterManager().initializeReadFilters();
+
+      other_peer_ = std::move(pair.second);
+    });
+  }
+
+  void runOnOtherWorker(const std::function<void()>& fn) {
+    std::promise<void> done;
+    auto done_future = done.get_future();
+    other_dispatcher_->post([&fn, &done]() {
+      fn();
+      done.set_value();
+    });
+    ASSERT_EQ(done_future.wait_for(5s), std::future_status::ready);
+  }
+
+  /** Send on the second worker's connection and read what comes back. */
+  std::string roundTripOnOtherWorker(const std::string& method,
+                                     const std::string& body,
+                                     const std::string& extra_headers) {
+    const std::string request = requestBytes(method, body, extra_headers);
+    runOnOtherWorker([&]() {
+      OwnedBuffer buffer;
+      buffer.add(request);
+      auto result = other_peer_->write(buffer);
+      ASSERT_TRUE(result.ok()) << "peer write failed: errno=" << errno;
+    });
+    return readResponse(other_peer_);
+  }
+
+  void stopOtherWorker() {
+    if (!other_dispatcher_) {
+      return;
+    }
+    runOnOtherWorker([&]() {
+      if (other_conn_) {
+        other_conn_->close(network::ConnectionCloseType::NoFlush);
+      }
+      other_conn_.reset();
+      other_factory_.reset();
+    });
+    other_peer_.reset();
+    other_dispatcher_->exit();
+    if (other_thread_.joinable()) {
+      other_thread_.join();
+    }
+    other_dispatcher_.reset();
   }
 
   std::string readResponse(network::IoHandlePtr& peer,
@@ -176,6 +310,40 @@ class StreamableHttpSessionsTest : public test::RealIoTestBase {
     return out;
   }
 
+  /**
+   * Keep reading until `wanted` status lines have arrived or the budget
+   * runs out. Pipelined answers trickle, so one read gap is not the end.
+   */
+  std::string drainResponses(network::IoHandlePtr& peer,
+                             size_t wanted,
+                             std::chrono::milliseconds budget = 5000ms) {
+    std::string out;
+    const auto deadline = std::chrono::steady_clock::now() + budget;
+    while (std::chrono::steady_clock::now() < deadline) {
+      OwnedBuffer buffer;
+      auto result = peer->read(buffer, 4096);
+      if (result.ok() && *result > 0) {
+        out.append(buffer.toString());
+        if (countStatusLines(out) >= wanted) {
+          return out;
+        }
+      } else {
+        std::this_thread::sleep_for(5ms);
+      }
+    }
+    return out;
+  }
+
+  static size_t countStatusLines(const std::string& wire) {
+    size_t count = 0;
+    size_t at = 0;
+    while ((at = wire.find("HTTP/1.1 ", at)) != std::string::npos) {
+      ++count;
+      at += 1;
+    }
+    return count;
+  }
+
   /** The session id a response handed back, or empty when it handed none. */
   static std::string sessionIdOf(const std::string& response) {
     const std::string name = "\r\nMcp-Session-Id: ";
@@ -184,6 +352,26 @@ class StreamableHttpSessionsTest : public test::RealIoTestBase {
       return std::string();
     }
     const size_t start = at + name.size();
+    return response.substr(start, response.find("\r\n", start) - start);
+  }
+
+  /** The status line's code, or 0 when there is not one. */
+  static int statusOf(const std::string& response) {
+    if (response.compare(0, 9, "HTTP/1.1 ") != 0) {
+      return 0;
+    }
+    return std::atoi(response.c_str() + 9);
+  }
+
+  /** The value of a header, or empty when it was not sent. */
+  static std::string headerOf(const std::string& response,
+                              const std::string& name) {
+    const std::string needle = "\r\n" + name + ": ";
+    const size_t at = response.find(needle);
+    if (at == std::string::npos) {
+      return std::string();
+    }
+    const size_t start = at + needle.size();
     return response.substr(start, response.find("\r\n", start) - start);
   }
 
@@ -201,6 +389,12 @@ class StreamableHttpSessionsTest : public test::RealIoTestBase {
 
   SessionRecordingCallbacks callbacks_;
   std::shared_ptr<HttpSseFilterChainFactory> factory_;
+  event::DispatcherPtr other_dispatcher_;
+  std::thread other_thread_;
+  std::shared_ptr<HttpSseFilterChainFactory> other_factory_;
+  std::unique_ptr<network::ServerConnection> other_conn_;
+  network::IoHandlePtr other_peer_;
+  std::shared_ptr<stream_info::StreamInfoImpl> other_stream_info_;
   std::unique_ptr<network::ServerConnection> conn_;
   std::unique_ptr<network::ServerConnection> second_conn_;
   network::IoHandlePtr peer_;
@@ -313,7 +507,9 @@ TEST_F(StreamableHttpSessionsTest, ArrivingWithoutOneIsARefusal) {
 }
 
 TEST_F(StreamableHttpSessionsTest, AStatelessServerHandsNothingBack) {
-  startServer(/*keep_sessions=*/false);
+  ServerOptions stateless;
+  stateless.keep_sessions = false;
+  startServer(stateless);
   sendPost(peer_, kInitialize);
 
   const std::string response = readResponse(peer_);
@@ -324,7 +520,9 @@ TEST_F(StreamableHttpSessionsTest, AStatelessServerHandsNothingBack) {
 }
 
 TEST_F(StreamableHttpSessionsTest, AStatelessServerDisregardsAnInventedId) {
-  startServer(/*keep_sessions=*/false);
+  ServerOptions stateless;
+  stateless.keep_sessions = false;
+  startServer(stateless);
   connectSecondClient();
 
   // Two callers agreeing on an id they made up. On a server that keeps no
@@ -339,6 +537,229 @@ TEST_F(StreamableHttpSessionsTest, AStatelessServerDisregardsAnInventedId) {
   ASSERT_EQ(callbacks_.sessions.size(), 2u);
   EXPECT_EQ(callbacks_.sessions[0], "");
   EXPECT_EQ(callbacks_.sessions[1], "");
+}
+
+// ── Refusals ───────────────────────────────────────────────────────────────
+
+TEST_F(StreamableHttpSessionsTest, AnIdThisServerNeverIssuedIsNotFound) {
+  startServer();
+  sendPost(peer_, kListTools,
+           "Mcp-Session-Id: 0123456789abcdef0123456789abcdef\r\n");
+
+  const std::string response = readResponse(peer_);
+
+  // 404 rather than 403: the status a client is told to start again on.
+  EXPECT_EQ(statusOf(response), 404) << response;
+  EXPECT_TRUE(callbacks_.sessions.empty());
+}
+
+TEST_F(StreamableHttpSessionsTest, ASessionIsNoUseToAnotherCaller) {
+  ServerOptions options;
+  options.callers_differ = true;
+  startServer(options);
+
+  sendPost(peer_, kInitialize, "X-Test-Caller: alice\r\n");
+  const std::string id = sessionIdOf(readResponse(peer_));
+  ASSERT_TRUE(looksLikeASessionId(id));
+
+  std::chrono::steady_clock::time_point stamped;
+  executeInDispatcher([&]() {
+    auto* session = factory_->sessionManager()->find(id);
+    ASSERT_NE(session, nullptr);
+    stamped = session->last_activity;
+  });
+
+  sendPost(peer_, kListTools,
+           "X-Test-Caller: mallory\r\nMcp-Session-Id: " + id + "\r\n");
+  const std::string response = readResponse(peer_);
+
+  EXPECT_EQ(statusOf(response), 403) << response;
+  ASSERT_EQ(callbacks_.sessions.size(), 1u)
+      << "the refused request must not have reached a handler";
+
+  executeInDispatcher([&]() {
+    auto* session = factory_->sessionManager()->find(id);
+    ASSERT_NE(session, nullptr);
+    // A caller who may not use the session may not keep it alive either,
+    // or an unauthorized prod would postpone expiry indefinitely.
+    EXPECT_EQ(session->last_activity, stamped);
+  });
+}
+
+TEST_F(StreamableHttpSessionsTest, AnIdleSessionStopsWorking) {
+  ServerOptions options;
+  options.timeout = 60ms;
+  startServer(options);
+
+  sendPost(peer_, kInitialize);
+  const std::string id = sessionIdOf(readResponse(peer_));
+  ASSERT_TRUE(looksLikeASessionId(id));
+
+  std::this_thread::sleep_for(300ms);
+
+  sendPost(peer_, kListTools, "Mcp-Session-Id: " + id + "\r\n");
+  EXPECT_EQ(statusOf(readResponse(peer_)), 404);
+}
+
+// ── Ending a session ───────────────────────────────────────────────────────
+
+TEST_F(StreamableHttpSessionsTest, AClientCanEndItsOwnSession) {
+  startServer();
+  sendPost(peer_, kInitialize);
+  const std::string id = sessionIdOf(readResponse(peer_));
+  ASSERT_TRUE(looksLikeASessionId(id));
+
+  sendDelete(peer_, "Mcp-Session-Id: " + id + "\r\n");
+  const std::string ended = readResponse(peer_);
+  EXPECT_EQ(statusOf(ended), 204) << ended;
+
+  // Everything about that id is over: using it and ending it again both
+  // answer the same way, because there is nothing there either time.
+  sendPost(peer_, kListTools, "Mcp-Session-Id: " + id + "\r\n");
+  EXPECT_EQ(statusOf(readResponse(peer_)), 404);
+
+  sendDelete(peer_, "Mcp-Session-Id: " + id + "\r\n");
+  EXPECT_EQ(statusOf(readResponse(peer_)), 404);
+}
+
+TEST_F(StreamableHttpSessionsTest, EndingASessionHasToNameOne) {
+  startServer();
+  sendDelete(peer_);
+
+  EXPECT_EQ(statusOf(readResponse(peer_)), 400);
+}
+
+TEST_F(StreamableHttpSessionsTest, AServerThatForbidsItSaysWhatItDoesServe) {
+  ServerOptions options;
+  options.allow_termination = false;
+  startServer(options);
+
+  sendDelete(peer_, "Mcp-Session-Id: whatever\r\n");
+  const std::string response = readResponse(peer_);
+
+  EXPECT_EQ(statusOf(response), 405) << response;
+  // Rendered from the route table rather than written out, so it names
+  // what is actually served and nothing else.
+  EXPECT_EQ(headerOf(response, "Allow"), "OPTIONS, POST") << response;
+}
+
+TEST_F(StreamableHttpSessionsTest, AServerThatAllowsItAdvertisesIt) {
+  startServer();
+
+  // GET on the endpoint is still a placeholder that refuses, so it stays
+  // out of Allow; DELETE is served and therefore appears.
+  sendRequest(peer_, "GET", "");
+  const std::string response = readResponse(peer_);
+
+  EXPECT_EQ(statusOf(response), 405) << response;
+  EXPECT_EQ(headerOf(response, "Allow"), "DELETE, OPTIONS, POST") << response;
+}
+
+TEST_F(StreamableHttpSessionsTest, AStatelessServerHasNoSessionToEnd) {
+  ServerOptions stateless;
+  stateless.keep_sessions = false;
+  startServer(stateless);
+
+  sendDelete(peer_, "Mcp-Session-Id: whatever\r\n");
+  const std::string response = readResponse(peer_);
+
+  EXPECT_EQ(statusOf(response), 405) << response;
+  EXPECT_EQ(headerOf(response, "Allow"), "OPTIONS, POST") << response;
+}
+
+// ── Protocol revision ──────────────────────────────────────────────────────
+
+TEST_F(StreamableHttpSessionsTest, ARevisionThisServerCannotServeIsRefused) {
+  ServerOptions options;
+  options.keep_sessions = false;
+  options.protocol_versions = {"2025-11-25", "2025-06-18"};
+  startServer(options);
+
+  sendPost(peer_, kListTools, "MCP-Protocol-Version: 1999-01-01\r\n");
+  const std::string response = readResponse(peer_);
+
+  EXPECT_EQ(statusOf(response), 400) << response;
+  EXPECT_NE(response.find("1999-01-01"), std::string::npos) << response;
+  EXPECT_TRUE(callbacks_.sessions.empty());
+}
+
+TEST_F(StreamableHttpSessionsTest, NoRevisionHeaderIsStillServed) {
+  ServerOptions options;
+  options.keep_sessions = false;
+  options.protocol_versions = {"2025-11-25", "2025-06-18"};
+  startServer(options);
+
+  sendPost(peer_, kListTools);
+
+  EXPECT_EQ(statusOf(readResponse(peer_)), 200);
+  ASSERT_EQ(callbacks_.sessions.size(), 1u);
+}
+
+// ── Reaching a session from another worker ─────────────────────────────────
+
+TEST_F(StreamableHttpSessionsTest, ASessionIsUsableFromAnotherWorker) {
+  // Two listeners on two threads over one set of sessions, which is what a
+  // deployment with more than one worker looks like. The session belongs
+  // to the thread that accepted its initialize, so everything the second
+  // listener does with it has to cross over and come back.
+  startServer();
+
+  startOtherWorker();
+
+  sendPost(peer_, kInitialize);
+  const std::string id = sessionIdOf(readResponse(peer_));
+  ASSERT_TRUE(looksLikeASessionId(id));
+
+  const std::string used = roundTripOnOtherWorker(
+      "POST", kListTools, "Mcp-Session-Id: " + id + "\r\n");
+  EXPECT_EQ(statusOf(used), 200) << used;
+
+  const std::string ended = roundTripOnOtherWorker(
+      "DELETE", std::string(), "Mcp-Session-Id: " + id + "\r\n");
+  EXPECT_EQ(statusOf(ended), 204) << ended;
+
+  EXPECT_FALSE(factory_->sessionManager()->known(id))
+      << "ending it on one worker must end it everywhere";
+
+  sendPost(peer_, kListTools, "Mcp-Session-Id: " + id + "\r\n");
+  EXPECT_EQ(statusOf(readResponse(peer_)), 404);
+}
+
+TEST_F(StreamableHttpSessionsTest, TwoWorkersMayUseOneSessionAtOnce) {
+  startServer();
+  startOtherWorker();
+
+  sendPost(peer_, kInitialize);
+  const std::string id = sessionIdOf(readResponse(peer_));
+  ASSERT_TRUE(looksLikeASessionId(id));
+  const std::string with_id = "Mcp-Session-Id: " + id + "\r\n";
+
+  // Fired from both threads without waiting in between, so the second
+  // worker's hops overlap the first worker's direct reads of the same
+  // session. Every one of them is answered and none of them deadlocks.
+  const size_t kRounds = 5;
+  for (size_t i = 0; i < kRounds; ++i) {
+    sendPost(peer_, kListTools, with_id);
+    runOnOtherWorker([&]() {
+      OwnedBuffer buffer;
+      buffer.add(requestBytes("POST", kListTools, with_id));
+      auto result = other_peer_->write(buffer);
+      ASSERT_TRUE(result.ok());
+    });
+  }
+
+  size_t answered = 0;
+  for (const std::string& wire :
+       {drainResponses(peer_, kRounds), drainResponses(other_peer_, kRounds)}) {
+    size_t at = 0;
+    while ((at = wire.find("HTTP/1.1 200 OK", at)) != std::string::npos) {
+      ++answered;
+      at += 1;
+    }
+    EXPECT_EQ(wire.find("HTTP/1.1 4"), std::string::npos)
+        << "a request was refused: " << wire;
+  }
+  EXPECT_EQ(answered, static_cast<size_t>(2 * kRounds));
 }
 
 }  // namespace
