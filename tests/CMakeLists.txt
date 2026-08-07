@@ -1834,6 +1834,18 @@ target_link_libraries(test_streamable_http_post
 )
 add_test(NAME StreamableHttpPostTest COMMAND test_streamable_http_post)
 
+# Session identity as a client reads and echoes it
+add_executable(test_streamable_http_sessions integration/test_streamable_http_sessions.cc)
+target_link_libraries(test_streamable_http_sessions
+    gopher-mcp
+    gopher-mcp-event
+    gtest
+    gtest_main
+    gmock
+    Threads::Threads
+)
+add_test(NAME StreamableHttpSessionsTest COMMAND test_streamable_http_sessions)
+
 add_executable(test_http_sse_filter_client_sse_sm integration/test_http_sse_filter_client_sse_sm.cc)
 target_link_libraries(test_http_sse_filter_client_sse_sm
     gopher-mcp
