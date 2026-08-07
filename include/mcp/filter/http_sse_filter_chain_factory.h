@@ -268,6 +268,19 @@ class HttpSseFilterChainFactory : public network::FilterChainFactory {
    */
   transport::StreamableSessionManager* sessionManager() const;
 
+  /**
+   * Serve sessions someone else keeps, rather than a set of this
+   * factory's own.
+   *
+   * For a deployment with more than one listener: a session belongs to
+   * one conversation, not to the socket it was created on, so a client
+   * that reconnects elsewhere has to find it. The manager is not owned
+   * here and must outlive every connection built from this factory.
+   */
+  void setSessionManager(transport::StreamableSessionManager* manager) {
+    shared_session_manager_ = manager;
+  }
+
   /** Everything the MCP endpoint serves besides the requests themselves. */
   StreamableHttpOptions streamableOptions() const {
     StreamableHttpOptions options = streamable_options_;
@@ -345,6 +358,9 @@ class HttpSseFilterChainFactory : public network::FilterChainFactory {
   // same reason as the store: a session is what a client comes back to
   // after the connection it was created on has gone.
   mutable std::unique_ptr<transport::StreamableSessionManager> session_manager_;
+  // Someone else's, when a deployment keeps one set of sessions across
+  // several listeners. Not owned, and used instead of the one above.
+  transport::StreamableSessionManager* shared_session_manager_{nullptr};
   bool sessions_enabled_{true};
   std::chrono::milliseconds session_timeout_{300000};
 

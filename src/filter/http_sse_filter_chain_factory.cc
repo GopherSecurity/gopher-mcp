@@ -1856,6 +1856,9 @@ transport::StreamableSessionManager* HttpSseFilterChainFactory::sessionManager()
     // in, no connection here can mint one or believe one.
     return nullptr;
   }
+  if (shared_session_manager_ != nullptr) {
+    return shared_session_manager_;
+  }
   if (!session_manager_) {
     session_manager_.reset(
         new transport::StreamableSessionManager(dispatcher_));
