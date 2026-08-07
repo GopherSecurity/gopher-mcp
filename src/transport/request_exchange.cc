@@ -24,18 +24,6 @@ bool RetainedExchangeSink::write(Buffer& data) {
   return true;
 }
 
-void RetainedExchangeSink::retain(const RetainedEvent& event) {
-  if (max_events_ == 0) {
-    ++dropped_;
-    return;
-  }
-  while (events_.size() >= max_events_) {
-    events_.pop_front();
-    ++dropped_;
-  }
-  events_.push_back(event);
-}
-
 // ===== ConnectionExchangeSink =====
 
 bool ConnectionExchangeSink::write(Buffer& data) {
@@ -106,7 +94,11 @@ RequestExchange::RequestExchange(event::Dispatcher& dispatcher,
                                  const optional<RequestId>& id)
     : dispatcher_(dispatcher), sink_(std::move(sink)), request_id_(id) {}
 
-RequestExchange::~RequestExchange() = default;
+RequestExchange::~RequestExchange() {
+  // What was being held is no longer held by anyone, whether or not
+  // whoever was holding this stream got around to saying so.
+  releaseReplay();
+}
 
 void RequestExchange::assertOnDispatcher() const {
   assert(dispatcher_.isThreadSafe() &&
@@ -378,29 +370,48 @@ bool RequestExchange::writeEvent(const std::string& event,
 
   // Every event gets an id, whether or not the caller supplied one: a
   // client that reconnects asks for everything after some id, and an event
-  // without one cannot be placed in that sequence. Whether the id also
-  // goes out on the wire is a separate question — see setEmitEventIds.
-  std::string event_id =
-      id.has_value() ? id.value() : std::to_string(next_event_id_);
-  ++next_event_id_;
+  // without one cannot be placed in that sequence.
+  //
+  // An id from the caller is one this stream did not mint — a replayed
+  // event, or one forwarded from a stream this one is carrying on for — so
+  // it goes out as given and this stream's own sequence stands still.
+  std::string event_id;
+  if (id.has_value()) {
+    event_id = id.value();
+  } else {
+    event_id = resumable() ? stream_id_ + ":" + std::to_string(next_sequence_)
+                           : std::to_string(next_sequence_);
+    ++next_sequence_;
+  }
 
-  if (detached_ && retained_ != nullptr) {
-    // Nobody is listening. Keep the event so a returning client can have
-    // it, unframed so it can be replayed selectively.
-    RetainedEvent retained;
-    retained.id = event_id;
-    retained.event = event;
-    retained.data = data;
-    retained_->retain(retained);
+  RetainedEvent record;
+  record.id = event_id;
+  record.event = event;
+  record.data = data;
+
+  if (resumable() || detached_) {
+    // Kept while it may still be asked for: a resumable stream's client
+    // may come back for what it half-received, and a detached stream's
+    // client is not there to receive anything at all.
+    retainEvent(record);
+  }
+  if (event_observer_) {
+    event_observer_(record);
+  }
+
+  if (detached_) {
+    // Nobody is listening, and what was worth keeping has been kept.
     return true;
   }
 
   if (!stream_writer_) {
     return false;
   }
+  // The id goes out only where a client could come back with it. Anywhere
+  // else it would be a promise with nothing behind it.
   if (!stream_writer_->writeEvent(
           event, data,
-          emit_event_ids_ ? optional<std::string>(event_id) : nullopt)) {
+          resumable() ? optional<std::string>(event_id) : nullopt)) {
     return false;
   }
 
@@ -485,19 +496,54 @@ bool RequestExchange::onConnectionGone() {
 
   // Keep going into a buffer. A client that reconnects can be handed
   // whatever was produced while it was away.
-  std::unique_ptr<RetainedExchangeSink> retained(
-      new RetainedExchangeSink(retained_event_limit_));
-  retained_ = retained.get();
-  sink_ = std::move(retained);
+  sink_.reset(new RetainedExchangeSink());
   detached_ = true;
 
   GOPHER_LOG_DEBUG("RequestExchange detached from its connection");
   return true;
 }
 
-const std::deque<RetainedEvent>& RequestExchange::retainedEvents() const {
-  static const std::deque<RetainedEvent> empty;
-  return retained_ != nullptr ? retained_->events() : empty;
+void RequestExchange::makeResumable(const std::string& stream_id,
+                                    const ReplayAccountingPtr& accounting) {
+  stream_id_ = stream_id;
+  accounting_ = accounting;
+}
+
+void RequestExchange::retainEvent(const RetainedEvent& event) {
+  if (retained_event_limit_ == 0) {
+    ++dropped_events_;
+    return;
+  }
+  while (replay_.size() >= retained_event_limit_) {
+    // A producer that keeps going behind a client that never returns must
+    // not grow this without limit, so the oldest goes — which is also the
+    // one a returning client is least likely to still be asking for.
+    if (accounting_) {
+      accounting_->events.fetch_sub(1);
+      accounting_->bytes.fetch_sub(replay_.front().id.size() +
+                                   replay_.front().event.size() +
+                                   replay_.front().data.size());
+    }
+    replay_.pop_front();
+    ++dropped_events_;
+  }
+  replay_.push_back(event);
+  if (accounting_) {
+    accounting_->events.fetch_add(1);
+    accounting_->bytes.fetch_add(event.id.size() + event.event.size() +
+                                 event.data.size());
+  }
+}
+
+void RequestExchange::releaseReplay() {
+  if (accounting_) {
+    for (const auto& event : replay_) {
+      accounting_->events.fetch_sub(1);
+      accounting_->bytes.fetch_sub(event.id.size() + event.event.size() +
+                                   event.data.size());
+    }
+  }
+  replay_.clear();
 }
 
 }  // namespace transport

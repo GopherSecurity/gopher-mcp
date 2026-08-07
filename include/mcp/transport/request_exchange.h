@@ -1,6 +1,7 @@
 #ifndef MCP_TRANSPORT_REQUEST_EXCHANGE_H
 #define MCP_TRANSPORT_REQUEST_EXCHANGE_H
 
+#include <atomic>
 #include <cstddef>
 #include <deque>
 #include <functional>
@@ -53,9 +54,9 @@ class ExchangeSink {
 using ExchangeSinkPtr = std::unique_ptr<ExchangeSink>;
 
 /**
- * One event held for a client that is not currently connected.
+ * One event held for a client that may come back for it.
  *
- * Retained before framing rather than after: a resuming client asks for
+ * Kept before framing rather than after: a resuming client asks for
  * everything after some event id, which means the events have to be
  * individually addressable. Framed bytes are one opaque run and cannot be
  * replayed selectively.
@@ -67,34 +68,40 @@ struct RetainedEvent {
 };
 
 /**
- * A sink that keeps events instead of sending them, bounded by a count.
+ * How much a server is holding for clients that might come back.
  *
- * Used once a stream is detached from its connection, and by tests that
- * want to observe an exchange without standing up a socket.
+ * Shared by every resumable stream so the total can be answered without
+ * visiting each one, which is not something a single thread may do: the
+ * streams belong to whichever dispatcher accepted them. Atomic for the
+ * same reason.
+ */
+struct ReplayAccounting {
+  std::atomic<size_t> events{0};
+  std::atomic<size_t> bytes{0};
+};
+
+using ReplayAccountingPtr = std::shared_ptr<ReplayAccounting>;
+
+/**
+ * A sink that drops what it is given, keeping only the bytes.
+ *
+ * Used once a stream is detached from its connection — what is worth
+ * keeping is kept by the exchange, in the form a resuming client can be
+ * given — and by tests that want to observe an exchange without standing
+ * up a socket.
  */
 class RetainedExchangeSink : public ExchangeSink {
  public:
-  explicit RetainedExchangeSink(size_t max_events = 256)
-      : max_events_(max_events) {}
+  RetainedExchangeSink() = default;
 
   bool write(Buffer& data) override;
   bool alive() const override { return true; }
 
-  /** Record an event in its unframed form. Oldest is dropped when full. */
-  void retain(const RetainedEvent& event);
-
-  const std::deque<RetainedEvent>& events() const { return events_; }
-
   /** Bytes handed to write(), which is how unary responses are observed. */
   const std::string& bytes() const { return bytes_; }
 
-  size_t droppedEvents() const { return dropped_; }
-
  private:
-  size_t max_events_;
-  std::deque<RetainedEvent> events_;
   std::string bytes_;
-  size_t dropped_{0};
 };
 
 /** A sink that writes to a live connection. */
@@ -254,6 +261,9 @@ class RequestExchange : public std::enable_shared_from_this<RequestExchange> {
 
   ~RequestExchange();
 
+  /** Events dropped from the replay buffer because it was full. */
+  size_t droppedEvents() const { return dropped_events_; }
+
   const optional<RequestId>& requestId() const { return request_id_; }
   Mode mode() const { return mode_; }
   Phase phase() const { return phase_; }
@@ -350,14 +360,43 @@ class RequestExchange : public std::enable_shared_from_this<RequestExchange> {
   bool beginStream();
 
   /**
-   * Whether events carry an "id:" field on the wire.
+   * Make this stream resumable: its events carry ids on the wire, and are
+   * kept, bounded, for a client that comes back asking for what it missed.
    *
-   * Off by default. An id is a promise: a client that reads one may come
-   * back asking for everything after it, and until replay exists there is
-   * nothing behind that promise. Events keep their ids internally either
-   * way — those are what a retained stream is replayed from.
+   * One call rather than two switches, because an id is a promise and this
+   * is what makes it keepable: a client that reads an id may return with
+   * it, so ids go out exactly where there is a buffer behind them and a
+   * stream identity to find that buffer by.
+   *
+   * @param stream_id  Prefixes every id this stream mints, which is what
+   *                   makes those ids unique beyond this one stream.
+   * @param accounting Where the cost of what is being kept is reported.
    */
-  void setEmitEventIds(bool emit) { emit_event_ids_ = emit; }
+  void makeResumable(const std::string& stream_id,
+                     const ReplayAccountingPtr& accounting);
+
+  /** The stream id this exchange's events are minted under, if any. */
+  const std::string& streamId() const { return stream_id_; }
+
+  /**
+   * Give up what was kept for a returning client.
+   *
+   * Called when nobody may ask for it any more. Explicit rather than left
+   * to the last reference going away, so the moment the memory is released
+   * is a moment that can be pointed at.
+   */
+  void releaseReplay();
+
+  /**
+   * Told about each event as it is written, with the id it went out under.
+   *
+   * What a stream that is being followed reports through: a client that
+   * reconnected elsewhere is owed not only what it missed but whatever
+   * comes next.
+   */
+  void setEventObserver(std::function<void(const RetainedEvent&)> observer) {
+    event_observer_ = std::move(observer);
+  }
 
   /**
    * Told when this exchange's stream opens and closes.
@@ -370,7 +409,14 @@ class RequestExchange : public std::enable_shared_from_this<RequestExchange> {
     stream_observer_ = observer;
   }
 
-  /** Append one event to an open stream. */
+  /**
+   * Append one event to an open stream.
+   *
+   * @param id An id from somewhere else — a replayed event, or one
+   *           forwarded from a stream this one is carrying on for. It goes
+   *           out as given and does not advance this stream's own
+   *           sequence, because it belongs to another stream's cursor.
+   */
   bool writeEvent(const std::string& event,
                   const std::string& data,
                   const optional<std::string>& id = nullopt);
@@ -412,9 +458,9 @@ class RequestExchange : public std::enable_shared_from_this<RequestExchange> {
   bool retainOnDisconnect() const { return retain_on_disconnect_; }
 
   /**
-   * How many events to keep for a client that is not connected. Bounded
+   * How many events to keep for a client that may come back. Bounded
    * because a producer that never stops would otherwise grow without limit
-   * behind a client that never comes back.
+   * behind a client that never returns.
    */
   void setRetainedEventLimit(size_t events) { retained_event_limit_ = events; }
 
@@ -428,8 +474,8 @@ class RequestExchange : public std::enable_shared_from_this<RequestExchange> {
    */
   bool onConnectionGone();
 
-  /** Events held after detaching, for a client that comes back for them. */
-  const std::deque<RetainedEvent>& retainedEvents() const;
+  /** Events held for a client that comes back for them. */
+  const std::deque<RetainedEvent>& retainedEvents() const { return replay_; }
 
   /** The sink, for tests and for the owner that swapped it in. */
   ExchangeSink& sink() { return *sink_; }
@@ -446,6 +492,10 @@ class RequestExchange : public std::enable_shared_from_this<RequestExchange> {
 
   void assertOnDispatcher() const;
   bool writeBytes(const std::string& bytes);
+  /** Whether events here are worth keeping, and why. */
+  bool resumable() const { return !stream_id_.empty(); }
+  /** Keep one event, dropping the oldest when the bound is reached. */
+  void retainEvent(const RetainedEvent& event);
   /** True when the response cannot be expressed by the downstream codec. */
   bool needsOwnFraming() const;
   /**
@@ -475,11 +525,17 @@ class RequestExchange : public std::enable_shared_from_this<RequestExchange> {
   ExchangeClientContext client_context_;
   std::function<void()> completion_observer_;
 
-  /** Present only while detached; the sink then points at it. */
-  RetainedExchangeSink* retained_{nullptr};
+  // What a returning client would be given, oldest first. Filled while
+  // this stream is resumable and while nobody is connected to it — the two
+  // cases where an event may still be asked for after it was written.
+  std::deque<RetainedEvent> replay_;
   size_t retained_event_limit_{256};
-  size_t next_event_id_{1};
-  bool emit_event_ids_{false};
+  size_t dropped_events_{0};
+  ReplayAccountingPtr accounting_;
+
+  std::string stream_id_;
+  size_t next_sequence_{1};
+  std::function<void(const RetainedEvent&)> event_observer_;
   http::ResponseWriter::Observer* stream_observer_{nullptr};
 };
 

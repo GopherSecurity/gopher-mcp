@@ -52,10 +52,8 @@ class RequestExchangeTest : public ::testing::Test {
   }
 
   // Build an exchange over a retaining sink and hand back both.
-  RequestExchangePtr makeExchange(RetainedExchangeSink** sink_out = nullptr,
-                                  size_t max_events = 256) {
-    std::unique_ptr<RetainedExchangeSink> sink(
-        new RetainedExchangeSink(max_events));
+  RequestExchangePtr makeExchange(RetainedExchangeSink** sink_out = nullptr) {
+    std::unique_ptr<RetainedExchangeSink> sink(new RetainedExchangeSink());
     if (sink_out != nullptr) {
       *sink_out = sink.get();
     }
@@ -386,29 +384,122 @@ TEST_F(RequestExchangeTest, PhaseFollowsAStreamedAnswerToo) {
   EXPECT_EQ(exchange->phase(), RequestExchange::Phase::Done);
 }
 
-TEST_F(RequestExchangeTest, AnEventCarriesNoIdOnTheWireByDefault) {
+TEST_F(RequestExchangeTest, AStreamWithNoNameMakesNoPromise) {
   RetainedExchangeSink* sink = nullptr;
   auto exchange = makeExchange(&sink);
   ASSERT_TRUE(exchange->beginStream());
 
   ASSERT_TRUE(exchange->writeEvent("message", "hello"));
 
-  // An id is a promise a client may come back and hold us to. Until it can
-  // be honoured, it is not made.
+  // An id is a promise a client may come back and hold us to. A stream
+  // with no identity has nothing to be found by, so it neither makes the
+  // promise nor keeps anything against it.
   EXPECT_EQ(sink->bytes().find("id:"), std::string::npos) << sink->bytes();
   EXPECT_NE(sink->bytes().find("data: hello"), std::string::npos)
       << sink->bytes();
+  EXPECT_TRUE(exchange->retainedEvents().empty());
 }
 
-TEST_F(RequestExchangeTest, AnEventCarriesItsIdOnceAskedTo) {
+TEST_F(RequestExchangeTest, AResumableStreamSaysWhereEachEventSits) {
   RetainedExchangeSink* sink = nullptr;
   auto exchange = makeExchange(&sink);
-  exchange->setEmitEventIds(true);
+  exchange->makeResumable("ab12cd34", nullptr);
   ASSERT_TRUE(exchange->beginStream());
 
   ASSERT_TRUE(exchange->writeEvent("message", "hello"));
+  ASSERT_TRUE(exchange->writeEvent("message", "again"));
 
-  EXPECT_NE(sink->bytes().find("id: 1"), std::string::npos) << sink->bytes();
+  // The stream's own name, then where in it: the first half is what keeps
+  // the id from meaning something else on another stream of the same
+  // session, the second is the cursor a client comes back with.
+  EXPECT_NE(sink->bytes().find("id: ab12cd34:1"), std::string::npos)
+      << sink->bytes();
+  EXPECT_NE(sink->bytes().find("id: ab12cd34:2"), std::string::npos)
+      << sink->bytes();
+}
+
+TEST_F(RequestExchangeTest, AnEventFromSomewhereElseKeepsItsOwnId) {
+  // A replayed or forwarded event carries the id of the stream that minted
+  // it, and leaves this stream's sequence where it was: two streams
+  // counting the same event would each claim it as theirs.
+  RetainedExchangeSink* sink = nullptr;
+  auto exchange = makeExchange(&sink);
+  exchange->makeResumable("ffff0000", nullptr);
+  ASSERT_TRUE(exchange->beginStream());
+
+  ASSERT_TRUE(exchange->writeEvent("message", "borrowed",
+                                   optional<std::string>("aaaa1111:7")));
+  ASSERT_TRUE(exchange->writeEvent("message", "mine"));
+
+  EXPECT_NE(sink->bytes().find("id: aaaa1111:7"), std::string::npos)
+      << sink->bytes();
+  EXPECT_NE(sink->bytes().find("id: ffff0000:1"), std::string::npos)
+      << sink->bytes();
+}
+
+TEST_F(RequestExchangeTest, AResumableStreamKeepsWhatItSentWhileConnected) {
+  // The events a client half-received are exactly the ones it will ask
+  // for, so keeping them only once nobody is listening is too late.
+  auto exchange = makeExchange();
+  exchange->makeResumable("00ff00ff", nullptr);
+  ASSERT_TRUE(exchange->beginStream());
+
+  exchange->writeEvent("message", "a");
+  exchange->writeEvent("message", "b");
+
+  const auto& kept = exchange->retainedEvents();
+  ASSERT_EQ(kept.size(), 2u);
+  EXPECT_EQ(kept[0].id, "00ff00ff:1");
+  EXPECT_EQ(kept[1].data, "b");
+}
+
+TEST_F(RequestExchangeTest, WhatAStreamIsHoldingIsCountedAndGivenBack) {
+  auto accounting = std::make_shared<ReplayAccounting>();
+  auto exchange = makeExchange();
+  exchange->makeResumable("12341234", accounting);
+  ASSERT_TRUE(exchange->beginStream());
+
+  exchange->writeEvent("message", "a");
+  exchange->writeEvent("message", "b");
+  EXPECT_EQ(accounting->events.load(), 2u);
+  EXPECT_GT(accounting->bytes.load(), 0u);
+
+  // Explicit rather than left to the last reference going away, so the
+  // moment the memory is released is a moment that can be pointed at.
+  exchange->releaseReplay();
+  EXPECT_EQ(accounting->events.load(), 0u);
+  EXPECT_EQ(accounting->bytes.load(), 0u);
+}
+
+TEST_F(RequestExchangeTest, WhatIsCountedFallsAwayWithTheExchange) {
+  auto accounting = std::make_shared<ReplayAccounting>();
+  {
+    auto exchange = makeExchange();
+    exchange->makeResumable("56785678", accounting);
+    ASSERT_TRUE(exchange->beginStream());
+    exchange->writeEvent("message", "a");
+    ASSERT_EQ(accounting->events.load(), 1u);
+  }
+  EXPECT_EQ(accounting->events.load(), 0u)
+      << "an exchange nobody released still stops being held";
+}
+
+TEST_F(RequestExchangeTest, EachEventIsReportedAsItIsWritten) {
+  // What a stream being followed reports through.
+  auto exchange = makeExchange();
+  exchange->makeResumable("9999aaaa", nullptr);
+  ASSERT_TRUE(exchange->beginStream());
+
+  std::vector<RetainedEvent> seen;
+  exchange->setEventObserver(
+      [&seen](const RetainedEvent& event) { seen.push_back(event); });
+
+  exchange->writeEvent("message", "one");
+  exchange->writeEvent("message", "two");
+
+  ASSERT_EQ(seen.size(), 2u);
+  EXPECT_EQ(seen[0].id, "9999aaaa:1");
+  EXPECT_EQ(seen[1].data, "two");
 }
 
 TEST_F(RequestExchangeTest, AnEventIsAddressableWhetherOrNotItSaysSo) {
@@ -625,18 +716,6 @@ TEST_F(RequestExchangeTest, TheRetainedRingIsBoundedAndDropsOldestFirst) {
   ASSERT_EQ(retained.size(), 3u);
   EXPECT_EQ(retained[0].data, "2") << "the oldest events go first";
   EXPECT_EQ(retained[2].data, "4") << "the newest event must be kept";
-}
-
-TEST_F(RequestExchangeTest, RetainedSinkDropsOldestWhenFull) {
-  RetainedExchangeSink sink(2);
-  sink.retain(RetainedEvent{"1", "message", "a"});
-  sink.retain(RetainedEvent{"2", "message", "b"});
-  sink.retain(RetainedEvent{"3", "message", "c"});
-
-  ASSERT_EQ(sink.events().size(), 2u);
-  EXPECT_EQ(sink.events()[0].id, "2");
-  EXPECT_EQ(sink.events()[1].id, "3");
-  EXPECT_EQ(sink.droppedEvents(), 1u);
 }
 
 // ── Thread affinity ────────────────────────────────────────────────────────
