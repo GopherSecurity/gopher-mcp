@@ -51,6 +51,9 @@ const char kInitializeMethod[] = "initialize";
 // What a session id is called on the wire, both ways.
 const char kSessionHeader[] = "Mcp-Session-Id";
 
+// The method by which a client ends the session it was given.
+const char kDeleteMethod[] = "DELETE";
+
 /**
  * The protocol revision an initialize response settled on.
  *
@@ -246,14 +249,16 @@ StreamableHttpFilter::StreamableHttpFilter(
     transport::ExchangeRegistry& exchanges,
     Host& host,
     const std::string& mcp_path,
-    transport::StreamableSessionManager* sessions)
+    const StreamableHttpOptions& options)
     : dispatcher_(dispatcher),
       mcp_callbacks_(mcp_callbacks),
       fallback_(fallback),
       exchanges_(exchanges),
       host_(host),
       mcp_path_(mcp_path),
-      sessions_(sessions),
+      options_(options),
+      sessions_(options.sessions),
+      alive_(new int(0)),
       jsonrpc_(new JsonRpcProtocolFilter(*this, dispatcher, kServerMode)) {}
 
 StreamableHttpFilter::~StreamableHttpFilter() = default;
@@ -271,10 +276,17 @@ void StreamableHttpFilter::onHeaders(
   abandonRequest();
 
   const std::string method = headerOr(headers, ":method", "GET");
-  if (method != "POST" || requestPath(headers) != mcp_path_) {
+  if (requestPath(headers) != mcp_path_) {
+    return;
+  }
+  // DELETE only reaches here when the route table admits it, which it does
+  // only when clients are allowed to end their own sessions.
+  const bool served = method == "POST" || method == kDeleteMethod;
+  if (!served) {
     return;
   }
 
+  method_ = method;
   beginRequest(headers);
 }
 
@@ -321,13 +333,9 @@ void StreamableHttpFilter::beginRequest(
     }
     session_id_.clear();
   } else {
+    // Recorded now, judged once the body says whether this request needed
+    // one — and touched only if that judgement lets it be served.
     session_id_ = offered_session;
-    if (!session_id_.empty() && !sessions_->touch(session_id_)) {
-      // Recorded and passed on all the same. Refusing an unrecognised
-      // session is a decision about who may be served, and nothing here
-      // has been given the means to make it yet.
-      GOPHER_LOG_DEBUG("MCP endpoint request presented an unknown session id");
-    }
   }
 
   exchange_->setPhase(transport::RequestExchange::Phase::ReceivingBody);
@@ -359,6 +367,14 @@ void StreamableHttpFilter::finishRequest() {
   // Everything below runs once per HTTP request, which is the whole point:
   // one request gets one answer, whatever its body turned out to contain.
   auto exchange = exchange_;
+
+  if (method_ == kDeleteMethod) {
+    // Nothing to parse: the header is the whole request. It still has to
+    // name a session it is entitled to end, so it goes through the same
+    // judgement as everything else.
+    validateThenDispatch(std::string());
+    return;
+  }
 
   json::JsonValue message;
   try {
@@ -394,13 +410,192 @@ void StreamableHttpFilter::finishRequest() {
   carried_ = Carried::Nothing;
   dispatched_ = 0;
 
-  exchange->setPhase(transport::RequestExchange::Phase::Dispatching);
-
   // Re-serialized rather than passed through: what reaches the parser is
   // then exactly one document, whatever whitespace or line breaks the peer
   // wrapped it in.
+  body_ = message.toString();
+
+  // The method decides whether this request needed a session at all, and
+  // it is not known until the body has been read — which is why the check
+  // lives here rather than back where the headers arrived.
+  std::string method_name;
+  if (message.contains("method") && message["method"].isString()) {
+    method_name = message["method"].getString();
+  }
+
+  validateThenDispatch(method_name);
+}
+
+StreamableHttpFilter::SessionVerdict StreamableHttpFilter::judgeSession(
+    const std::string& id, bool exempt) const {
+  if (sessions_ == nullptr) {
+    // Stateless: there is nothing to present and nothing to withhold.
+    return SessionVerdict::Serve;
+  }
+  if (id.empty()) {
+    return exempt ? SessionVerdict::Serve : SessionVerdict::Missing;
+  }
+
+  transport::SessionCtx* session = sessions_->find(id);
+  if (session == nullptr) {
+    return SessionVerdict::Unknown;
+  }
+  if (!transport::StreamableSessionManager::secureEquals(session->id, id)) {
+    return SessionVerdict::Unknown;
+  }
+
+  if (options_.require_principal_match &&
+      !transport::StreamableSessionManager::secureEquals(session->principal,
+                                                         host_.principal())) {
+    // Holding the id is not the same as being the caller it was minted
+    // for. Deliberately without a touch: a caller who is not entitled to
+    // the session must not be able to keep it alive either.
+    return SessionVerdict::WrongPrincipal;
+  }
+
+  session->last_activity = std::chrono::steady_clock::now();
+  return SessionVerdict::Serve;
+}
+
+void StreamableHttpFilter::refuseSession(SessionVerdict verdict) {
+  switch (verdict) {
+    case SessionVerdict::Missing:
+      GOPHER_LOG_DEBUG("MCP endpoint request arrived without a session id");
+      respondWithError(static_cast<int>(http::HttpStatusCode::BadRequest),
+                       jsonrpc::INVALID_REQUEST,
+                       "Bad Request: Mcp-Session-Id is required for every "
+                       "request after initialize");
+      return;
+    case SessionVerdict::Unknown:
+      // The status a client is told to re-initialize on, which is the only
+      // way back from a session that no longer exists.
+      GOPHER_LOG_DEBUG("MCP endpoint request named a session that is gone");
+      respondWithError(static_cast<int>(http::HttpStatusCode::NotFound),
+                       jsonrpc::INVALID_REQUEST,
+                       "Not Found: no such session; send initialize again");
+      return;
+    case SessionVerdict::WrongPrincipal:
+      GOPHER_LOG_WARN(
+          "MCP endpoint request presented a session belonging to someone "
+          "else");
+      respondWithError(static_cast<int>(http::HttpStatusCode::Forbidden),
+                       jsonrpc::INVALID_REQUEST,
+                       "Forbidden: this session belongs to another caller");
+      return;
+    case SessionVerdict::Serve:
+      return;
+  }
+}
+
+void StreamableHttpFilter::validateThenDispatch(
+    const std::string& method_name) {
+  const bool exempt = method_name == kInitializeMethod;
+
+  if (sessions_ != nullptr && exempt && !session_id_.empty() &&
+      !sessions_->known(session_id_)) {
+    // Introducing yourself is how a client recovers from a session that is
+    // gone, so a stale id here is dropped rather than refused — otherwise
+    // the one request that could get the client a new session is the one
+    // its old id prevents.
+    GOPHER_LOG_DEBUG("initialize arrived with a session id that is gone");
+    session_id_.clear();
+  }
+
+  if (sessions_ == nullptr || exempt || session_id_.empty() ||
+      sessions_->ownedBy(session_id_, dispatcher_)) {
+    // Everything needed is readable from here.
+    resumeAfterValidation(judgeSession(session_id_, exempt));
+    return;
+  }
+
+  // The session belongs to another thread and only that thread may read
+  // it. Nothing further on this connection is parsed until the answer
+  // comes back: HTTP/1.1 answers in request order, so a request behind
+  // this one cannot be answered first.
+  parked_ = true;
+  host_.holdInput(true);
+
+  auto verdict = std::make_shared<SessionVerdict>(SessionVerdict::Unknown);
+  const std::string id = session_id_;
+  std::weak_ptr<int> alive = alive_;
+
+  const bool terminating = method_ == kDeleteMethod;
+
+  sessions_->withSession(
+      dispatcher_, id,
+      [this, verdict, id, exempt, terminating](transport::SessionCtx&) {
+        *verdict = judgeSession(id, exempt);
+        if (*verdict == SessionVerdict::Serve && terminating) {
+          // Ending it belongs on the thread that owns it, which is this
+          // one and not the one the request arrived on.
+          sessions_->remove(id);
+        }
+      },
+      [this, verdict, alive](bool found) {
+        if (alive.expired()) {
+          // The connection died while its request was being judged. There
+          // is nobody left to answer and nothing left to answer through.
+          return;
+        }
+        resumeAfterValidation(found ? *verdict : SessionVerdict::Unknown);
+      });
+}
+
+void StreamableHttpFilter::resumeAfterValidation(SessionVerdict verdict) {
+  if (parked_) {
+    parked_ = false;
+    host_.holdInput(false);
+  }
+  if (!exchange_) {
+    return;
+  }
+
+  if (verdict != SessionVerdict::Serve) {
+    refuseSession(verdict);
+    abandonRequest();
+    return;
+  }
+
+  if (method_ == kDeleteMethod) {
+    terminateSession();
+    return;
+  }
+
+  dispatchBody();
+}
+
+void StreamableHttpFilter::terminateSession() {
+  if (!exchange_) {
+    return;
+  }
+
+  if (sessions_ != nullptr && !session_id_.empty() &&
+      sessions_->ownedBy(session_id_, dispatcher_)) {
+    // Owned here means the judgement ran here too, so the session is still
+    // standing and this is where it ends. When it is owned elsewhere the
+    // thread that judged it has already ended it — the same predicate
+    // chose that path.
+    sessions_->remove(session_id_);
+  }
+
+  GOPHER_LOG_DEBUG("MCP endpoint ended session {} at the client's request",
+                   session_id_);
+
+  // There is genuinely nothing to say back: the session the client was
+  // asking about no longer exists.
+  exchange_->setPhase(transport::RequestExchange::Phase::Responding202);
+  exchange_->setStatus(static_cast<int>(http::HttpStatusCode::NoContent));
+  exchange_->respondUnary("", "");
+  abandonRequest();
+}
+
+void StreamableHttpFilter::dispatchBody() {
+  auto exchange = exchange_;
+
+  exchange->setPhase(transport::RequestExchange::Phase::Dispatching);
+
   OwnedBuffer parsed;
-  parsed.add(message.toString());
+  parsed.add(body_);
   jsonrpc_->onData(parsed, /*end_stream=*/true);
 
   if (exchange->mode() != transport::RequestExchange::Mode::Open) {
@@ -509,9 +704,16 @@ void StreamableHttpFilter::respondWithError(int status_code,
 }
 
 void StreamableHttpFilter::abandonRequest() {
+  if (parked_) {
+    // Whatever is coming back for this request has nothing to answer any
+    // more, so stop holding the connection's input on its behalf.
+    parked_ = false;
+    host_.holdInput(false);
+  }
   body_.clear();
   session_id_.clear();
   minted_session_id_.clear();
+  method_.clear();
   carried_ = Carried::Nothing;
   dispatched_ = 0;
   exchange_.reset();

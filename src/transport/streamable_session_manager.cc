@@ -228,6 +228,30 @@ bool StreamableSessionManager::known(const std::string& id) const {
   return directory_.find(id) != directory_.end();
 }
 
+bool StreamableSessionManager::ownedBy(const std::string& id,
+                                       event::Dispatcher& dispatcher) const {
+  std::lock_guard<std::mutex> lock(directory_mutex_);
+  auto it = directory_.find(id);
+  return it != directory_.end() && it->second.owner == &dispatcher;
+}
+
+bool StreamableSessionManager::secureEquals(const std::string& left,
+                                            const std::string& right) {
+  // Length is not a secret — it is visible in the header — so differing
+  // lengths may answer at once. What must not leak is where two values of
+  // the same length first differ, so every byte is compared whatever the
+  // earlier ones said.
+  if (left.size() != right.size()) {
+    return false;
+  }
+  unsigned char difference = 0;
+  for (size_t i = 0; i < left.size(); ++i) {
+    difference |= static_cast<unsigned char>(left[i]) ^
+                  static_cast<unsigned char>(right[i]);
+  }
+  return difference == 0;
+}
+
 void StreamableSessionManager::withSession(event::Dispatcher& caller,
                                            const std::string& id,
                                            SessionFn fn,

@@ -96,6 +96,13 @@ class StreamableHttpPostTest : public test::RealIoTestBase {
                                                       /*sse_path=*/"/sse",
                                                       /*rpc_path=*/"/mcp");
 
+      // Stateless, because what is under test here is framing rather than
+      // identity: with sessions on, every request below would have to
+      // introduce itself first, which the session tests already cover.
+      transport::StreamableHttpConfig config;
+      config.enable_sessions = false;
+      factory_->setSessionConfig(config);
+
       auto pair = createSocketPair();
       auto local = network::Address::parseInternetAddress("127.0.0.1", 0);
       auto remote = network::Address::parseInternetAddress("127.0.0.1", 0);
@@ -260,13 +267,15 @@ TEST_F(StreamableHttpPostTest, TwoPostsOnOneConnectionAreBothAnswered) {
   EXPECT_EQ(callbacks_.requests[1].method, "tools/list");
 }
 
-TEST_F(StreamableHttpPostTest, TheSessionHeaderTravelsWithTheMessage) {
+TEST_F(StreamableHttpPostTest, AStatelessServerServesWithoutOneAndIgnoresOne) {
   startServer();
   sendPost(kInitialize, "Mcp-Session-Id: session-7\r\n");
 
   ASSERT_FALSE(readResponse().empty());
   ASSERT_EQ(callbacks_.sessions.size(), 1u);
-  EXPECT_EQ(callbacks_.sessions[0], "session-7");
+  // What a session id means to a server that keeps sessions is the session
+  // tests' subject. Here it means nothing, which is the point.
+  EXPECT_EQ(callbacks_.sessions[0], "");
 }
 
 }  // namespace

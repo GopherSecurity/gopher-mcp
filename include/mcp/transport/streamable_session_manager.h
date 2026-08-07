@@ -172,6 +172,27 @@ class StreamableSessionManager {
   /** Whether the id names a live session, whoever owns it. */
   bool known(const std::string& id) const;
 
+  /**
+   * Whether the given dispatcher is the one entitled to read this session.
+   *
+   * Deliberately without the affinity assertion the accessors carry: asking
+   * whether you may look is exactly what a thread that may not is supposed
+   * to do first.
+   */
+  bool ownedBy(const std::string& id, event::Dispatcher& dispatcher) const;
+
+  /**
+   * Compare two secrets without letting the time taken say how far they
+   * matched. Used for the session id and the principal bound to it.
+   *
+   * What this does not cover: finding the session is a hash lookup, and a
+   * hash lookup is not constant time. That is deliberate and it is fine —
+   * the lookup happens once per request against a table the caller cannot
+   * choose the shape of, whereas a comparison can be probed repeatedly with
+   * input the caller picks, one character at a time.
+   */
+  static bool secureEquals(const std::string& left, const std::string& right);
+
   using SessionFn = std::function<void(SessionCtx&)>;
   using DoneFn = std::function<void(bool found)>;
 

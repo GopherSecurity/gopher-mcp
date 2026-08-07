@@ -140,6 +140,12 @@ class StreamableHttpSseResponseTest : public test::RealIoTestBase {
                                                       /*sse_path=*/"/sse",
                                                       /*rpc_path=*/"/mcp");
       factory_->setStreamGatePolicy(gate);
+      // Stateless, because what is under test here is framing rather than
+      // identity: with sessions on, every request below would have to
+      // introduce itself first, which the session tests already cover.
+      transport::StreamableHttpConfig config;
+      config.enable_sessions = false;
+      factory_->setSessionConfig(config);
     });
   }
 

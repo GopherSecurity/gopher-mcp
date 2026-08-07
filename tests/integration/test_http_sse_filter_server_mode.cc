@@ -94,6 +94,13 @@ class ServerModeFilterTest : public test::RealIoTestBase {
                                                       /*use_sse=*/true,
                                                       /*sse_path=*/"/sse",
                                                       /*rpc_path=*/"/mcp");
+
+      // Stateless: this file is about the older transport and how a POST
+      // is framed, not about identity. With sessions on, every request
+      // here would have to introduce itself first.
+      transport::StreamableHttpConfig stateless;
+      stateless.enable_sessions = false;
+      factory->setSessionConfig(stateless);
     }
 
     auto pair = createSocketPair();
@@ -377,6 +384,9 @@ TEST_F(ServerModeFilterTest, PostMcp_BindsOriginatingConnectionBeforeRequest) {
         *dispatcher_, callbacks, /*is_server=*/true,
         /*http_path=*/"/mcp", /*http_host=*/"localhost", /*use_sse=*/true,
         /*sse_path=*/"/sse", /*rpc_path=*/"/mcp");
+    transport::StreamableHttpConfig shared_stateless;
+    shared_stateless.enable_sessions = false;
+    shared_factory->setSessionConfig(shared_stateless);
 
     auto first = makeServerHarnessWithUnixPair(callbacks, shared_factory);
     first_conn = std::move(first.conn);
@@ -460,42 +470,10 @@ TEST_F(ServerModeFilterTest, PlainPost_AnnouncesEmptyBinding) {
   closeOnDispatcher(std::move(conn), std::move(factory));
 }
 
-TEST_F(ServerModeFilterTest, StreamablePost_AnnouncesMcpSessionIdBinding) {
-  ServerModeCallbacks callbacks;
-  std::unique_ptr<network::ServerConnection> conn;
-  network::IoHandlePtr peer;
-  std::shared_ptr<HttpSseFilterChainFactory> factory;
-
-  executeInDispatcher([&]() {
-    auto h = makeServerHarness(callbacks);
-    conn = std::move(h.conn);
-    peer = std::move(h.peer);
-    factory = std::move(h.factory);
-
-    std::string body = R"({"jsonrpc":"2.0","method":"ping","id":3})";
-    std::string request =
-        "POST /mcp HTTP/1.1\r\n"
-        "Host: localhost\r\n"
-        "Content-Type: application/json\r\n"
-        "Mcp-Session-Id: streamable-client-1\r\n"
-        "Content-Length: " +
-        std::to_string(body.size()) +
-        "\r\n"
-        "\r\n" +
-        body;
-    writeClientBytes(*peer, request);
-  });
-
-  std::this_thread::sleep_for(200ms);
-
-  ASSERT_EQ(callbacks.requests_.size(), 1u);
-  EXPECT_EQ(callbacks.requests_[0].method, "ping");
-  EXPECT_EQ(callbacks.binding_at_request_[0], "streamable-client-1")
-      << "Streamable HTTP dispatch must propagate Mcp-Session-Id as the "
-         "transport session id";
-
-  closeOnDispatcher(std::move(conn), std::move(factory));
-}
+// A POST to the MCP endpoint announcing its session is covered where a
+// session id can actually be obtained: a server that keeps sessions only
+// recognises ids it issued, so handing it an invented one proves nothing
+// about propagation.
 
 // ── Callback-proxy notification must not leak a 202 onto the SSE stream ──
 //

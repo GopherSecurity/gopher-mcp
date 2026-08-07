@@ -66,9 +66,11 @@ class TestHost : public StreamableHttpFilter::Host {
   }
   http::ResponseWriter::Observer* streamObserver() override { return nullptr; }
   bool streamEndsConnection() const override { return false; }
+  void holdInput(bool hold) override { input_held = hold; }
 
   std::string principal_value{"anonymous"};
   http::ResponseWriter::HeaderList framed_headers;
+  bool input_held{false};
 
  private:
   std::string& wire_;
@@ -193,7 +195,7 @@ class StreamableHttpFilterTest : public ::testing::Test {
 
     host_.reset(new TestHost(wire_));
     exchanges_.reset(new transport::ExchangeRegistry(*dispatcher_));
-    buildFilter(/*sessions=*/nullptr);
+    buildFilter(StreamableHttpOptions());
   }
 
   void TearDown() override {
@@ -206,10 +208,10 @@ class StreamableHttpFilterTest : public ::testing::Test {
     factory_.reset();
   }
 
-  void buildFilter(transport::StreamableSessionManager* sessions) {
+  void buildFilter(const StreamableHttpOptions& options) {
     filter_.reset(new StreamableHttpFilter(*dispatcher_, callbacks_, fallback_,
                                            *exchanges_, *host_, "/mcp",
-                                           sessions));
+                                           options));
     codec_.reset(new HttpCodecFilter(*filter_, *dispatcher_,
                                      /*is_server=*/true));
     codec_->onNewConnection();
@@ -217,9 +219,12 @@ class StreamableHttpFilterTest : public ::testing::Test {
   }
 
   /** Rebuild the filter as a server that keeps sessions. */
-  void keepSessions() {
+  void keepSessions(bool require_principal_match = true) {
     sessions_.reset(new transport::StreamableSessionManager(*dispatcher_));
-    buildFilter(sessions_.get());
+    StreamableHttpOptions options;
+    options.sessions = sessions_.get();
+    options.require_principal_match = require_principal_match;
+    buildFilter(options);
   }
 
   /** The session id the last answer handed back, if it handed one back. */
@@ -243,6 +248,14 @@ class StreamableHttpFilterTest : public ::testing::Test {
            "Content-Type: application/json\r\n" +
            extra_headers + "Content-Length: " + std::to_string(body.size()) +
            "\r\n\r\n" + body;
+  }
+
+  static std::string del(const std::string& path,
+                         const std::string& extra_headers = "") {
+    return "DELETE " + path +
+           " HTTP/1.1\r\n"
+           "Host: localhost\r\n" +
+           extra_headers + "Content-Length: 0\r\n\r\n";
   }
 
   void feed(const std::string& bytes) {
@@ -640,9 +653,12 @@ TEST_F(StreamableHttpFilterTest, NothingButInitializeCreatesASession) {
   feed(
       post("/mcp", "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}"));
 
+  // Anything else has to arrive with a session already, so there is nothing
+  // here to mint one for and nothing to serve.
   EXPECT_TRUE(sessionIdOnTheWire().empty()) << wire_;
   EXPECT_EQ(sessions_->size(), 0u);
-  EXPECT_EQ(callbacks_.session_at_request, "");
+  EXPECT_EQ(wire_.find("HTTP/1.1 400 Bad Request\r\n"), 0u) << wire_;
+  EXPECT_EQ(callbacks_.session_at_request, "<never dispatched>");
 }
 
 TEST_F(StreamableHttpFilterTest, TwoClientsAreGivenDifferentSessions) {
@@ -751,16 +767,102 @@ TEST_F(StreamableHttpFilterTest, AStatelessServerDisregardsAnOfferedSession) {
   EXPECT_EQ(callbacks_.session_at_request, "");
 }
 
-TEST_F(StreamableHttpFilterTest, AnUnrecognisedSessionIsStillPassedOn) {
+TEST_F(StreamableHttpFilterTest, ASessionThisServerNeverIssuedIsRefused) {
   keepSessions();
 
-  // Refusing one is a decision about who may be served, and nothing here
-  // has been given the means to make it yet.
   feed(post("/mcp", "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}",
             "Mcp-Session-Id: 0123456789abcdef0123456789abcdef\r\n"));
 
-  EXPECT_EQ(callbacks_.session_at_request, "0123456789abcdef0123456789abcdef");
-  EXPECT_EQ(wire_.find("HTTP/1.1 404"), std::string::npos) << wire_;
+  // 404 rather than 403: the status a client is told to start again on.
+  EXPECT_EQ(wire_.find("HTTP/1.1 404 Not Found\r\n"), 0u) << wire_;
+  EXPECT_NE(wire_.find("send initialize again"), std::string::npos) << wire_;
+  EXPECT_EQ(callbacks_.session_at_request, "<never dispatched>");
+}
+
+TEST_F(StreamableHttpFilterTest, AStaleSessionOnInitializeIsDroppedNotRefused) {
+  keepSessions();
+
+  // Introducing yourself is the way back from a session that is gone, so
+  // refusing it would leave a client with no way back at all.
+  feed(post("/mcp", kRequestBody,
+            "Mcp-Session-Id: 0123456789abcdef0123456789abcdef\r\n"));
+
+  const std::string id = sessionIdOnTheWire();
+  ASSERT_EQ(id.size(), 32u) << wire_;
+  EXPECT_NE(id, "0123456789abcdef0123456789abcdef");
+  EXPECT_EQ(callbacks_.session_at_request, id);
+}
+
+TEST_F(StreamableHttpFilterTest, ASessionIsNotUsableByAnotherCaller) {
+  keepSessions();
+  host_->principal_value = "alice";
+  feed(post("/mcp", kRequestBody));
+  const std::string id = sessionIdOnTheWire();
+  ASSERT_FALSE(id.empty());
+
+  transport::SessionCtx* session = sessions_->find(id);
+  ASSERT_NE(session, nullptr);
+  const auto stamped = session->last_activity;
+
+  wire_.clear();
+  host_->principal_value = "mallory";
+  feed(post("/mcp", "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\"}",
+            "Mcp-Session-Id: " + id + "\r\n"));
+
+  EXPECT_EQ(wire_.find("HTTP/1.1 403 Forbidden\r\n"), 0u) << wire_;
+  EXPECT_EQ(callbacks_.session_at_request, id)
+      << "the refused request must not have reached a handler";
+  // A caller who is not entitled to the session must not be able to keep
+  // it alive either, or an unauthorized prod would postpone expiry forever.
+  EXPECT_EQ(sessions_->find(id)->last_activity, stamped);
+}
+
+TEST_F(StreamableHttpFilterTest, WithoutPrincipalMatchingTheIdIsEnough) {
+  keepSessions(/*require_principal_match=*/false);
+  host_->principal_value = "alice";
+  feed(post("/mcp", kRequestBody));
+  const std::string id = sessionIdOnTheWire();
+  ASSERT_FALSE(id.empty());
+
+  wire_.clear();
+  host_->principal_value = "mallory";
+  feed(post("/mcp", "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\"}",
+            "Mcp-Session-Id: " + id + "\r\n"));
+
+  EXPECT_EQ(wire_.find("HTTP/1.1 403"), std::string::npos) << wire_;
+  EXPECT_EQ(callbacks_.session_at_request, id);
+}
+
+TEST_F(StreamableHttpFilterTest, AStatelessServerRefusesNothing) {
+  // None of these rules exist without sessions: there is nothing to
+  // present, so nothing can be missing, unknown or someone else's.
+  feed(
+      post("/mcp", "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}"));
+
+  EXPECT_EQ(wire_.find("HTTP/1.1 400"), std::string::npos) << wire_;
+  EXPECT_EQ(callbacks_.session_at_request, "");
+  ASSERT_EQ(callbacks_.requests.size(), 1u);
+}
+
+TEST_F(StreamableHttpFilterTest, ANotificationNeedsASessionToo) {
+  keepSessions();
+
+  // The rule is about the session, not about what the body turned out to
+  // carry: a notification from nobody in particular is still from nobody.
+  feed(post("/mcp", kNotificationBody));
+
+  EXPECT_EQ(wire_.find("HTTP/1.1 400 Bad Request\r\n"), 0u) << wire_;
+  EXPECT_TRUE(callbacks_.notifications.empty());
+}
+
+TEST_F(StreamableHttpFilterTest, NothingIsHeldBackWhileJudgingLocally) {
+  keepSessions();
+
+  feed(post("/mcp", kRequestBody));
+
+  // The session is owned by this very dispatcher, so there was nothing to
+  // wait for and no reason to stop reading the connection.
+  EXPECT_FALSE(host_->input_held);
 }
 
 TEST_F(StreamableHttpFilterTest, AClientWithASessionIsNotGivenAnother) {
@@ -791,6 +893,72 @@ TEST_F(StreamableHttpFilterTest, AStreamedInitializeAnnouncesItsSessionFirst) {
   const size_t header_end = wire_.find("\r\n\r\n");
   ASSERT_NE(header_end, std::string::npos) << wire_;
   EXPECT_LT(wire_.find(id), header_end) << wire_;
+}
+
+TEST_F(StreamableHttpFilterTest, AClientCanEndTheSessionItWasGiven) {
+  keepSessions();
+  feed(post("/mcp", kRequestBody));
+  const std::string id = sessionIdOnTheWire();
+  ASSERT_FALSE(id.empty());
+
+  wire_.clear();
+  feed(del("/mcp", "Mcp-Session-Id: " + id + "\r\n"));
+
+  // Nothing to say back: the thing the client was asking about is gone.
+  EXPECT_EQ(wire_.find("HTTP/1.1 204 No Content\r\n"), 0u) << wire_;
+  EXPECT_FALSE(sessions_->known(id));
+  EXPECT_EQ(sessions_->size(), 0u);
+}
+
+TEST_F(StreamableHttpFilterTest, ASessionEndedTwiceIsNotFoundTheSecondTime) {
+  keepSessions();
+  feed(post("/mcp", kRequestBody));
+  const std::string id = sessionIdOnTheWire();
+  ASSERT_FALSE(id.empty());
+  feed(del("/mcp", "Mcp-Session-Id: " + id + "\r\n"));
+
+  wire_.clear();
+  feed(del("/mcp", "Mcp-Session-Id: " + id + "\r\n"));
+
+  EXPECT_EQ(wire_.find("HTTP/1.1 404 Not Found\r\n"), 0u) << wire_;
+}
+
+TEST_F(StreamableHttpFilterTest, AnEndedSessionCannotBeUsedAgain) {
+  keepSessions();
+  feed(post("/mcp", kRequestBody));
+  const std::string id = sessionIdOnTheWire();
+  ASSERT_FALSE(id.empty());
+  feed(del("/mcp", "Mcp-Session-Id: " + id + "\r\n"));
+
+  wire_.clear();
+  feed(post("/mcp", "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\"}",
+            "Mcp-Session-Id: " + id + "\r\n"));
+
+  EXPECT_EQ(wire_.find("HTTP/1.1 404 Not Found\r\n"), 0u) << wire_;
+}
+
+TEST_F(StreamableHttpFilterTest, EndingASessionNeedsToNameOne) {
+  keepSessions();
+
+  feed(del("/mcp"));
+
+  EXPECT_EQ(wire_.find("HTTP/1.1 400 Bad Request\r\n"), 0u) << wire_;
+}
+
+TEST_F(StreamableHttpFilterTest, ASessionCannotBeEndedByAnotherCaller) {
+  keepSessions();
+  host_->principal_value = "alice";
+  feed(post("/mcp", kRequestBody));
+  const std::string id = sessionIdOnTheWire();
+  ASSERT_FALSE(id.empty());
+
+  wire_.clear();
+  host_->principal_value = "mallory";
+  feed(del("/mcp", "Mcp-Session-Id: " + id + "\r\n"));
+
+  EXPECT_EQ(wire_.find("HTTP/1.1 403 Forbidden\r\n"), 0u) << wire_;
+  EXPECT_TRUE(sessions_->known(id))
+      << "a caller who may not use the session may not end it either";
 }
 
 }  // namespace

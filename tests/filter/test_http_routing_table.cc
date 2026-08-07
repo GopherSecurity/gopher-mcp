@@ -66,12 +66,18 @@ class HttpRoutingTableTest : public test::RealIoTestBase {
   // the captured filter sees the finished table.
   Harness makeServerHarness(RoutingCallbacks& callbacks,
                             const std::string& rpc_path = "/mcp",
-                            const std::string& sse_path = "/sse") {
+                            const std::string& sse_path = "/sse",
+                            bool allow_client_termination = true) {
     auto factory = std::make_shared<HttpSseFilterChainFactory>(
         *dispatcher_, callbacks,
         /*is_server=*/true, rpc_path,
         /*http_host=*/"localhost",
         /*use_sse=*/true, sse_path, rpc_path);
+    // What the endpoint serves is what the table admits, and what the
+    // table admits is what Allow advertises.
+    transport::StreamableHttpConfig config;
+    config.allow_client_termination = allow_client_termination;
+    factory->setSessionConfig(config);
     factory->setRouteRegistrationCallback(
         [this](HttpRoutingFilter* router) { router_ = router; });
 
@@ -182,7 +188,8 @@ TEST_F(HttpRoutingTableTest, GetMcpIsRejectedWithoutHanging) {
       << "Expected 405, got: " << wire;
   // Access-Control-Allow-Origin also contains "Allow", so match the
   // header name at the start of a line.
-  EXPECT_NE(wire.find("\r\nAllow: OPTIONS, POST\r\n"), std::string::npos)
+  EXPECT_NE(wire.find("\r\nAllow: DELETE, OPTIONS, POST\r\n"),
+            std::string::npos)
       << "405 must advertise the methods the endpoint serves, got: " << wire;
   EXPECT_LT(elapsed, 2000ms) << "Response must not wait out the read budget";
   EXPECT_TRUE(callbacks.requests_.empty())
@@ -191,14 +198,18 @@ TEST_F(HttpRoutingTableTest, GetMcpIsRejectedWithoutHanging) {
   closeOnDispatcher(std::move(conn), std::move(factory));
 }
 
-TEST_F(HttpRoutingTableTest, DeleteMcpIsRejectedWithAllow) {
+// Ending a session is served or refused according to configuration, and
+// Allow follows suit — it is rendered from the table rather than written
+// out anywhere, so it cannot advertise something that would not be served.
+TEST_F(HttpRoutingTableTest, DeleteMcpIsRejectedWhenTerminationIsOff) {
   RoutingCallbacks callbacks;
   std::unique_ptr<network::ServerConnection> conn;
   network::IoHandlePtr peer;
   std::shared_ptr<HttpSseFilterChainFactory> factory;
 
   executeInDispatcher([&]() {
-    auto h = makeServerHarness(callbacks);
+    auto h = makeServerHarness(callbacks, "/mcp", "/sse",
+                               /*allow_client_termination=*/false);
     conn = std::move(h.conn);
     peer = std::move(h.peer);
     factory = std::move(h.factory);
@@ -209,7 +220,7 @@ TEST_F(HttpRoutingTableTest, DeleteMcpIsRejectedWithAllow) {
   EXPECT_NE(wire.find("HTTP/1.1 405 Method Not Allowed"), std::string::npos)
       << "Expected 405, got: " << wire;
   EXPECT_NE(wire.find("\r\nAllow: OPTIONS, POST\r\n"), std::string::npos)
-      << "Expected Allow header, got: " << wire;
+      << "Expected Allow without DELETE, got: " << wire;
 
   closeOnDispatcher(std::move(conn), std::move(factory));
 }
@@ -223,7 +234,10 @@ TEST_F(HttpRoutingTableTest, RejectedRequestWithBodyLeavesConnectionUsable) {
   std::shared_ptr<HttpSseFilterChainFactory> factory;
 
   executeInDispatcher([&]() {
-    auto h = makeServerHarness(callbacks);
+    // Termination off, so DELETE is a route that rejects — which is what
+    // this test needs: a rejection answered from the headers alone.
+    auto h = makeServerHarness(callbacks, "/mcp", "/sse",
+                               /*allow_client_termination=*/false);
     conn = std::move(h.conn);
     peer = std::move(h.peer);
     factory = std::move(h.factory);
@@ -436,7 +450,8 @@ TEST_F(HttpRoutingTableTest, ConfiguredEndpointPathIsHonored) {
   std::string wire = drainPeer(*peer, 2000ms);
   EXPECT_NE(wire.find("HTTP/1.1 405 Method Not Allowed"), std::string::npos)
       << "Expected 405 on the configured endpoint, got: " << wire;
-  EXPECT_NE(wire.find("\r\nAllow: OPTIONS, POST\r\n"), std::string::npos)
+  EXPECT_NE(wire.find("\r\nAllow: DELETE, OPTIONS, POST\r\n"),
+            std::string::npos)
       << "Expected Allow on the configured endpoint, got: " << wire;
 
   executeInDispatcher([&]() {

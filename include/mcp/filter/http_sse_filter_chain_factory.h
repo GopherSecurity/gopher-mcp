@@ -11,6 +11,7 @@
 #include "mcp/filter/http_security_filter.h"
 #include "mcp/filter/json_rpc_protocol_filter.h"
 #include "mcp/filter/sse_codec_filter.h"
+#include "mcp/filter/streamable_http_filter.h"
 #include "mcp/network/connection.h"
 #include "mcp/network/filter.h"
 #include "mcp/transport/exchange_registry.h"
@@ -250,6 +251,11 @@ class HttpSseFilterChainFactory : public network::FilterChainFactory {
   void setSessionConfig(const transport::StreamableHttpConfig& config) {
     sessions_enabled_ = config.enable_sessions;
     session_timeout_ = config.session_timeout;
+    streamable_options_.protocol_versions = config.protocol_versions;
+    streamable_options_.require_principal_match =
+        config.require_principal_match;
+    streamable_options_.allow_client_termination =
+        config.allow_client_termination;
     if (session_manager_) {
       session_manager_->setTimeout(session_timeout_);
     }
@@ -261,6 +267,13 @@ class HttpSseFilterChainFactory : public network::FilterChainFactory {
    * factory builds stateless chains.
    */
   transport::StreamableSessionManager* sessionManager() const;
+
+  /** Everything the MCP endpoint serves besides the requests themselves. */
+  StreamableHttpOptions streamableOptions() const {
+    StreamableHttpOptions options = streamable_options_;
+    options.sessions = sessionManager();
+    return options;
+  }
 
   /** Resolves who each request is from. Defaults to serving everyone. */
   void setAuthCallback(AuthCallback callback) {
@@ -334,6 +347,10 @@ class HttpSseFilterChainFactory : public network::FilterChainFactory {
   mutable std::unique_ptr<transport::StreamableSessionManager> session_manager_;
   bool sessions_enabled_{true};
   std::chrono::milliseconds session_timeout_{300000};
+
+  // What the MCP endpoint serves besides requests. Its session manager is
+  // filled in per chain, since that is the part built lazily.
+  StreamableHttpOptions streamable_options_;
 
   // NOTE: the factory intentionally does not retain the filters it creates.
   // Each connection's FilterManager owns its own filter-chain instance for

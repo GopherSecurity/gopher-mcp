@@ -298,15 +298,18 @@ TEST_F(StreamableHttpSessionsTest, ABrowserIsAllowedToReadTheId) {
       << response;
 }
 
-TEST_F(StreamableHttpSessionsTest, NothingButInitializeEarnsAnId) {
+TEST_F(StreamableHttpSessionsTest, ArrivingWithoutOneIsARefusal) {
   startServer();
   sendPost(peer_, kListTools);
 
   const std::string response = readResponse(peer_);
 
+  // Every request after initialize has to say which conversation it
+  // belongs to, and nothing here does.
+  EXPECT_EQ(response.find("HTTP/1.1 400 Bad Request\r\n"), 0u) << response;
   EXPECT_TRUE(sessionIdOf(response).empty()) << response;
-  ASSERT_EQ(callbacks_.sessions.size(), 1u);
-  EXPECT_EQ(callbacks_.sessions[0], "");
+  EXPECT_TRUE(callbacks_.sessions.empty())
+      << "the refused request must not have reached a handler";
 }
 
 TEST_F(StreamableHttpSessionsTest, AStatelessServerHandsNothingBack) {

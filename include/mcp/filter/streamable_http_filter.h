@@ -25,6 +25,35 @@ class Connection;
 namespace filter {
 
 /**
+ * What the MCP endpoint serves, beyond the requests themselves.
+ *
+ * Gathered into one value rather than five more constructor arguments,
+ * and because they arrive together: every one of them comes from the same
+ * block of server configuration.
+ */
+struct StreamableHttpOptions {
+  /** Where sessions are kept. Null is stateless: none minted, none read. */
+  transport::StreamableSessionManager* sessions{nullptr};
+
+  /**
+   * Protocol revisions this endpoint can serve, newest first. Empty means
+   * no opinion, and refuses nothing.
+   */
+  std::vector<std::string> protocol_versions;
+
+  /**
+   * Whether a request must come from the caller its session was minted
+   * for. Off means a session id alone is enough to be served as whoever
+   * created it, which is only defensible where nothing distinguishes
+   * callers in the first place.
+   */
+  bool require_principal_match{true};
+
+  /** Whether a client may end its own session with DELETE. */
+  bool allow_client_termination{true};
+};
+
+/**
  * Serves the MCP endpoint: one HTTP request in, one answer out.
  *
  * It sits between HTTP routing and the JSON-RPC parser and owns everything
@@ -97,6 +126,16 @@ class StreamableHttpFilter : public HttpCodecFilter::MessageCallbacks,
      * answer says so up front rather than leaving a client to discover it.
      */
     virtual bool streamEndsConnection() const = 0;
+
+    /**
+     * Stop turning arriving bytes into requests, and start again.
+     *
+     * Used while a request waits on an answer from another thread. HTTP/1.1
+     * delivers responses in request order, so a request behind one that is
+     * still being judged cannot be answered first — and letting it be
+     * parsed meanwhile is how it would be.
+     */
+    virtual void holdInput(bool hold) = 0;
   };
 
   /**
@@ -104,18 +143,20 @@ class StreamableHttpFilter : public HttpCodecFilter::MessageCallbacks,
    * @param exchanges The connection's registry, shared so that a
    *                  connection dying takes these exchanges with it.
    * @param mcp_path  The endpoint this filter answers for.
-   * @param sessions  Where sessions are kept. Null is stateless mode: no
-   *                  session is ever minted, and an inbound session id is
-   *                  ignored rather than believed — a server that keeps no
-   *                  sessions has no way to tell whose id it was handed.
+   * @param options   What this endpoint serves besides the requests. Its
+   *                  defaults are stateless — no session is ever minted,
+   *                  and an inbound session id is ignored rather than
+   *                  believed, since a server that keeps no sessions has no
+   *                  way to tell whose id it was handed.
    */
-  StreamableHttpFilter(event::Dispatcher& dispatcher,
-                       McpProtocolCallbacks& mcp_callbacks,
-                       HttpCodecFilter::MessageCallbacks& fallback,
-                       transport::ExchangeRegistry& exchanges,
-                       Host& host,
-                       const std::string& mcp_path,
-                       transport::StreamableSessionManager* sessions = nullptr);
+  StreamableHttpFilter(
+      event::Dispatcher& dispatcher,
+      McpProtocolCallbacks& mcp_callbacks,
+      HttpCodecFilter::MessageCallbacks& fallback,
+      transport::ExchangeRegistry& exchanges,
+      Host& host,
+      const std::string& mcp_path,
+      const StreamableHttpOptions& options = StreamableHttpOptions());
   ~StreamableHttpFilter() override;
 
   // ===== HttpCodecFilter::MessageCallbacks =====
@@ -144,6 +185,20 @@ class StreamableHttpFilter : public HttpCodecFilter::MessageCallbacks,
   const transport::RequestExchangePtr& currentExchange() const {
     return exchange_;
   }
+
+  /**
+   * What a request's session id turned out to be worth.
+   *
+   * The rules belong to the session rather than to any one method, so this
+   * is deliberately method-agnostic and shared: POST and DELETE both go
+   * through it, and the standalone event stream will too.
+   */
+  enum class SessionVerdict {
+    Serve,           // known, and the caller is entitled to it
+    Missing,         // required and not presented
+    Unknown,         // never issued, already ended, or expired
+    WrongPrincipal,  // real, but not this caller's to use
+  };
 
  private:
   /** What the body turned out to carry. */
@@ -210,6 +265,33 @@ class StreamableHttpFilter : public HttpCodecFilter::MessageCallbacks,
    * record what was agreed, or drop it if nothing was.
    */
   void settleMintedSession(const jsonrpc::Response& response);
+
+  /**
+   * Judge the session this request presented. Runs on the thread that owns
+   * the session, which is not always this one.
+   *
+   * @param exempt True for a request entitled to arrive without a session —
+   *               an initialize, which is how one is obtained.
+   */
+  SessionVerdict judgeSession(const std::string& id, bool exempt) const;
+
+  /** Answer a request whose session did not entitle it to be served. */
+  void refuseSession(SessionVerdict verdict);
+
+  /**
+   * Run the judgement and carry on, taking a thread hop only if the session
+   * belongs to another dispatcher.
+   */
+  void validateThenDispatch(const std::string& method_name);
+
+  /** Continue a request whose session has now been judged. */
+  void resumeAfterValidation(SessionVerdict verdict);
+
+  /** Hand the buffered body to the parser, which dispatches it. */
+  void dispatchBody();
+
+  /** Answer a DELETE, which ends the session it names. */
+  void terminateSession();
   /** Classify the buffered body and answer, exactly once. */
   void finishRequest();
   /** Give up on the current request without answering it. */
@@ -228,7 +310,12 @@ class StreamableHttpFilter : public HttpCodecFilter::MessageCallbacks,
   transport::ExchangeRegistry& exchanges_;
   Host& host_;
   std::string mcp_path_;
+  StreamableHttpOptions options_;
   transport::StreamableSessionManager* sessions_;
+
+  // Handed to anything posted to another thread, so a continuation that
+  // comes back after the connection died can tell that it has.
+  std::shared_ptr<int> alive_;
 
   // Parses the one message a request body may carry. Owned here rather
   // than shared, so a message on this endpoint can never be dispatched
@@ -244,6 +331,13 @@ class StreamableHttpFilter : public HttpCodecFilter::MessageCallbacks,
   std::string minted_session_id_;
   Carried carried_{Carried::Nothing};
   size_t dispatched_{0};
+  // What the request asked for, which decides how it is answered before
+  // anything about its body is known.
+  std::string method_;
+  // True while a request is waiting on a judgement from another thread.
+  // Nothing else on this connection is parsed meanwhile, so the request
+  // members below are still this request's when the answer comes back.
+  bool parked_{false};
 
   // The streamed answer for the request being dispatched, if it asked for
   // one. Held only for the length of the dispatch — whoever is producing

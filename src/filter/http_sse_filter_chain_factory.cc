@@ -146,7 +146,7 @@ class HttpSseJsonRpcProtocolFilter
       size_t gated_input_limit = 64 * 1024,
       transport::RetainedExchangeStore* retained_exchanges = nullptr,
       const HttpSecurityOptions& security_options = HttpSecurityOptions(),
-      transport::StreamableSessionManager* sessions = nullptr)
+      const StreamableHttpOptions& streamable_options = StreamableHttpOptions())
       : dispatcher_(dispatcher),
         mcp_callbacks_(mcp_callbacks),
         is_server_(is_server),
@@ -161,6 +161,7 @@ class HttpSseJsonRpcProtocolFilter
         retained_exchanges_(retained_exchanges),
         exchanges_(dispatcher),
         stream_gate_policy_(stream_gate_policy),
+        streamable_options_(streamable_options),
         route_registration_callback_(route_callback) {
     // Following production pattern: all operations for this filter
     // happen in the single dispatcher thread
@@ -173,7 +174,7 @@ class HttpSseJsonRpcProtocolFilter
     if (is_server_) {
       streamable_filter_.reset(new StreamableHttpFilter(
           dispatcher_, mcp_callbacks_, *this, exchanges_, *this,
-          configured_rpc_path_, sessions));
+          configured_rpc_path_, streamable_options));
       after_routing = streamable_filter_.get();
     }
 
@@ -1269,6 +1270,19 @@ class HttpSseJsonRpcProtocolFilter
     return stream_gate_policy_ == StreamGatePolicy::SingleUseClose;
   }
 
+  void holdInput(bool hold) override {
+    if (!http_filter_) {
+      return;
+    }
+    // The same gate a streaming response uses, for the same reason: while
+    // one request cannot be answered yet, nothing behind it may be.
+    if (hold) {
+      http_filter_->pauseRequestProcessing();
+    } else {
+      http_filter_->resumeRequestProcessing();
+    }
+  }
+
   // ===== HttpSecurityFilter::Host =====
 
   void writeResponse(Buffer& data, bool close_connection) override {
@@ -1520,7 +1534,15 @@ class HttpSseJsonRpcProtocolFilter
     if (rpc_path != sse_path) {
       routing_filter_->addRoute("GET", rpc_path, Target::reject(405));
     }
-    routing_filter_->addRoute("DELETE", rpc_path, Target::reject(405));
+    // Serving DELETE is what advertises it: the Allow header is rendered
+    // from this table, and a rejecting route is deliberately left out of
+    // it. So a server that does not let clients end their own sessions
+    // answers 405 and never claims otherwise.
+    if (streamable_options_.allow_client_termination) {
+      routing_filter_->addRoute("DELETE", rpc_path, Target::passThrough());
+    } else {
+      routing_filter_->addRoute("DELETE", rpc_path, Target::reject(405));
+    }
 
     // Event stream and the historic transport aliases.
     routing_filter_->addRoute("OPTIONS", sse_path,
@@ -1731,6 +1753,9 @@ class HttpSseJsonRpcProtocolFilter
   // What this connection does with requests that arrive while a response
   // stream is open.
   StreamGatePolicy stream_gate_policy_{StreamGatePolicy::Off};
+  // Read while the routes are laid out, since what this endpoint serves
+  // decides which methods the table admits and therefore advertises.
+  StreamableHttpOptions streamable_options_;
 
   // Frames the response for the event stream this connection is serving,
   // from the prelude through every event. One writer per stream, so the
@@ -1906,7 +1931,7 @@ bool HttpSseFilterChainFactory::createFilterChain(
       use_sse_, route_registration_callback_, sse_path_, rpc_path_,
       external_url_, client_headers_, client_header_source_,
       sse_registry_.get(), stream_gate_policy_, gated_input_limit_,
-      &retainedExchanges(), security_options_, sessionManager());
+      &retainedExchanges(), security_options_, streamableOptions());
 
   // Add as both read and write filter. The FilterManager owns the filter
   // for the connection's lifetime (per-connection filter ownership): when
