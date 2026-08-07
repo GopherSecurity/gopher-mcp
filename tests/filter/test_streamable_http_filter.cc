@@ -15,9 +15,11 @@
  * at the wire level instead.
  */
 
+#include <chrono>
 #include <map>
 #include <memory>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -268,6 +270,15 @@ class StreamableHttpFilterTest : public ::testing::Test {
            " HTTP/1.1\r\n"
            "Host: localhost\r\n" +
            extra_headers + "Content-Length: 0\r\n\r\n";
+  }
+
+  /** Drive the dispatcher on this thread so timers actually fire. */
+  void runFor(std::chrono::milliseconds budget) {
+    const auto deadline = std::chrono::steady_clock::now() + budget;
+    while (std::chrono::steady_clock::now() < deadline) {
+      dispatcher_->run(event::RunType::NonBlock);
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
   }
 
   void feed(const std::string& bytes) {
@@ -1142,6 +1153,37 @@ TEST_F(StreamableHttpFilterTest, AStatelessServerHasNoStreamToOpen) {
 
   EXPECT_TRUE(wire_.empty()) << wire_;
   EXPECT_EQ(fallback_.header_count, 1u);
+}
+
+TEST_F(StreamableHttpFilterTest, AnIdleStreamKeepsSayingSomething) {
+  keepSessions();
+  sessions_options_.keepalive_interval = std::chrono::milliseconds(20);
+  buildFilter(sessions_options_);
+
+  feed(post("/mcp", kRequestBody));
+  const std::string id = sessionIdOnTheWire();
+  ASSERT_FALSE(id.empty());
+  feed(get("/mcp", "Mcp-Session-Id: " + id + "\r\n"));
+
+  wire_.clear();
+  runFor(std::chrono::milliseconds(120));
+
+  // A comment rather than an event: nothing is being said, which is the
+  // point — it exists for whatever is sitting between the two ends.
+  EXPECT_NE(wire_.find(": keep-alive"), std::string::npos) << wire_;
+  EXPECT_EQ(wire_.find("data:"), std::string::npos) << wire_;
+}
+
+TEST_F(StreamableHttpFilterTest, NothingIsKeptAliveWhenNothingIsStreaming) {
+  keepSessions();
+  sessions_options_.keepalive_interval = std::chrono::milliseconds(20);
+  buildFilter(sessions_options_);
+
+  feed(post("/mcp", kRequestBody));
+  wire_.clear();
+  runFor(std::chrono::milliseconds(80));
+
+  EXPECT_TRUE(wire_.empty()) << wire_;
 }
 
 }  // namespace

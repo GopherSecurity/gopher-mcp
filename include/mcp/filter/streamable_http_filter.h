@@ -1,6 +1,7 @@
 #ifndef MCP_FILTER_STREAMABLE_HTTP_FILTER_H
 #define MCP_FILTER_STREAMABLE_HTTP_FILTER_H
 
+#include <chrono>
 #include <map>
 #include <memory>
 #include <string>
@@ -64,6 +65,13 @@ struct StreamableHttpOptions {
    * only what stops one client from holding an unbounded number.
    */
   size_t max_get_streams_per_session{4};
+
+  /**
+   * How often an idle event stream says something meaningless, so that
+   * anything between the two ends can tell it apart from a dead one.
+   * Zero switches it off.
+   */
+  std::chrono::milliseconds keepalive_interval{30000};
 };
 
 /**
@@ -336,6 +344,9 @@ class StreamableHttpFilter : public HttpCodecFilter::MessageCallbacks,
 
   /** Register the stream just opened against its session. */
   void registerEventStream();
+
+  /** Start, and keep restarting, this connection's stream keep-alive. */
+  void armKeepalive();
   /** Classify the buffered body and answer, exactly once. */
   void finishRequest();
   /** Give up on the current request without answering it. */
@@ -389,6 +400,13 @@ class StreamableHttpFilter : public HttpCodecFilter::MessageCallbacks,
   // pointer is only ever compared, never followed.
   std::string get_stream_session_id_;
   network::Connection* get_stream_conn_{nullptr};
+
+  // The stream itself, and what keeps it looking alive. Both belong to the
+  // connection rather than to any one request: the timer stops when this
+  // filter goes, which is exactly when there is no longer a connection
+  // worth holding open.
+  transport::RequestExchangePtr get_stream_exchange_;
+  event::TimerPtr keepalive_timer_;
 
   // The streamed answer for the request being dispatched, if it asked for
   // one. Held only for the length of the dispatch — whoever is producing

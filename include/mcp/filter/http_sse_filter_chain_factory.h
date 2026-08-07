@@ -259,6 +259,7 @@ class HttpSseFilterChainFactory : public network::FilterChainFactory {
     streamable_options_.enable_get_stream = config.enable_get_stream;
     streamable_options_.max_get_streams_per_session =
         config.max_get_streams_per_session;
+    streamable_options_.keepalive_interval = config.keepalive_interval;
     if (session_manager_) {
       session_manager_->setTimeout(session_timeout_);
     }

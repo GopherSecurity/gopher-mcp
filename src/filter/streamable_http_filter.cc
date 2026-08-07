@@ -734,7 +734,27 @@ void StreamableHttpFilter::openEventStream(size_t live_streams) {
   // a client reading one here would post its requests somewhere that does
   // not exist.
   registerEventStream();
+  armKeepalive();
   abandonRequest();
+}
+
+void StreamableHttpFilter::armKeepalive() {
+  if (!get_stream_exchange_ || options_.keepalive_interval.count() <= 0) {
+    return;
+  }
+  if (!keepalive_timer_) {
+    keepalive_timer_ = dispatcher_.createTimer([this]() {
+      if (!get_stream_exchange_ ||
+          get_stream_exchange_->mode() !=
+              transport::RequestExchange::Mode::Stream) {
+        // Nothing to keep alive any more, and nothing to re-arm for.
+        return;
+      }
+      get_stream_exchange_->writeComment("keep-alive");
+      armKeepalive();
+    });
+  }
+  keepalive_timer_->enableTimer(options_.keepalive_interval);
 }
 
 void StreamableHttpFilter::registerEventStream() {
@@ -744,6 +764,7 @@ void StreamableHttpFilter::registerEventStream() {
 
   const std::string id = session_id_;
   transport::RequestExchangePtr exchange = exchange_;
+  get_stream_exchange_ = exchange_;
   network::Connection* conn = host_.connection();
   event::Dispatcher* dispatcher = &dispatcher_;
   transport::StreamableSessionManager* sessions = sessions_;
