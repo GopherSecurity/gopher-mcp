@@ -707,6 +707,21 @@ VoidResult McpServer::sendNotificationToSession(
                 "(server push requires the built-in HTTP+SSE listener)"));
     }
     auto json_val = json::to_json(notification);
+
+    // Streamable HTTP first: its sessions are keyed on an id this server
+    // minted, which the SSE registry has never heard of — asking it would
+    // report a stream that never existed rather than the truth. A session
+    // the manager does not know is an HTTP+SSE one, and falls through.
+    if (auto* sessions = http_sse_factory_->sessionManager()) {
+      const std::string& transport_id = session->getTransportSessionId();
+      if (auto* streamable = sessions->find(transport_id)) {
+        // Queued rather than sent when nothing is connected, which is a
+        // delivery that has not happened yet rather than one that failed.
+        sessions->routeUnsolicited(*streamable, json_val.toString());
+        return makeVoidSuccess();
+      }
+    }
+
     if (http_sse_factory_->sseRegistry().sendResponse(
             session->getTransportSessionId(), json_val.toString())) {
       return makeVoidSuccess();
