@@ -10,6 +10,7 @@
 #include "mcp/json/json_serialization.h"
 #include "mcp/logging/log_macros.h"
 #include "mcp/mcp_connection_manager.h"
+#include "mcp/protocol/protocol_versions.h"
 
 namespace mcp {
 namespace filter {
@@ -423,7 +424,66 @@ void StreamableHttpFilter::finishRequest() {
     method_name = message["method"].getString();
   }
 
+  if (!settleProtocolVersion(method_name)) {
+    abandonRequest();
+    return;
+  }
+
   validateThenDispatch(method_name);
+}
+
+bool StreamableHttpFilter::settleProtocolVersion(
+    const std::string& method_name) {
+  if (!exchange_) {
+    return false;
+  }
+
+  auto& client = exchange_->clientContext();
+
+  if (method_name == kInitializeMethod) {
+    // Which revision the two ends will speak is what initialize is for.
+    // Judging its header would be refusing the conversation that decides
+    // the answer.
+    return true;
+  }
+
+  if (client.protocol_version.empty()) {
+    // The header only became mandatory after this revision, so a request
+    // without one is from a peer speaking that revision rather than from
+    // a peer that forgot.
+    client.protocol_version = protocol::kLegacyAssumedVersion;
+    return true;
+  }
+
+  if (options_.protocol_versions.empty()) {
+    // No list configured is no opinion, and refuses nothing.
+    return true;
+  }
+
+  if (protocol::isSupportedVersion(client.protocol_version,
+                                   options_.protocol_versions)) {
+    return true;
+  }
+
+  // Named rather than merely refused: a peer told only "no" retries the
+  // same request, and a peer told what is served can pick something.
+  std::string served;
+  for (const auto& version : options_.protocol_versions) {
+    if (!served.empty()) {
+      served += ", ";
+    }
+    served += version;
+  }
+  GOPHER_LOG_DEBUG(
+      "MCP endpoint asked for protocol revision {}, which it "
+      "does not serve",
+      client.protocol_version);
+  respondWithError(static_cast<int>(http::HttpStatusCode::BadRequest),
+                   jsonrpc::INVALID_REQUEST,
+                   "Bad Request: unsupported MCP-Protocol-Version " +
+                       client.protocol_version + "; this server serves " +
+                       served);
+  return false;
 }
 
 StreamableHttpFilter::SessionVerdict StreamableHttpFilter::judgeSession(

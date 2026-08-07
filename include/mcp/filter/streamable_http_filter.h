@@ -267,6 +267,14 @@ class StreamableHttpFilter : public HttpCodecFilter::MessageCallbacks,
   void settleMintedSession(const jsonrpc::Response& response);
 
   /**
+   * Settle which protocol revision this request is speaking, and refuse it
+   * if that is one this server cannot serve.
+   *
+   * @return False when the request has been answered and is over.
+   */
+  bool settleProtocolVersion(const std::string& method_name);
+
+  /**
    * Judge the session this request presented. Runs on the thread that owns
    * the session, which is not always this one.
    *

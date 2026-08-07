@@ -26,6 +26,7 @@
 #include "mcp/event/libevent_dispatcher.h"
 #include "mcp/filter/streamable_http_filter.h"
 #include "mcp/mcp_connection_manager.h"
+#include "mcp/protocol/protocol_versions.h"
 
 namespace mcp {
 namespace filter {
@@ -959,6 +960,72 @@ TEST_F(StreamableHttpFilterTest, ASessionCannotBeEndedByAnotherCaller) {
   EXPECT_EQ(wire_.find("HTTP/1.1 403 Forbidden\r\n"), 0u) << wire_;
   EXPECT_TRUE(sessions_->known(id))
       << "a caller who may not use the session may not end it either";
+}
+
+// ── Protocol revision ──────────────────────────────────────────────────────
+
+TEST_F(StreamableHttpFilterTest, ARevisionThisServerCannotServeIsRefused) {
+  StreamableHttpOptions options;
+  options.protocol_versions = {"2025-11-25", "2025-06-18"};
+  buildFilter(options);
+
+  feed(post("/mcp", "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}",
+            "MCP-Protocol-Version: 1999-01-01\r\n"));
+
+  EXPECT_EQ(wire_.find("HTTP/1.1 400 Bad Request\r\n"), 0u) << wire_;
+  // Named rather than merely refused: a peer told only "no" retries the
+  // same request.
+  EXPECT_NE(wire_.find("1999-01-01"), std::string::npos) << wire_;
+  EXPECT_NE(wire_.find("2025-11-25"), std::string::npos) << wire_;
+  EXPECT_TRUE(callbacks_.requests.empty());
+}
+
+TEST_F(StreamableHttpFilterTest, ARevisionThisServerServesIsKept) {
+  StreamableHttpOptions options;
+  options.protocol_versions = {"2025-11-25", "2025-06-18"};
+  buildFilter(options);
+
+  feed(post("/mcp", "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}",
+            "MCP-Protocol-Version: 2025-06-18\r\n"));
+
+  ASSERT_EQ(callbacks_.requests.size(), 1u);
+  EXPECT_EQ(callbacks_.client_at_request.protocol_version, "2025-06-18");
+}
+
+TEST_F(StreamableHttpFilterTest, NoRevisionMeansTheOneThatDidNotNeedTheHeader) {
+  StreamableHttpOptions options;
+  options.protocol_versions = {"2025-11-25", "2025-06-18"};
+  buildFilter(options);
+
+  // The header only became mandatory after that revision, so its absence
+  // identifies a peer speaking it rather than a peer that forgot.
+  feed(
+      post("/mcp", "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}"));
+
+  ASSERT_EQ(callbacks_.requests.size(), 1u);
+  EXPECT_EQ(callbacks_.client_at_request.protocol_version,
+            protocol::kLegacyAssumedVersion);
+}
+
+TEST_F(StreamableHttpFilterTest, InitializeIsNotJudgedOnTheRevisionItAsksFor) {
+  StreamableHttpOptions options;
+  options.protocol_versions = {"2025-11-25"};
+  buildFilter(options);
+
+  // Which revision the two ends speak is what initialize settles; refusing
+  // it on that header would refuse the conversation that decides.
+  feed(post("/mcp", kRequestBody, "MCP-Protocol-Version: 1999-01-01\r\n"));
+
+  EXPECT_EQ(wire_.find("HTTP/1.1 400"), std::string::npos) << wire_;
+  ASSERT_EQ(callbacks_.requests.size(), 1u);
+}
+
+TEST_F(StreamableHttpFilterTest, WithNoConfiguredListNothingIsRefused) {
+  feed(post("/mcp", "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}",
+            "MCP-Protocol-Version: 1999-01-01\r\n"));
+
+  EXPECT_EQ(wire_.find("HTTP/1.1 400"), std::string::npos) << wire_;
+  ASSERT_EQ(callbacks_.requests.size(), 1u);
 }
 
 }  // namespace
