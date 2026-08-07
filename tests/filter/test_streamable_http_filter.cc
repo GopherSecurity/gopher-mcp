@@ -96,7 +96,14 @@ class RecordingCallbacks : public McpProtocolCallbacks {
     jsonrpc::Response response;
     response.jsonrpc = "2.0";
     response.id = request.id;
-    response.result = mcp::make_optional(jsonrpc::ResponseResult(Metadata()));
+    if (refuse_requests) {
+      response.error = mcp::make_optional(
+          Error(jsonrpc::INVALID_REQUEST, "unsupported protocol version"));
+    } else if (result.isObject()) {
+      response.result = mcp::make_optional(jsonrpc::ResponseResult(result));
+    } else {
+      response.result = mcp::make_optional(jsonrpc::ResponseResult(Metadata()));
+    }
 
     if (streaming == StreamingMode::None) {
       if (answer_requests) {
@@ -145,6 +152,11 @@ class RecordingCallbacks : public McpProtocolCallbacks {
   transport::ExchangeClientContext client_at_request;
 
   bool answer_requests{true};
+  // Answers with an error instead of a result, as a server refusing to
+  // initialize a client it cannot serve would.
+  bool refuse_requests{false};
+  // What the answer carries, for tests that read something back out of it.
+  json::JsonValue result;
   StreamingMode streaming{StreamingMode::None};
   size_t progress_count{0};
   // Kept past the dispatch on purpose: that is what the handle is for.
@@ -181,21 +193,45 @@ class StreamableHttpFilterTest : public ::testing::Test {
 
     host_.reset(new TestHost(wire_));
     exchanges_.reset(new transport::ExchangeRegistry(*dispatcher_));
+    buildFilter(/*sessions=*/nullptr);
+  }
+
+  void TearDown() override {
+    codec_.reset();
+    filter_.reset();
+    sessions_.reset();
+    exchanges_.reset();
+    host_.reset();
+    dispatcher_.reset();
+    factory_.reset();
+  }
+
+  void buildFilter(transport::StreamableSessionManager* sessions) {
     filter_.reset(new StreamableHttpFilter(*dispatcher_, callbacks_, fallback_,
-                                           *exchanges_, *host_, "/mcp"));
+                                           *exchanges_, *host_, "/mcp",
+                                           sessions));
     codec_.reset(new HttpCodecFilter(*filter_, *dispatcher_,
                                      /*is_server=*/true));
     codec_->onNewConnection();
     callbacks_.filter = filter_.get();
   }
 
-  void TearDown() override {
-    codec_.reset();
-    filter_.reset();
-    exchanges_.reset();
-    host_.reset();
-    dispatcher_.reset();
-    factory_.reset();
+  /** Rebuild the filter as a server that keeps sessions. */
+  void keepSessions() {
+    sessions_.reset(new transport::StreamableSessionManager(*dispatcher_));
+    buildFilter(sessions_.get());
+  }
+
+  /** The session id the last answer handed back, if it handed one back. */
+  std::string sessionIdOnTheWire() const {
+    const std::string name = "\r\nMcp-Session-Id: ";
+    const size_t at = wire_.find(name);
+    if (at == std::string::npos) {
+      return std::string();
+    }
+    const size_t start = at + name.size();
+    const size_t end = wire_.find("\r\n", start);
+    return wire_.substr(start, end - start);
   }
 
   static std::string post(const std::string& path,
@@ -222,6 +258,7 @@ class StreamableHttpFilterTest : public ::testing::Test {
   event::DispatcherPtr dispatcher_;
   std::unique_ptr<TestHost> host_;
   std::unique_ptr<transport::ExchangeRegistry> exchanges_;
+  std::unique_ptr<transport::StreamableSessionManager> sessions_;
   std::unique_ptr<StreamableHttpFilter> filter_;
   std::unique_ptr<HttpCodecFilter> codec_;
 };
@@ -257,11 +294,8 @@ TEST_F(StreamableHttpFilterTest, AHandlerThatSaysNothingWritesNothing) {
   EXPECT_TRUE(wire_.empty()) << wire_;
 }
 
-TEST_F(StreamableHttpFilterTest, TheSessionHeaderTravelsWithTheMessage) {
-  feed(post("/mcp", kRequestBody, "Mcp-Session-Id: session-7\r\n"));
-
-  EXPECT_EQ(callbacks_.session_at_request, "session-7");
-}
+// What an offered session id means now depends on whether the server keeps
+// any; both cases are under "Sessions" below.
 
 TEST_F(StreamableHttpFilterTest, WithoutASessionHeaderTheBindingIsEmpty) {
   feed(post("/mcp", kRequestBody));
@@ -581,6 +615,182 @@ TEST_F(StreamableHttpFilterTest, ANotificationIsNeverAnsweredWithAStream) {
   // There is no request here to stream an answer to.
   EXPECT_EQ(wire_.find("HTTP/1.1 202 Accepted\r\n"), 0u) << wire_;
   EXPECT_EQ(wire_.find("text/event-stream"), std::string::npos) << wire_;
+}
+
+// ── Sessions ───────────────────────────────────────────────────────────────
+
+TEST_F(StreamableHttpFilterTest, InitializeComesBackWithASessionToUse) {
+  keepSessions();
+
+  feed(post("/mcp", kRequestBody));
+
+  const std::string id = sessionIdOnTheWire();
+  ASSERT_EQ(id.size(), 32u) << wire_;
+  EXPECT_TRUE(sessions_->known(id));
+
+  // The request that created the session is served under it, so whatever
+  // was agreed at initialize is recorded against the identity the client
+  // will actually come back with.
+  EXPECT_EQ(callbacks_.session_at_request, id);
+}
+
+TEST_F(StreamableHttpFilterTest, NothingButInitializeCreatesASession) {
+  keepSessions();
+
+  feed(
+      post("/mcp", "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}"));
+
+  EXPECT_TRUE(sessionIdOnTheWire().empty()) << wire_;
+  EXPECT_EQ(sessions_->size(), 0u);
+  EXPECT_EQ(callbacks_.session_at_request, "");
+}
+
+TEST_F(StreamableHttpFilterTest, TwoClientsAreGivenDifferentSessions) {
+  keepSessions();
+
+  feed(post("/mcp", kRequestBody));
+  const std::string first = sessionIdOnTheWire();
+  wire_.clear();
+  feed(post("/mcp", kRequestBody));
+  const std::string second = sessionIdOnTheWire();
+
+  ASSERT_FALSE(first.empty());
+  ASSERT_FALSE(second.empty());
+  EXPECT_NE(first, second);
+  EXPECT_EQ(sessions_->size(), 2u);
+}
+
+TEST_F(StreamableHttpFilterTest, AnEchoedSessionIdReachesTheHandler) {
+  keepSessions();
+
+  feed(post("/mcp", kRequestBody));
+  const std::string id = sessionIdOnTheWire();
+  ASSERT_FALSE(id.empty());
+
+  wire_.clear();
+  feed(post("/mcp", "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\"}",
+            "Mcp-Session-Id: " + id + "\r\n"));
+
+  EXPECT_EQ(callbacks_.session_at_request, id);
+  // Only the answer that created the session announces it; repeating it on
+  // every response would say nothing the client does not already know.
+  EXPECT_TRUE(sessionIdOnTheWire().empty()) << wire_;
+}
+
+TEST_F(StreamableHttpFilterTest, ASessionInUseIsKeptAlive) {
+  keepSessions();
+
+  feed(post("/mcp", kRequestBody));
+  const std::string id = sessionIdOnTheWire();
+  ASSERT_FALSE(id.empty());
+
+  transport::SessionCtx* session = sessions_->find(id);
+  ASSERT_NE(session, nullptr);
+  const auto before = session->last_activity;
+  session->last_activity -= std::chrono::seconds(60);
+
+  feed(post("/mcp", "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\"}",
+            "Mcp-Session-Id: " + id + "\r\n"));
+
+  EXPECT_GE(sessions_->find(id)->last_activity, before);
+}
+
+TEST_F(StreamableHttpFilterTest, TheAgreedRevisionIsRecordedOnTheSession) {
+  keepSessions();
+  callbacks_.result = json::JsonValue::object();
+  callbacks_.result["protocolVersion"] = std::string("2025-06-18");
+
+  feed(post("/mcp", kRequestBody));
+
+  const std::string id = sessionIdOnTheWire();
+  ASSERT_FALSE(id.empty());
+  transport::SessionCtx* session = sessions_->find(id);
+  ASSERT_NE(session, nullptr);
+  // Read back off the answer the client was given, not negotiated a second
+  // time here, which could differ from what the client was told.
+  EXPECT_EQ(session->negotiated_protocol_version, "2025-06-18");
+}
+
+TEST_F(StreamableHttpFilterTest, ASessionRemembersWhoAskedForIt) {
+  keepSessions();
+  host_->principal_value = "alice";
+
+  feed(post("/mcp", kRequestBody));
+
+  const std::string id = sessionIdOnTheWire();
+  ASSERT_FALSE(id.empty());
+  ASSERT_NE(sessions_->find(id), nullptr);
+  EXPECT_EQ(sessions_->find(id)->principal, "alice");
+}
+
+TEST_F(StreamableHttpFilterTest, ARefusedInitializeHandsBackNoSession) {
+  keepSessions();
+  callbacks_.refuse_requests = true;
+
+  feed(post("/mcp", kRequestBody));
+
+  // A client that was not initialized has nothing to continue, so an id
+  // here would only be echoed back and refused on every later request.
+  EXPECT_TRUE(sessionIdOnTheWire().empty()) << wire_;
+  EXPECT_EQ(sessions_->size(), 0u);
+}
+
+TEST_F(StreamableHttpFilterTest, AStatelessServerMintsNothing) {
+  feed(post("/mcp", kRequestBody));
+
+  EXPECT_TRUE(sessionIdOnTheWire().empty()) << wire_;
+  EXPECT_EQ(callbacks_.session_at_request, "");
+}
+
+TEST_F(StreamableHttpFilterTest, AStatelessServerDisregardsAnOfferedSession) {
+  // Believing one would let a caller name any session it liked on a server
+  // that keeps none of its own, and be handed whatever sits under it.
+  feed(post("/mcp", "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}",
+            "Mcp-Session-Id: someone-elses-session\r\n"));
+
+  EXPECT_EQ(callbacks_.session_at_request, "");
+}
+
+TEST_F(StreamableHttpFilterTest, AnUnrecognisedSessionIsStillPassedOn) {
+  keepSessions();
+
+  // Refusing one is a decision about who may be served, and nothing here
+  // has been given the means to make it yet.
+  feed(post("/mcp", "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}",
+            "Mcp-Session-Id: 0123456789abcdef0123456789abcdef\r\n"));
+
+  EXPECT_EQ(callbacks_.session_at_request, "0123456789abcdef0123456789abcdef");
+  EXPECT_EQ(wire_.find("HTTP/1.1 404"), std::string::npos) << wire_;
+}
+
+TEST_F(StreamableHttpFilterTest, AClientWithASessionIsNotGivenAnother) {
+  keepSessions();
+
+  feed(post("/mcp", kRequestBody));
+  const std::string id = sessionIdOnTheWire();
+  ASSERT_FALSE(id.empty());
+
+  wire_.clear();
+  feed(post("/mcp", kRequestBody, "Mcp-Session-Id: " + id + "\r\n"));
+
+  EXPECT_TRUE(sessionIdOnTheWire().empty()) << wire_;
+  EXPECT_EQ(sessions_->size(), 1u);
+  EXPECT_EQ(callbacks_.session_at_request, id);
+}
+
+TEST_F(StreamableHttpFilterTest, AStreamedInitializeAnnouncesItsSessionFirst) {
+  keepSessions();
+  callbacks_.streaming = StreamingMode::Required;
+
+  feed(post("/mcp", kRequestBody, "Accept: text/event-stream\r\n"));
+
+  const std::string id = sessionIdOnTheWire();
+  ASSERT_EQ(id.size(), 32u) << wire_;
+  // A stream puts its headers out before the handler says anything, so the
+  // id has to be attached before the answer opens rather than after it.
+  const size_t header_end = wire_.find("\r\n\r\n");
+  ASSERT_NE(header_end, std::string::npos) << wire_;
+  EXPECT_LT(wire_.find(id), header_end) << wire_;
 }
 
 }  // namespace

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <chrono>
 #include <functional>
 #include <map>
 #include <memory>
@@ -14,6 +15,7 @@
 #include "mcp/network/filter.h"
 #include "mcp/transport/exchange_registry.h"
 #include "mcp/transport/streamable_http_config.h"
+#include "mcp/transport/streamable_session_manager.h"
 
 // Forward declarations
 namespace mcp {
@@ -235,6 +237,31 @@ class HttpSseFilterChainFactory : public network::FilterChainFactory {
     gated_input_limit_ = config.gated_input_buffer_bytes;
   }
 
+  /**
+   * Whether the connections here keep sessions, and for how long an idle
+   * one is kept.
+   *
+   * Turning them off is stateless mode, and means more than never minting
+   * one: an inbound session id is disregarded rather than believed. A
+   * server that keeps no sessions has no way to tell whose id it was
+   * handed, so passing one on would let a caller name any session it liked
+   * and be given whatever sits under it.
+   */
+  void setSessionConfig(const transport::StreamableHttpConfig& config) {
+    sessions_enabled_ = config.enable_sessions;
+    session_timeout_ = config.session_timeout;
+    if (session_manager_) {
+      session_manager_->setTimeout(session_timeout_);
+    }
+  }
+
+  /**
+   * The sessions the connections here serve, created on first use like the
+   * other things that have to outlive any one connection. Null when this
+   * factory builds stateless chains.
+   */
+  transport::StreamableSessionManager* sessionManager() const;
+
   /** Resolves who each request is from. Defaults to serving everyone. */
   void setAuthCallback(AuthCallback callback) {
     security_options_.auth = std::move(callback);
@@ -300,6 +327,13 @@ class HttpSseFilterChainFactory : public network::FilterChainFactory {
   // progress. Lives here rather than on a connection for the obvious
   // reason: the connection is what went away.
   mutable std::unique_ptr<transport::RetainedExchangeStore> retained_exchanges_;
+
+  // The sessions these connections serve. Above the connection for the
+  // same reason as the store: a session is what a client comes back to
+  // after the connection it was created on has gone.
+  mutable std::unique_ptr<transport::StreamableSessionManager> session_manager_;
+  bool sessions_enabled_{true};
+  std::chrono::milliseconds session_timeout_{300000};
 
   // NOTE: the factory intentionally does not retain the filters it creates.
   // Each connection's FilterManager owns its own filter-chain instance for

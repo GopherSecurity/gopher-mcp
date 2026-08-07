@@ -12,6 +12,7 @@
 #include "mcp/message_dispatch_context.h"
 #include "mcp/transport/exchange_registry.h"
 #include "mcp/transport/request_exchange.h"
+#include "mcp/transport/streamable_session_manager.h"
 
 namespace mcp {
 
@@ -103,13 +104,18 @@ class StreamableHttpFilter : public HttpCodecFilter::MessageCallbacks,
    * @param exchanges The connection's registry, shared so that a
    *                  connection dying takes these exchanges with it.
    * @param mcp_path  The endpoint this filter answers for.
+   * @param sessions  Where sessions are kept. Null is stateless mode: no
+   *                  session is ever minted, and an inbound session id is
+   *                  ignored rather than believed — a server that keeps no
+   *                  sessions has no way to tell whose id it was handed.
    */
   StreamableHttpFilter(event::Dispatcher& dispatcher,
                        McpProtocolCallbacks& mcp_callbacks,
                        HttpCodecFilter::MessageCallbacks& fallback,
                        transport::ExchangeRegistry& exchanges,
                        Host& host,
-                       const std::string& mcp_path);
+                       const std::string& mcp_path,
+                       transport::StreamableSessionManager* sessions = nullptr);
   ~StreamableHttpFilter() override;
 
   // ===== HttpCodecFilter::MessageCallbacks =====
@@ -188,6 +194,22 @@ class StreamableHttpFilter : public HttpCodecFilter::MessageCallbacks,
 
   /** Start an exchange for a request this filter owns. */
   void beginRequest(const std::map<std::string, std::string>& headers);
+
+  /**
+   * Give a client that is introducing itself a session to come back with.
+   *
+   * Done before the handler runs, not after, so the request being served
+   * is already keyed on the session it creates — otherwise the terms
+   * agreed at initialize would be recorded against an identity the client
+   * never hears about and can never present again.
+   */
+  void mintSessionFor(const jsonrpc::Request& request);
+
+  /**
+   * Settle a session against the answer its initialize earned: keep it and
+   * record what was agreed, or drop it if nothing was.
+   */
+  void settleMintedSession(const jsonrpc::Response& response);
   /** Classify the buffered body and answer, exactly once. */
   void finishRequest();
   /** Give up on the current request without answering it. */
@@ -206,6 +228,7 @@ class StreamableHttpFilter : public HttpCodecFilter::MessageCallbacks,
   transport::ExchangeRegistry& exchanges_;
   Host& host_;
   std::string mcp_path_;
+  transport::StreamableSessionManager* sessions_;
 
   // Parses the one message a request body may carry. Owned here rather
   // than shared, so a message on this endpoint can never be dispatched
@@ -216,6 +239,9 @@ class StreamableHttpFilter : public HttpCodecFilter::MessageCallbacks,
   transport::RequestExchangePtr exchange_;
   std::string body_;
   std::string session_id_;
+  // Set only for a request that created its session, which is the one
+  // request whose answer decides whether that session survives.
+  std::string minted_session_id_;
   Carried carried_{Carried::Nothing};
   size_t dispatched_{0};
 

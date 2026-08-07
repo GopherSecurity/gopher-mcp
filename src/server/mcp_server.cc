@@ -374,6 +374,10 @@ void McpServer::performListen() {
         // one has to wait rather than be answered out of order.
         http_sse_factory->setStreamConfig(config_.streamable_http);
 
+        // Whether a client is given something to come back with, and how
+        // long it stays worth coming back with.
+        http_sse_factory->setSessionConfig(config_.streamable_http);
+
         // Tools can designate parameters to travel as request headers, and
         // a browser cannot send a header CORS preflight did not advertise.
         // Read per preflight rather than captured here: tools may be
@@ -432,6 +436,25 @@ void McpServer::performListen() {
                     session->getId(), transport_session_id);
               }
             });
+
+        // The same for a session that simply went quiet. Nothing else
+        // bounds these: the application-layer sweep skips every session
+        // keyed on a transport identity, on the understanding that the
+        // transport is what ends them, and for this endpoint this is the
+        // transport doing exactly that.
+        if (auto* sessions = http_sse_factory->sessionManager()) {
+          sessions->setSessionRemovedCallback(
+              [this](const std::string& transport_session_id) {
+                auto session = session_manager_->removeSessionByTransportId(
+                    transport_session_id);
+                if (session) {
+                  resource_manager_->releaseSession(*session);
+                  GOPHER_LOG_DEBUG(
+                      "Session {} released with its transport session {}",
+                      session->getId(), transport_session_id);
+                }
+              });
+        }
 
         tcp_config.filter_chain_factory = http_sse_factory;
 

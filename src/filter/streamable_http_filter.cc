@@ -44,6 +44,44 @@ bool mentions(const std::string& header, const std::string& media_type) {
          header.find("*/*") != std::string::npos;
 }
 
+// The one method a client may send before it has a session, and therefore
+// the only one that can create it.
+const char kInitializeMethod[] = "initialize";
+
+// What a session id is called on the wire, both ways.
+const char kSessionHeader[] = "Mcp-Session-Id";
+
+/**
+ * The protocol revision an initialize response settled on.
+ *
+ * Read back off the answer rather than negotiated again here: the layer
+ * that answered is the one that knows which revisions it can actually
+ * serve, and re-deriving it would be a second opinion that could differ
+ * from what the client was told. Empty when the answer says nothing.
+ */
+std::string negotiatedVersion(const jsonrpc::Response& response) {
+  if (!response.result.has_value()) {
+    return std::string();
+  }
+  const auto& result = response.result.value();
+  if (holds_alternative<json::JsonValue>(result)) {
+    const auto& value = get<json::JsonValue>(result);
+    if (value.isObject() && value.contains("protocolVersion") &&
+        value["protocolVersion"].isString()) {
+      return value["protocolVersion"].getString();
+    }
+    return std::string();
+  }
+  if (holds_alternative<Metadata>(result)) {
+    const auto& metadata = get<Metadata>(result);
+    auto it = metadata.find("protocolVersion");
+    if (it != metadata.end() && holds_alternative<std::string>(it->second)) {
+      return get<std::string>(it->second);
+    }
+  }
+  return std::string();
+}
+
 /**
  * A JSON-RPC error with no id.
  *
@@ -179,6 +217,10 @@ VoidResult StreamableHttpFilter::DispatchContext::sendResponse(
     err.message = "response dropped: this message had no request behind it";
     return makeVoidError(err);
   }
+  // Decided before the first byte, which is the last moment a session can
+  // still be withdrawn from an answer that did not earn one.
+  parent_.settleMintedSession(response);
+
   // The exchange knows what it has already committed to, so it is what
   // refuses a second answer rather than writing two onto one request.
   return parent_.exchange_->respondJson(response);
@@ -203,13 +245,15 @@ StreamableHttpFilter::StreamableHttpFilter(
     HttpCodecFilter::MessageCallbacks& fallback,
     transport::ExchangeRegistry& exchanges,
     Host& host,
-    const std::string& mcp_path)
+    const std::string& mcp_path,
+    transport::StreamableSessionManager* sessions)
     : dispatcher_(dispatcher),
       mcp_callbacks_(mcp_callbacks),
       fallback_(fallback),
       exchanges_(exchanges),
       host_(host),
       mcp_path_(mcp_path),
+      sessions_(sessions),
       jsonrpc_(new JsonRpcProtocolFilter(*this, dispatcher, kServerMode)) {}
 
 StreamableHttpFilter::~StreamableHttpFilter() = default;
@@ -263,7 +307,28 @@ void StreamableHttpFilter::beginRequest(
   client.protocol_version =
       headerOr(headers, "mcp-protocol-version", client.protocol_version);
   client.principal = host_.principal();
-  session_id_ = headerOr(headers, "mcp-session-id", "");
+
+  const std::string offered_session = headerOr(headers, "mcp-session-id", "");
+  if (sessions_ == nullptr) {
+    // Stateless: an inbound session id is not merely unrecognised, it is
+    // disregarded. Passing it on would let a caller name any application
+    // session it liked on a server that keeps none of its own, and be
+    // handed whatever state was sitting under that name.
+    if (!offered_session.empty()) {
+      GOPHER_LOG_DEBUG(
+          "MCP endpoint request presented a session id to a server that keeps "
+          "no sessions; ignoring it");
+    }
+    session_id_.clear();
+  } else {
+    session_id_ = offered_session;
+    if (!session_id_.empty() && !sessions_->touch(session_id_)) {
+      // Recorded and passed on all the same. Refusing an unrecognised
+      // session is a decision about who may be served, and nothing here
+      // has been given the means to make it yet.
+      GOPHER_LOG_DEBUG("MCP endpoint request presented an unknown session id");
+    }
+  }
 
   exchange_->setPhase(transport::RequestExchange::Phase::ReceivingBody);
   exchanges_.add(exchange_);
@@ -367,6 +432,71 @@ void StreamableHttpFilter::finishRequest() {
   abandonRequest();
 }
 
+void StreamableHttpFilter::mintSessionFor(const jsonrpc::Request& request) {
+  if (sessions_ == nullptr || !exchange_) {
+    return;
+  }
+  if (request.method != kInitializeMethod) {
+    return;
+  }
+  if (!session_id_.empty()) {
+    // The client already has one. Whether it is still a session this
+    // server recognises is a separate question, and not one for here.
+    return;
+  }
+
+  transport::SessionCtx* session =
+      sessions_->createSession(dispatcher_, host_.principal());
+  if (session == nullptr) {
+    // No id could be drawn. The request is still answerable — it just
+    // answers a client that will have to keep introducing itself.
+    GOPHER_LOG_ERROR("MCP endpoint could not mint a session id");
+    return;
+  }
+
+  session_id_ = session->id;
+  minted_session_id_ = session->id;
+
+  // Attached now rather than when the answer is written, because an answer
+  // that streams has its headers on the wire before the handler has said
+  // anything at all.
+  exchange_->setResponseHeader(kSessionHeader, session->id);
+  GOPHER_LOG_DEBUG("MCP endpoint minted session {} for principal '{}'",
+                   session->id, session->principal);
+}
+
+void StreamableHttpFilter::settleMintedSession(
+    const jsonrpc::Response& response) {
+  if (minted_session_id_.empty() || sessions_ == nullptr) {
+    return;
+  }
+  const std::string id = minted_session_id_;
+  minted_session_id_.clear();
+
+  if (response.error.has_value()) {
+    // The client is not initialized, so there is nothing for a session to
+    // be the continuation of. Handing back an id here would have it echoed
+    // on every later request and refused every time.
+    if (exchange_ && exchange_->removeResponseHeader(kSessionHeader)) {
+      sessions_->remove(id);
+      session_id_.clear();
+      GOPHER_LOG_DEBUG("session {} dropped: initialize was refused", id);
+      return;
+    }
+    // The id has already gone out — a streamed answer announces its
+    // headers before the handler has decided anything — so the session
+    // stands rather than being withdrawn behind the client's back.
+    GOPHER_LOG_DEBUG("session {} kept: its id had already been sent", id);
+    return;
+  }
+
+  transport::SessionCtx* session = sessions_->find(id);
+  if (session == nullptr) {
+    return;
+  }
+  session->negotiated_protocol_version = negotiatedVersion(response);
+}
+
 void StreamableHttpFilter::respondWithError(int status_code,
                                             int code,
                                             const std::string& message) {
@@ -381,6 +511,7 @@ void StreamableHttpFilter::respondWithError(int status_code,
 void StreamableHttpFilter::abandonRequest() {
   body_.clear();
   session_id_.clear();
+  minted_session_id_.clear();
   carried_ = Carried::Nothing;
   dispatched_ = 0;
   exchange_.reset();
@@ -413,6 +544,11 @@ void StreamableHttpFilter::onRequest(const jsonrpc::Request& request) {
           mcp::make_optional(get<std::string>(meta->second));
     }
   }
+
+  // Before the framing decision below, because a streamed answer puts its
+  // headers on the wire the moment it opens, and the session id is one of
+  // them.
+  mintSessionFor(request);
 
   // How the answer will be framed is settled by its first byte, so it has
   // to be decided before anything runs — never by looking at what a

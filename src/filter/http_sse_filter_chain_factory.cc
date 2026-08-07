@@ -145,7 +145,8 @@ class HttpSseJsonRpcProtocolFilter
       StreamGatePolicy stream_gate_policy = StreamGatePolicy::Off,
       size_t gated_input_limit = 64 * 1024,
       transport::RetainedExchangeStore* retained_exchanges = nullptr,
-      const HttpSecurityOptions& security_options = HttpSecurityOptions())
+      const HttpSecurityOptions& security_options = HttpSecurityOptions(),
+      transport::StreamableSessionManager* sessions = nullptr)
       : dispatcher_(dispatcher),
         mcp_callbacks_(mcp_callbacks),
         is_server_(is_server),
@@ -170,9 +171,9 @@ class HttpSseJsonRpcProtocolFilter
     // behind it as a constructor argument.
     HttpCodecFilter::MessageCallbacks* after_routing = this;
     if (is_server_) {
-      streamable_filter_.reset(
-          new StreamableHttpFilter(dispatcher_, mcp_callbacks_, *this,
-                                   exchanges_, *this, configured_rpc_path_));
+      streamable_filter_.reset(new StreamableHttpFilter(
+          dispatcher_, mcp_callbacks_, *this, exchanges_, *this,
+          configured_rpc_path_, sessions));
       after_routing = streamable_filter_.get();
     }
 
@@ -1823,6 +1824,21 @@ transport::RetainedExchangeStore& HttpSseFilterChainFactory::retainedExchanges()
   return *retained_exchanges_;
 }
 
+transport::StreamableSessionManager* HttpSseFilterChainFactory::sessionManager()
+    const {
+  if (!sessions_enabled_) {
+    // Stateless. Null is the whole of it: with nothing to keep sessions
+    // in, no connection here can mint one or believe one.
+    return nullptr;
+  }
+  if (!session_manager_) {
+    session_manager_.reset(
+        new transport::StreamableSessionManager(dispatcher_));
+    session_manager_->setTimeout(session_timeout_);
+  }
+  return session_manager_.get();
+}
+
 bool HttpSseFilterChainFactory::createFilterChain(
     network::FilterManager& filter_manager) const {
   // Following production pattern: create filters in order
@@ -1890,7 +1906,7 @@ bool HttpSseFilterChainFactory::createFilterChain(
       use_sse_, route_registration_callback_, sse_path_, rpc_path_,
       external_url_, client_headers_, client_header_source_,
       sse_registry_.get(), stream_gate_policy_, gated_input_limit_,
-      &retainedExchanges(), security_options_);
+      &retainedExchanges(), security_options_, sessionManager());
 
   // Add as both read and write filter. The FilterManager owns the filter
   // for the connection's lifetime (per-connection filter ownership): when
