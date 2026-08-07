@@ -244,6 +244,7 @@ void StreamableHttpFilter::beginRequest(
   exchange_->setResponseOptions(host_.requestIsHttp11(),
                                 !host_.streamEndsConnection());
   exchange_->setStreamObserver(host_.streamObserver());
+  exchange_->setFramedHeaders(host_.framedResponseHeaders());
 
   auto& client = exchange_->clientContext();
   auto accept = headers.find("accept");

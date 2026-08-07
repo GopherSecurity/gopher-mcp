@@ -76,6 +76,15 @@ class StreamableHttpFilter : public HttpCodecFilter::MessageCallbacks,
     virtual const std::string& principal() const = 0;
 
     /**
+     * What a response has to carry when this filter frames it itself
+     * rather than letting the codec downstream do it — which origin may
+     * read it, above all. Asked once per request, because the answer
+     * depends on the request and a streamed one is framed long after the
+     * connection has stopped remembering which request it is answering.
+     */
+    virtual http::ResponseWriter::HeaderList framedResponseHeaders() const = 0;
+
+    /**
      * Told when a response on this connection starts and stops streaming,
      * so the connection can stop turning arriving bytes into requests it
      * would have no way to answer in order.

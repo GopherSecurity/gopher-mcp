@@ -1258,6 +1258,10 @@ class HttpSseJsonRpcProtocolFilter
 
   const std::string& principal() const override { return security_.principal; }
 
+  http::ResponseWriter::HeaderList framedResponseHeaders() const override {
+    return corsHeaderList();
+  }
+
   http::ResponseWriter::Observer* streamObserver() override { return this; }
 
   bool streamEndsConnection() const override {

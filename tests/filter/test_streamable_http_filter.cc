@@ -61,10 +61,14 @@ class TestHost : public StreamableHttpFilter::Host {
   network::Connection* connection() override { return nullptr; }
   bool requestIsHttp11() const override { return true; }
   const std::string& principal() const override { return principal_value; }
+  http::ResponseWriter::HeaderList framedResponseHeaders() const override {
+    return framed_headers;
+  }
   http::ResponseWriter::Observer* streamObserver() override { return nullptr; }
   bool streamEndsConnection() const override { return false; }
 
   std::string principal_value{"anonymous"};
+  http::ResponseWriter::HeaderList framed_headers;
 
  private:
   std::string& wire_;

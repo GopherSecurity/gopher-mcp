@@ -297,6 +297,31 @@ class RequestExchange : public std::enable_shared_from_this<RequestExchange> {
   bool setResponseHeader(const std::string& name, const std::string& value);
 
   /**
+   * Take a response header back. Only meaningful before the first byte —
+   * once a header has gone out it has been said.
+   *
+   * @return True when a header of that name was removed.
+   */
+  bool removeResponseHeader(const std::string& name);
+
+  /**
+   * Headers to include whenever this exchange frames its own response.
+   *
+   * Separate from setResponseHeader because these are not a reason to
+   * frame one: a plain answer still goes out through the codec downstream,
+   * exactly as it always has. They are what a response has to carry when
+   * that codec is bypassed and would otherwise say nothing — who is
+   * allowed to read it, and what it is.
+   *
+   * Snapshotted per request rather than resolved when the response is
+   * written, since a streamed answer is framed long after the request that
+   * settled what it may say.
+   */
+  void setFramedHeaders(const http::ResponseWriter::HeaderList& headers) {
+    framed_headers_ = headers;
+  }
+
+  /**
    * Answer with a single JSON-RPC response and finish.
    *
    * A plain 200 with no added headers is written as bare JSON and framed by
@@ -413,6 +438,12 @@ class RequestExchange : public std::enable_shared_from_this<RequestExchange> {
   bool writeBytes(const std::string& bytes);
   /** True when the response cannot be expressed by the downstream codec. */
   bool needsOwnFraming() const;
+  /**
+   * The headers of a self-framed response: what the caller set, with the
+   * framed-only ones behind them and a content type if none was named.
+   */
+  http::ResponseWriter::HeaderList framedHeaders(
+      const std::string& content_type) const;
 
   event::Dispatcher& dispatcher_;
   ExchangeSinkPtr sink_;
@@ -426,6 +457,7 @@ class RequestExchange : public std::enable_shared_from_this<RequestExchange> {
 
   int status_code_{200};
   http::ResponseWriter::HeaderList headers_;
+  http::ResponseWriter::HeaderList framed_headers_;
   http::ResponseWriter::Options writer_options_;
   std::unique_ptr<http::ResponseWriter> stream_writer_;
 

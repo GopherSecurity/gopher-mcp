@@ -174,10 +174,61 @@ bool RequestExchange::setResponseHeader(const std::string& name,
   return true;
 }
 
+bool RequestExchange::removeResponseHeader(const std::string& name) {
+  assertOnDispatcher();
+  if (first_byte_written_) {
+    GOPHER_LOG_ERROR(
+        "RequestExchange: header '{}' withdrawn after the response began",
+        name);
+    return false;
+  }
+  for (auto it = headers_.begin(); it != headers_.end(); ++it) {
+    if (it->first == name) {
+      headers_.erase(it);
+      return true;
+    }
+  }
+  return false;
+}
+
 bool RequestExchange::needsOwnFraming() const {
   // The HTTP codec downstream emits a fixed 200 and a fixed header set, so
   // anything beyond that has to be framed here and passed through.
+  //
+  // framed_headers_ deliberately does not count. They describe how an
+  // answer is read, not what it says, and letting them decide would pull
+  // every response off the codec path and change bytes that already work.
   return status_code_ != 200 || !headers_.empty();
+}
+
+http::ResponseWriter::HeaderList RequestExchange::framedHeaders(
+    const std::string& content_type) const {
+  http::ResponseWriter::HeaderList headers = headers_;
+
+  auto named = [&headers](const std::string& name) {
+    for (const auto& header : headers) {
+      if (header.first == name) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  // Behind the caller's, so anything decided for this response wins over a
+  // default set for every response on the connection.
+  for (const auto& header : framed_headers_) {
+    if (!named(header.first)) {
+      headers.push_back(header);
+    }
+  }
+
+  // Nothing downstream will add one. The codec supplies a content type on
+  // the path it frames, and a response that bypasses it and says nothing
+  // leaves a client guessing what it just read.
+  if (!content_type.empty() && !named("Content-Type")) {
+    headers.emplace_back("Content-Type", content_type);
+  }
+  return headers;
 }
 
 bool RequestExchange::writeBytes(const std::string& bytes) {
@@ -204,7 +255,8 @@ VoidResult RequestExchange::respondJson(const jsonrpc::Response& response) {
   bool written = false;
   if (needsOwnFraming()) {
     http::ResponseWriter writer(writer_options_);
-    if (!writer.startUnary(status_code_, headers_, body)) {
+    if (!writer.startUnary(status_code_, framedHeaders("application/json"),
+                           body)) {
       Error err;
       err.code = jsonrpc::INTERNAL_ERROR;
       err.message = "response dropped: could not be serialized";
@@ -245,19 +297,7 @@ VoidResult RequestExchange::respondUnary(const std::string& content_type,
     return makeVoidError(err);
   }
 
-  http::ResponseWriter::HeaderList headers = headers_;
-  if (!content_type.empty()) {
-    bool present = false;
-    for (const auto& header : headers) {
-      if (header.first == "Content-Type") {
-        present = true;
-        break;
-      }
-    }
-    if (!present) {
-      headers.emplace_back("Content-Type", content_type);
-    }
-  }
+  const http::ResponseWriter::HeaderList headers = framedHeaders(content_type);
 
   http::ResponseWriter writer(writer_options_);
   if (!writer.startUnary(status_code_, headers, body)) {
@@ -296,7 +336,10 @@ bool RequestExchange::beginStream() {
   // Set before the stream opens, so the connection learns it has to stop
   // answering anything else from the moment it actually does.
   stream_writer_->setObserver(stream_observer_);
-  const auto start = stream_writer_->startSse(status_code_, headers_);
+  // The writer supplies the content type of a stream itself; everything
+  // else a self-framed answer owes still has to come from here.
+  const auto start =
+      stream_writer_->startSse(status_code_, framedHeaders(std::string()));
   if (start != http::ResponseWriter::SseStart::Streaming) {
     // The writer put a complete answer in place of the stream; send it and
     // treat the exchange as finished.

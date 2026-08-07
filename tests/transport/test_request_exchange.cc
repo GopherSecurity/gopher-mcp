@@ -156,6 +156,131 @@ TEST_F(RequestExchangeTest, AHeaderForcesTheExchangeToFrameTheResponse) {
       << sink->bytes();
 }
 
+TEST_F(RequestExchangeTest, AHeaderCanBeTakenBackBeforeItIsSaid) {
+  RetainedExchangeSink* sink = nullptr;
+  auto exchange = makeExchange(&sink);
+
+  exchange->setResponseHeader("Mcp-Session-Id", "session-7");
+  EXPECT_TRUE(exchange->removeResponseHeader("Mcp-Session-Id"));
+  EXPECT_FALSE(exchange->removeResponseHeader("Mcp-Session-Id"));
+
+  ASSERT_FALSE(holds_alternative<Error>(exchange->respondJson(okResponse(1))));
+
+  // Nothing was ever attached, so the answer goes back to the plain form
+  // the codec downstream frames.
+  EXPECT_EQ(sink->bytes().find("Mcp-Session-Id"), std::string::npos)
+      << sink->bytes();
+  EXPECT_EQ(sink->bytes().find("HTTP/1.1"), std::string::npos) << sink->bytes();
+
+  // Once it has gone out it has been said.
+  EXPECT_FALSE(exchange->removeResponseHeader("Content-Type"));
+}
+
+TEST_F(RequestExchangeTest, ASelfFramedResponseSaysWhatItIs) {
+  // Nothing downstream supplies a content type on this path, and a client
+  // handed a body with no type has to guess what it just read.
+  RetainedExchangeSink* sink = nullptr;
+  auto exchange = makeExchange(&sink);
+
+  exchange->setResponseHeader("Mcp-Session-Id", "session-7");
+  ASSERT_FALSE(holds_alternative<Error>(exchange->respondJson(okResponse(1))));
+
+  EXPECT_NE(sink->bytes().find("\r\nContent-Type: application/json\r\n"),
+            std::string::npos)
+      << sink->bytes();
+}
+
+TEST_F(RequestExchangeTest, FramedHeadersRideAlongWithoutForcingFraming) {
+  RetainedExchangeSink* sink = nullptr;
+  auto exchange = makeExchange(&sink);
+
+  // Saying who may read an answer is not a reason to frame one here: the
+  // codec downstream carries these on the path it frames.
+  exchange->setFramedHeaders(
+      {{"Access-Control-Allow-Origin", "http://localhost:3000"}});
+  ASSERT_FALSE(holds_alternative<Error>(exchange->respondJson(okResponse(1))));
+
+  EXPECT_EQ(sink->bytes().find("HTTP/1.1"), std::string::npos) << sink->bytes();
+  EXPECT_EQ(sink->bytes().find("Access-Control"), std::string::npos)
+      << sink->bytes();
+}
+
+TEST_F(RequestExchangeTest, FramedHeadersAppearOnceFramingIsHere) {
+  RetainedExchangeSink* sink = nullptr;
+  auto exchange = makeExchange(&sink);
+
+  exchange->setFramedHeaders(
+      {{"Access-Control-Allow-Origin", "http://localhost:3000"},
+       {"Access-Control-Expose-Headers", "Mcp-Session-Id"}});
+  exchange->setResponseHeader("Mcp-Session-Id", "session-7");
+  ASSERT_FALSE(holds_alternative<Error>(exchange->respondJson(okResponse(1))));
+
+  EXPECT_NE(sink->bytes().find(
+                "\r\nAccess-Control-Allow-Origin: http://localhost:3000"
+                "\r\n"),
+            std::string::npos)
+      << sink->bytes();
+  EXPECT_NE(sink->bytes().find(
+                "\r\nAccess-Control-Expose-Headers: Mcp-Session-Id\r\n"),
+            std::string::npos)
+      << sink->bytes();
+}
+
+TEST_F(RequestExchangeTest,
+       WhatThisRequestDecidedBeatsWhatEveryRequestCarries) {
+  RetainedExchangeSink* sink = nullptr;
+  auto exchange = makeExchange(&sink);
+
+  exchange->setFramedHeaders({{"Content-Type", "text/plain"}});
+  exchange->setResponseHeader("Content-Type", "application/problem+json");
+  exchange->setStatus(403);
+  ASSERT_FALSE(holds_alternative<Error>(
+      exchange->respondUnary("application/json", "{}")));
+
+  EXPECT_NE(
+      sink->bytes().find("\r\nContent-Type: application/problem+json\r\n"),
+      std::string::npos)
+      << sink->bytes();
+  EXPECT_EQ(sink->bytes().find("text/plain"), std::string::npos)
+      << sink->bytes();
+}
+
+TEST_F(RequestExchangeTest, AnAcceptedRequestStillSaysWhoMayReadIt) {
+  RetainedExchangeSink* sink = nullptr;
+  auto exchange = makeExchange(&sink);
+
+  exchange->setFramedHeaders(
+      {{"Access-Control-Allow-Origin", "http://localhost:3000"}});
+  exchange->setStatus(202);
+  ASSERT_FALSE(holds_alternative<Error>(exchange->respondUnary("", "")));
+
+  EXPECT_EQ(sink->bytes().find("HTTP/1.1 202 Accepted\r\n"), 0u)
+      << sink->bytes();
+  EXPECT_NE(sink->bytes().find("Access-Control-Allow-Origin: "
+                               "http://localhost:3000"),
+            std::string::npos)
+      << sink->bytes();
+}
+
+TEST_F(RequestExchangeTest, AStreamSaysWhoMayReadItToo) {
+  RetainedExchangeSink* sink = nullptr;
+  auto exchange = makeExchange(&sink);
+
+  exchange->setFramedHeaders(
+      {{"Access-Control-Allow-Origin", "http://localhost:3000"}});
+  ASSERT_TRUE(exchange->beginStream());
+
+  EXPECT_NE(sink->bytes().find("Access-Control-Allow-Origin: "
+                               "http://localhost:3000"),
+            std::string::npos)
+      << sink->bytes();
+  // The writer names the content type of a stream itself; nothing here
+  // should have talked over it.
+  EXPECT_NE(sink->bytes().find("Content-Type: text/event-stream"),
+            std::string::npos)
+      << sink->bytes();
+}
+
 TEST_F(RequestExchangeTest, ANonDefaultStatusForcesFramingToo) {
   RetainedExchangeSink* sink = nullptr;
   auto exchange = makeExchange(&sink);
