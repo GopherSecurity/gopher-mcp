@@ -51,6 +51,19 @@ struct StreamableHttpOptions {
 
   /** Whether a client may end its own session with DELETE. */
   bool allow_client_termination{true};
+
+  /**
+   * Whether a client may open a standalone event stream on the endpoint,
+   * which is where everything the server says on its own initiative goes.
+   */
+  bool enable_get_stream{true};
+
+  /**
+   * How many such streams one session may hold at once. The protocol
+   * allows several, so a second is accepted rather than refused; this is
+   * only what stops one client from holding an unbounded number.
+   */
+  size_t max_get_streams_per_session{4};
 };
 
 /**
@@ -283,6 +296,16 @@ class StreamableHttpFilter : public HttpCodecFilter::MessageCallbacks,
    */
   SessionVerdict judgeSession(const std::string& id, bool exempt) const;
 
+  /**
+   * What the thread owning a session concluded about a request presenting
+   * it, gathered in one visit because that is the only thread entitled to
+   * look at any of it.
+   */
+  struct Judgement {
+    SessionVerdict verdict{SessionVerdict::Unknown};
+    size_t live_get_streams{0};
+  };
+
   /** Answer a request whose session did not entitle it to be served. */
   void refuseSession(SessionVerdict verdict);
 
@@ -293,13 +316,26 @@ class StreamableHttpFilter : public HttpCodecFilter::MessageCallbacks,
   void validateThenDispatch(const std::string& method_name);
 
   /** Continue a request whose session has now been judged. */
-  void resumeAfterValidation(SessionVerdict verdict);
+  void resumeAfterValidation(const Judgement& judged);
 
   /** Hand the buffered body to the parser, which dispatches it. */
   void dispatchBody();
 
   /** Answer a DELETE, which ends the session it names. */
   void terminateSession();
+
+  /**
+   * Answer a GET by opening the session's standalone event stream — the
+   * one a client leaves open for everything the server says on its own
+   * initiative.
+   *
+   * @param live_streams How many the session already holds, counted on the
+   *                     thread that owns it while the session was judged.
+   */
+  void openEventStream(size_t live_streams);
+
+  /** Register the stream just opened against its session. */
+  void registerEventStream();
   /** Classify the buffered body and answer, exactly once. */
   void finishRequest();
   /** Give up on the current request without answering it. */
@@ -346,6 +382,13 @@ class StreamableHttpFilter : public HttpCodecFilter::MessageCallbacks,
   // Nothing else on this connection is parsed meanwhile, so the request
   // members below are still this request's when the answer comes back.
   bool parked_{false};
+
+  // The session whose standalone event stream this connection is carrying,
+  // and the connection itself. Kept past the request that opened it, so
+  // the stream can be detached from its session when the client goes: the
+  // pointer is only ever compared, never followed.
+  std::string get_stream_session_id_;
+  network::Connection* get_stream_conn_{nullptr};
 
   // The streamed answer for the request being dispatched, if it asked for
   // one. Held only for the length of the dispatch — whoever is producing

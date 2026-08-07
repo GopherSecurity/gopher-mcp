@@ -1531,8 +1531,17 @@ class HttpSseJsonRpcProtocolFilter
     routing_filter_->addRoute("OPTIONS", rpc_path,
                               Target::handlerRoute(corsHandler));
     routing_filter_->addRoute("POST", rpc_path, Target::passThrough());
+    // The standalone event stream, where everything the server says on its
+    // own initiative goes. Sessions are the condition as much as the
+    // setting is: the stream is a session's, and with no session to hang
+    // it on there is nothing for a message to be routed to.
     if (rpc_path != sse_path) {
-      routing_filter_->addRoute("GET", rpc_path, Target::reject(405));
+      if (streamable_options_.enable_get_stream &&
+          streamable_options_.sessions != nullptr) {
+        routing_filter_->addRoute("GET", rpc_path, Target::passThrough());
+      } else {
+        routing_filter_->addRoute("GET", rpc_path, Target::reject(405));
+      }
     }
     // Serving DELETE is what advertises it: the Allow header is rendered
     // from this table, and a rejecting route is deliberately left out of

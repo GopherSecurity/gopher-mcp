@@ -19,17 +19,53 @@ namespace transport {
 /**
  * One event stream belonging to a session.
  *
- * Declared here because the session is what owns it; nothing populates one
- * yet. A stream carries a random id of its own, which prefixes every event
- * id it emits — that is what makes an id unique across the session while
- * still ordering within the stream it came from.
+ * The session owns it: created when the stream opens, destroyed at session
+ * teardown or retention expiry, and never by the death of the connection it
+ * was running over — that only detaches it. A stream carries a random id of
+ * its own, which prefixes every event id it emits, and that is what makes an
+ * id unique across the session while still ordering within its own stream.
  */
 struct StreamCtx {
+  /**
+   * What the stream is for.
+   *
+   * Get is the standalone stream a client opens and leaves open, and is
+   * where anything the server says on its own initiative goes.
+   * PostResponse answers one request and ends with it, so nothing
+   * unsolicited may be routed onto it.
+   */
+  enum class Kind { Get, PostResponse };
+
   std::string id;
+  Kind kind{Kind::Get};
   uint64_t next_sequence{1};
 
   /** What is producing on this stream, when anything is. */
   RequestExchangePtr exchange;
+
+  /**
+   * The connection carrying it, and the thread that connection belongs to.
+   *
+   * Neither is owned. The connection is nulled when the client goes away,
+   * which is how a detached stream is told apart from a live one. The
+   * dispatcher outlives every connection on it and is what a write from the
+   * session's own thread has to be posted to, since the exchange may only
+   * be touched where its connection lives.
+   */
+  network::Connection* conn{nullptr};
+  event::Dispatcher* dispatcher{nullptr};
+
+  /** Whether the stream has begun and not yet finished. */
+  bool open() const {
+    return exchange && exchange->mode() == RequestExchange::Mode::Stream;
+  }
+
+  /**
+   * Whether anything written here would reach a client now. An open
+   * stream whose client has gone is not live but is still very much
+   * there: what is written to it is kept for a client that comes back.
+   */
+  bool live() const { return conn != nullptr && open(); }
 };
 
 /**
@@ -143,6 +179,40 @@ class StreamableSessionManager {
 
   /** Tear a session down, telling the removal observer. Idempotent. */
   bool remove(const std::string& id);
+
+  /**
+   * Add a stream to a session, with an id no other stream there is using.
+   *
+   * @param conn       The connection carrying it, for telling a live stream
+   *                   from a detached one.
+   * @param dispatcher Where that connection lives, which is the only thread
+   *                   the stream's exchange may be touched from.
+   * @return The stream, owned by the session; null if no id could be drawn.
+   */
+  StreamCtx* openStream(SessionCtx& session,
+                        StreamCtx::Kind kind,
+                        const RequestExchangePtr& exchange,
+                        network::Connection* conn,
+                        event::Dispatcher& dispatcher);
+
+  /**
+   * How many streams of a kind the session is holding.
+   *
+   * @param connected_only True counts only those that could reach a client
+   *                       now. False counts detached ones too, which is
+   *                       what a bound on memory has to do — a detached
+   *                       stream is still holding everything written to it.
+   */
+  static size_t countStreams(const SessionCtx& session,
+                             StreamCtx::Kind kind,
+                             bool connected_only);
+
+  /**
+   * The client on this connection has gone. Its streams are detached, not
+   * removed: the work behind one carries on, and a client that comes back
+   * is owed whatever it missed.
+   */
+  static void detachConnection(SessionCtx& session, network::Connection* conn);
 
   /**
    * Told once for each session that goes away, on the thread that owned

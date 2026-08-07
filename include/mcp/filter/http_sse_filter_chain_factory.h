@@ -256,6 +256,9 @@ class HttpSseFilterChainFactory : public network::FilterChainFactory {
         config.require_principal_match;
     streamable_options_.allow_client_termination =
         config.allow_client_termination;
+    streamable_options_.enable_get_stream = config.enable_get_stream;
+    streamable_options_.max_get_streams_per_session =
+        config.max_get_streams_per_session;
     if (session_manager_) {
       session_manager_->setTimeout(session_timeout_);
     }

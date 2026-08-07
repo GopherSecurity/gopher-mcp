@@ -55,6 +55,9 @@ const char kSessionHeader[] = "Mcp-Session-Id";
 // The method by which a client ends the session it was given.
 const char kDeleteMethod[] = "DELETE";
 
+// The method by which a client opens the standalone event stream.
+const char kGetMethod[] = "GET";
+
 /**
  * The protocol revision an initialize response settled on.
  *
@@ -262,7 +265,33 @@ StreamableHttpFilter::StreamableHttpFilter(
       alive_(new int(0)),
       jsonrpc_(new JsonRpcProtocolFilter(*this, dispatcher, kServerMode)) {}
 
-StreamableHttpFilter::~StreamableHttpFilter() = default;
+StreamableHttpFilter::~StreamableHttpFilter() {
+  if (sessions_ == nullptr || get_stream_session_id_.empty()) {
+    return;
+  }
+
+  // This connection is going. Its stream is not: the session owns it, and
+  // what is written there while nobody is connected is kept for a client
+  // that comes back. Only the connection is forgotten — the pointer below
+  // is compared and never followed, which is what makes it safe to use
+  // one that may already be dangling.
+  transport::StreamableSessionManager* sessions = sessions_;
+  network::Connection* conn = get_stream_conn_;
+  const std::string id = get_stream_session_id_;
+
+  if (sessions->ownedBy(id, dispatcher_)) {
+    if (auto* session = sessions->find(id)) {
+      transport::StreamableSessionManager::detachConnection(*session, conn);
+    }
+    return;
+  }
+  sessions->withSession(
+      dispatcher_, id,
+      [conn](transport::SessionCtx& session) {
+        transport::StreamableSessionManager::detachConnection(session, conn);
+      },
+      nullptr);
+}
 
 void StreamableHttpFilter::onHeaders(
     const std::map<std::string, std::string>& headers, bool keep_alive) {
@@ -280,9 +309,15 @@ void StreamableHttpFilter::onHeaders(
   if (requestPath(headers) != mcp_path_) {
     return;
   }
-  // DELETE only reaches here when the route table admits it, which it does
-  // only when clients are allowed to end their own sessions.
-  const bool served = method == "POST" || method == kDeleteMethod;
+  // DELETE and GET only reach here when the route table admits them, and
+  // the conditions are restated rather than assumed: a stream belongs to a
+  // session, so with no sessions there is nothing to open one against, and
+  // answering anyway would leave a client holding a stream nothing can
+  // ever route a message to.
+  const bool serves_streams =
+      options_.enable_get_stream && sessions_ != nullptr;
+  const bool served = method == "POST" || method == kDeleteMethod ||
+                      (method == kGetMethod && serves_streams);
   if (!served) {
     return;
   }
@@ -369,9 +404,9 @@ void StreamableHttpFilter::finishRequest() {
   // one request gets one answer, whatever its body turned out to contain.
   auto exchange = exchange_;
 
-  if (method_ == kDeleteMethod) {
-    // Nothing to parse: the header is the whole request. It still has to
-    // name a session it is entitled to end, so it goes through the same
+  if (method_ == kDeleteMethod || method_ == kGetMethod) {
+    // Nothing to parse: the headers are the whole request. Both still have
+    // to name a session they are entitled to, so both go through the same
     // judgement as everything else.
     validateThenDispatch(std::string());
     return;
@@ -564,7 +599,17 @@ void StreamableHttpFilter::validateThenDispatch(
   if (sessions_ == nullptr || exempt || session_id_.empty() ||
       sessions_->ownedBy(session_id_, dispatcher_)) {
     // Everything needed is readable from here.
-    resumeAfterValidation(judgeSession(session_id_, exempt));
+    Judgement judged;
+    judged.verdict = judgeSession(session_id_, exempt);
+    if (judged.verdict == SessionVerdict::Serve && sessions_ != nullptr) {
+      if (auto* session = sessions_->find(session_id_)) {
+        judged.live_get_streams =
+            transport::StreamableSessionManager::countStreams(
+                *session, transport::StreamCtx::Kind::Get,
+                /*connected_only=*/false);
+      }
+    }
+    resumeAfterValidation(judged);
     return;
   }
 
@@ -575,7 +620,7 @@ void StreamableHttpFilter::validateThenDispatch(
   parked_ = true;
   host_.holdInput(true);
 
-  auto verdict = std::make_shared<SessionVerdict>(SessionVerdict::Unknown);
+  auto judged = std::make_shared<Judgement>();
   const std::string id = session_id_;
   std::weak_ptr<int> alive = alive_;
 
@@ -583,36 +628,51 @@ void StreamableHttpFilter::validateThenDispatch(
 
   sessions_->withSession(
       dispatcher_, id,
-      [this, verdict, id, exempt, terminating](transport::SessionCtx&) {
-        *verdict = judgeSession(id, exempt);
-        if (*verdict == SessionVerdict::Serve && terminating) {
+      [this, judged, id, exempt, terminating](transport::SessionCtx& session) {
+        judged->verdict = judgeSession(id, exempt);
+        if (judged->verdict != SessionVerdict::Serve) {
+          return;
+        }
+        if (terminating) {
           // Ending it belongs on the thread that owns it, which is this
           // one and not the one the request arrived on.
           sessions_->remove(id);
+          return;
         }
+        // Counted in the same visit, since this is the only thread that
+        // may look at the session's streams at all.
+        judged->live_get_streams =
+            transport::StreamableSessionManager::countStreams(
+                session, transport::StreamCtx::Kind::Get,
+                /*connected_only=*/false);
       },
-      [this, verdict, alive](bool found) {
+      [this, judged, alive](bool found) {
         if (alive.expired()) {
           // The connection died while its request was being judged. There
           // is nobody left to answer and nothing left to answer through.
           return;
         }
-        resumeAfterValidation(found ? *verdict : SessionVerdict::Unknown);
+        if (!found) {
+          judged->verdict = SessionVerdict::Unknown;
+        }
+        resumeAfterValidation(*judged);
       });
 }
 
-void StreamableHttpFilter::resumeAfterValidation(SessionVerdict verdict) {
+void StreamableHttpFilter::resumeAfterValidation(const Judgement& judged) {
   // Cleared first so the paths below do not lift the hold themselves, and
   // released last — see the end of this function.
   const bool was_parked = parked_;
   parked_ = false;
 
   if (exchange_) {
-    if (verdict != SessionVerdict::Serve) {
-      refuseSession(verdict);
+    if (judged.verdict != SessionVerdict::Serve) {
+      refuseSession(judged.verdict);
       abandonRequest();
     } else if (method_ == kDeleteMethod) {
       terminateSession();
+    } else if (method_ == kGetMethod) {
+      openEventStream(judged.live_get_streams);
     } else {
       dispatchBody();
     }
@@ -626,6 +686,90 @@ void StreamableHttpFilter::resumeAfterValidation(SessionVerdict verdict) {
     // written.
     host_.holdInput(false);
   }
+}
+
+void StreamableHttpFilter::openEventStream(size_t live_streams) {
+  if (!exchange_) {
+    return;
+  }
+
+  if (!exchange_->clientContext().accepts_sse) {
+    // There is only one thing a GET here produces, and this client has
+    // said it cannot read it.
+    GOPHER_LOG_DEBUG("event stream refused: the client will not accept one");
+    respondWithError(static_cast<int>(http::HttpStatusCode::NotAcceptable),
+                     jsonrpc::INVALID_REQUEST,
+                     "Not Acceptable: this endpoint answers GET with "
+                     "text/event-stream");
+    abandonRequest();
+    return;
+  }
+
+  if (live_streams >= options_.max_get_streams_per_session) {
+    // Holding several at once is allowed, so this is a bound on memory
+    // rather than a rule about how many a client ought to want.
+    GOPHER_LOG_DEBUG("event stream refused: session already holds {}",
+                     live_streams);
+    respondWithError(static_cast<int>(http::HttpStatusCode::TooManyRequests),
+                     jsonrpc::INVALID_REQUEST,
+                     "Too Many Requests: this session already holds as many "
+                     "event streams as it may");
+    abandonRequest();
+    return;
+  }
+
+  // Worth keeping when its client goes away: the stream belongs to the
+  // session rather than to the connection, and a client that comes back is
+  // owed whatever it missed.
+  exchange_->setRetainOnDisconnect(true);
+  if (!exchange_->beginStream()) {
+    GOPHER_LOG_ERROR("event stream failed to open");
+    abandonRequest();
+    return;
+  }
+  exchange_->setPhase(transport::RequestExchange::Phase::RespondingSseOpen);
+
+  // Deliberately nothing else. The older transport announces a callback URL
+  // as its first event; this one has no separate endpoint to announce, and
+  // a client reading one here would post its requests somewhere that does
+  // not exist.
+  registerEventStream();
+  abandonRequest();
+}
+
+void StreamableHttpFilter::registerEventStream() {
+  if (sessions_ == nullptr || !exchange_) {
+    return;
+  }
+
+  const std::string id = session_id_;
+  transport::RequestExchangePtr exchange = exchange_;
+  network::Connection* conn = host_.connection();
+  event::Dispatcher* dispatcher = &dispatcher_;
+  transport::StreamableSessionManager* sessions = sessions_;
+
+  // Remembered so the stream can be detached from its session when this
+  // connection goes, which is the only thing that still needs saying about
+  // it after this request is over.
+  get_stream_session_id_ = id;
+  get_stream_conn_ = conn;
+
+  auto attach = [sessions, exchange, conn,
+                 dispatcher](transport::SessionCtx& session) {
+    sessions->openStream(session, transport::StreamCtx::Kind::Get, exchange,
+                         conn, *dispatcher);
+  };
+
+  if (sessions_->ownedBy(id, dispatcher_)) {
+    if (auto* session = sessions_->find(id)) {
+      attach(*session);
+    }
+    return;
+  }
+  // The session lives on another thread, so the record of the stream is
+  // made there. The bytes stay here: the exchange may only be touched
+  // where its connection is.
+  sessions_->withSession(dispatcher_, id, attach, nullptr);
 }
 
 void StreamableHttpFilter::terminateSession() {

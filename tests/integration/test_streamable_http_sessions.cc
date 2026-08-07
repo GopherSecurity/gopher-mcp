@@ -83,6 +83,7 @@ struct ServerOptions {
   // no session id it is sent.
   bool keep_sessions = true;
   bool allow_termination = true;
+  bool enable_get_stream = true;
   std::chrono::milliseconds timeout{300000};
   // Empty means no opinion about protocol revisions, refusing none.
   std::vector<std::string> protocol_versions;
@@ -133,6 +134,7 @@ class StreamableHttpSessionsTest : public test::RealIoTestBase {
     transport::StreamableHttpConfig config;
     config.enable_sessions = options.keep_sessions;
     config.allow_client_termination = options.allow_termination;
+    config.enable_get_stream = options.enable_get_stream;
     config.session_timeout = options.timeout;
     config.protocol_versions = options.protocol_versions;
     factory->setSessionConfig(config);
@@ -640,14 +642,18 @@ TEST_F(StreamableHttpSessionsTest, AServerThatForbidsItSaysWhatItDoesServe) {
   EXPECT_EQ(statusOf(response), 405) << response;
   // Rendered from the route table rather than written out, so it names
   // what is actually served and nothing else.
-  EXPECT_EQ(headerOf(response, "Allow"), "OPTIONS, POST") << response;
+  EXPECT_EQ(headerOf(response, "Allow"), "GET, OPTIONS, POST") << response;
 }
 
 TEST_F(StreamableHttpSessionsTest, AServerThatAllowsItAdvertisesIt) {
-  startServer();
+  // The mirror of the test above: with the event stream off instead, GET
+  // is the refusal and DELETE is what shows up in Allow. Each optional
+  // method appears exactly when it is served, because the header is
+  // rendered from the routes rather than written anywhere.
+  ServerOptions options;
+  options.enable_get_stream = false;
+  startServer(options);
 
-  // GET on the endpoint is still a placeholder that refuses, so it stays
-  // out of Allow; DELETE is served and therefore appears.
   sendRequest(peer_, "GET", "");
   const std::string response = readResponse(peer_);
 
@@ -663,6 +669,8 @@ TEST_F(StreamableHttpSessionsTest, AStatelessServerHasNoSessionToEnd) {
   sendDelete(peer_, "Mcp-Session-Id: whatever\r\n");
   const std::string response = readResponse(peer_);
 
+  // Neither ending a session nor opening a stream is served here: both
+  // are a session's, and this server keeps none.
   EXPECT_EQ(statusOf(response), 405) << response;
   EXPECT_EQ(headerOf(response, "Allow"), "OPTIONS, POST") << response;
 }

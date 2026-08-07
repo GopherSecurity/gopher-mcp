@@ -67,7 +67,8 @@ class HttpRoutingTableTest : public test::RealIoTestBase {
   Harness makeServerHarness(RoutingCallbacks& callbacks,
                             const std::string& rpc_path = "/mcp",
                             const std::string& sse_path = "/sse",
-                            bool allow_client_termination = true) {
+                            bool allow_client_termination = true,
+                            bool enable_get_stream = true) {
     auto factory = std::make_shared<HttpSseFilterChainFactory>(
         *dispatcher_, callbacks,
         /*is_server=*/true, rpc_path,
@@ -77,6 +78,7 @@ class HttpRoutingTableTest : public test::RealIoTestBase {
     // table admits is what Allow advertises.
     transport::StreamableHttpConfig config;
     config.allow_client_termination = allow_client_termination;
+    config.enable_get_stream = enable_get_stream;
     factory->setSessionConfig(config);
     factory->setRouteRegistrationCallback(
         [this](HttpRoutingFilter* router) { router_ = router; });
@@ -173,7 +175,11 @@ TEST_F(HttpRoutingTableTest, GetMcpIsRejectedWithoutHanging) {
   std::shared_ptr<HttpSseFilterChainFactory> factory;
 
   executeInDispatcher([&]() {
-    auto h = makeServerHarness(callbacks);
+    // The standalone event stream turned off, so GET on the endpoint is
+    // a route that rejects — which is what this test is about.
+    auto h = makeServerHarness(callbacks, "/mcp", "/sse",
+                               /*allow_client_termination=*/true,
+                               /*enable_get_stream=*/false);
     conn = std::move(h.conn);
     peer = std::move(h.peer);
     factory = std::move(h.factory);
@@ -219,7 +225,7 @@ TEST_F(HttpRoutingTableTest, DeleteMcpIsRejectedWhenTerminationIsOff) {
   std::string wire = drainPeer(*peer, 2000ms);
   EXPECT_NE(wire.find("HTTP/1.1 405 Method Not Allowed"), std::string::npos)
       << "Expected 405, got: " << wire;
-  EXPECT_NE(wire.find("\r\nAllow: OPTIONS, POST\r\n"), std::string::npos)
+  EXPECT_NE(wire.find("\r\nAllow: GET, OPTIONS, POST\r\n"), std::string::npos)
       << "Expected Allow without DELETE, got: " << wire;
 
   closeOnDispatcher(std::move(conn), std::move(factory));
@@ -270,7 +276,11 @@ TEST_F(HttpRoutingTableTest, RejectRoutesAreNeverAdvertised) {
   std::shared_ptr<HttpSseFilterChainFactory> factory;
 
   executeInDispatcher([&]() {
-    auto h = makeServerHarness(callbacks);
+    // Both optional methods off, so the table actually holds rejections to
+    // check the invariant against.
+    auto h = makeServerHarness(callbacks, "/mcp", "/sse",
+                               /*allow_client_termination=*/false,
+                               /*enable_get_stream=*/false);
     conn = std::move(h.conn);
     peer = std::move(h.peer);
     factory = std::move(h.factory);
@@ -440,7 +450,9 @@ TEST_F(HttpRoutingTableTest, ConfiguredEndpointPathIsHonored) {
   std::shared_ptr<HttpSseFilterChainFactory> factory;
 
   executeInDispatcher([&]() {
-    auto h = makeServerHarness(callbacks, "/api/mcp");
+    auto h = makeServerHarness(callbacks, "/api/mcp", "/sse",
+                               /*allow_client_termination=*/true,
+                               /*enable_get_stream=*/false);
     conn = std::move(h.conn);
     peer = std::move(h.peer);
     factory = std::move(h.factory);

@@ -222,11 +222,13 @@ class StreamableHttpFilterTest : public ::testing::Test {
   /** Rebuild the filter as a server that keeps sessions. */
   void keepSessions(bool require_principal_match = true) {
     sessions_.reset(new transport::StreamableSessionManager(*dispatcher_));
-    StreamableHttpOptions options;
-    options.sessions = sessions_.get();
-    options.require_principal_match = require_principal_match;
-    buildFilter(options);
+    sessions_options_ = StreamableHttpOptions();
+    sessions_options_.sessions = sessions_.get();
+    sessions_options_.require_principal_match = require_principal_match;
+    buildFilter(sessions_options_);
   }
+
+  StreamableHttpOptions sessions_options_;
 
   /** The session id the last answer handed back, if it handed one back. */
   std::string sessionIdOnTheWire() const {
@@ -249,6 +251,15 @@ class StreamableHttpFilterTest : public ::testing::Test {
            "Content-Type: application/json\r\n" +
            extra_headers + "Content-Length: " + std::to_string(body.size()) +
            "\r\n\r\n" + body;
+  }
+
+  static std::string get(const std::string& path,
+                         const std::string& extra_headers = "") {
+    return "GET " + path +
+           " HTTP/1.1\r\n"
+           "Host: localhost\r\n"
+           "Accept: text/event-stream\r\n" +
+           extra_headers + "Content-Length: 0\r\n\r\n";
   }
 
   static std::string del(const std::string& path,
@@ -1026,6 +1037,111 @@ TEST_F(StreamableHttpFilterTest, WithNoConfiguredListNothingIsRefused) {
 
   EXPECT_EQ(wire_.find("HTTP/1.1 400"), std::string::npos) << wire_;
   ASSERT_EQ(callbacks_.requests.size(), 1u);
+}
+
+// ── The standalone event stream ────────────────────────────────────────────
+
+TEST_F(StreamableHttpFilterTest, AGetOpensTheSessionsEventStream) {
+  keepSessions();
+  feed(post("/mcp", kRequestBody));
+  const std::string id = sessionIdOnTheWire();
+  ASSERT_FALSE(id.empty());
+
+  wire_.clear();
+  feed(get("/mcp", "Mcp-Session-Id: " + id + "\r\n"));
+
+  EXPECT_EQ(wire_.find("HTTP/1.1 200 OK\r\n"), 0u) << wire_;
+  EXPECT_NE(wire_.find("Content-Type: text/event-stream"), std::string::npos)
+      << wire_;
+  // The older transport announces a callback URL as its first event. This
+  // one has no separate endpoint, and a client reading one would post its
+  // requests somewhere that does not exist.
+  EXPECT_EQ(wire_.find("event: endpoint"), std::string::npos) << wire_;
+
+  transport::SessionCtx* session = sessions_->find(id);
+  ASSERT_NE(session, nullptr);
+  ASSERT_EQ(session->streams.size(), 1u);
+  EXPECT_EQ(session->streams[0]->kind, transport::StreamCtx::Kind::Get);
+  EXPECT_FALSE(session->streams[0]->id.empty());
+}
+
+TEST_F(StreamableHttpFilterTest, TwoStreamsOnOneSessionAreBothOpened) {
+  keepSessions();
+  feed(post("/mcp", kRequestBody));
+  const std::string id = sessionIdOnTheWire();
+  ASSERT_FALSE(id.empty());
+
+  // Holding several at once is allowed, so a second is accepted rather
+  // than refused.
+  feed(get("/mcp", "Mcp-Session-Id: " + id + "\r\n"));
+  feed(get("/mcp", "Mcp-Session-Id: " + id + "\r\n"));
+
+  transport::SessionCtx* session = sessions_->find(id);
+  ASSERT_NE(session, nullptr);
+  EXPECT_EQ(session->streams.size(), 2u);
+  EXPECT_NE(session->streams[0]->id, session->streams[1]->id);
+}
+
+TEST_F(StreamableHttpFilterTest, AStreamBeyondTheCapIsRefused) {
+  keepSessions();
+  sessions_options_.max_get_streams_per_session = 1;
+  buildFilter(sessions_options_);
+
+  feed(post("/mcp", kRequestBody));
+  const std::string id = sessionIdOnTheWire();
+  ASSERT_FALSE(id.empty());
+  feed(get("/mcp", "Mcp-Session-Id: " + id + "\r\n"));
+
+  wire_.clear();
+  feed(get("/mcp", "Mcp-Session-Id: " + id + "\r\n"));
+
+  EXPECT_EQ(wire_.find("HTTP/1.1 429 "), 0u) << wire_;
+  EXPECT_EQ(sessions_->find(id)->streams.size(), 1u);
+}
+
+TEST_F(StreamableHttpFilterTest, AClientThatCannotReadAStreamIsToldSo) {
+  keepSessions();
+  feed(post("/mcp", kRequestBody));
+  const std::string id = sessionIdOnTheWire();
+  ASSERT_FALSE(id.empty());
+
+  wire_.clear();
+  feed(
+      "GET /mcp HTTP/1.1\r\n"
+      "Host: localhost\r\n"
+      "Accept: application/json\r\n"
+      "Mcp-Session-Id: " +
+      id +
+      "\r\n"
+      "Content-Length: 0\r\n\r\n");
+
+  EXPECT_EQ(wire_.find("HTTP/1.1 406 "), 0u) << wire_;
+  EXPECT_TRUE(sessions_->find(id)->streams.empty());
+}
+
+TEST_F(StreamableHttpFilterTest, AStreamHasToNameASession) {
+  keepSessions();
+
+  feed(get("/mcp"));
+
+  EXPECT_EQ(wire_.find("HTTP/1.1 400 Bad Request\r\n"), 0u) << wire_;
+}
+
+TEST_F(StreamableHttpFilterTest, AStreamOnAnUnknownSessionIsNotFound) {
+  keepSessions();
+
+  feed(get("/mcp", "Mcp-Session-Id: 0123456789abcdef0123456789abcdef\r\n"));
+
+  EXPECT_EQ(wire_.find("HTTP/1.1 404 Not Found\r\n"), 0u) << wire_;
+}
+
+TEST_F(StreamableHttpFilterTest, AStatelessServerHasNoStreamToOpen) {
+  // No session to hang it on means nothing could ever be routed to it, so
+  // the request goes to the layer behind rather than being answered here.
+  feed(get("/mcp", "Mcp-Session-Id: whatever\r\n"));
+
+  EXPECT_TRUE(wire_.empty()) << wire_;
+  EXPECT_EQ(fallback_.header_count, 1u);
 }
 
 }  // namespace

@@ -375,6 +375,16 @@ class RequestExchange : public std::enable_shared_from_this<RequestExchange> {
                   const std::string& data,
                   const optional<std::string>& id = nullopt);
 
+  /**
+   * Append a comment to an open stream.
+   *
+   * A stream that says nothing for minutes is indistinguishable from a
+   * dead one to anything sitting between the two ends, so an idle one says
+   * something meaningless on purpose. Comments are not events: nothing
+   * retains them and no client sees them as data.
+   */
+  bool writeComment(const std::string& comment);
+
   /** Finish the exchange. Idempotent. */
   bool complete();
 

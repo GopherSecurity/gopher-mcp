@@ -25,6 +25,11 @@ constexpr size_t kSessionIdBytes = 16;
 // The odds are negligible; sharing a session between two clients is not.
 constexpr int kMintAttempts = 4;
 
+// A stream id only has to be unique among one session's streams, and it
+// prefixes every event id that stream emits — so it is kept short enough
+// to read in a log while still being drawn rather than counted.
+constexpr size_t kStreamIdChars = 8;
+
 std::string toHex(const unsigned char* bytes, size_t length) {
   static const char kDigits[] = "0123456789abcdef";
   std::string out;
@@ -146,6 +151,86 @@ bool StreamableSessionManager::touch(const std::string& id) {
 
 bool StreamableSessionManager::remove(const std::string& id) {
   return removeOwned(id);
+}
+
+StreamCtx* StreamableSessionManager::openStream(
+    SessionCtx& session,
+    StreamCtx::Kind kind,
+    const RequestExchangePtr& exchange,
+    network::Connection* conn,
+    event::Dispatcher& dispatcher) {
+  std::string stream_id;
+  for (int attempt = 0; attempt < kMintAttempts && stream_id.empty();
+       ++attempt) {
+    const std::string drawn = mintId().substr(0, kStreamIdChars);
+    if (drawn.empty()) {
+      return nullptr;
+    }
+    // Checked against the session's other streams because the id prefixes
+    // every event this one emits: two streams drawing the same one would
+    // quietly cross-link what a resuming client is replayed from.
+    bool taken = false;
+    for (const auto& existing : session.streams) {
+      if (existing && existing->id == drawn) {
+        taken = true;
+        break;
+      }
+    }
+    if (!taken) {
+      stream_id = drawn;
+    }
+  }
+
+  if (stream_id.empty()) {
+    GOPHER_LOG_ERROR("no stream id drawn for session {}", session.id);
+    return nullptr;
+  }
+
+  std::unique_ptr<StreamCtx> stream(new StreamCtx());
+  stream->id = stream_id;
+  stream->kind = kind;
+  stream->exchange = exchange;
+  stream->conn = conn;
+  stream->dispatcher = &dispatcher;
+
+  StreamCtx* opened = stream.get();
+  // Appended, so the collection stays in the order the streams opened —
+  // which is what makes "the most recently opened" a thing that can be
+  // asked for.
+  session.streams.push_back(std::move(stream));
+  GOPHER_LOG_DEBUG("session {} opened stream {}", session.id, stream_id);
+  return opened;
+}
+
+size_t StreamableSessionManager::countStreams(const SessionCtx& session,
+                                              StreamCtx::Kind kind,
+                                              bool connected_only) {
+  size_t count = 0;
+  for (const auto& stream : session.streams) {
+    if (!stream || stream->kind != kind) {
+      continue;
+    }
+    if (connected_only ? stream->live() : stream->open()) {
+      ++count;
+    }
+  }
+  return count;
+}
+
+void StreamableSessionManager::detachConnection(SessionCtx& session,
+                                                network::Connection* conn) {
+  if (conn == nullptr) {
+    return;
+  }
+  for (auto& stream : session.streams) {
+    if (stream && stream->conn == conn) {
+      // Only the connection goes. The stream stays on the session, which
+      // is what a client that reconnects comes back to.
+      stream->conn = nullptr;
+      GOPHER_LOG_DEBUG("session {} stream {} detached from its connection",
+                       session.id, stream->id);
+    }
+  }
 }
 
 bool StreamableSessionManager::removeOwned(const std::string& id) {

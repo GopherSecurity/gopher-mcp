@@ -413,6 +413,31 @@ bool RequestExchange::writeEvent(const std::string& event,
   return sink_->write(framed);
 }
 
+bool RequestExchange::writeComment(const std::string& comment) {
+  assertOnDispatcher();
+  auto self = shared_from_this();
+
+  if (mode_ != Mode::Stream || !stream_writer_) {
+    return false;
+  }
+  if (detached_) {
+    // Nobody is listening, and a comment is only for the connection in
+    // between. Retaining it would put a non-event in the sequence a
+    // resuming client is replayed from.
+    return true;
+  }
+
+  if (!stream_writer_->writeComment(comment)) {
+    return false;
+  }
+  OwnedBuffer framed;
+  stream_writer_->drainTo(framed);
+  if (framed.length() == 0) {
+    return true;
+  }
+  return sink_->write(framed);
+}
+
 bool RequestExchange::complete() {
   assertOnDispatcher();
   auto self = shared_from_this();
