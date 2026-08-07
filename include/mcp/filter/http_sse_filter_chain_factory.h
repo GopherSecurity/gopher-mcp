@@ -260,8 +260,10 @@ class HttpSseFilterChainFactory : public network::FilterChainFactory {
     streamable_options_.max_get_streams_per_session =
         config.max_get_streams_per_session;
     streamable_options_.keepalive_interval = config.keepalive_interval;
+    pending_limit_ = config.replay_buffer_events;
     if (session_manager_) {
       session_manager_->setTimeout(session_timeout_);
+      session_manager_->setPendingLimit(pending_limit_);
     }
   }
 
@@ -367,6 +369,7 @@ class HttpSseFilterChainFactory : public network::FilterChainFactory {
   transport::StreamableSessionManager* shared_session_manager_{nullptr};
   bool sessions_enabled_{true};
   std::chrono::milliseconds session_timeout_{300000};
+  size_t pending_limit_{256};
 
   // What the MCP endpoint serves besides requests. Its session manager is
   // filled in per chain, since that is the part built lazily.

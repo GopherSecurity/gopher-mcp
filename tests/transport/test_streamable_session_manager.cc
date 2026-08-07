@@ -385,6 +385,149 @@ TEST(StreamableSessionManagerDeathTest, ReachingASessionOffItsThreadAborts) {
 }
 #endif
 
+// ===== Where an unsolicited message goes =====
+
+/**
+ * A stream standing in for one a client opened, writing into somewhere the
+ * test can read afterwards rather than onto a socket.
+ */
+class FakeStream {
+ public:
+  FakeStream(StreamableSessionManager& manager,
+             SessionCtx& session,
+             event::Dispatcher& dispatcher,
+             network::Connection* conn) {
+    std::unique_ptr<RetainedExchangeSink> sink(new RetainedExchangeSink());
+    // Kept so the test can read what was written; the exchange owns it.
+    sink_ = sink.get();
+    exchange_ = RequestExchange::create(dispatcher, std::move(sink), nullopt);
+    exchange_->beginStream();
+    ctx_ = manager.openStream(session, StreamCtx::Kind::Get, exchange_, conn,
+                              dispatcher);
+  }
+
+  StreamCtx* ctx() const { return ctx_; }
+  const std::string& bytes() const { return sink_->bytes(); }
+  void disconnect() { ctx_->conn = nullptr; }
+
+ private:
+  RetainedExchangeSink* sink_{nullptr};
+  RequestExchangePtr exchange_;
+  StreamCtx* ctx_{nullptr};
+};
+
+// A stand-in for a client's connection. Only ever compared, never followed.
+network::Connection* fakeConnection(int which) {
+  return reinterpret_cast<network::Connection*>(0x1000 + which);
+}
+
+TEST_F(StreamableSessionManagerTest, TheNewestStreamIsWhereAMessageGoes) {
+  const std::string id = createSession();
+
+  owner_->run([&]() {
+    SessionCtx* session = manager_->find(id);
+    ASSERT_NE(session, nullptr);
+    FakeStream older(*manager_, *session, owner_->dispatcher(),
+                     fakeConnection(1));
+    FakeStream newer(*manager_, *session, owner_->dispatcher(),
+                     fakeConnection(2));
+
+    EXPECT_TRUE(manager_->routeUnsolicited(*session, "{\"first\":true}"));
+
+    // Exactly one stream carries it. Sending it on both would be a
+    // broadcast, which is the one thing the protocol forbids here.
+    EXPECT_NE(newer.bytes().find("first"), std::string::npos) << newer.bytes();
+    EXPECT_EQ(older.bytes().find("first"), std::string::npos) << older.bytes();
+  });
+}
+
+TEST_F(StreamableSessionManagerTest, TheTargetFallsBackWhenTheNewestGoes) {
+  const std::string id = createSession();
+
+  owner_->run([&]() {
+    SessionCtx* session = manager_->find(id);
+    ASSERT_NE(session, nullptr);
+    FakeStream older(*manager_, *session, owner_->dispatcher(),
+                     fakeConnection(1));
+    FakeStream newer(*manager_, *session, owner_->dispatcher(),
+                     fakeConnection(2));
+
+    newer.disconnect();
+    EXPECT_TRUE(manager_->routeUnsolicited(*session, "{\"second\":true}"));
+
+    EXPECT_NE(older.bytes().find("second"), std::string::npos) << older.bytes();
+  });
+}
+
+TEST_F(StreamableSessionManagerTest, WithNothingConnectedAMessageWaits) {
+  const std::string id = createSession();
+
+  owner_->run([&]() {
+    SessionCtx* session = manager_->find(id);
+    ASSERT_NE(session, nullptr);
+
+    EXPECT_FALSE(manager_->routeUnsolicited(*session, "{\"early\":true}"));
+    EXPECT_EQ(session->pending.size(), 1u);
+
+    // Opening a stream is what it was waiting for.
+    FakeStream stream(*manager_, *session, owner_->dispatcher(),
+                      fakeConnection(1));
+    EXPECT_NE(stream.bytes().find("early"), std::string::npos)
+        << stream.bytes();
+
+    // Handed over rather than kept: a second stream is not owed it again.
+    EXPECT_TRUE(session->pending.empty());
+    FakeStream second(*manager_, *session, owner_->dispatcher(),
+                      fakeConnection(2));
+    EXPECT_EQ(second.bytes().find("early"), std::string::npos)
+        << second.bytes();
+  });
+}
+
+TEST_F(StreamableSessionManagerTest, TheQueueIsBoundedAndDropsOldestFirst) {
+  manager_->setPendingLimit(2);
+  const std::string id = createSession();
+
+  owner_->run([&]() {
+    SessionCtx* session = manager_->find(id);
+    ASSERT_NE(session, nullptr);
+    manager_->routeUnsolicited(*session, "{\"n\":1}");
+    manager_->routeUnsolicited(*session, "{\"n\":2}");
+    manager_->routeUnsolicited(*session, "{\"n\":3}");
+
+    // A client that never comes back must not grow this without limit, so
+    // something goes, and the oldest is the least likely to still matter.
+    ASSERT_EQ(session->pending.size(), 2u);
+    EXPECT_EQ(session->pending_dropped, 1u);
+    EXPECT_NE(session->pending[0].find("\"n\":2"), std::string::npos);
+    EXPECT_NE(session->pending[1].find("\"n\":3"), std::string::npos);
+  });
+}
+
+TEST_F(StreamableSessionManagerTest, AnAnsweringStreamIsNotAPushTarget) {
+  const std::string id = createSession();
+
+  owner_->run([&]() {
+    SessionCtx* session = manager_->find(id);
+    ASSERT_NE(session, nullptr);
+
+    std::unique_ptr<RetainedExchangeSink> sink(new RetainedExchangeSink());
+    RetainedExchangeSink* observed = sink.get();
+    auto exchange =
+        RequestExchange::create(owner_->dispatcher(), std::move(sink), nullopt);
+    exchange->beginStream();
+    manager_->openStream(*session, StreamCtx::Kind::PostResponse, exchange,
+                         fakeConnection(1), owner_->dispatcher());
+
+    // A stream answering one request ends with that request. Putting
+    // something unrelated on it would arrive after the answer that closed
+    // it, or not at all.
+    EXPECT_FALSE(manager_->routeUnsolicited(*session, "{\"nope\":true}"));
+    EXPECT_EQ(observed->bytes().find("nope"), std::string::npos)
+        << observed->bytes();
+  });
+}
+
 }  // namespace
 }  // namespace transport
 }  // namespace mcp

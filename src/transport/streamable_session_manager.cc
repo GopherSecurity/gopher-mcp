@@ -199,6 +199,12 @@ StreamCtx* StreamableSessionManager::openStream(
   // asked for.
   session.streams.push_back(std::move(stream));
   GOPHER_LOG_DEBUG("session {} opened stream {}", session.id, stream_id);
+
+  if (kind == StreamCtx::Kind::Get) {
+    // Whatever the server had to say while nothing was connected has been
+    // waiting for exactly this.
+    flushPending(session, *opened);
+  }
   return opened;
 }
 
@@ -215,6 +221,75 @@ size_t StreamableSessionManager::countStreams(const SessionCtx& session,
     }
   }
   return count;
+}
+
+StreamCtx* StreamableSessionManager::currentStream(SessionCtx& session) {
+  // Backwards, because the newest is the target: a client that has just
+  // reconnected opened the newest one, and that is where it is looking.
+  for (auto it = session.streams.rbegin(); it != session.streams.rend(); ++it) {
+    StreamCtx* stream = it->get();
+    if (stream != nullptr && stream->kind == StreamCtx::Kind::Get &&
+        stream->live()) {
+      return stream;
+    }
+  }
+  return nullptr;
+}
+
+void StreamableSessionManager::writeToStream(StreamCtx& stream,
+                                             const std::string& payload) {
+  RequestExchangePtr exchange = stream.exchange;
+  if (!exchange || stream.dispatcher == nullptr) {
+    return;
+  }
+  if (stream.dispatcher->isThreadSafe()) {
+    exchange->writeEvent("message", payload);
+    return;
+  }
+  // The message was decided on the session's thread; the bytes belong on
+  // the connection's. The exchange is carried by value, so it cannot go
+  // away between deciding and writing.
+  stream.dispatcher->post(
+      [exchange, payload]() { exchange->writeEvent("message", payload); });
+}
+
+bool StreamableSessionManager::routeUnsolicited(SessionCtx& session,
+                                                const std::string& payload) {
+  if (StreamCtx* stream = currentStream(session)) {
+    writeToStream(*stream, payload);
+    // Exactly one stream, and never also the queue: a message delivered
+    // twice is worse than one delivered late.
+    return true;
+  }
+
+  if (session.pending.size() >= pending_limit_) {
+    // A client that never comes back must not be able to grow this
+    // without limit, so something has to go, and the oldest is the least
+    // likely to still matter.
+    session.pending.pop_front();
+    ++session.pending_dropped;
+    GOPHER_LOG_WARN(
+        "session {} has nothing connected and its queue is full; the oldest "
+        "message was dropped ({} so far)",
+        session.id, session.pending_dropped);
+  }
+  session.pending.push_back(payload);
+  return false;
+}
+
+void StreamableSessionManager::flushPending(SessionCtx& session,
+                                            StreamCtx& stream) {
+  if (session.pending.empty() || !stream.live()) {
+    return;
+  }
+  GOPHER_LOG_DEBUG("session {} handing {} waiting message(s) to stream {}",
+                   session.id, session.pending.size(), stream.id);
+  // Drained as it goes rather than kept: this is what the client was owed
+  // while it was away, not something it can ask to be replayed.
+  while (!session.pending.empty()) {
+    writeToStream(stream, session.pending.front());
+    session.pending.pop_front();
+  }
 }
 
 void StreamableSessionManager::detachConnection(SessionCtx& session,

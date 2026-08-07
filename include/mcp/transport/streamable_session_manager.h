@@ -3,6 +3,7 @@
 
 #include <chrono>
 #include <cstdint>
+#include <deque>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -112,6 +113,18 @@ struct SessionCtx {
    */
   std::unordered_map<std::string, StreamCtx*> event_index;
 
+  /**
+   * Messages the server had to say while no stream was connected to say
+   * them on, oldest first.
+   *
+   * Bounded, and the oldest goes when it is full: a client that never
+   * comes back must not be able to grow the server without limit. This is
+   * delivery rather than replay — what is handed to the next stream that
+   * opens is taken out of here as it goes.
+   */
+  std::deque<std::string> pending;
+  size_t pending_dropped{0};
+
   std::chrono::steady_clock::time_point last_activity;
 };
 
@@ -208,6 +221,31 @@ class StreamableSessionManager {
                              bool connected_only);
 
   /**
+   * Where a message the server said on its own initiative goes: the most
+   * recently opened stream that could still carry it.
+   *
+   * Deterministic on purpose. The protocol allows a client to hold several
+   * streams and forbids sending the same thing on more than one, so
+   * something has to pick, and "the newest" is what a client that has just
+   * reconnected expects. Null when none could carry anything.
+   */
+  static StreamCtx* currentStream(SessionCtx& session);
+
+  /**
+   * Send a message that answers no request.
+   *
+   * @return True when it went out; false when it was queued for the next
+   *         stream to open instead.
+   */
+  bool routeUnsolicited(SessionCtx& session, const std::string& payload);
+
+  /**
+   * How many messages one session may hold for a client that is not
+   * connected. Beyond it the oldest is dropped.
+   */
+  void setPendingLimit(size_t messages) { pending_limit_ = messages; }
+
+  /**
    * The client on this connection has gone. Its streams are detached, not
    * removed: the work behind one carries on, and a client that comes back
    * is owed whatever it missed.
@@ -291,6 +329,12 @@ class StreamableSessionManager {
   /** Drop an entry and tell the observer. Runs on the owning thread. */
   bool removeOwned(const std::string& id);
 
+  /** Write one message on a stream, wherever that stream's thread is. */
+  static void writeToStream(StreamCtx& stream, const std::string& payload);
+
+  /** Hand a newly opened stream whatever was waiting for one. */
+  static void flushPending(SessionCtx& session, StreamCtx& stream);
+
   /** Arm one dispatcher's sweep, creating its timer the first time. */
   void armSweep(event::Dispatcher& owner);
   void sweepFor(event::Dispatcher& owner);
@@ -309,6 +353,7 @@ class StreamableSessionManager {
 
   SessionRemovedCallback session_removed_callback_;
   std::chrono::milliseconds timeout_{300000};
+  size_t pending_limit_{256};
   bool running_{true};
 };
 
