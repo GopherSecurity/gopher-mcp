@@ -1345,10 +1345,12 @@ McpConnectionManager::createFilterChainFactory() {
     // - SSE codec for event streams
     // - JSON-RPC for message protocol
 
-    return std::make_shared<filter::HttpSseFilterChainFactory>(
+    auto factory = std::make_shared<filter::HttpSseFilterChainFactory>(
         dispatcher_, *this, is_server_, config_.http_path, config_.http_host,
         true /* use_sse */, "/sse", "/mcp", "", config_.http_headers,
         config_.current_http_headers);
+    factory->setNegotiationTimeout(config_.sse_negotiation_timeout);
+    return factory;
 
   } else if (config_.transport_type == TransportType::StreamableHttp) {
     // Streamable HTTP: Simple POST request/response pattern

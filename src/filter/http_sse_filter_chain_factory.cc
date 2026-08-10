@@ -149,7 +149,9 @@ class HttpSseJsonRpcProtocolFilter
       const StreamableHttpOptions& streamable_options = StreamableHttpOptions(),
       const transport::StreamableHttpClientSessionPtr& client_session = nullptr,
       ClientConnectionRole client_role = ClientConnectionRole::Requests,
-      const std::shared_ptr<std::atomic<uint64_t>>& stream_activity = nullptr)
+      const std::shared_ptr<std::atomic<uint64_t>>& stream_activity = nullptr,
+      std::chrono::milliseconds negotiation_timeout =
+          std::chrono::milliseconds(30000))
       : dispatcher_(dispatcher),
         mcp_callbacks_(mcp_callbacks),
         is_server_(is_server),
@@ -263,7 +265,12 @@ class HttpSseJsonRpcProtocolFilter
     // on the client path) with validated state transitions.
     if (!is_server_) {
       ClientSseStateMachineConfig sm_config;
-      sm_config.negotiation_timeout = std::chrono::milliseconds(30000);
+      // How long to wait for the server to say where to post. Settable
+      // because this doubles as the window a client is given to prove
+      // that the older transport is what a server speaks — and a wait
+      // long enough to be patient with a slow server is far too long to
+      // be a question.
+      sm_config.negotiation_timeout = negotiation_timeout;
 
       // When the negotiation timeout fires (or any error transition
       // occurs), propagate the error to the application layer and
@@ -2150,7 +2157,7 @@ bool HttpSseFilterChainFactory::createFilterChain(
       external_url_, client_headers_, client_header_source_,
       sse_registry_.get(), stream_gate_policy_, gated_input_limit_,
       &retainedExchanges(), security_options_, streamableOptions(),
-      client_session_, client_role_, stream_activity_);
+      client_session_, client_role_, stream_activity_, negotiation_timeout_);
 
   // Add as both read and write filter. The FilterManager owns the filter
   // for the connection's lifetime (per-connection filter ownership): when

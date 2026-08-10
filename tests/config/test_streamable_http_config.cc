@@ -73,6 +73,9 @@ TEST_F(StreamableHttpConfigTest, ClientDefaults) {
   // Silence is not by itself a broken stream, so nothing watches for it
   // until a deployment says how much is too much.
   EXPECT_EQ(config.stream_idle_timeout, std::chrono::milliseconds(0));
+  // Short, because working out what a server speaks is a question and
+  // not a conversation: waiting longer does not change the answer.
+  EXPECT_EQ(config.fallback_probe_timeout, std::chrono::milliseconds(5000));
 }
 
 TEST_F(StreamableHttpConfigTest, ServerAndClientConfigsCarryStreamableHttp) {

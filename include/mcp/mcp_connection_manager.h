@@ -60,6 +60,11 @@ struct McpConnectionConfig {
   // Shared rather than owned because a session outlives any one
   // connection — a client that reconnects keeps the one it has.
   transport::StreamableHttpClientSessionPtr streamable_client_session;
+
+  // Older HTTP+SSE transport, client only: how long to wait for the
+  // server to say where to post. Short when this connection is a
+  // question about what the server speaks rather than an answer.
+  std::chrono::milliseconds sse_negotiation_timeout{30000};
 };
 
 /**

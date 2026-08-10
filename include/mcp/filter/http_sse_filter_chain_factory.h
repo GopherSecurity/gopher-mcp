@@ -354,6 +354,19 @@ class HttpSseFilterChainFactory : public network::FilterChainFactory {
     stream_activity_ = counter;
   }
 
+  /**
+   * Client mode, older transport only: how long to wait for the server
+   * to say where to post before giving up on it.
+   *
+   * The default is patient, because a client that has chosen this
+   * transport is waiting for a server it expects to answer. A client
+   * that has not chosen it — one asking whether this is what the server
+   * speaks — sets it short, because the wait is the question.
+   */
+  void setNegotiationTimeout(std::chrono::milliseconds timeout) {
+    negotiation_timeout_ = timeout;
+  }
+
   /** Resolves who each request is from. Defaults to serving everyone. */
   void setAuthCallback(AuthCallback callback) {
     security_options_.auth = std::move(callback);
@@ -404,6 +417,7 @@ class HttpSseFilterChainFactory : public network::FilterChainFactory {
   transport::StreamableHttpClientSessionPtr client_session_;
   ClientConnectionRole client_role_{ClientConnectionRole::Requests};
   std::shared_ptr<std::atomic<uint64_t>> stream_activity_;
+  std::chrono::milliseconds negotiation_timeout_{30000};
   bool use_sse_;          // True for SSE mode, false for Streamable HTTP
   std::string sse_path_;  // Server-side SSE endpoint path (e.g., "/sse")
   std::string rpc_path_;  // Server-side JSON-RPC endpoint path (e.g., "/mcp")

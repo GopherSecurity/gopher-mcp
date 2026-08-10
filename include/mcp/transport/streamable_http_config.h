@@ -142,6 +142,12 @@ struct StreamableHttpClientConfig {
   // which is the default because a silent stream is not by itself a
   // broken one.
   std::chrono::milliseconds stream_idle_timeout{0};
+
+  // How long each question in the search for what a server speaks may
+  // take. Short, because these are questions rather than conversations:
+  // a server that opens a stream and never says where to post has
+  // answered, and waiting longer will not change the answer.
+  std::chrono::milliseconds fallback_probe_timeout{5000};
 };
 
 }  // namespace transport
