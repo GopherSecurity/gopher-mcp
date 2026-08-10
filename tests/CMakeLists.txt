@@ -110,6 +110,7 @@ add_executable(test_client_reconnection_and_logging client/test_client_reconnect
 add_executable(test_client_idle_timeout client/test_client_idle_timeout.cc)
 add_executable(test_client_connection_check_threading client/test_client_connection_check_threading.cc)
 add_executable(test_streamable_http_transport client/test_streamable_http_transport.cc)
+add_executable(test_streamable_http_client_session client/test_streamable_http_client_session.cc)
 add_executable(test_builders core/test_builders.cc)
 
 # MCP Client threading tests 
@@ -839,6 +840,14 @@ target_link_libraries(test_streamable_http_transport
     Threads::Threads
 )
 
+target_link_libraries(test_streamable_http_client_session
+    gopher-mcp
+    gopher-mcp-event
+    gtest
+    gtest_main
+    Threads::Threads
+)
+
 target_link_libraries(test_builders
     gopher-mcp
     gtest
@@ -1431,6 +1440,7 @@ add_test(NAME BuildersTest COMMAND test_builders)
 add_test(NAME McpClientThreadingTest COMMAND test_mcp_client_threading)
 add_test(NAME McpClientMemoryTest COMMAND test_mcp_client_memory)
 add_test(NAME McpClientNotificationTest COMMAND test_mcp_client_notifications)
+add_test(NAME StreamableHttpClientSessionTest COMMAND test_streamable_http_client_session)
 
 # New tests for recent fixes
 add_test(NAME ConnectionPoolCallbacksTest COMMAND test_connection_pool_callbacks)

@@ -297,9 +297,27 @@ network::FilterStatus HttpCodecFilter::onWrite(Buffer& data, bool end_stream) {
       "HttpCodecFilter::onWrite called with {} bytes, is_server={}",
       data.length(), is_server_);
 
+  // A request that is not one of the two this codec sends by itself.
+  // Asked for on the per-request header map, because that is the channel
+  // a request's own headers already travel on and there is nothing else
+  // that arrives with a write. Stripped before the headers go out — see
+  // isGeneratedClientHeader.
+  const std::map<std::string, std::string>& effective_headers =
+      client_header_source_ ? *client_header_source_ : client_headers_;
+  std::string bodyless_method;
+  if (!is_server_) {
+    auto method_it = effective_headers.find(":method");
+    if (method_it != effective_headers.end() && method_it->second != "POST") {
+      bodyless_method = method_it->second;
+    }
+  }
+
   // Following production pattern: format HTTP message in-place
-  // Don't early return for empty data in client mode - SSE GET has no body
-  if (data.length() == 0 && (is_server_ || !use_sse_get_ || sse_get_sent_)) {
+  // Don't early return for empty data in client mode - the SSE GET and
+  // the requests that are about the conversation rather than a message
+  // in it both have no body.
+  if (data.length() == 0 && bodyless_method.empty() &&
+      (is_server_ || !use_sse_get_ || sse_get_sent_)) {
     return network::FilterStatus::Continue;
   }
 
@@ -385,19 +403,8 @@ network::FilterStatus HttpCodecFilter::onWrite(Buffer& data, bool end_stream) {
       // SSE GET is triggered by empty data with use_sse_get_ flag
       bool is_sse_get = use_sse_get_ && !sse_get_sent_ && data.length() == 0;
       GOPHER_LOG_DEBUG("HttpCodecFilter is_sse_get={}", is_sse_get);
-
-      // A request that is not one of the two this codec sends by itself.
-      // Asked for on the per-request header map, because that is the
-      // channel a request's own headers already travel on and there is
-      // nothing else that arrives with a write. Stripped before the
-      // headers go out — see isGeneratedClientHeader.
-      const std::map<std::string, std::string>& effective_headers =
-          client_header_source_ ? *client_header_source_ : client_headers_;
-      std::string bodyless_method;
-      auto method_it = effective_headers.find(":method");
-      if (!is_sse_get && method_it != effective_headers.end() &&
-          method_it->second != "POST") {
-        bodyless_method = method_it->second;
+      if (is_sse_get) {
+        bodyless_method.clear();
       }
 
       // Save the original request body (JSON-RPC) if any
