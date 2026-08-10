@@ -18,8 +18,10 @@
  *   Idle -> WaitingForGetSent -> WaitingForEndpoint -> EndpointReceived
  *        -> Active -> Closed
  *
- * Or for Streamable HTTP (no SSE):
- *   StreamableHttp -> Closed
+ * Or for Streamable HTTP (no SSE), where the lifecycle is the session's
+ * rather than a stream's:
+ *   AwaitingInitResponse -> Ready -> Closed
+ *   Ready -> Reinitializing -> Ready   (the server forgot the session)
  */
 
 #ifndef MCP_FILTER_CLIENT_SSE_STATE_MACHINE_H
@@ -47,10 +49,26 @@ namespace filter {
  * handshake (or the absence of one in Streamable HTTP mode).
  */
 enum class ClientSseState {
-  // Config-determined initial state: the factory was constructed with
-  // use_sse=false, so this connection uses direct POST without any
-  // SSE endpoint negotiation.
-  StreamableHttp,
+  // Streamable HTTP lifecycle (use_sse=false): direct POST with no SSE
+  // endpoint negotiation. What these three track is the session, not a
+  // stream — which is why they outlast any one exchange and why a
+  // connection opened while a session is already held starts at Ready.
+
+  // The initialize request has been sent and its response, which is
+  // where a session id would arrive, has not come back yet. Nothing
+  // sent from here can carry a session id, because none is known.
+  AwaitingInitResponse,
+
+  // The handshake is done. Requests carry whatever the initialize
+  // response established — a session id and a negotiated revision, or
+  // neither if the server keeps no sessions.
+  Ready,
+
+  // A request was answered 404, meaning the server no longer has the
+  // session it was sent under. The stored id has been dropped and a
+  // fresh initialize is on its way; requests held for it go out again
+  // once it lands.
+  Reinitializing,
 
   // SSE negotiation lifecycle (use_sse=true):
 
@@ -107,6 +125,15 @@ enum class ClientSseEvent {
   // The HTTP response carried Content-Type: text/event-stream,
   // confirming the server is streaming SSE events.
   StreamStarted,
+
+  // The response to an initialize request arrived, whether or not it
+  // carried a session id. Ends both AwaitingInitResponse and
+  // Reinitializing.
+  InitResponseReceived,
+
+  // A request was answered 404 while carrying a session id: the server
+  // has no record of the session and the client has to start a new one.
+  SessionLost,
 
   // The negotiation timeout timer fired before the server sent
   // the "endpoint" event.
@@ -186,10 +213,15 @@ class ClientSseStateMachine {
    * @param dispatcher Event dispatcher for timer management
    * @param config State machine configuration
    * @param use_sse True for SSE mode, false for Streamable HTTP
+   * @param session_established Streamable HTTP only: a session is already
+   *        held, so this connection starts at Ready rather than waiting
+   *        for a handshake that is not going to happen on it. A client
+   *        that reconnects mid-conversation does not initialize again.
    */
   ClientSseStateMachine(event::Dispatcher& dispatcher,
                         const ClientSseStateMachineConfig& config,
-                        bool use_sse);
+                        bool use_sse,
+                        bool session_established = false);
 
   virtual ~ClientSseStateMachine();
 
@@ -253,13 +285,23 @@ class ClientSseStateMachine {
   bool isReady() const { return current_state_ == ClientSseState::Active; }
 
   /**
+   * True when this connection speaks Streamable HTTP rather than the
+   * older SSE transport, whatever stage of the session it is at.
+   */
+  bool isStreamableHttp() const {
+    return current_state_ == ClientSseState::AwaitingInitResponse ||
+           current_state_ == ClientSseState::Ready ||
+           current_state_ == ClientSseState::Reinitializing;
+  }
+
+  /**
    * True when the client can send outbound JSON-RPC messages via POST.
-   * In Streamable HTTP mode, this is always true. In SSE mode, this is
-   * true only after the endpoint has been received and the stream is active.
+   * In Streamable HTTP mode that includes Reinitializing, because the
+   * initialize that ends it has to be sendable from inside it. In SSE
+   * mode it is true only once the stream is active.
    */
   bool canSendPost() const {
-    return current_state_ == ClientSseState::Active ||
-           current_state_ == ClientSseState::StreamableHttp;
+    return current_state_ == ClientSseState::Active || isStreamableHttp();
   }
 
   /**

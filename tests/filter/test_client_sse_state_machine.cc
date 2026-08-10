@@ -73,9 +73,9 @@ class ClientSseStateMachineTest : public ::testing::Test {
         *dispatcher_, config_, /*use_sse=*/true);
   }
 
-  void createStreamableHttpMachine() {
+  void createStreamableHttpMachine(bool session_established = false) {
     state_machine_ = std::make_unique<ClientSseStateMachine>(
-        *dispatcher_, config_, /*use_sse=*/false);
+        *dispatcher_, config_, /*use_sse=*/false, session_established);
   }
 
   // Helper: walk the machine to a given state via the happy path
@@ -137,7 +137,7 @@ TEST_F(ClientSseStateMachineTest, InitialState_SseMode) {
 
 TEST_F(ClientSseStateMachineTest, InitialState_StreamableHttpMode) {
   createStreamableHttpMachine();
-  expectState(ClientSseState::StreamableHttp);
+  expectState(ClientSseState::AwaitingInitResponse);
   EXPECT_FALSE(state_machine_->isNegotiating());
   EXPECT_FALSE(state_machine_->isReady());
   // Streamable HTTP can always POST directly
@@ -181,12 +181,53 @@ TEST_F(ClientSseStateMachineTest, FullNegotiationHappyPath) {
 
 TEST_F(ClientSseStateMachineTest, StreamableHttpHappyPath) {
   createStreamableHttpMachine();
-  expectState(ClientSseState::StreamableHttp);
+  expectState(ClientSseState::AwaitingInitResponse);
+
+  auto init = state_machine_->handleEvent(ClientSseEvent::InitResponseReceived);
+  EXPECT_TRUE(init.success);
+  runFor(10ms);
+  expectState(ClientSseState::Ready);
 
   auto r = state_machine_->handleEvent(ClientSseEvent::Close);
   EXPECT_TRUE(r.success);
   runFor(10ms);
   expectState(ClientSseState::Closed);
+}
+
+// A connection opened while a session is already held has no handshake
+// ahead of it — the client reconnects without initializing again — so
+// starting it anywhere else would describe something that never happens.
+TEST_F(ClientSseStateMachineTest, StreamableHttpStartsReadyWithASessionHeld) {
+  createStreamableHttpMachine(/*session_established=*/true);
+  expectState(ClientSseState::Ready);
+  EXPECT_TRUE(state_machine_->canSendPost());
+}
+
+TEST_F(ClientSseStateMachineTest, StreamableHttpReinitializesAfterSessionLost) {
+  createStreamableHttpMachine(/*session_established=*/true);
+
+  auto lost = state_machine_->handleEvent(ClientSseEvent::SessionLost);
+  EXPECT_TRUE(lost.success);
+  runFor(10ms);
+  expectState(ClientSseState::Reinitializing);
+
+  // The initialize that ends this state has to be sendable from inside it.
+  EXPECT_TRUE(state_machine_->canSendPost());
+
+  auto init = state_machine_->handleEvent(ClientSseEvent::InitResponseReceived);
+  EXPECT_TRUE(init.success);
+  runFor(10ms);
+  expectState(ClientSseState::Ready);
+}
+
+// Losing a session before there is one to lose is not a thing that can
+// happen, and saying so is the point of the state rather than a flag.
+TEST_F(ClientSseStateMachineTest, StreamableHttpCannotLoseAnUnmadeSession) {
+  createStreamableHttpMachine();
+
+  auto r = state_machine_->handleEvent(ClientSseEvent::SessionLost);
+  EXPECT_FALSE(r.success);
+  expectState(ClientSseState::AwaitingInitResponse);
 }
 
 TEST_F(ClientSseStateMachineTest, EndpointReceivedToActive) {
@@ -232,7 +273,7 @@ TEST_F(ClientSseStateMachineTest,
   createStreamableHttpMachine();
   auto r = state_machine_->handleEvent(ClientSseEvent::ConnectionReady);
   EXPECT_FALSE(r.success);
-  expectState(ClientSseState::StreamableHttp);
+  expectState(ClientSseState::AwaitingInitResponse);
 }
 
 // ===== Error Handling Tests =====
@@ -586,7 +627,12 @@ TEST_F(ClientSseStateMachineTest, CanSendPost_TrueOnlyWhenReady) {
 // ===== Utility Tests =====
 
 TEST_F(ClientSseStateMachineTest, GetStateName_AllStatesNamed) {
-  EXPECT_NE(ClientSseStateMachine::getStateName(ClientSseState::StreamableHttp),
+  EXPECT_NE(
+      ClientSseStateMachine::getStateName(ClientSseState::AwaitingInitResponse),
+      "Unknown");
+  EXPECT_NE(ClientSseStateMachine::getStateName(ClientSseState::Ready),
+            "Unknown");
+  EXPECT_NE(ClientSseStateMachine::getStateName(ClientSseState::Reinitializing),
             "Unknown");
   EXPECT_NE(ClientSseStateMachine::getStateName(ClientSseState::Idle),
             "Unknown");
@@ -621,6 +667,11 @@ TEST_F(ClientSseStateMachineTest, GetEventName_AllEventsNamed) {
   EXPECT_NE(
       ClientSseStateMachine::getEventName(ClientSseEvent::NegotiationTimeout),
       "Unknown");
+  EXPECT_NE(
+      ClientSseStateMachine::getEventName(ClientSseEvent::InitResponseReceived),
+      "Unknown");
+  EXPECT_NE(ClientSseStateMachine::getEventName(ClientSseEvent::SessionLost),
+            "Unknown");
   EXPECT_NE(ClientSseStateMachine::getEventName(ClientSseEvent::StreamError),
             "Unknown");
   EXPECT_NE(ClientSseStateMachine::getEventName(ClientSseEvent::Close),

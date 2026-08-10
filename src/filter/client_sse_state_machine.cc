@@ -19,13 +19,19 @@ namespace filter {
 ClientSseStateMachine::ClientSseStateMachine(
     event::Dispatcher& dispatcher,
     const ClientSseStateMachineConfig& config,
-    bool use_sse)
+    bool use_sse,
+    bool session_established)
     : dispatcher_(dispatcher), config_(config) {
   // The initial state depends on whether SSE mode is enabled.
   // In Streamable HTTP mode the negotiation lifecycle is skipped
-  // entirely — the client sends POST requests directly.
-  current_state_ =
-      use_sse ? ClientSseState::Idle : ClientSseState::StreamableHttp;
+  // entirely — the client sends POST requests directly, and where in
+  // the session it starts is decided by whether one is already held.
+  if (use_sse) {
+    current_state_ = ClientSseState::Idle;
+  } else {
+    current_state_ = session_established ? ClientSseState::Ready
+                                         : ClientSseState::AwaitingInitResponse;
+  }
   state_entry_time_ = std::chrono::steady_clock::now();
 
   initializeTransitions();
@@ -59,14 +65,42 @@ ClientSseTransitionResult ClientSseStateMachine::handleEvent(
   // Only explicit, expected transitions are listed. Anything not
   // listed leaves new_state == current, which means "no transition".
   switch (current) {
-    case ClientSseState::StreamableHttp:
-      // Streamable HTTP is a stable mode — only close/error leave it.
-      if (event == ClientSseEvent::Close) {
+    case ClientSseState::AwaitingInitResponse:
+      if (event == ClientSseEvent::InitResponseReceived) {
+        new_state = ClientSseState::Ready;
+        reason = "Initialize answered; session established";
+      } else if (event == ClientSseEvent::Close) {
+        new_state = ClientSseState::Closed;
+        reason = "Closed before the handshake was answered";
+      } else if (event == ClientSseEvent::StreamError) {
+        new_state = ClientSseState::Error;
+        reason = "Error before the handshake was answered";
+      }
+      break;
+
+    case ClientSseState::Ready:
+      if (event == ClientSseEvent::SessionLost) {
+        new_state = ClientSseState::Reinitializing;
+        reason = "Server no longer has this session";
+      } else if (event == ClientSseEvent::Close) {
         new_state = ClientSseState::Closed;
         reason = "Streamable HTTP connection closed";
       } else if (event == ClientSseEvent::StreamError) {
         new_state = ClientSseState::Error;
         reason = "Streamable HTTP error";
+      }
+      break;
+
+    case ClientSseState::Reinitializing:
+      if (event == ClientSseEvent::InitResponseReceived) {
+        new_state = ClientSseState::Ready;
+        reason = "New session established";
+      } else if (event == ClientSseEvent::Close) {
+        new_state = ClientSseState::Closed;
+        reason = "Closed while starting a new session";
+      } else if (event == ClientSseEvent::StreamError) {
+        new_state = ClientSseState::Error;
+        reason = "Error while starting a new session";
       }
       break;
 
@@ -307,8 +341,12 @@ std::chrono::milliseconds ClientSseStateMachine::getTimeInCurrentState() const {
 
 std::string ClientSseStateMachine::getStateName(ClientSseState state) {
   switch (state) {
-    case ClientSseState::StreamableHttp:
-      return "StreamableHttp";
+    case ClientSseState::AwaitingInitResponse:
+      return "AwaitingInitResponse";
+    case ClientSseState::Ready:
+      return "Ready";
+    case ClientSseState::Reinitializing:
+      return "Reinitializing";
     case ClientSseState::Idle:
       return "Idle";
     case ClientSseState::WaitingForGetSent:
@@ -337,6 +375,10 @@ std::string ClientSseStateMachine::getEventName(ClientSseEvent event) {
       return "EndpointReceived";
     case ClientSseEvent::StreamStarted:
       return "StreamStarted";
+    case ClientSseEvent::InitResponseReceived:
+      return "InitResponseReceived";
+    case ClientSseEvent::SessionLost:
+      return "SessionLost";
     case ClientSseEvent::NegotiationTimeout:
       return "NegotiationTimeout";
     case ClientSseEvent::StreamError:
@@ -412,9 +454,19 @@ void ClientSseStateMachine::onStateEnter(ClientSseState state,
 // ===== Private Implementation =====
 
 void ClientSseStateMachine::initializeTransitions() {
-  // StreamableHttp is a stable mode — only terminal states are reachable.
-  valid_transitions_[ClientSseState::StreamableHttp] = {ClientSseState::Closed,
-                                                        ClientSseState::Error};
+  // Streamable HTTP session lifecycle. Ready is reachable twice — once
+  // from the first handshake and once from a session the server forgot —
+  // and nothing reaches AwaitingInitResponse, because a client that has
+  // already asked once is re-initializing rather than initializing.
+  valid_transitions_[ClientSseState::AwaitingInitResponse] = {
+      ClientSseState::Ready, ClientSseState::Error, ClientSseState::Closed};
+
+  valid_transitions_[ClientSseState::Ready] = {ClientSseState::Reinitializing,
+                                               ClientSseState::Error,
+                                               ClientSseState::Closed};
+
+  valid_transitions_[ClientSseState::Reinitializing] = {
+      ClientSseState::Ready, ClientSseState::Error, ClientSseState::Closed};
 
   // SSE negotiation lifecycle — strictly ordered forward progression.
   valid_transitions_[ClientSseState::Idle] = {ClientSseState::WaitingForGetSent,

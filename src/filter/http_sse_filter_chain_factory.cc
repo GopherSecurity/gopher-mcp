@@ -580,7 +580,7 @@ class HttpSseJsonRpcProtocolFilter
     // !waiting_for_sse_endpoint_) boolean combination with a single
     // canSendPost() query.
     if (client_sse_sm_ && client_sse_sm_->canSendPost() &&
-        client_sse_sm_->currentState() != ClientSseState::StreamableHttp &&
+        !client_sse_sm_->isStreamableHttp() &&
         http_filter_->hasMessageEndpoint() && data.length() > 0) {
       GOPHER_LOG_DEBUG(
           "HttpSseJsonRpcProtocolFilter: Client SSE mode - sending via POST "
