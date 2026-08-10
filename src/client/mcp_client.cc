@@ -10,6 +10,7 @@
 #include <thread>
 
 #include "mcp/event/libevent_dispatcher.h"
+#include "mcp/http/http_parser.h"
 #include "mcp/json/json_serialization.h"
 #include "mcp/logging/log_macros.h"
 #include "mcp/mcp_application_base.h"
@@ -507,21 +508,7 @@ std::future<InitializeResult> McpClient::initializeProtocol() {
           protocol::McpProtocolEvent::INITIALIZE_REQUESTED);
     }
 
-    // Build initialize request with client capabilities
-    // MCP spec requires: protocolVersion, capabilities, clientInfo (nested
-    // object)
-    auto init_params = make_metadata();
-    init_params["protocolVersion"] = config_.protocol_version;
-
-    // clientInfo must be a nested object with name and version
-    // Store as JSON string - the serializer will parse it back to an object
-    std::string client_info_json = "{\"name\":\"" + config_.client_name +
-                                   "\",\"version\":\"" +
-                                   config_.client_version + "\"}";
-    init_params["clientInfo"] = client_info_json;
-
-    // capabilities must be an object (can be empty)
-    init_params["capabilities"] = "{}";
+    auto init_params = buildInitializeParams();
 
     // Send request - do NOT block here!
     GOPHER_LOG_FLOW_DEBUG(
@@ -603,6 +590,7 @@ std::future<InitializeResult> McpClient::initializeProtocol() {
           client->protocol_state_machine_->handleEvent(
               protocol::McpProtocolEvent::INITIALIZED);
         }
+        client->sendInitializedNotification();
         result_promise->set_value(init_result);
       });
     } catch (...) {
@@ -676,6 +664,173 @@ InitializeResult McpClient::parseInitializeResponse(
   }
 
   return init_result;
+}
+
+Metadata McpClient::buildInitializeParams() const {
+  // MCP spec requires: protocolVersion, capabilities, clientInfo (nested
+  // object)
+  auto init_params = make_metadata();
+  init_params["protocolVersion"] = config_.protocol_version;
+
+  // clientInfo must be a nested object with name and version
+  // Store as JSON string - the serializer will parse it back to an object
+  std::string client_info_json = "{\"name\":\"" + config_.client_name +
+                                 "\",\"version\":\"" + config_.client_version +
+                                 "\"}";
+  init_params["clientInfo"] = client_info_json;
+
+  // capabilities must be an object (can be empty)
+  init_params["capabilities"] = "{}";
+  return init_params;
+}
+
+void McpClient::sendInitializedNotification() {
+  // The handshake is not over when the response arrives — the server is
+  // told so, and only then may either side use what was agreed.
+  GOPHER_LOG_FLOW_DEBUG("MCP invoke: notifications/initialized");
+  sendNotification("notifications/initialized", nullopt);
+}
+
+void McpClient::sendInternalRequest(
+    const std::string& method,
+    const optional<Metadata>& params,
+    std::function<void(const Response&)> on_response) {
+  RequestId id = static_cast<int64_t>(next_request_id_++);
+  auto context = std::make_shared<RequestContext>(id, method);
+  context->params = params;
+  context->start_time = std::chrono::steady_clock::now();
+  context->on_response = std::move(on_response);
+
+  request_tracker_->trackRequest(context);
+  sendRequestInternal(context);
+}
+
+void McpClient::completeRequestWithError(
+    const std::shared_ptr<RequestContext>& context, const Error& error) {
+  if (!context || context->completed) {
+    return;
+  }
+  context->completed = true;
+  context->promise.set_value(Response::make_error(context->id, error));
+  request_tracker_->removeRequest(context->id);
+  client_stats_.requests_failed++;
+}
+
+void McpClient::startReinitialize() {
+  if (reinitializing_) {
+    return;
+  }
+  reinitializing_ = true;
+  initialized_ = false;
+
+  GOPHER_LOG_INFO("Session is gone; starting a new one");
+
+  sendInternalRequest(
+      "initialize", mcp::make_optional(buildInitializeParams()),
+      [this](const Response& response) {
+        reinitializing_ = false;
+
+        // Held requests are answered with the handshake's own failure
+        // rather than a fabricated one: what went wrong is that the
+        // client could not get a session, and saying anything else
+        // about the request itself would be inventing a cause.
+        auto held = std::move(held_for_new_session_);
+        held_for_new_session_.clear();
+
+        if (response.error.has_value()) {
+          GOPHER_LOG_ERROR("Could not start a new session: {}",
+                           response.error->message);
+          for (const auto& context : held) {
+            completeRequestWithError(context, *response.error);
+          }
+          return;
+        }
+
+        try {
+          InitializeResult init_result =
+              parseInitializeResponse(response, config_.protocol_version);
+          server_capabilities_ = init_result.capabilities;
+          initialized_ = true;
+          if (streamable_session_) {
+            streamable_session_->setProtocolVersion(
+                init_result.protocolVersion.empty()
+                    ? config_.protocol_version
+                    : init_result.protocolVersion);
+          }
+        } catch (const std::exception& e) {
+          Error parse_error(::mcp::jsonrpc::INTERNAL_ERROR,
+                            std::string("Could not read the new session's "
+                                        "initialize response: ") +
+                                e.what());
+          for (const auto& context : held) {
+            completeRequestWithError(context, parse_error);
+          }
+          return;
+        }
+
+        sendInitializedNotification();
+
+        // Sent again under the new session, in the order they were
+        // refused. They are still tracked and still hold their original
+        // ids, so whoever is waiting on them is waiting on these.
+        for (const auto& context : held) {
+          GOPHER_LOG_DEBUG("Sending {} again under the new session",
+                           context->method);
+          sendRequestInternal(context);
+        }
+      });
+}
+
+void McpClient::handleTransportStatus(int status_code,
+                                      const optional<RequestId>& request_id,
+                                      const std::string& detail) {
+  last_activity_time_ = std::chrono::steady_clock::now();
+
+  // 2xx is the message layer's business: an answer arrives through
+  // onResponse, and a 202 for a notification has no answer to arrive.
+  if (status_code >= 200 && status_code < 300) {
+    return;
+  }
+
+  std::shared_ptr<RequestContext> context;
+  if (request_id.has_value()) {
+    context = request_tracker_->getRequest(request_id.value());
+  }
+
+  if (status_code == static_cast<int>(http::HttpStatusCode::NotFound) &&
+      streamable_session_) {
+    // Recoverable only if there was a session to lose. Once the first
+    // 404 has let go of it, the rest of what was in flight arrives with
+    // nothing held — they were refused for the same reason and are
+    // held for the same handshake.
+    const bool recoverable = streamable_session_->hasId() || reinitializing_;
+    if (recoverable && context && !context->session_retried) {
+      context->session_retried = true;
+      held_for_new_session_.push_back(context);
+      if (!reinitializing_) {
+        streamable_session_->forget();
+        startReinitialize();
+      }
+      return;
+    }
+    if (recoverable && context) {
+      // Already sent once under a session this server then forgot as
+      // well. Answering is what stops it going round again.
+      GOPHER_LOG_WARN(
+          "Request {} was refused under a second session; not trying again",
+          context->method);
+    }
+  }
+
+  if (!context) {
+    return;
+  }
+
+  completeRequestWithError(
+      context, Error(::mcp::jsonrpc::INTERNAL_ERROR,
+                     "Server refused the request with HTTP " +
+                         std::to_string(status_code) +
+                         (detail.empty() ? std::string() : ": " + detail)));
 }
 
 // Send request with future-based async API
@@ -896,8 +1051,19 @@ void McpClient::handleResponse(const Response& response) {
   }
 
   // Complete request
+  if (request->completed) {
+    return;
+  }
+  request->completed = true;
   request->promise.set_value(response);
   request_tracker_->removeRequest(response.id);
+
+  // Work the client itself has to carry on with, on this thread. A
+  // caller waits on the future; the client cannot, because the wait
+  // would be on the thread the answer arrives on.
+  if (request->on_response) {
+    request->on_response(response);
+  }
 
   // Update stats
   if (response.error.has_value()) {

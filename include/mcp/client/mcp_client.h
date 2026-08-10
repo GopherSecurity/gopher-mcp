@@ -158,6 +158,18 @@ struct RequestContext {
   bool is_batch{false};
   optional<ProgressToken> progress_token;
 
+  // Streamable HTTP: this request has already been sent again under a
+  // new session once. A second 404 is answered rather than recovered
+  // from, so a server that has forgotten how to remember cannot make
+  // one request bounce between it and the client forever.
+  bool session_retried{false};
+
+  // Called on the dispatcher thread when the response arrives, for work
+  // that has to continue there. The future is how a caller waits; this
+  // is how the client itself carries on, without the blocking get()
+  // that would deadlock the thread the response arrives on.
+  std::function<void(const jsonrpc::Response&)> on_response;
+
   // Timer-based timeout management
   event::TimerPtr timeout_timer;
   event::TimerPtr retry_timer;  // Timer for reconnect retries
@@ -547,6 +559,11 @@ class McpClient : public application::ApplicationBase {
       client_.handleConnectionEvent(event);
     }
     void onError(const Error& error) override { client_.handleError(error); }
+    void onTransportStatus(int status_code,
+                           const optional<RequestId>& request_id,
+                           const std::string& detail) override {
+      client_.handleTransportStatus(status_code, request_id, detail);
+    }
 
    private:
     McpClient& client_;
@@ -558,6 +575,12 @@ class McpClient : public application::ApplicationBase {
   void handleResponse(const Response& response);
   void handleConnectionEvent(network::ConnectionEvent event);
   void handleError(const Error& error);
+
+  // What an HTTP status means for the request it answered. Dispatcher
+  // thread. See McpProtocolCallbacks::onTransportStatus.
+  void handleTransportStatus(int status_code,
+                             const optional<RequestId>& request_id,
+                             const std::string& detail);
 
  private:
   // Internal request handling
@@ -571,6 +594,32 @@ class McpClient : public application::ApplicationBase {
   void sendRequestInternal(std::shared_ptr<RequestContext> context);
   void handleTimeout(std::shared_ptr<RequestContext> context);
   void retryRequest(std::shared_ptr<RequestContext> context);
+
+  // What the initialize request offers, asked for in two places: the
+  // first handshake and the one that follows a session the server has
+  // forgotten. They have to say the same thing.
+  Metadata buildInitializeParams() const;
+
+  // Send a request the client itself is waiting on, carrying on from
+  // the dispatcher thread when the answer comes rather than blocking a
+  // caller's future. Dispatcher thread.
+  void sendInternalRequest(const std::string& method,
+                           const optional<Metadata>& params,
+                           std::function<void(const Response&)> on_response);
+
+  // Tell the server the handshake is complete. Sent after every
+  // successful initialize, including the ones nobody asked for.
+  void sendInitializedNotification();
+
+  // Start a new session because the server has forgotten the old one,
+  // and send again, once each, the requests held for it. Dispatcher
+  // thread; does nothing when one is already under way, which is what
+  // makes several requests failing at once cost a single handshake.
+  void startReinitialize();
+
+  // Answer a request with an error and stop tracking it.
+  void completeRequestWithError(const std::shared_ptr<RequestContext>& context,
+                                const Error& error);
 
   // Internal reconnection logic (must be called on dispatcher thread)
   VoidResult reconnectInternal();
@@ -661,6 +710,17 @@ class McpClient : public application::ApplicationBase {
   // connection and kept across reconnects, because a session is the
   // conversation rather than the socket it happens over.
   transport::StreamableHttpClientSessionPtr streamable_session_;
+
+  // A new session is being started because the server forgot the last
+  // one. One at a time: every request in flight when a session expires
+  // is answered 404, and they queue against the one handshake rather
+  // than each asking for their own.
+  bool reinitializing_{false};
+
+  // Requests waiting for that handshake, to be sent again once it
+  // lands. Held rather than answered, because the server did not run
+  // them — a 404 is a refusal to look at the body.
+  std::vector<std::shared_ptr<RequestContext>> held_for_new_session_;
   std::shared_ptr<bool> alive_{std::make_shared<bool>(true)};
 
   // Protocol state machine for managing MCP protocol lifecycle
