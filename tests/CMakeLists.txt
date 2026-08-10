@@ -1858,6 +1858,18 @@ target_link_libraries(test_streamable_http_get_stream
 )
 add_test(NAME StreamableHttpGetStreamTest COMMAND test_streamable_http_get_stream)
 
+# Coming back to a stream that was lost, and what is owed on arrival
+add_executable(test_streamable_http_resume integration/test_streamable_http_resume.cc)
+target_link_libraries(test_streamable_http_resume
+    gopher-mcp
+    gopher-mcp-event
+    gtest
+    gtest_main
+    gmock
+    Threads::Threads
+)
+add_test(NAME StreamableHttpResumeTest COMMAND test_streamable_http_resume)
+
 add_executable(test_http_sse_filter_client_sse_sm integration/test_http_sse_filter_client_sse_sm.cc)
 target_link_libraries(test_http_sse_filter_client_sse_sm
     gopher-mcp
