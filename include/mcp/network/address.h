@@ -200,6 +200,22 @@ InstanceConstSharedPtr parseInternetAddressNoPort(const std::string& address,
                                                   bool v6only = true);
 
 /**
+ * Look a hostname up and give back the IPv4 literal behind it.
+ *
+ * Separate from parsing because they are different questions: parsing
+ * asks what an address string says, this asks what a name refers to.
+ * Callers try the parse first and come here only when it fails, so a
+ * literal address costs nothing.
+ *
+ * Blocking, as name resolution is. Do not call it from a dispatcher
+ * thread that has other work to do.
+ *
+ * @return The dotted-quad, or an empty string if the name did not
+ *         resolve.
+ */
+std::string resolveHostnameToIpv4(const std::string& hostname);
+
+/**
  * Create an address from sockaddr.
  * @param addr Socket address
  * @param len Address length

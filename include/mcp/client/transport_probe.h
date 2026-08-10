@@ -24,10 +24,15 @@
 #ifndef MCP_CLIENT_TRANSPORT_PROBE_H
 #define MCP_CLIENT_TRANSPORT_PROBE_H
 
+#include <chrono>
 #include <functional>
 #include <map>
 #include <memory>
 #include <string>
+
+#include "mcp/event/event_loop.h"
+#include "mcp/http/http_async_client.h"
+#include "mcp/network/socket_interface.h"
 
 namespace mcp {
 namespace client {
@@ -158,6 +163,47 @@ using TransportProbePtr = std::unique_ptr<TransportProbe>;
 class NoModernProbe : public TransportProbe {
  public:
   void probe(const std::string& url, ProbeCallback done) override;
+};
+
+/**
+ * The classic rung: introduce yourself and see what comes back.
+ *
+ * One POST, on a connection of its own, under a deadline of its own —
+ * the HTTP client underneath has none, and a server that accepts a
+ * connection and then says nothing would otherwise hold the whole
+ * ladder.
+ *
+ * The introduction is a real one. A server that answers it has been
+ * introduced to, and the session it names is the session the connection
+ * that follows should use rather than a second one this walks away
+ * from.
+ */
+class ClassicProbe : public TransportProbe {
+ public:
+  ClassicProbe(event::Dispatcher& dispatcher,
+               network::SocketInterface& socket_interface,
+               std::string protocol_version,
+               std::string client_name,
+               std::string client_version,
+               std::chrono::milliseconds timeout);
+  ~ClassicProbe() override;
+
+  void probe(const std::string& url, ProbeCallback done) override;
+
+ private:
+  // Report once, whichever of the answer and the deadline arrives
+  // first, and stop the other from reporting after it.
+  void settle(const ProbeResult& result);
+
+  event::Dispatcher& dispatcher_;
+  std::chrono::milliseconds timeout_;
+  std::string protocol_version_;
+  std::string client_name_;
+  std::string client_version_;
+
+  std::unique_ptr<http::HttpAsyncClient> http_;
+  event::TimerPtr deadline_;
+  ProbeCallback done_;
 };
 
 }  // namespace client

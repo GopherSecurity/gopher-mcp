@@ -8,6 +8,8 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #else
+#include <netdb.h>  // getaddrinfo, for resolving a name to an address
+
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
@@ -269,6 +271,31 @@ InstanceConstSharedPtr parseInternetAddress(const std::string& address,
 
   // No port specified, try to parse as is
   return parseInternetAddressNoPort(address, default_port);
+}
+
+std::string resolveHostnameToIpv4(const std::string& hostname) {
+  struct addrinfo hints;
+  struct addrinfo* result = nullptr;
+  memset(&hints, 0, sizeof(hints));
+  hints.ai_family = AF_INET;
+  hints.ai_socktype = SOCK_STREAM;
+
+  if (getaddrinfo(hostname.c_str(), nullptr, &hints, &result) != 0) {
+    return std::string();
+  }
+
+  std::string ip_address;
+  if (result != nullptr) {
+    char ip_str[INET_ADDRSTRLEN];
+    struct sockaddr_in* ipv4 =
+        reinterpret_cast<struct sockaddr_in*>(result->ai_addr);
+    if (inet_ntop(AF_INET, &(ipv4->sin_addr), ip_str, sizeof(ip_str)) !=
+        nullptr) {
+      ip_address = ip_str;
+    }
+    freeaddrinfo(result);
+  }
+  return ip_address;
 }
 
 InstanceConstSharedPtr parseInternetAddressNoPort(const std::string& address,

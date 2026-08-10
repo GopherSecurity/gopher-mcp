@@ -43,38 +43,6 @@
 
 namespace mcp {
 
-namespace {
-
-// Helper function to resolve hostname to IP address using DNS
-// Returns empty string on failure
-std::string resolveHostname(const std::string& hostname) {
-  struct addrinfo hints, *result;
-  memset(&hints, 0, sizeof(hints));
-  hints.ai_family = AF_INET;  // IPv4
-  hints.ai_socktype = SOCK_STREAM;
-
-  int status = getaddrinfo(hostname.c_str(), nullptr, &hints, &result);
-  if (status != 0) {
-    return "";
-  }
-
-  std::string ip_address;
-  if (result != nullptr) {
-    char ip_str[INET_ADDRSTRLEN];
-    struct sockaddr_in* ipv4 =
-        reinterpret_cast<struct sockaddr_in*>(result->ai_addr);
-    if (inet_ntop(AF_INET, &(ipv4->sin_addr), ip_str, sizeof(ip_str)) !=
-        nullptr) {
-      ip_address = ip_str;
-    }
-    freeaddrinfo(result);
-  }
-
-  return ip_address;
-}
-
-}  // namespace
-
 // McpConnectionManager implementation
 
 McpConnectionManager::McpConnectionManager(
@@ -155,7 +123,8 @@ McpConnectionManager::resolveServerAddress(std::string& error) const {
   // A literal address needs no resolving; a name does.
   auto address = network::Address::parseInternetAddress(host, port);
   if (!address) {
-    const std::string resolved_ip = resolveHostname(host);
+    const std::string resolved_ip =
+        network::Address::resolveHostnameToIpv4(host);
     if (!resolved_ip.empty()) {
       address = network::Address::parseInternetAddress(resolved_ip, port);
     }
@@ -1087,7 +1056,7 @@ bool McpConnectionManager::sendHttpPost(
       port, path, use_ssl);
 
   // Resolve hostname
-  std::string ip_address = resolveHostname(host);
+  std::string ip_address = network::Address::resolveHostnameToIpv4(host);
   if (ip_address.empty()) {
     GOPHER_LOG_ERROR("McpConnectionManager: Failed to resolve hostname: {}",
                      host);

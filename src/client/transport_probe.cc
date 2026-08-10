@@ -6,6 +6,7 @@
 
 #include "mcp/json/json_bridge.h"
 #include "mcp/logging/log_macros.h"
+#include "mcp/network/transport_socket.h"
 
 #undef GOPHER_LOG_COMPONENT
 #define GOPHER_LOG_COMPONENT "client"
@@ -92,6 +93,91 @@ void NoModernProbe::probe(const std::string& url, ProbeCallback done) {
   GOPHER_LOG_DEBUG("Modern probe not built; treating the server as not modern");
   if (done) {
     done(ProbeResult::notModern(0, std::string()));
+  }
+}
+
+ClassicProbe::ClassicProbe(event::Dispatcher& dispatcher,
+                           network::SocketInterface& socket_interface,
+                           std::string protocol_version,
+                           std::string client_name,
+                           std::string client_version,
+                           std::chrono::milliseconds timeout)
+    : dispatcher_(dispatcher),
+      timeout_(timeout),
+      protocol_version_(std::move(protocol_version)),
+      client_name_(std::move(client_name)),
+      client_version_(std::move(client_version)) {
+  http_.reset(new http::HttpAsyncClient(
+      dispatcher_, socket_interface,
+      std::unique_ptr<network::TransportSocketFactoryBase>(
+          new network::RawBufferTransportSocketFactory())));
+}
+
+ClassicProbe::~ClassicProbe() = default;
+
+void ClassicProbe::probe(const std::string& url, ProbeCallback done) {
+  done_ = std::move(done);
+
+  // The introduction, spelled the way this transport spells it: both
+  // content types accepted, because a server may answer either with a
+  // body or with a stream, and refusing one of them here would be
+  // asking a narrower question than the one being asked.
+  http::HttpRequest request;
+  request.method = "POST";
+  request.url = url;
+  request.headers["Content-Type"] = "application/json";
+  request.headers["Accept"] = "application/json, text/event-stream";
+  request.body =
+      "{\"jsonrpc\":\"2.0\",\"id\":0,\"method\":\"initialize\","
+      "\"params\":{\"protocolVersion\":\"" +
+      protocol_version_ + "\",\"capabilities\":{},\"clientInfo\":{\"name\":\"" +
+      client_name_ + "\",\"version\":\"" + client_version_ + "\"}}}";
+
+  // Its own deadline, because the client underneath has none: a server
+  // that accepts a connection and then says nothing would otherwise
+  // hold every rung below this one.
+  deadline_ = dispatcher_.createTimer([this]() {
+    GOPHER_LOG_DEBUG("No answer to the introduction within {}ms",
+                     timeout_.count());
+    settle(ProbeResult::unreachable("no answer within " +
+                                    std::to_string(timeout_.count()) + "ms"));
+  });
+  deadline_->enableTimer(timeout_);
+
+  const bool sent = http_->send(
+      request,
+      [this](http::HttpResponse response) {
+        std::string session_id;
+        auto it = response.headers.find("mcp-session-id");
+        if (it == response.headers.end()) {
+          it = response.headers.find("Mcp-Session-Id");
+        }
+        if (it != response.headers.end()) {
+          session_id = it->second;
+        }
+        settle(ProbeResult::notModern(response.status_code,
+                                      std::move(response.body),
+                                      std::move(session_id)));
+      },
+      [this](const std::string& error) {
+        settle(ProbeResult::unreachable(error));
+      });
+
+  if (!sent) {
+    settle(ProbeResult::unreachable("could not be asked: " + url));
+  }
+}
+
+void ClassicProbe::settle(const ProbeResult& result) {
+  if (deadline_) {
+    deadline_->disableTimer();
+  }
+  // Taken before it is called, so that whichever of the answer and the
+  // deadline lost the race finds nothing left to report to.
+  ProbeCallback done = std::move(done_);
+  done_ = nullptr;
+  if (done) {
+    done(result);
   }
 }
 
