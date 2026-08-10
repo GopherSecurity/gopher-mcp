@@ -227,6 +227,12 @@ void SseCodecFilter::startEventStream() {
   }
 }
 
+void SseCodecFilter::resetStream() {
+  if (parser_) {
+    parser_->reset();
+  }
+}
+
 // Process incoming SSE data
 void SseCodecFilter::dispatch(Buffer& data) {
   if (!parser_) {

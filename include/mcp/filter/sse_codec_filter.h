@@ -144,6 +144,16 @@ class SseCodecFilter : public network::Filter {
    */
   void startEventStream();
 
+  /**
+   * Forget where the stream being read had got to.
+   *
+   * A parser keeps the last event id so that an event without one of its
+   * own inherits it — which is right within a stream and wrong between
+   * two of them. Called when a new stream starts on a connection that
+   * has already carried one.
+   */
+  void resetStream();
+
  private:
   // Inner class implementing EventEncoder
   class EventEncoderImpl : public EventEncoder {

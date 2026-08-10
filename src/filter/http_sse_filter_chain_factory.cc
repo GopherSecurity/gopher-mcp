@@ -891,30 +891,42 @@ class HttpSseJsonRpcProtocolFilter
           GOPHER_LOG_DEBUG("Streamable HTTP client joined session {}",
                            session_it->second);
         }
-
-        // What the server made of the request. A refusal says nothing in
-        // the message layer — the body behind it carries no id — so the
-        // status is what has to be remembered until the response is over
-        // and the request it answered can be named.
-        response_status_ = 0;
-        auto status_it = headers.find(":status");
-        if (status_it != headers.end()) {
-          response_status_ = std::atoi(status_it->second.c_str());
-        }
-        refusal_body_.clear();
       }
 
-      // Client: check Content-Type for SSE. If the server responded
-      // with text/event-stream, start the SSE event stream parser and
-      // transition the state machine to Active.
+      // What the server made of the request. A refusal says nothing in
+      // the message layer — the body behind it carries no id — so the
+      // status is what has to be remembered until the response is over
+      // and the request it answered can be named. Read for every client,
+      // because how a body is treated depends on it whether or not there
+      // is a session to report it against.
+      response_status_ = 0;
+      auto status_it = headers.find(":status");
+      if (status_it != headers.end()) {
+        response_status_ = std::atoi(status_it->second.c_str());
+      }
+      refusal_body_.clear();
+
+      // Client: whether this answer arrives as a stream is a fact about
+      // this answer, not about the conversation. The same connection
+      // will answer the next request whichever way suits it, so what
+      // decides how a body is read is the response being read, and it
+      // is forgotten when that response is over.
       auto content_type = headers.find("content-type");
-      bool is_sse_response =
-          content_type != headers.end() &&
+      reading_event_stream_ =
+          !isRefusal() && content_type != headers.end() &&
           content_type->second.find("text/event-stream") != std::string::npos;
 
-      if (is_sse_response) {
+      if (reading_event_stream_) {
+        // A second stream on this connection starts where it starts, not
+        // where the last one left off: an event with no id of its own
+        // would otherwise inherit a cursor into somebody else's stream.
+        sse_filter_->resetStream();
+        last_event_id_.clear();
         sse_filter_->startEventStream();
-        if (client_sse_sm_) {
+        // The older transport's negotiation is what StreamStarted is
+        // for, and this is not that: a Streamable connection reading a
+        // streamed answer is exactly where it was before.
+        if (client_sse_sm_ && !client_sse_sm_->isStreamableHttp()) {
           client_sse_sm_->handleEvent(ClientSseEvent::StreamStarted);
         }
       }
@@ -1016,6 +1028,10 @@ class HttpSseJsonRpcProtocolFilter
       jsonrpc_filter_->onData(pending_json_data_, true);
       pending_json_data_.drain(pending_json_data_.length());
     }
+
+    // The stream this response was, if it was one, is over. Read after
+    // the flush above, which asks whether it was.
+    reading_event_stream_ = false;
   }
 
   void onError(const std::string& error) override {
@@ -1033,7 +1049,12 @@ class HttpSseJsonRpcProtocolFilter
         "HttpSseJsonRpcProtocolFilter: onEvent: event={}, data_len={}", event,
         data.size());
 
-    (void)id;  // Event ID not currently used
+    // Where this stream has got to. Kept rather than discarded because
+    // it is the only thing a client that loses the stream can say to be
+    // given what it missed instead of the stream from the beginning.
+    if (id.has_value() && !id.value().empty()) {
+      last_event_id_ = id.value();
+    }
 
     // Handle special MCP SSE events
     if (event == "endpoint") {
@@ -1719,6 +1740,9 @@ class HttpSseJsonRpcProtocolFilter
     if (server_mode_) {
       return server_mode_->isSseStream();
     }
+    if (reading_event_stream_) {
+      return true;
+    }
     if (client_sse_sm_) {
       return client_sse_sm_->isReady();
     }
@@ -1867,6 +1891,16 @@ class HttpSseJsonRpcProtocolFilter
   // be named.
   int response_status_{0};
   std::string refusal_body_;
+
+  // Client mode: this response is arriving as an event stream. Per
+  // response rather than per connection, because the same connection
+  // answers the next request whichever way suits it.
+  bool reading_event_stream_{false};
+
+  // Client mode: where the stream being read has got to. What a client
+  // that lost this stream comes back saying, so it is given what it
+  // missed rather than the stream from the top.
+  std::string last_event_id_;
 
   // Frames the response for the event stream this connection is serving,
   // from the prelude through every event. One writer per stream, so the
