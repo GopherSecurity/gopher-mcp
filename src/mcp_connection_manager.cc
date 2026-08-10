@@ -568,7 +568,160 @@ bool McpConnectionManager::sendSessionDelete() {
   return true;
 }
 
+bool McpConnectionManager::openServerStream(const std::string& last_event_id) {
+  assert(dispatcher_.isThreadSafe() && "openServerStream off dispatcher");
+
+  if (!config_.streamable_client_session ||
+      config_.transport_type != TransportType::StreamableHttp) {
+    return false;
+  }
+
+  // Whatever was there is replaced rather than joined: one stream at a
+  // time, so that what the server pushes has one place to arrive.
+  closeServerStream();
+
+  // The stream's filters report through the same callbacks as the
+  // request connection's, so a notification arriving here reaches the
+  // application by the path everything else does. What differs is only
+  // that nothing arriving here is answering a request of ours.
+  auto factory = createFilterChainFactory();
+  auto* http_factory =
+      dynamic_cast<filter::HttpSseFilterChainFactory*>(factory.get());
+  if (!http_factory) {
+    return false;
+  }
+  stream_activity_ = std::make_shared<std::atomic<uint64_t>>(0);
+  stream_activity_seen_ = 0;
+  http_factory->setClientRole(filter::ClientConnectionRole::ServerStream);
+  http_factory->setStreamActivityCounter(stream_activity_);
+
+  std::string failure;
+  auto connection = createHttpClientConnection(factory, failure);
+  if (!connection) {
+    GOPHER_LOG_WARN("Could not open a server stream: {}", failure);
+    return false;
+  }
+
+  // The request that opens it goes out as soon as the connection is up,
+  // and says three things: that a stream is what is wanted, which
+  // session it belongs to, and where to carry on from.
+  auto headers = config_.http_headers;
+  config_.streamable_client_session->decorate(headers);
+  headers[":method"] = "GET";
+  headers[":accept"] = "text/event-stream";
+  if (!last_event_id.empty()) {
+    headers["Last-Event-ID"] = last_event_id;
+  }
+
+  class StreamOpener : public network::ConnectionCallbacks {
+   public:
+    StreamOpener(McpConnectionManager& manager,
+                 network::Connection& connection,
+                 std::map<std::string, std::string> headers)
+        : manager_(manager),
+          connection_(connection),
+          headers_(std::move(headers)) {}
+
+    void onEvent(network::ConnectionEvent event) override {
+      if (event == network::ConnectionEvent::Connected) {
+        // An empty write is how a request with no body reaches the
+        // codec; what kind of request it is travels on the header map.
+        if (manager_.config_.current_http_headers) {
+          *manager_.config_.current_http_headers = headers_;
+        }
+        OwnedBuffer empty;
+        connection_.write(empty, false);
+        if (manager_.config_.current_http_headers) {
+          *manager_.config_.current_http_headers =
+              manager_.config_.http_headers;
+        }
+        return;
+      }
+      if (event == network::ConnectionEvent::RemoteClose ||
+          event == network::ConnectionEvent::LocalClose) {
+        // The filter on this connection reports where the stream had
+        // got to; there is nothing to add here.
+        manager_.stream_idle_timer_.reset();
+      }
+    }
+
+    void onAboveWriteBufferHighWatermark() override {}
+    void onBelowWriteBufferLowWatermark() override {}
+
+   private:
+    McpConnectionManager& manager_;
+    network::Connection& connection_;
+    std::map<std::string, std::string> headers_;
+  };
+
+  network::ClientConnection* client_conn = connection.get();
+  server_stream_connection_ = std::move(connection);
+  stream_opener_.reset(
+      new StreamOpener(*this, *client_conn, std::move(headers)));
+  server_stream_connection_->addConnectionCallbacks(*stream_opener_);
+  client_conn->connect();
+
+  GOPHER_LOG_DEBUG("Opening a server stream{}",
+                   last_event_id.empty()
+                       ? std::string()
+                       : std::string(" from ") + last_event_id);
+
+  armStreamIdleWatchdog();
+  return true;
+}
+
+void McpConnectionManager::closeServerStream() {
+  stream_idle_timer_.reset();
+  if (!server_stream_connection_) {
+    return;
+  }
+  // Nothing is waiting on the way out: the stream is being given up, and
+  // a flush would only delay that.
+  server_stream_connection_->close(network::ConnectionCloseType::NoFlush);
+  dispatcher_.deferredDelete(std::move(server_stream_connection_));
+  server_stream_connection_.reset();
+  stream_opener_.reset();
+  stream_activity_.reset();
+}
+
+void McpConnectionManager::armStreamIdleWatchdog() {
+  if (stream_idle_timeout_.count() <= 0) {
+    return;
+  }
+  if (!stream_idle_timer_) {
+    stream_idle_timer_ =
+        dispatcher_.createTimer([this]() { onStreamIdleCheck(); });
+  }
+  stream_idle_timer_->enableTimer(stream_idle_timeout_);
+}
+
+void McpConnectionManager::onStreamIdleCheck() {
+  if (!server_stream_connection_ || !stream_activity_) {
+    return;
+  }
+  const uint64_t seen = stream_activity_->load(std::memory_order_relaxed);
+  if (seen != stream_activity_seen_) {
+    // Something arrived — a message, or the keep-alive that exists to
+    // say exactly this. Start the window again.
+    stream_activity_seen_ = seen;
+    armStreamIdleWatchdog();
+    return;
+  }
+
+  GOPHER_LOG_WARN("Server stream said nothing for {}ms; treating it as gone",
+                  stream_idle_timeout_.count());
+  // Closing it is what makes this reportable: the filter says where the
+  // stream had got to on the way out, and coming back from silence is
+  // then the same thing as coming back from a disconnect.
+  closeServerStream();
+}
+
 void McpConnectionManager::close() {
+  // The stream first: it is the one connection nothing is waiting on,
+  // and leaving it open would have the client still reachable after it
+  // has stopped listening.
+  closeServerStream();
+
   // Close POST connection first (it may reference resources from main
   // connection)
   if (post_connection_) {
@@ -779,6 +932,18 @@ void McpConnectionManager::onConnectionEvent(network::ConnectionEvent event) {
 void McpConnectionManager::onError(const Error& error) {
   if (protocol_callbacks_) {
     protocol_callbacks_->onError(error);
+  }
+}
+
+void McpConnectionManager::onClientStreamEvent(
+    ClientStreamEvent event,
+    const optional<RequestId>& request_id,
+    const std::string& last_event_id) {
+  // A stream that closed is not this layer's to reopen: whether it is
+  // worth asking for again, and how long to wait first, are decisions
+  // about the conversation rather than about the socket.
+  if (protocol_callbacks_) {
+    protocol_callbacks_->onClientStreamEvent(event, request_id, last_event_id);
   }
 }
 

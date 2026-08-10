@@ -436,13 +436,23 @@ network::FilterStatus HttpCodecFilter::onWrite(Buffer& data, bool end_stream) {
                          client_path_);
       } else if (!bodyless_method.empty()) {
         // A request about the conversation rather than a message in it —
-        // ending a session, at the time of writing. No body, so no
+        // opening a stream, or ending a session. No body, so no
         // Content-Type and no Content-Length either: a length of zero
         // and no length at all are different things to a server reading
         // this, and only one of them is what was meant.
+        //
+        // What is asked for can be said too, on the same map: a request
+        // for a stream and a request to end a session are the same shape
+        // wanting different answers.
+        std::string accept = "application/json, text/event-stream";
+        auto accept_it = effective_headers.find(":accept");
+        if (accept_it != effective_headers.end() &&
+            !accept_it->second.empty()) {
+          accept = accept_it->second;
+        }
         request << bodyless_method << " " << client_path_ << " HTTP/1.1\r\n";
         request << "Host: " << client_host_ << "\r\n";
-        request << "Accept: application/json, text/event-stream\r\n";
+        request << "Accept: " << accept << "\r\n";
         request << "Connection: keep-alive\r\n";
         request << "User-Agent: gopher-mcp/1.0\r\n";
         appendClientHeaders(request, effective_headers);

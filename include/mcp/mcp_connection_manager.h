@@ -82,6 +82,34 @@ struct McpConnectionConfig {
 enum class StreamingMode { None, Optional, Required };
 
 /**
+ * What became of a client's stream.
+ *
+ * A Streamable HTTP client holds at most one stream at a time, and it
+ * does two jobs: it is where the server reaches a client it is not
+ * answering, and it is where an answer that was cut off is picked up
+ * again. These are what it reports about itself; what any of them means
+ * is decided a layer up, where the requests are.
+ */
+enum class ClientStreamEvent {
+  // The server accepted the stream and is holding it open.
+  Opened,
+
+  // The server will not serve one. Not an error and not worth asking
+  // again: it is a standing answer, not a passing one.
+  Refused,
+
+  // The stream is gone, and not because it was asked to be. What was
+  // last seen on it comes with this, so what was missed can be asked
+  // for rather than the whole stream again.
+  Closed,
+
+  // An answer arriving as a stream lost its connection before it
+  // finished. Comes with the request left unanswered and the cursor to
+  // pick it up from.
+  AnswerSevered
+};
+
+/**
  * MCP protocol callbacks
  * Handles both protocol messages and connection events
  */
@@ -185,6 +213,21 @@ class McpProtocolCallbacks {
   }
 
   /**
+   * What became of the client's stream (Streamable HTTP client only).
+   *
+   * @param event What happened — see ClientStreamEvent
+   * @param request_id On AnswerSevered, the request left unanswered
+   * @param last_event_id Where the stream had got to, empty if nowhere
+   */
+  virtual void onClientStreamEvent(ClientStreamEvent event,
+                                   const optional<RequestId>& request_id,
+                                   const std::string& last_event_id) {
+    (void)event;
+    (void)request_id;
+    (void)last_event_id;
+  }
+
+  /**
    * Send a POST request to the message endpoint
    * Used by HTTP/SSE transport to send messages on a separate connection
    * Returns true if the POST was initiated successfully
@@ -229,6 +272,33 @@ class McpConnectionManager : public McpProtocolCallbacks,
    * write it on. Dispatcher thread.
    */
   bool sendSessionDelete();
+
+  /**
+   * Streamable HTTP client: hold a stream open for the server to reach
+   * this client on, on a connection of its own — a stream held on the
+   * request connection would have every request queued behind it.
+   *
+   * @param last_event_id Where to carry on from. Empty asks for a fresh
+   *        stream; a cursor asks for what was missed on the stream it
+   *        came from, and for that stream to be carried on here.
+   * @return false when there is no session to open one under.
+   *         Dispatcher thread.
+   */
+  bool openServerStream(const std::string& last_event_id);
+
+  /** Let the stream go. Safe when there is none. Dispatcher thread. */
+  void closeServerStream();
+
+  /** True while a stream connection is open or being opened. */
+  bool hasServerStream() const { return server_stream_connection_ != nullptr; }
+
+  /**
+   * How long a stream may say nothing at all before it is treated as
+   * gone. Zero, the default, never treats silence as anything.
+   */
+  void setStreamIdleTimeout(std::chrono::milliseconds timeout) {
+    stream_idle_timeout_ = timeout;
+  }
 
   /**
    * Send a request
@@ -315,6 +385,9 @@ class McpConnectionManager : public McpProtocolCallbacks,
   void onTransportStatus(int status_code,
                          const optional<RequestId>& request_id,
                          const std::string& detail) override;
+  void onClientStreamEvent(ClientStreamEvent event,
+                           const optional<RequestId>& request_id,
+                           const std::string& last_event_id) override;
   bool sendHttpPost(const std::string& json_body) override;
   bool sendHttpPost(const std::string& json_body,
                     const std::map<std::string, std::string>& http_headers);
@@ -394,6 +467,26 @@ class McpConnectionManager : public McpProtocolCallbacks,
   // Active POST connection (for sending messages in HTTP/SSE mode)
   std::unique_ptr<network::ClientConnection> post_connection_;
   std::unique_ptr<network::ConnectionCallbacks> post_callbacks_;
+
+  // Streamable HTTP client: the connection holding the server's stream,
+  // kept apart from the request connection because a stream occupies
+  // whatever it is held on.
+  std::unique_ptr<network::ClientConnection> server_stream_connection_;
+  std::unique_ptr<network::ConnectionCallbacks> stream_opener_;
+
+  // Bumped by the stream's filter on every read, sampled by the watchdog
+  // below. Shared because the filter outlives nothing and this outlives
+  // the filter.
+  std::shared_ptr<std::atomic<uint64_t>> stream_activity_;
+  uint64_t stream_activity_seen_{0};
+  std::chrono::milliseconds stream_idle_timeout_{0};
+  event::TimerPtr stream_idle_timer_;
+
+  // Watches for a stream that has gone entirely quiet. Reports it as a
+  // stream that has closed, so that coming back from silence and coming
+  // back from a disconnect are the same thing to whoever decides.
+  void armStreamIdleWatchdog();
+  void onStreamIdleCheck();
 };
 
 /**

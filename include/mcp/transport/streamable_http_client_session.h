@@ -137,6 +137,16 @@ class StreamableHttpClientSession {
   }
 
   /**
+   * The request the response now arriving is answering, without giving
+   * up its place. For an answer that never finished: the queue was
+   * never popped for it, so it is still at the front, and it is still
+   * outstanding.
+   */
+  optional<RequestId> peekAnswered() const {
+    return in_flight_.empty() ? optional<RequestId>() : in_flight_.front();
+  }
+
+  /**
    * Forget what is outstanding. A connection that goes takes its
    * unanswered requests with it — the retry and deadline machinery owns
    * them from there — and an entry left behind would name the wrong

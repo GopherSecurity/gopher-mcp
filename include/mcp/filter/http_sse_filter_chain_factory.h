@@ -1,6 +1,8 @@
 #pragma once
 
+#include <atomic>
 #include <chrono>
+#include <cstdint>
 #include <functional>
 #include <map>
 #include <memory>
@@ -60,6 +62,18 @@ using HttpRouteRegistrationCallback = std::function<void(HttpRoutingFilter*)>;
  * is not something the protocol permits.
  */
 enum class StreamGatePolicy { Off, DecoderGate, SingleUseClose };
+
+/**
+ * What a Streamable HTTP client connection is for.
+ *
+ * A session's requests and its stream cannot share one: a stream held
+ * open occupies the connection, and every request would queue behind
+ * it. So there are two, and they behave differently in one way that
+ * matters — a response on the stream is not answering any request, and
+ * must not take a place in the queue that says which answer belongs to
+ * which request.
+ */
+enum class ClientConnectionRole { Requests, ServerStream };
 
 /**
  * MCP HTTP+SSE Filter Chain Factory
@@ -317,6 +331,29 @@ class HttpSseFilterChainFactory : public network::FilterChainFactory {
     client_session_ = session;
   }
 
+  /**
+   * Client mode: what the connections built here are for.
+   *
+   * A session's requests and its stream go on different connections,
+   * because a stream held open would have every request queued behind
+   * it. They are told apart because a response on the stream is not
+   * answering anything: taking a place in the queue of requests
+   * awaiting answers would misname every answer after it.
+   */
+  void setClientRole(ClientConnectionRole role) { client_role_ = role; }
+
+  /**
+   * Client mode: bumped once per read on a stream connection, so that
+   * whoever is watching for a stream that has gone quiet can tell
+   * silence from a keep-alive. Counted rather than reported, because a
+   * callback per read across a layer boundary would cost more than the
+   * thing it is measuring.
+   */
+  void setStreamActivityCounter(
+      const std::shared_ptr<std::atomic<uint64_t>>& counter) {
+    stream_activity_ = counter;
+  }
+
   /** Resolves who each request is from. Defaults to serving everyone. */
   void setAuthCallback(AuthCallback callback) {
     security_options_.auth = std::move(callback);
@@ -365,6 +402,8 @@ class HttpSseFilterChainFactory : public network::FilterChainFactory {
   // Client mode: the Streamable HTTP session, or null in SSE mode and on
   // the server side.
   transport::StreamableHttpClientSessionPtr client_session_;
+  ClientConnectionRole client_role_{ClientConnectionRole::Requests};
+  std::shared_ptr<std::atomic<uint64_t>> stream_activity_;
   bool use_sse_;          // True for SSE mode, false for Streamable HTTP
   std::string sse_path_;  // Server-side SSE endpoint path (e.g., "/sse")
   std::string rpc_path_;  // Server-side JSON-RPC endpoint path (e.g., "/mcp")

@@ -147,7 +147,9 @@ class HttpSseJsonRpcProtocolFilter
       transport::RetainedExchangeStore* retained_exchanges = nullptr,
       const HttpSecurityOptions& security_options = HttpSecurityOptions(),
       const StreamableHttpOptions& streamable_options = StreamableHttpOptions(),
-      const transport::StreamableHttpClientSessionPtr& client_session = nullptr)
+      const transport::StreamableHttpClientSessionPtr& client_session = nullptr,
+      ClientConnectionRole client_role = ClientConnectionRole::Requests,
+      const std::shared_ptr<std::atomic<uint64_t>>& stream_activity = nullptr)
       : dispatcher_(dispatcher),
         mcp_callbacks_(mcp_callbacks),
         is_server_(is_server),
@@ -164,6 +166,8 @@ class HttpSseJsonRpcProtocolFilter
         stream_gate_policy_(stream_gate_policy),
         streamable_options_(streamable_options),
         client_session_(client_session),
+        role_(client_role),
+        stream_activity_(stream_activity),
         route_registration_callback_(route_callback) {
     // Following production pattern: all operations for this filter
     // happen in the single dispatcher thread
@@ -378,6 +382,14 @@ class HttpSseJsonRpcProtocolFilter
    * Process response
    */
   network::FilterStatus onData(Buffer& data, bool end_stream) override {
+    // Anything at all arriving is a stream that is still there —
+    // including the keep-alive comments the parser consumes without ever
+    // reporting an event for, which is why this counts bytes rather than
+    // messages.
+    if (stream_activity_ && data.length() > 0) {
+      stream_activity_->fetch_add(1, std::memory_order_relaxed);
+    }
+
     // Data flows through protocol layers in sequence
     // HTTP -> SSE -> JSON-RPC
 
@@ -916,6 +928,15 @@ class HttpSseJsonRpcProtocolFilter
           !isRefusal() && content_type != headers.end() &&
           content_type->second.find("text/event-stream") != std::string::npos;
 
+      // A stream's own response never completes — that is what makes it
+      // a stream — so whether the server agreed to hold one is settled
+      // here or nowhere.
+      if (role_ == ClientConnectionRole::ServerStream && client_session_ &&
+          reading_event_stream_) {
+        mcp_callbacks_.onClientStreamEvent(
+            ClientStreamEvent::Opened, optional<RequestId>(), std::string());
+      }
+
       if (reading_event_stream_) {
         // A second stream on this connection starts where it starts, not
         // where the last one left off: an event with no id of its own
@@ -1008,13 +1029,27 @@ class HttpSseJsonRpcProtocolFilter
     // One answer, one place given up. Every response takes one, not just
     // the refusals — a queue that only moved when something went wrong
     // would name the wrong request the moment anything went right.
+    //
+    // The stream connection is outside all of this: what arrives there
+    // is not answering any request of ours, so it takes no place and
+    // names none.
     if (!is_server_ && client_session_ && response_status_ != 0) {
       const int status = response_status_;
       const std::string detail = refusal_body_;
       response_status_ = 0;
       refusal_body_.clear();
-      mcp_callbacks_.onTransportStatus(status, client_session_->takeAnswered(),
-                                       detail);
+      if (role_ == ClientConnectionRole::ServerStream) {
+        // The one thing worth saying about a stream's own response is
+        // whether the server will serve one at all.
+        if (status ==
+            static_cast<int>(http::HttpStatusCode::MethodNotAllowed)) {
+          mcp_callbacks_.onClientStreamEvent(ClientStreamEvent::Refused,
+                                             optional<RequestId>(), detail);
+        }
+      } else {
+        mcp_callbacks_.onTransportStatus(
+            status, client_session_->takeAnswered(), detail);
+      }
     }
 
     // HTTP message complete — flush any remaining JSON-RPC data that
@@ -1420,6 +1455,28 @@ class HttpSseJsonRpcProtocolFilter
     if (event != network::ConnectionEvent::RemoteClose &&
         event != network::ConnectionEvent::LocalClose) {
       return;
+    }
+
+    if (!is_server_ && client_session_) {
+      if (role_ == ClientConnectionRole::ServerStream) {
+        // The stream is over, and nobody here decides whether that
+        // matters — what is reported is where it had got to, which is
+        // the only thing that makes asking for it back worth anything.
+        GOPHER_LOG_DEBUG("Server stream closed at {}",
+                         last_event_id_.empty() ? "<nowhere>" : last_event_id_);
+        mcp_callbacks_.onClientStreamEvent(
+            ClientStreamEvent::Closed, optional<RequestId>(), last_event_id_);
+      } else if (reading_event_stream_) {
+        // An answer was still arriving. It is neither delivered nor
+        // refused, so the request it belongs to is still outstanding —
+        // the queue was never popped for it, which is why the front of
+        // the queue is the request to name.
+        GOPHER_LOG_DEBUG("Answer stream cut off at {}",
+                         last_event_id_.empty() ? "<nowhere>" : last_event_id_);
+        mcp_callbacks_.onClientStreamEvent(ClientStreamEvent::AnswerSevered,
+                                           client_session_->peekAnswered(),
+                                           last_event_id_);
+      }
     }
     // Reaching here promptly is the reason the gate never disables socket
     // reads: an unarmed read event would delay or hide this entirely, and
@@ -1885,6 +1942,16 @@ class HttpSseJsonRpcProtocolFilter
   // connection and will be here after it.
   transport::StreamableHttpClientSessionPtr client_session_;
 
+  // Client mode: what this connection is for. A stream's answers are
+  // nobody's answers, so it must not take places in the queue that says
+  // whose they are.
+  ClientConnectionRole role_{ClientConnectionRole::Requests};
+
+  // Client mode, stream connection only: bumped once per read, so that
+  // whoever watches for a stream gone quiet can tell silence from a
+  // keep-alive without a callback per read.
+  std::shared_ptr<std::atomic<uint64_t>> stream_activity_;
+
   // Client mode: the status of the response being read, and the body of
   // it when that status is a refusal. Both are cleared as the response
   // ends, which is the only point at which the request it answered can
@@ -2083,7 +2150,7 @@ bool HttpSseFilterChainFactory::createFilterChain(
       external_url_, client_headers_, client_header_source_,
       sse_registry_.get(), stream_gate_policy_, gated_input_limit_,
       &retainedExchanges(), security_options_, streamableOptions(),
-      client_session_);
+      client_session_, client_role_, stream_activity_);
 
   // Add as both read and write filter. The FilterManager owns the filter
   // for the connection's lifetime (per-connection filter ownership): when
