@@ -1,0 +1,18 @@
+{
+  "name": "gopher-mcp-interop-reference-server",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Reference MCP server built on the official TypeScript SDK, for testing the C++ client against an implementation neither side wrote",
+  "type": "module",
+  "scripts": {
+    "start": "node server.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.30.0",
+    "express": "5.1.0",
+    "zod": "3.25.76"
+  },
+  "engines": {
+    "node": ">=22.6.0"
+  }
+}
