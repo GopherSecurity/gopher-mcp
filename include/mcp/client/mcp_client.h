@@ -164,6 +164,11 @@ struct RequestContext {
   // one request bounce between it and the client forever.
   bool session_retried{false};
 
+  // How many times the answer to this request has been asked for again
+  // after arriving as a stream that was cut off. Bounded, so a server
+  // that cannot finish an answer cannot keep one request alive forever.
+  size_t resume_attempts{0};
+
   // Called on the dispatcher thread when the response arrives, for work
   // that has to continue there. The future is how a caller waits; this
   // is how the client itself carries on, without the blocking get()
@@ -564,6 +569,11 @@ class McpClient : public application::ApplicationBase {
                            const std::string& detail) override {
       client_.handleTransportStatus(status_code, request_id, detail);
     }
+    void onClientStreamEvent(ClientStreamEvent event,
+                             const optional<RequestId>& request_id,
+                             const std::string& last_event_id) override {
+      client_.handleClientStreamEvent(event, request_id, last_event_id);
+    }
 
    private:
     McpClient& client_;
@@ -581,6 +591,12 @@ class McpClient : public application::ApplicationBase {
   void handleTransportStatus(int status_code,
                              const optional<RequestId>& request_id,
                              const std::string& detail);
+
+  // What became of the client's stream. Dispatcher thread.
+  // See McpProtocolCallbacks::onClientStreamEvent.
+  void handleClientStreamEvent(ClientStreamEvent event,
+                               const optional<RequestId>& request_id,
+                               const std::string& last_event_id);
 
  private:
   // Internal request handling
@@ -620,6 +636,12 @@ class McpClient : public application::ApplicationBase {
   // Answer a request with an error and stop tracking it.
   void completeRequestWithError(const std::shared_ptr<RequestContext>& context,
                                 const Error& error);
+
+  // Ask for the stream, now or after the window below has passed.
+  // Dispatcher thread; does nothing where the server has already said it
+  // does not serve one.
+  void openServerStream(const std::string& last_event_id);
+  void scheduleServerStreamReopen(const std::string& last_event_id);
 
   // Internal reconnection logic (must be called on dispatcher thread)
   VoidResult reconnectInternal();
@@ -721,6 +743,24 @@ class McpClient : public application::ApplicationBase {
   // lands. Held rather than answered, because the server did not run
   // them — a 404 is a refusal to look at the body.
   std::vector<std::shared_ptr<RequestContext>> held_for_new_session_;
+
+  // The server said it does not serve a standalone stream. A standing
+  // answer rather than a passing one, so it is remembered and not asked
+  // again for as long as this client lives.
+  bool server_stream_refused_{false};
+
+  // How many times in a row asking for the stream back has been tried,
+  // which is what decides how long to wait before the next one. Reset
+  // by a stream that opens.
+  size_t server_stream_attempts_{0};
+  event::TimerPtr server_stream_timer_;
+  // Where the stream that is being waited for should carry on from.
+  std::string pending_stream_cursor_;
+
+  // Backoff for asking for the stream back — exponential, capped, and
+  // jittered so that every client of a server that has just come back
+  // does not arrive at once.
+  std::unique_ptr<RetryManager> server_stream_backoff_;
   std::shared_ptr<bool> alive_{std::make_shared<bool>(true)};
 
   // Protocol state machine for managing MCP protocol lifecycle

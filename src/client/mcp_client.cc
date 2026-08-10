@@ -226,6 +226,8 @@ VoidResult McpClient::connect(const std::string& uri) {
 
       // Set message callback handler
       connection_manager_->setProtocolCallbacks(*protocol_callbacks_);
+      connection_manager_->setStreamIdleTimeout(
+          config_.streamable_http.stream_idle_timeout);
 
       // Initiate connection based on transport type
       // All transports use the same connect() method
@@ -388,6 +390,8 @@ VoidResult McpClient::reconnectInternal() {
 
     // Set message callback handler
     connection_manager_->setProtocolCallbacks(*protocol_callbacks_);
+    connection_manager_->setStreamIdleTimeout(
+        config_.streamable_http.stream_idle_timeout);
 
     // Initiate connection (asynchronous - doesn't wait for TCP handshake)
     VoidResult result = connection_manager_->connect();
@@ -491,6 +495,11 @@ void McpClient::shutdown() {
   connection_manager_.reset();
   request_tracker_.reset();
   circuit_breaker_.reset();
+  // A timer belongs to the dispatcher that made it and must not outlive
+  // it; this one is the only one that can still be armed by the time we
+  // get here, since it is the only one that fires without a request
+  // behind it.
+  server_stream_timer_.reset();
 
   // Clean up dispatcher after thread has exited and its owners are gone.
   if (main_dispatcher_) {
@@ -623,6 +632,11 @@ std::future<InitializeResult> McpClient::initializeProtocol() {
               protocol::McpProtocolEvent::INITIALIZED);
         }
         client->sendInitializedNotification();
+        // Only now: a stream belongs to a session, and until the
+        // handshake landed there was no session to hold one under.
+        if (client->config_.streamable_http.open_server_stream) {
+          client->openServerStream(std::string());
+        }
         result_promise->set_value(init_result);
       });
     } catch (...) {
@@ -811,6 +825,114 @@ void McpClient::startReinitialize() {
           sendRequestInternal(context);
         }
       });
+}
+
+void McpClient::openServerStream(const std::string& last_event_id) {
+  if (server_stream_refused_ || !connection_manager_ || !streamable_session_) {
+    return;
+  }
+  if (!connection_manager_->openServerStream(last_event_id)) {
+    GOPHER_LOG_DEBUG("No server stream opened");
+  }
+}
+
+void McpClient::scheduleServerStreamReopen(const std::string& last_event_id) {
+  if (server_stream_refused_ || shutting_down_ || !main_dispatcher_) {
+    return;
+  }
+
+  if (!server_stream_backoff_) {
+    const auto& stream_config = config_.streamable_http;
+    // Retries are not counted here — a standalone stream is asked for
+    // again as long as the client is up, and what grows is only the
+    // waiting. The count this is built with is therefore irrelevant;
+    // only the window matters.
+    server_stream_backoff_.reset(new RetryManager(
+        /*max_retries=*/0, stream_config.stream_reconnect_min,
+        /*backoff_multiplier=*/2.0, stream_config.stream_reconnect_max));
+  }
+
+  const auto delay = server_stream_backoff_->getRetryDelay(
+      server_stream_attempts_ == 0 ? 0 : server_stream_attempts_ - 1);
+  ++server_stream_attempts_;
+
+  GOPHER_LOG_DEBUG(
+      "Asking for the server stream again in {}ms{}", delay.count(),
+      last_event_id.empty() ? std::string()
+                            : std::string(", from ") + last_event_id);
+
+  if (!server_stream_timer_) {
+    server_stream_timer_ = main_dispatcher_->createTimer(
+        [this]() { openServerStream(pending_stream_cursor_); });
+  }
+  pending_stream_cursor_ = last_event_id;
+  server_stream_timer_->enableTimer(delay);
+}
+
+void McpClient::handleClientStreamEvent(ClientStreamEvent event,
+                                        const optional<RequestId>& request_id,
+                                        const std::string& last_event_id) {
+  switch (event) {
+    case ClientStreamEvent::Opened:
+      // A stream that opened is the evidence that the waiting worked, so
+      // the next one that closes starts the window again from the floor.
+      GOPHER_LOG_DEBUG("Server stream open");
+      server_stream_attempts_ = 0;
+      return;
+
+    case ClientStreamEvent::Refused:
+      // A standing answer. Asking again would be asking the same
+      // question of the same server and would get the same answer.
+      GOPHER_LOG_INFO(
+          "Server does not serve a standalone stream; carrying on without one");
+      server_stream_refused_ = true;
+      if (server_stream_timer_) {
+        server_stream_timer_->disableTimer();
+      }
+      return;
+
+    case ClientStreamEvent::Closed:
+      // Ask for it back, from where it got to. What was missed is
+      // replayed; what was not is not sent twice.
+      if (config_.streamable_http.open_server_stream) {
+        scheduleServerStreamReopen(last_event_id);
+      }
+      return;
+
+    case ClientStreamEvent::AnswerSevered: {
+      // The answer is not lost, only interrupted: it is still being
+      // produced, and a stream that says where this one got to is given
+      // the rest of it.
+      std::shared_ptr<RequestContext> context;
+      if (request_id.has_value()) {
+        context = request_tracker_->getRequest(request_id.value());
+      }
+      if (!context) {
+        return;
+      }
+
+      if (context->resume_attempts >= config_.streamable_http.resume_attempts) {
+        GOPHER_LOG_WARN("Giving up on the answer to {} after {} attempts",
+                        context->method, context->resume_attempts);
+        completeRequestWithError(
+            context,
+            Error(::mcp::jsonrpc::INTERNAL_ERROR,
+                  "The answer to this request was cut off and could not be "
+                  "picked up again"));
+        return;
+      }
+
+      ++context->resume_attempts;
+      GOPHER_LOG_DEBUG(
+          "Picking up the answer to {} from {}", context->method,
+          last_event_id.empty() ? "<the beginning>" : last_event_id.c_str());
+      // Straight away rather than after a wait: this is not a server
+      // that went away, it is one still working on an answer we are
+      // holding a caller for.
+      openServerStream(last_event_id);
+      return;
+    }
+  }
 }
 
 void McpClient::handleTransportStatus(int status_code,
