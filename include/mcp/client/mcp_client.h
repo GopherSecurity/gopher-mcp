@@ -654,6 +654,13 @@ class McpClient : public application::ApplicationBase {
   // Protocol state
   bool initialized_{false};
   ServerCapabilities server_capabilities_;
+
+  // Streamable HTTP only: what this client holds between requests — the
+  // session id the server minted, the revision the handshake settled on,
+  // and which request each response is answering. Made on the first
+  // connection and kept across reconnects, because a session is the
+  // conversation rather than the socket it happens over.
+  transport::StreamableHttpClientSessionPtr streamable_session_;
   std::shared_ptr<bool> alive_{std::make_shared<bool>(true)};
 
   // Protocol state machine for managing MCP protocol lifecycle

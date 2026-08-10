@@ -13,6 +13,7 @@
 #include "mcp/network/filter.h"
 #include "mcp/transport/http_sse_transport_socket.h"
 #include "mcp/transport/stdio_transport_socket.h"
+#include "mcp/transport/streamable_http_client_session.h"
 #include "mcp/types.h"
 
 namespace mcp {
@@ -54,6 +55,11 @@ struct McpConnectionConfig {
       http_host;  // Host header value (auto-set from server_address if empty)
   std::map<std::string, std::string> http_headers;
   std::shared_ptr<std::map<std::string, std::string>> current_http_headers;
+
+  // Streamable HTTP client only: the session this connection serves.
+  // Shared rather than owned because a session outlives any one
+  // connection — a client that reconnects keeps the one it has.
+  transport::StreamableHttpClientSessionPtr streamable_client_session;
 };
 
 /**
@@ -294,11 +300,18 @@ class McpConnectionManager : public McpProtocolCallbacks,
   // Create filter chain factory
   std::shared_ptr<network::FilterChainFactory> createFilterChainFactory();
 
-  // Send JSON message
+  // Send JSON message. The id, where the message has one, is noted
+  // against the response it will draw — see recordSent(), and note that
+  // this happens inside the posted write and not here, because the order
+  // the writes are posted in is the order the answers come back in.
   VoidResult sendJsonMessage(const json::JsonValue& message);
   VoidResult sendJsonMessage(
       const json::JsonValue& message,
       const std::map<std::string, std::string>& http_headers);
+  VoidResult sendJsonMessage(
+      const json::JsonValue& message,
+      const std::map<std::string, std::string>& http_headers,
+      const optional<RequestId>& correlate);
 
   event::Dispatcher& dispatcher_;
   network::SocketInterface& socket_interface_;

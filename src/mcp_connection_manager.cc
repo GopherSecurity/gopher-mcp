@@ -703,7 +703,8 @@ VoidResult McpConnectionManager::sendRequest(
   // Convert to JSON using the bridge
   auto json_val = json::to_json(request);
 
-  return sendJsonMessage(json_val, http_headers);
+  return sendJsonMessage(json_val, http_headers,
+                         mcp::make_optional(request.id));
 }
 
 VoidResult McpConnectionManager::sendNotification(
@@ -911,6 +912,14 @@ void McpConnectionManager::onConnectionEvent(network::ConnectionEvent event) {
     connected_ = false;
     if (active_connection_) {
       dispatcher_.deferredDelete(std::move(active_connection_));
+    }
+
+    // The requests still outstanding go with the connection: the retry
+    // and deadline machinery owns them from here. Keeping their places
+    // would name the wrong request for the first answer on the next
+    // connection, which is worse than naming none.
+    if (config_.streamable_client_session) {
+      config_.streamable_client_session->forgetInFlight();
     }
   }
 
@@ -1313,10 +1322,12 @@ McpConnectionManager::createFilterChainFactory() {
     // No SSE event stream - direct HTTP POST with JSON-RPC body
     // Response is JSON-RPC in HTTP response body
 
-    return std::make_shared<filter::HttpSseFilterChainFactory>(
+    auto factory = std::make_shared<filter::HttpSseFilterChainFactory>(
         dispatcher_, *this, is_server_, config_.http_path, config_.http_host,
         false /* use_sse */, "/sse", "/mcp", "", config_.http_headers,
         config_.current_http_headers);
+    factory->setClientSession(config_.streamable_client_session);
+    return factory;
 
   } else {
     // Simple direct transport (stdio, websocket):
@@ -1331,12 +1342,19 @@ McpConnectionManager::createFilterChainFactory() {
 
 VoidResult McpConnectionManager::sendJsonMessage(
     const json::JsonValue& message) {
-  return sendJsonMessage(message, {});
+  return sendJsonMessage(message, {}, optional<RequestId>());
 }
 
 VoidResult McpConnectionManager::sendJsonMessage(
     const json::JsonValue& message,
     const std::map<std::string, std::string>& http_headers) {
+  return sendJsonMessage(message, http_headers, optional<RequestId>());
+}
+
+VoidResult McpConnectionManager::sendJsonMessage(
+    const json::JsonValue& message,
+    const std::map<std::string, std::string>& http_headers,
+    const optional<RequestId>& correlate) {
   GOPHER_LOG_DEBUG(
       "McpConnectionManager::sendJsonMessage called, connected={}, conn={}",
       connected_, (void*)active_connection_.get());
@@ -1362,7 +1380,8 @@ VoidResult McpConnectionManager::sendJsonMessage(
   // Post write to dispatcher thread to ensure thread safety
   // The write() call must happen on the dispatcher thread
   // We capture `this` to check if connection is still valid when callback runs
-  dispatcher_.post([this, json_str = std::move(json_str), http_headers]() {
+  dispatcher_.post([this, json_str = std::move(json_str), http_headers,
+                    correlate]() {
     // Check if connection is still valid - it may have been closed
     if (!active_connection_) {
       GOPHER_LOG_DEBUG(
@@ -1377,11 +1396,26 @@ VoidResult McpConnectionManager::sendJsonMessage(
     bool reset_current_http_headers = false;
     if (config_.current_http_headers) {
       auto merged_headers = config_.http_headers;
+      // What the session is holding, which is nothing until the server
+      // has named one and nothing again once it says it has forgotten
+      // it. The initialize request carries neither header for that
+      // reason alone, without anything here asking which request this is.
+      if (config_.streamable_client_session) {
+        config_.streamable_client_session->decorate(merged_headers);
+      }
       for (const auto& header : http_headers) {
         merged_headers[header.first] = header.second;
       }
       *config_.current_http_headers = std::move(merged_headers);
       reset_current_http_headers = true;
+    }
+
+    // Note this message against the answer it will draw, here rather
+    // than at the call site: writes posted from several threads reach
+    // the wire in the order their posts run, and that is the order the
+    // responses come back in.
+    if (config_.streamable_client_session) {
+      config_.streamable_client_session->recordSent(correlate);
     }
 
     // Create buffer with JSON payload

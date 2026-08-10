@@ -15,6 +15,7 @@
 #include "mcp/network/connection.h"
 #include "mcp/network/filter.h"
 #include "mcp/transport/exchange_registry.h"
+#include "mcp/transport/streamable_http_client_session.h"
 #include "mcp/transport/streamable_http_config.h"
 #include "mcp/transport/streamable_session_manager.h"
 
@@ -305,6 +306,17 @@ class HttpSseFilterChainFactory : public network::FilterChainFactory {
     return options;
   }
 
+  /**
+   * Client mode: the Streamable HTTP session the connections built here
+   * take part in. Set rather than constructed because the session
+   * outlives this factory's connections — it is the conversation, and
+   * they are the sockets it happens over.
+   */
+  void setClientSession(
+      const transport::StreamableHttpClientSessionPtr& session) {
+    client_session_ = session;
+  }
+
   /** Resolves who each request is from. Defaults to serving everyone. */
   void setAuthCallback(AuthCallback callback) {
     security_options_.auth = std::move(callback);
@@ -350,6 +362,9 @@ class HttpSseFilterChainFactory : public network::FilterChainFactory {
   std::string http_host_;  // HTTP Host header for client mode
   std::map<std::string, std::string> client_headers_;
   std::shared_ptr<std::map<std::string, std::string>> client_header_source_;
+  // Client mode: the Streamable HTTP session, or null in SSE mode and on
+  // the server side.
+  transport::StreamableHttpClientSessionPtr client_session_;
   bool use_sse_;          // True for SSE mode, false for Streamable HTTP
   std::string sse_path_;  // Server-side SSE endpoint path (e.g., "/sse")
   std::string rpc_path_;  // Server-side JSON-RPC endpoint path (e.g., "/mcp")

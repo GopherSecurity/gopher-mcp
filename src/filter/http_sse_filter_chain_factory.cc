@@ -146,7 +146,8 @@ class HttpSseJsonRpcProtocolFilter
       size_t gated_input_limit = 64 * 1024,
       transport::RetainedExchangeStore* retained_exchanges = nullptr,
       const HttpSecurityOptions& security_options = HttpSecurityOptions(),
-      const StreamableHttpOptions& streamable_options = StreamableHttpOptions())
+      const StreamableHttpOptions& streamable_options = StreamableHttpOptions(),
+      const transport::StreamableHttpClientSessionPtr& client_session = nullptr)
       : dispatcher_(dispatcher),
         mcp_callbacks_(mcp_callbacks),
         is_server_(is_server),
@@ -162,6 +163,7 @@ class HttpSseJsonRpcProtocolFilter
         exchanges_(dispatcher),
         stream_gate_policy_(stream_gate_policy),
         streamable_options_(streamable_options),
+        client_session_(client_session),
         route_registration_callback_(route_callback) {
     // Following production pattern: all operations for this filter
     // happen in the single dispatcher thread
@@ -279,8 +281,13 @@ class HttpSseJsonRpcProtocolFilter
         }
       };
 
+      // Where in the session this connection starts. A client that
+      // reconnects mid-conversation is not going to initialize again,
+      // so a machine that began by waiting for a handshake would be
+      // waiting for something that never arrives.
       client_sse_sm_ = std::make_unique<ClientSseStateMachine>(
-          dispatcher_, sm_config, use_sse);
+          dispatcher_, sm_config, use_sse,
+          client_session_ && client_session_->established());
 
       // Log every state transition for observability and debugging.
       client_sse_sm_->addStateChangeListener(
@@ -872,6 +879,20 @@ class HttpSseJsonRpcProtocolFilter
       }
       // PlainHttp mode — isSseActive() returns false by default.
     } else {
+      // Client: a session id on a response is the server naming the
+      // conversation this connection is part of. It arrives on the
+      // initialize response and only there, so taking it whenever one
+      // is offered costs nothing and does not depend on this layer
+      // knowing which request is being answered.
+      if (client_session_) {
+        auto session_it = headers.find("mcp-session-id");
+        if (session_it != headers.end() && !session_it->second.empty()) {
+          client_session_->setId(session_it->second);
+          GOPHER_LOG_DEBUG("Streamable HTTP client joined session {}",
+                           session_it->second);
+        }
+      }
+
       // Client: check Content-Type for SSE. If the server responded
       // with text/event-stream, start the SSE event stream parser and
       // transition the state machine to Active.
@@ -1790,6 +1811,11 @@ class HttpSseJsonRpcProtocolFilter
   // decides which methods the table admits and therefore advertises.
   StreamableHttpOptions streamable_options_;
 
+  // Client mode: the session this connection is one of possibly several
+  // to serve. Shared rather than owned — it was here before this
+  // connection and will be here after it.
+  transport::StreamableHttpClientSessionPtr client_session_;
+
   // Frames the response for the event stream this connection is serving,
   // from the prelude through every event. One writer per stream, so the
   // framing it chose up front stays consistent for the life of the stream.
@@ -1970,7 +1996,8 @@ bool HttpSseFilterChainFactory::createFilterChain(
       use_sse_, route_registration_callback_, sse_path_, rpc_path_,
       external_url_, client_headers_, client_header_source_,
       sse_registry_.get(), stream_gate_policy_, gated_input_limit_,
-      &retainedExchanges(), security_options_, streamableOptions());
+      &retainedExchanges(), security_options_, streamableOptions(),
+      client_session_);
 
   // Add as both read and write filter. The FilterManager owns the filter
   // for the connection's lifetime (per-connection filter ownership): when

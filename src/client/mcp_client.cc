@@ -579,7 +579,8 @@ std::future<InitializeResult> McpClient::initializeProtocol() {
             std::make_exception_ptr(std::runtime_error("Client shut down")));
         return;
       }
-      dispatcher->post([client, alive, result_promise, init_result]() {
+      dispatcher->post([client, alive, protocol_version, result_promise,
+                        init_result]() {
         if (alive.expired()) {
           result_promise->set_exception(
               std::make_exception_ptr(std::runtime_error("Client shut down")));
@@ -587,6 +588,17 @@ std::future<InitializeResult> McpClient::initializeProtocol() {
         }
         client->server_capabilities_ = init_result.capabilities;
         client->initialized_ = true;
+        // The revision every request after this one declares. It comes
+        // out of the response body rather than its headers, so this is
+        // the first place that both knows it and is on the thread the
+        // session is read from. A server that named none leaves us
+        // declaring what we asked for, which is what we are speaking.
+        if (client->streamable_session_) {
+          client->streamable_session_->setProtocolVersion(
+              init_result.protocolVersion.empty()
+                  ? protocol_version
+                  : init_result.protocolVersion);
+        }
         if (client->protocol_state_machine_) {
           client->protocol_state_machine_->handleEvent(
               protocol::McpProtocolEvent::INITIALIZED);
@@ -1142,6 +1154,16 @@ McpConnectionConfig McpClient::createConnectionConfig(TransportType transport) {
       }
 
       config.http_sse_config = mcp::make_optional(http_config);
+
+      // The session belongs to the conversation, not to the socket, so
+      // it is made once and handed to every connection after that. A
+      // reconnect keeps the session it already has and does not start a
+      // new handshake for it.
+      if (!streamable_session_) {
+        streamable_session_ =
+            std::make_shared<transport::StreamableHttpClientSession>();
+      }
+      config.streamable_client_session = streamable_session_;
       break;
     }
 
