@@ -46,6 +46,12 @@ bool isValidClientHeader(const std::string& name, const std::string& value) {
 }
 
 bool isGeneratedClientHeader(const std::string& name) {
+  // A name starting with a colon is not a header at all — it is how this
+  // codec has always spelled the parts of the request line. Saying one
+  // out loud on the wire would be a header nobody asked for.
+  if (!name.empty() && name[0] == ':') {
+    return true;
+  }
   const std::string lower = toLowerHeaderName(name);
   return lower == "host" || lower == "content-length" ||
          lower == "transfer-encoding" || lower == "connection" ||
@@ -380,6 +386,20 @@ network::FilterStatus HttpCodecFilter::onWrite(Buffer& data, bool end_stream) {
       bool is_sse_get = use_sse_get_ && !sse_get_sent_ && data.length() == 0;
       GOPHER_LOG_DEBUG("HttpCodecFilter is_sse_get={}", is_sse_get);
 
+      // A request that is not one of the two this codec sends by itself.
+      // Asked for on the per-request header map, because that is the
+      // channel a request's own headers already travel on and there is
+      // nothing else that arrives with a write. Stripped before the
+      // headers go out — see isGeneratedClientHeader.
+      const std::map<std::string, std::string>& effective_headers =
+          client_header_source_ ? *client_header_source_ : client_headers_;
+      std::string bodyless_method;
+      auto method_it = effective_headers.find(":method");
+      if (!is_sse_get && method_it != effective_headers.end() &&
+          method_it->second != "POST") {
+        bodyless_method = method_it->second;
+      }
+
       // Save the original request body (JSON-RPC) if any
       size_t body_length = data.length();
       std::string body_data;
@@ -401,13 +421,27 @@ network::FilterStatus HttpCodecFilter::onWrite(Buffer& data, bool end_stream) {
         request << "Cache-Control: no-cache\r\n";
         request << "Connection: keep-alive\r\n";
         request << "User-Agent: gopher-mcp/1.0\r\n";
-        appendClientHeaders(request, client_header_source_
-                                         ? *client_header_source_
-                                         : client_headers_);
+        appendClientHeaders(request, effective_headers);
         request << "\r\n";
 
         sse_get_sent_ = true;
         GOPHER_LOG_DEBUG("HttpCodecFilter sending SSE GET request to {}",
+                         client_path_);
+      } else if (!bodyless_method.empty()) {
+        // A request about the conversation rather than a message in it —
+        // ending a session, at the time of writing. No body, so no
+        // Content-Type and no Content-Length either: a length of zero
+        // and no length at all are different things to a server reading
+        // this, and only one of them is what was meant.
+        request << bodyless_method << " " << client_path_ << " HTTP/1.1\r\n";
+        request << "Host: " << client_host_ << "\r\n";
+        request << "Accept: application/json, text/event-stream\r\n";
+        request << "Connection: keep-alive\r\n";
+        request << "User-Agent: gopher-mcp/1.0\r\n";
+        appendClientHeaders(request, effective_headers);
+        request << "\r\n";
+
+        GOPHER_LOG_DEBUG("HttpCodecFilter sending {} {}", bodyless_method,
                          client_path_);
       } else {
         // Regular POST request with JSON-RPC body
@@ -438,9 +472,7 @@ network::FilterStatus HttpCodecFilter::onWrite(Buffer& data, bool end_stream) {
         request << "Accept: application/json, text/event-stream\r\n";
         request << "Connection: keep-alive\r\n";
         request << "User-Agent: gopher-mcp/1.0\r\n";
-        appendClientHeaders(request, client_header_source_
-                                         ? *client_header_source_
-                                         : client_headers_);
+        appendClientHeaders(request, effective_headers);
         request << "\r\n";
         request << body_data;
       }

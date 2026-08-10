@@ -220,6 +220,17 @@ class McpConnectionManager : public McpProtocolCallbacks,
   VoidResult listen(const network::Address::InstanceConstSharedPtr& address);
 
   /**
+   * Streamable HTTP client: give the session back, by asking the server
+   * to end it. Best effort and answerless — a server that does not allow
+   * clients to end sessions says 405, one that has already forgotten
+   * this one says 404, and neither changes what happens next here.
+   *
+   * Returns false when there is no session to give back or nothing to
+   * write it on. Dispatcher thread.
+   */
+  bool sendSessionDelete();
+
+  /**
    * Send a request
    */
   VoidResult sendRequest(const jsonrpc::Request& request);

@@ -738,6 +738,39 @@ VoidResult McpConnectionManager::sendResponse(
   return sendJsonMessage(json_val);
 }
 
+bool McpConnectionManager::sendSessionDelete() {
+  assert(dispatcher_.isThreadSafe() && "sendSessionDelete off dispatcher");
+
+  if (!config_.streamable_client_session ||
+      !config_.streamable_client_session->hasId() || !active_connection_ ||
+      !config_.current_http_headers) {
+    return false;
+  }
+
+  // The one request this client sends that is about the conversation
+  // rather than a message in it. It goes out the way every other
+  // request does — the method travels on the same per-request header
+  // map the session id does, because a write is all the codec gets.
+  auto headers = config_.http_headers;
+  config_.streamable_client_session->decorate(headers);
+  headers[":method"] = "DELETE";
+  *config_.current_http_headers = std::move(headers);
+
+  GOPHER_LOG_DEBUG("Ending session {}",
+                   config_.streamable_client_session->id());
+
+  OwnedBuffer empty;
+  active_connection_->write(empty, false);
+
+  *config_.current_http_headers = config_.http_headers;
+
+  // Nothing waits for the answer: whether the server ends the session,
+  // says it does not allow that, or says it never had one, this client
+  // is finished with it either way.
+  config_.streamable_client_session->forget();
+  return true;
+}
+
 void McpConnectionManager::close() {
   // Close POST connection first (it may reference resources from main
   // connection)

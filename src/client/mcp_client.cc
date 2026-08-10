@@ -75,6 +75,13 @@ std::future<Response> makeReadyResponseFuture(const Response& response) {
   promise.set_value(response);
   return promise.get_future();
 }
+
+// How long shutdown waits for the request that ends the session to be
+// written before closing on top of it. Bounded because a peer that has
+// stopped reading must not be able to hold a client open, and short
+// because nothing is waiting for an answer — only for the bytes to have
+// been handed over.
+constexpr std::chrono::milliseconds kSessionDeleteFlushWait{250};
 }  // namespace
 
 // Out-of-class definition for static constexpr member (required for C++14)
@@ -417,6 +424,31 @@ void McpClient::shutdown() {
     return;
   }
   shutting_down_ = true;
+
+  // Give the session back before anything is torn down. It happens
+  // here, ahead of alive_ being dropped and the callbacks being cut,
+  // because after either of those there is no way left to write. A
+  // server that is never told keeps the session until it times out,
+  // which is why this is worth an attempt rather than nothing.
+  if (connection_manager_ && connected_ && streamable_session_ &&
+      streamable_session_->hasId() && main_dispatcher_) {
+    if (main_dispatcher_->isThreadSafe()) {
+      connection_manager_->sendSessionDelete();
+    } else {
+      // Waited on, not merely posted: the close below would otherwise
+      // race the write and usually win.
+      auto written = std::make_shared<std::promise<void>>();
+      auto done = written->get_future();
+      main_dispatcher_->post([this, written]() {
+        if (connection_manager_) {
+          connection_manager_->sendSessionDelete();
+        }
+        written->set_value();
+      });
+      done.wait_for(kSessionDeleteFlushWait);
+    }
+  }
+
   alive_.reset();
 
   // Close connection directly without triggering state machine
