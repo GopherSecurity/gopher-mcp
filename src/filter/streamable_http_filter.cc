@@ -131,6 +131,13 @@ bool StreamableHttpFilter::ResponseStreamImpl::open() {
     return false;
   }
   exchange_->setPhase(transport::RequestExchange::Phase::RespondingSseOpen);
+  // Only now is there a stream to name. Told before anything is written
+  // to it, since the name is what every event on it is numbered under.
+  if (on_open_) {
+    auto announce = std::move(on_open_);
+    on_open_ = nullptr;
+    announce();
+  }
   return true;
 }
 
@@ -238,8 +245,26 @@ ResponseStreamPtr StreamableHttpFilter::DispatchContext::beginResponseStream() {
     return nullptr;
   }
   if (!parent_.stream_) {
+    // Both captured now rather than read when the stream opens: a handler
+    // may keep this handle past its dispatch, and by then the filter is
+    // answering some other request whose exchange and session are not
+    // the ones this answer belongs to.
+    StreamableHttpFilter* filter = &parent_;
+    transport::RequestExchangePtr exchange = parent_.exchange_;
+    const std::string session_id = parent_.session_id_;
+    std::weak_ptr<int> alive = parent_.alive_;
+
     parent_.stream_.reset(new ResponseStreamImpl(
-        parent_.exchange_, parent_.exchange_->clientContext().accepts_sse));
+        parent_.exchange_, parent_.exchange_->clientContext().accepts_sse,
+        [filter, exchange, session_id, alive]() {
+          if (alive.expired()) {
+            // The connection is gone. Nothing could reach this stream to
+            // be told about it, and nothing could come back to it.
+            return;
+          }
+          filter->registerResponseStream(exchange, session_id,
+                                         filter->nameThisStream(exchange));
+        }));
   }
   return parent_.stream_;
 }
@@ -355,6 +380,10 @@ void StreamableHttpFilter::beginRequest(
   client.protocol_version =
       headerOr(headers, "mcp-protocol-version", client.protocol_version);
   client.principal = host_.principal();
+
+  // What the client says it last saw. Judged against the session, so it
+  // is read here and placed there.
+  last_event_id_ = headerOr(headers, "last-event-id", "");
 
   const std::string offered_session = headerOr(headers, "mcp-session-id", "");
   if (sessions_ == nullptr) {
@@ -607,6 +636,8 @@ void StreamableHttpFilter::validateThenDispatch(
             transport::StreamableSessionManager::countStreams(
                 *session, transport::StreamCtx::Kind::Get,
                 /*connected_only=*/false);
+        judged.resume = transport::StreamableSessionManager::resumeFrom(
+            *session, last_event_id_);
       }
     }
     resumeAfterValidation(judged);
@@ -622,13 +653,15 @@ void StreamableHttpFilter::validateThenDispatch(
 
   auto judged = std::make_shared<Judgement>();
   const std::string id = session_id_;
+  const std::string resume_from = last_event_id_;
   std::weak_ptr<int> alive = alive_;
 
   const bool terminating = method_ == kDeleteMethod;
 
   sessions_->withSession(
       dispatcher_, id,
-      [this, judged, id, exempt, terminating](transport::SessionCtx& session) {
+      [this, judged, id, exempt, terminating,
+       resume_from](transport::SessionCtx& session) {
         judged->verdict = judgeSession(id, exempt);
         if (judged->verdict != SessionVerdict::Serve) {
           return;
@@ -640,11 +673,14 @@ void StreamableHttpFilter::validateThenDispatch(
           return;
         }
         // Counted in the same visit, since this is the only thread that
-        // may look at the session's streams at all.
+        // may look at the session's streams at all — and for the same
+        // reason, where the client says it got to is placed here too.
         judged->live_get_streams =
             transport::StreamableSessionManager::countStreams(
                 session, transport::StreamCtx::Kind::Get,
                 /*connected_only=*/false);
+        judged->resume = transport::StreamableSessionManager::resumeFrom(
+            session, resume_from);
       },
       [this, judged, alive](bool found) {
         if (alive.expired()) {
@@ -672,7 +708,7 @@ void StreamableHttpFilter::resumeAfterValidation(const Judgement& judged) {
     } else if (method_ == kDeleteMethod) {
       terminateSession();
     } else if (method_ == kGetMethod) {
-      openEventStream(judged.live_get_streams);
+      openEventStream(judged);
     } else {
       dispatchBody();
     }
@@ -688,10 +724,11 @@ void StreamableHttpFilter::resumeAfterValidation(const Judgement& judged) {
   }
 }
 
-void StreamableHttpFilter::openEventStream(size_t live_streams) {
+void StreamableHttpFilter::openEventStream(const Judgement& judged) {
   if (!exchange_) {
     return;
   }
+  const size_t live_streams = judged.live_get_streams;
 
   if (!exchange_->clientContext().accepts_sse) {
     // There is only one thing a GET here produces, and this client has
@@ -722,6 +759,9 @@ void StreamableHttpFilter::openEventStream(size_t live_streams) {
   // session rather than to the connection, and a client that comes back is
   // owed whatever it missed.
   exchange_->setRetainOnDisconnect(true);
+  // Named before it says anything, since the name is what every event on
+  // it is numbered under and a client comes back holding one of those.
+  const std::string stream_id = nameThisStream(exchange_);
   if (!exchange_->beginStream()) {
     GOPHER_LOG_ERROR("event stream failed to open");
     abandonRequest();
@@ -729,13 +769,106 @@ void StreamableHttpFilter::openEventStream(size_t live_streams) {
   }
   exchange_->setPhase(transport::RequestExchange::Phase::RespondingSseOpen);
 
-  // Deliberately nothing else. The older transport announces a callback URL
-  // as its first event; this one has no separate endpoint to announce, and
-  // a client reading one here would post its requests somewhere that does
-  // not exist.
-  registerEventStream();
-  armKeepalive();
+  // Deliberately no endpoint event. The older transport announces a
+  // callback URL as its first event; this one has no separate endpoint to
+  // announce, and a client reading one here would post its requests
+  // somewhere that does not exist.
+  replayThenRegister(judged.resume, stream_id);
   abandonRequest();
+}
+
+std::string StreamableHttpFilter::nameThisStream(
+    const transport::RequestExchangePtr& exchange) {
+  if (sessions_ == nullptr || !exchange) {
+    // Nowhere to look a returning client up, so there is nothing to be
+    // gained by naming what it would be looking for.
+    return std::string();
+  }
+
+  const std::string stream_id = sessions_->reserveStreamId();
+  if (stream_id.empty() || !options_.enable_resumability) {
+    // The name is still worth having — it is what the session's own
+    // bookkeeping goes under — but without resumability nothing is kept
+    // behind it, and so nothing says it on the wire.
+    return stream_id;
+  }
+  exchange->setRetainedEventLimit(options_.replay_buffer_events);
+  exchange->makeResumable(stream_id, sessions_->accounting());
+  return stream_id;
+}
+
+void StreamableHttpFilter::replayThenRegister(
+    const transport::StreamableSessionManager::ResumePoint& resume,
+    const std::string& stream_id) {
+  transport::RequestExchangePtr exchange = exchange_;
+  if (!exchange) {
+    return;
+  }
+
+  // Remembered before anything else can go wrong, so this connection
+  // going away still detaches the stream from its session.
+  get_stream_exchange_ = exchange;
+  get_stream_session_id_ = session_id_;
+  get_stream_conn_ = host_.connection();
+
+  if (!resume.found || !resume.exchange || resume.dispatcher == nullptr ||
+      !options_.enable_resumability) {
+    registerEventStream(exchange, stream_id);
+    armKeepalive();
+    return;
+  }
+
+  auto deliver = [this, exchange, stream_id](
+                     const std::vector<transport::RetainedEvent>& missed) {
+    for (const auto& event : missed) {
+      // Under the id it was first sent with: the client's place in the
+      // stream it lost has to go on meaning the same thing, and it is
+      // that id it would come back with a second time.
+      exchange->writeEvent(event.event, event.data,
+                           optional<std::string>(event.id));
+    }
+    GOPHER_LOG_DEBUG("replayed {} event(s) to a resumed stream", missed.size());
+    // Only now: what the session hands over on registration is what the
+    // server said while nothing was connected, which comes after.
+    registerEventStream(exchange, stream_id);
+    armKeepalive();
+  };
+
+  // Only an answering stream is followed. A standalone one that was lost
+  // is replaced by this one, and what the server says next goes to the
+  // newest stream anyway — following it as well would send everything
+  // twice. An answering stream still has a handler behind it, producing
+  // for a request this client cannot ask again.
+  transport::RequestExchangePtr follower =
+      resume.kind == transport::StreamCtx::Kind::PostResponse ? exchange
+                                                              : nullptr;
+
+  if (resume.dispatcher->isThreadSafe()) {
+    deliver(transport::StreamableSessionManager::collectAndFollow(
+        resume.exchange, resume.cursor, follower, &dispatcher_));
+    return;
+  }
+
+  // The stream being resumed was running over a connection on another
+  // thread, and its buffer may only be read there. The answer waits: it
+  // has already begun, nothing else is being served on this connection
+  // while it is open, and there is nothing else to give this client.
+  event::Dispatcher* mine = &dispatcher_;
+  event::Dispatcher* theirs = resume.dispatcher;
+  std::weak_ptr<int> alive = alive_;
+  transport::RequestExchangePtr source = resume.exchange;
+  const std::string cursor = resume.cursor;
+
+  theirs->post([source, cursor, follower, mine, deliver, alive]() {
+    auto missed = transport::StreamableSessionManager::collectAndFollow(
+        source, cursor, follower, mine);
+    mine->post([deliver, missed, alive]() {
+      if (alive.expired()) {
+        return;
+      }
+      deliver(missed);
+    });
+  });
 }
 
 void StreamableHttpFilter::armKeepalive() {
@@ -757,28 +890,22 @@ void StreamableHttpFilter::armKeepalive() {
   keepalive_timer_->enableTimer(options_.keepalive_interval);
 }
 
-void StreamableHttpFilter::registerEventStream() {
-  if (sessions_ == nullptr || !exchange_) {
+void StreamableHttpFilter::registerEventStream(
+    const transport::RequestExchangePtr& exchange,
+    const std::string& stream_id) {
+  if (sessions_ == nullptr || !exchange) {
     return;
   }
 
-  const std::string id = session_id_;
-  transport::RequestExchangePtr exchange = exchange_;
-  get_stream_exchange_ = exchange_;
-  network::Connection* conn = host_.connection();
+  const std::string id = get_stream_session_id_;
+  network::Connection* conn = get_stream_conn_;
   event::Dispatcher* dispatcher = &dispatcher_;
   transport::StreamableSessionManager* sessions = sessions_;
 
-  // Remembered so the stream can be detached from its session when this
-  // connection goes, which is the only thing that still needs saying about
-  // it after this request is over.
-  get_stream_session_id_ = id;
-  get_stream_conn_ = conn;
-
-  auto attach = [sessions, exchange, conn,
-                 dispatcher](transport::SessionCtx& session) {
-    sessions->openStream(session, transport::StreamCtx::Kind::Get, exchange,
-                         conn, *dispatcher);
+  auto attach = [sessions, exchange, conn, dispatcher,
+                 stream_id](transport::SessionCtx& session) {
+    sessions->openStream(session, stream_id, transport::StreamCtx::Kind::Get,
+                         exchange, conn, *dispatcher);
   };
 
   if (sessions_->ownedBy(id, dispatcher_)) {
@@ -789,8 +916,41 @@ void StreamableHttpFilter::registerEventStream() {
   }
   // The session lives on another thread, so the record of the stream is
   // made there. The bytes stay here: the exchange may only be touched
-  // where its connection is.
+  // where its connection is, and the name it is writing under was settled
+  // before either of those threads had to agree on anything.
   sessions_->withSession(dispatcher_, id, attach, nullptr);
+}
+
+void StreamableHttpFilter::registerResponseStream(
+    const transport::RequestExchangePtr& exchange,
+    const std::string& session_id,
+    const std::string& stream_id) {
+  if (sessions_ == nullptr || !exchange || session_id.empty() ||
+      stream_id.empty()) {
+    return;
+  }
+
+  // The connection is deliberately not recorded. An answering stream ends
+  // with its answer, and a client that lost it comes back on a stream of
+  // its own rather than expecting this one to be reattached.
+  event::Dispatcher* dispatcher = &dispatcher_;
+  transport::StreamableSessionManager* sessions = sessions_;
+  network::Connection* conn = host_.connection();
+
+  auto attach = [sessions, exchange, conn, dispatcher,
+                 stream_id](transport::SessionCtx& session) {
+    sessions->openStream(session, stream_id,
+                         transport::StreamCtx::Kind::PostResponse, exchange,
+                         conn, *dispatcher);
+  };
+
+  if (sessions_->ownedBy(session_id, dispatcher_)) {
+    if (auto* session = sessions_->find(session_id)) {
+      attach(*session);
+    }
+    return;
+  }
+  sessions_->withSession(dispatcher_, session_id, attach, nullptr);
 }
 
 void StreamableHttpFilter::terminateSession() {

@@ -72,6 +72,17 @@ struct StreamableHttpOptions {
    * Zero switches it off.
    */
   std::chrono::milliseconds keepalive_interval{30000};
+
+  /**
+   * Whether a client may come back to a stream it lost and be given what
+   * it missed. Off means events carry no id and a client that offers one
+   * is simply given a fresh stream — which is what an id it could not
+   * have been issued deserves.
+   */
+  bool enable_resumability{true};
+
+  /** How many events one stream keeps for a client that may return. */
+  size_t replay_buffer_events{256};
 };
 
 /**
@@ -234,8 +245,17 @@ class StreamableHttpFilter : public HttpCodecFilter::MessageCallbacks,
    */
   class ResponseStreamImpl : public ResponseStream {
    public:
-    ResponseStreamImpl(transport::RequestExchangePtr exchange, bool may_stream)
-        : exchange_(std::move(exchange)), may_stream_(may_stream) {}
+    /**
+     * @param on_open Told the moment this becomes a stream, which is when
+     *                it becomes something a client could be given a name
+     *                for and could later come back to.
+     */
+    ResponseStreamImpl(transport::RequestExchangePtr exchange,
+                       bool may_stream,
+                       std::function<void()> on_open)
+        : exchange_(std::move(exchange)),
+          may_stream_(may_stream),
+          on_open_(std::move(on_open)) {}
 
     VoidResult sendNotification(
         const jsonrpc::Notification& notification) override;
@@ -251,6 +271,7 @@ class StreamableHttpFilter : public HttpCodecFilter::MessageCallbacks,
    private:
     transport::RequestExchangePtr exchange_;
     bool may_stream_;
+    std::function<void()> on_open_;
     size_t dropped_{0};
   };
 
@@ -312,6 +333,8 @@ class StreamableHttpFilter : public HttpCodecFilter::MessageCallbacks,
   struct Judgement {
     SessionVerdict verdict{SessionVerdict::Unknown};
     size_t live_get_streams{0};
+    /** Where the client says it got to, placed against what is still held. */
+    transport::StreamableSessionManager::ResumePoint resume;
   };
 
   /** Answer a request whose session did not entitle it to be served. */
@@ -336,14 +359,33 @@ class StreamableHttpFilter : public HttpCodecFilter::MessageCallbacks,
    * Answer a GET by opening the session's standalone event stream — the
    * one a client leaves open for everything the server says on its own
    * initiative.
-   *
-   * @param live_streams How many the session already holds, counted on the
-   *                     thread that owns it while the session was judged.
    */
-  void openEventStream(size_t live_streams);
+  void openEventStream(const Judgement& judged);
+
+  /**
+   * Give this request's answer a name a client could come back to, and a
+   * buffer behind it. Empty when this server keeps no sessions, and so
+   * has nowhere to look a returning client up.
+   */
+  std::string nameThisStream(const transport::RequestExchangePtr& exchange);
+
+  /**
+   * Hand a resuming client what it missed, then put the stream on its
+   * session — in that order, since what the session hands over on
+   * registration is what came after.
+   */
+  void replayThenRegister(
+      const transport::StreamableSessionManager::ResumePoint& resume,
+      const std::string& stream_id);
 
   /** Register the stream just opened against its session. */
-  void registerEventStream();
+  void registerEventStream(const transport::RequestExchangePtr& exchange,
+                           const std::string& stream_id);
+
+  /** The same, for the stream a request is being answered on. */
+  void registerResponseStream(const transport::RequestExchangePtr& exchange,
+                              const std::string& session_id,
+                              const std::string& stream_id);
 
   /** Start, and keep restarting, this connection's stream keep-alive. */
   void armKeepalive();
@@ -381,6 +423,10 @@ class StreamableHttpFilter : public HttpCodecFilter::MessageCallbacks,
   transport::RequestExchangePtr exchange_;
   std::string body_;
   std::string session_id_;
+  // Where the client says it last got to, if it said. Read from the
+  // request rather than remembered per connection: the whole point of it
+  // is that this is not the connection the events were sent on.
+  std::string last_event_id_;
   // Set only for a request that created its session, which is the one
   // request whose answer decides whether that session survives.
   std::string minted_session_id_;

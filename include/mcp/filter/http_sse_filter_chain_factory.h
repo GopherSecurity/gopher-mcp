@@ -260,10 +260,21 @@ class HttpSseFilterChainFactory : public network::FilterChainFactory {
     streamable_options_.max_get_streams_per_session =
         config.max_get_streams_per_session;
     streamable_options_.keepalive_interval = config.keepalive_interval;
+    streamable_options_.enable_resumability = config.enable_resumability;
+    streamable_options_.replay_buffer_events = config.replay_buffer_events;
     pending_limit_ = config.replay_buffer_events;
+    closed_stream_retention_ = config.closed_stream_retention;
     if (session_manager_) {
       session_manager_->setTimeout(session_timeout_);
       session_manager_->setPendingLimit(pending_limit_);
+      session_manager_->setClosedStreamRetention(closed_stream_retention_);
+    }
+    if (retained_exchanges_) {
+      // The same window under one setting. A stream kept past the
+      // exchange producing it would claim to be replayable with nothing
+      // behind it, and an exchange kept past its stream would be held for
+      // a client with no way left to ask.
+      retained_exchanges_->setRetention(closed_stream_retention_);
     }
   }
 
@@ -369,6 +380,7 @@ class HttpSseFilterChainFactory : public network::FilterChainFactory {
   transport::StreamableSessionManager* shared_session_manager_{nullptr};
   bool sessions_enabled_{true};
   std::chrono::milliseconds session_timeout_{300000};
+  std::chrono::milliseconds closed_stream_retention_{60000};
   size_t pending_limit_{256};
 
   // What the MCP endpoint serves besides requests. Its session manager is

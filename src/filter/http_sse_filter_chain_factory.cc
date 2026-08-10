@@ -1497,10 +1497,29 @@ class HttpSseJsonRpcProtocolFilter
       return resp;
     };
 
-    auto infoHandler = [](const HttpRoutingFilter::RequestContext& req) {
+    // What this server is holding for clients that might come back, read
+    // straight from where the streams report it. A bound nobody outside
+    // the process can observe is a bound nobody can believe, and this is
+    // the one number that says whether it is being kept.
+    transport::StreamableSessionManager* sessions =
+        streamable_options_.sessions;
+    auto infoHandler = [sessions](
+                           const HttpRoutingFilter::RequestContext& req) {
       HttpRoutingFilter::Response resp;
       resp.status_code = 200;
       resp.headers["content-type"] = "application/json";
+
+      std::string retained = R"("sessions":0,"streams":0,)"
+                             R"("retained_events":0,"retained_bytes":0)";
+      if (sessions != nullptr) {
+        const auto& accounting = sessions->accounting();
+        retained = "\"sessions\":" + std::to_string(sessions->size()) +
+                   ",\"streams\":" + std::to_string(sessions->streamCount()) +
+                   ",\"retained_events\":" +
+                   std::to_string(accounting ? accounting->events.load() : 0) +
+                   ",\"retained_bytes\":" +
+                   std::to_string(accounting ? accounting->bytes.load() : 0);
+      }
 
       resp.body = R"({
         "server": "MCP Server",
@@ -1511,6 +1530,9 @@ class HttpSseJsonRpcProtocolFilter
           "json_rpc": "/rpc",
           "sse_events": "/events"
         },
+        "streamable_http": {)" +
+                  retained +
+                  R"(},
         "version": "1.0.0"
       })";
 
@@ -1856,6 +1878,7 @@ transport::RetainedExchangeStore& HttpSseFilterChainFactory::retainedExchanges()
   if (!retained_exchanges_) {
     retained_exchanges_.reset(
         new transport::RetainedExchangeStore(dispatcher_));
+    retained_exchanges_->setRetention(closed_stream_retention_);
   }
   return *retained_exchanges_;
 }
@@ -1875,6 +1898,7 @@ transport::StreamableSessionManager* HttpSseFilterChainFactory::sessionManager()
         new transport::StreamableSessionManager(dispatcher_));
     session_manager_->setTimeout(session_timeout_);
     session_manager_->setPendingLimit(pending_limit_);
+    session_manager_->setClosedStreamRetention(closed_stream_retention_);
   }
   return session_manager_.get();
 }
