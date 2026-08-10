@@ -517,6 +517,7 @@ set(MCP_CORE_SOURCES
 # Client and server sources that need event library
 set(MCP_CLIENT_SERVER_SOURCES
     src/client/mcp_client.cc
+    src/client/transport_probe.cc            # Which era a server speaks
     src/server/mcp_server.cc
 )
 
