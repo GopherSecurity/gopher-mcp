@@ -499,6 +499,15 @@ bool RequestExchange::onConnectionGone() {
   sink_.reset(new RetainedExchangeSink());
   detached_ = true;
 
+  // The observer exists to tell a connection when it may go back to
+  // reading requests. There is no connection now, and the filter that was
+  // observing went with it — so telling it anything, which finishing this
+  // stream would otherwise do, is reading freed memory.
+  stream_observer_ = nullptr;
+  if (stream_writer_) {
+    stream_writer_->setObserver(nullptr);
+  }
+
   GOPHER_LOG_DEBUG("RequestExchange detached from its connection");
   return true;
 }
