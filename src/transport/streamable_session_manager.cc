@@ -25,9 +25,10 @@ constexpr size_t kSessionIdBytes = 16;
 // The odds are negligible; sharing a session between two clients is not.
 constexpr int kMintAttempts = 4;
 
-// A stream id only has to be unique among one session's streams, and it
-// prefixes every event id that stream emits — so it is kept short enough
-// to read in a log while still being drawn rather than counted.
+// A stream id prefixes every event id that stream emits, so it travels on
+// the wire once per event and is kept short enough to read in a log. Still
+// drawn rather than counted: a counted one would tell a client holding a
+// single id how many streams the server has going.
 constexpr size_t kStreamIdChars = 8;
 
 std::string toHex(const unsigned char* bytes, size_t length) {
@@ -71,6 +72,55 @@ std::string StreamableSessionManager::mintId() {
   return toHex(bytes, sizeof(bytes));
 }
 
+std::string StreamableSessionManager::drawId(size_t hex_digits) const {
+  const size_t bytes_needed = (hex_digits + 1) / 2;
+  std::vector<unsigned char> bytes(bytes_needed, 0);
+
+  if (entropy_) {
+    if (!entropy_(bytes.data(), bytes.size())) {
+      GOPHER_LOG_ERROR("no id drawn: the configured random source refused");
+      return std::string();
+    }
+  } else if (RAND_bytes(bytes.data(), static_cast<int>(bytes.size())) != 1) {
+    GOPHER_LOG_ERROR(
+        "no id drawn: the system random source refused. A weaker source is "
+        "not substituted, because an id that is only hard to guess would "
+        "still be trusted like one that cannot be.");
+    return std::string();
+  }
+
+  std::string hex = toHex(bytes.data(), bytes.size());
+  hex.resize(hex_digits);
+  return hex;
+}
+
+std::string StreamableSessionManager::reserveStreamId() {
+  std::lock_guard<std::mutex> lock(directory_mutex_);
+  for (int attempt = 0; attempt < kMintAttempts; ++attempt) {
+    const std::string drawn = drawId(kStreamIdChars);
+    if (drawn.empty()) {
+      return std::string();
+    }
+    // Redrawn rather than shared. Two streams under one id would quietly
+    // cross-link what each of them is replayed from, which a client would
+    // read as the server answering a question it did not ask.
+    if (stream_ids_.insert(drawn).second) {
+      return drawn;
+    }
+  }
+
+  GOPHER_LOG_ERROR("no stream id drawn: every draw was already in use");
+  return std::string();
+}
+
+void StreamableSessionManager::releaseStreamId(const std::string& stream_id) {
+  if (stream_id.empty()) {
+    return;
+  }
+  std::lock_guard<std::mutex> lock(directory_mutex_);
+  stream_ids_.erase(stream_id);
+}
+
 SessionCtx* StreamableSessionManager::createSession(
     event::Dispatcher& owner, const std::string& principal) {
   assert(owner.isThreadSafe() &&
@@ -82,7 +132,7 @@ SessionCtx* StreamableSessionManager::createSession(
     std::lock_guard<std::mutex> lock(directory_mutex_);
     for (int attempt = 0; attempt < kMintAttempts && created == nullptr;
          ++attempt) {
-      const std::string id = mintId();
+      const std::string id = drawId(kSessionIdBytes * 2);
       if (id.empty()) {
         return nullptr;
       }
@@ -155,34 +205,14 @@ bool StreamableSessionManager::remove(const std::string& id) {
 
 StreamCtx* StreamableSessionManager::openStream(
     SessionCtx& session,
+    const std::string& stream_id,
     StreamCtx::Kind kind,
     const RequestExchangePtr& exchange,
     network::Connection* conn,
     event::Dispatcher& dispatcher) {
-  std::string stream_id;
-  for (int attempt = 0; attempt < kMintAttempts && stream_id.empty();
-       ++attempt) {
-    const std::string drawn = mintId().substr(0, kStreamIdChars);
-    if (drawn.empty()) {
-      return nullptr;
-    }
-    // Checked against the session's other streams because the id prefixes
-    // every event this one emits: two streams drawing the same one would
-    // quietly cross-link what a resuming client is replayed from.
-    bool taken = false;
-    for (const auto& existing : session.streams) {
-      if (existing && existing->id == drawn) {
-        taken = true;
-        break;
-      }
-    }
-    if (!taken) {
-      stream_id = drawn;
-    }
-  }
-
   if (stream_id.empty()) {
-    GOPHER_LOG_ERROR("no stream id drawn for session {}", session.id);
+    GOPHER_LOG_ERROR("no stream opened for session {}: it has no id",
+                     session.id);
     return nullptr;
   }
 
@@ -198,6 +228,7 @@ StreamCtx* StreamableSessionManager::openStream(
   // which is what makes "the most recently opened" a thing that can be
   // asked for.
   session.streams.push_back(std::move(stream));
+  session.stream_index[stream_id] = opened;
   GOPHER_LOG_DEBUG("session {} opened stream {}", session.id, stream_id);
 
   if (kind == StreamCtx::Kind::Get) {
@@ -206,6 +237,128 @@ StreamCtx* StreamableSessionManager::openStream(
     flushPending(session, *opened);
   }
   return opened;
+}
+
+void StreamableSessionManager::closeStream(SessionCtx& session,
+                                           StreamCtx& stream) {
+  const std::string stream_id = stream.id;
+
+  // What the stream was holding goes now, at a moment that can be pointed
+  // at, rather than whenever the last reference to the exchange happens to
+  // fall away — something else may still be holding it, and a bound
+  // nobody can observe returning to zero is not much of a bound.
+  if (stream.exchange && stream.dispatcher != nullptr &&
+      stream.dispatcher->isThreadSafe()) {
+    stream.exchange->releaseReplay();
+  } else if (stream.exchange && stream.dispatcher != nullptr) {
+    RequestExchangePtr exchange = stream.exchange;
+    stream.dispatcher->post([exchange]() { exchange->releaseReplay(); });
+  }
+
+  // The index observes the streams, so its entry goes with the stream and
+  // not after it: in between there would be a pointer to freed memory
+  // that a resuming client is precisely the thing that would follow.
+  session.stream_index.erase(stream_id);
+  for (auto it = session.streams.begin(); it != session.streams.end(); ++it) {
+    if (it->get() == &stream) {
+      session.streams.erase(it);
+      break;
+    }
+  }
+  releaseStreamId(stream_id);
+  GOPHER_LOG_DEBUG("session {} closed stream {}", session.id, stream_id);
+}
+
+StreamableSessionManager::ResumePoint StreamableSessionManager::resumeFrom(
+    SessionCtx& session, const std::string& last_event_id) {
+  ResumePoint point;
+  if (last_event_id.empty()) {
+    return point;
+  }
+
+  // Split at the last colon: everything before it names the stream, and
+  // everything after is where in that stream the client got to. An id
+  // that says neither is not an error — it is a client that has nothing
+  // useful to tell us, and it gets a fresh stream like any other.
+  const size_t split = last_event_id.rfind(':');
+  if (split == std::string::npos || split == 0) {
+    GOPHER_LOG_DEBUG("session {} was given a resume point it cannot read",
+                     session.id);
+    return point;
+  }
+
+  const std::string stream_id = last_event_id.substr(0, split);
+  auto found = session.stream_index.find(stream_id);
+  if (found == session.stream_index.end() || found->second == nullptr) {
+    // The stream is gone, or was never this session's. Either way this
+    // session has nothing to replay, which is the same answer — and the
+    // reason the lookup never leaves the session it was asked about.
+    GOPHER_LOG_DEBUG("session {} no longer holds stream {}", session.id,
+                     stream_id);
+    return point;
+  }
+
+  StreamCtx& stream = *found->second;
+  point.found = true;
+  point.kind = stream.kind;
+  point.stream_id = stream_id;
+  point.cursor = last_event_id;
+  point.exchange = stream.exchange;
+  point.dispatcher = stream.dispatcher;
+  point.producing = stream.open();
+  return point;
+}
+
+std::vector<RetainedEvent> StreamableSessionManager::collectAndFollow(
+    const RequestExchangePtr& source,
+    const std::string& cursor,
+    const RequestExchangePtr& follower,
+    event::Dispatcher* follower_dispatcher) {
+  std::vector<RetainedEvent> missed;
+  if (!source) {
+    return missed;
+  }
+
+  const auto& kept = source->retainedEvents();
+  // Found by where it sits rather than by working out how far along it is:
+  // what the client missed is simply everything after the last thing it
+  // saw, including anything forwarded here from somewhere else, which no
+  // arithmetic on this stream's own numbering would account for.
+  bool after_cursor = false;
+  for (const auto& event : kept) {
+    if (after_cursor) {
+      missed.push_back(event);
+    } else if (event.id == cursor) {
+      after_cursor = true;
+    }
+  }
+
+  if (!after_cursor && !kept.empty()) {
+    // The cursor is not in the buffer: it was evicted, or it named an
+    // event this stream never sent. Replaying from the top would hand the
+    // client things it has already seen, so nothing is replayed.
+    GOPHER_LOG_DEBUG("a resume point is no longer in the buffer it named");
+    missed.clear();
+  }
+
+  if (!follower || follower_dispatcher == nullptr ||
+      source->mode() != RequestExchange::Mode::Stream) {
+    return missed;
+  }
+
+  // Still producing, so the client is owed more than it missed. Written
+  // through a post and never inline: this call is being made from within
+  // the answer that carries the replay, and a forwarded event that
+  // overtook it would arrive before the events it comes after.
+  event::Dispatcher* target = follower_dispatcher;
+  source->setEventObserver([follower, target](const RetainedEvent& event) {
+    RetainedEvent copy = event;
+    target->post([follower, copy]() {
+      follower->writeEvent(copy.event, copy.data,
+                           optional<std::string>(copy.id));
+    });
+  });
+  return missed;
 }
 
 size_t StreamableSessionManager::countStreams(const SessionCtx& session,
@@ -328,11 +481,15 @@ bool StreamableSessionManager::removeOwned(const std::string& id) {
     directory_.erase(it);
   }
 
-  // Purged together, in this order, because the index observes the streams
-  // and outliving them would leave it pointing at freed memory.
+  // Torn down through the same path a single stream goes through, so
+  // whatever ending one stream has to settle — the index that observes
+  // it, the id it was holding, what it was keeping for a client that will
+  // now never ask — is settled here too rather than in a second place
+  // that could come to disagree with the first.
   if (removed) {
-    removed->event_index.clear();
-    removed->streams.clear();
+    while (!removed->streams.empty()) {
+      closeStream(*removed, *removed->streams.back());
+    }
   }
 
   GOPHER_LOG_DEBUG("session {} torn down", id);
@@ -381,6 +538,14 @@ void StreamableSessionManager::forEachExpired(
 size_t StreamableSessionManager::size() const {
   std::lock_guard<std::mutex> lock(directory_mutex_);
   return directory_.size();
+}
+
+size_t StreamableSessionManager::streamCount() const {
+  std::lock_guard<std::mutex> lock(directory_mutex_);
+  // The ids in use are one per stream, and every session's index is keyed
+  // the same way, so this is the size of both without visiting a session
+  // that belongs to another thread.
+  return stream_ids_.size();
 }
 
 bool StreamableSessionManager::known(const std::string& id) const {
@@ -477,13 +642,90 @@ void StreamableSessionManager::armSweep(event::Dispatcher& owner) {
   }
 
   if (timer != nullptr) {
-    timer->enableTimer(timeout_);
+    // Often enough for whichever of the two things it does comes due
+    // first. A sweep spaced by the session timeout would leave a stream
+    // that finished a minute ago being kept for five.
+    std::chrono::milliseconds period = timeout_;
+    if (closed_stream_retention_.count() > 0 &&
+        closed_stream_retention_ < period) {
+      period = closed_stream_retention_;
+    }
+    timer->enableTimer(period);
+  }
+}
+
+void StreamableSessionManager::retireStreams(SessionCtx& session) {
+  if (closed_stream_retention_.count() <= 0) {
+    return;
+  }
+
+  const auto now = std::chrono::steady_clock::now();
+  std::vector<StreamCtx*> due;
+
+  for (const auto& held : session.streams) {
+    StreamCtx* stream = held.get();
+    if (stream == nullptr) {
+      continue;
+    }
+
+    if (stream->conn != nullptr && stream->exchange &&
+        stream->exchange->detached()) {
+      // Its client has gone. The pointer is only ever compared, never
+      // followed, but comparing against an address that may since have
+      // been handed to somebody else is worse than not comparing at all.
+      stream->conn = nullptr;
+    }
+
+    // Nothing more will be written to a standalone stream once its client
+    // has gone — nothing is routed to one that cannot be reached — and
+    // nothing more comes from an answering stream once it has answered.
+    const bool finished = stream->kind == StreamCtx::Kind::Get
+                              ? stream->conn == nullptr
+                              : !stream->open();
+    if (!finished) {
+      // Still in use, and if it was counted as finished before it is not
+      // now: an answering stream detached from its client goes on
+      // producing, and the clock starts when it stops.
+      stream->retire_at = std::chrono::steady_clock::time_point();
+      continue;
+    }
+
+    if (stream->retire_at == std::chrono::steady_clock::time_point()) {
+      stream->retire_at = now + closed_stream_retention_;
+      continue;
+    }
+    if (now >= stream->retire_at) {
+      due.push_back(stream);
+    }
+  }
+
+  // Collected first, closed after: closing rearranges the collection the
+  // walk above is reading.
+  for (StreamCtx* stream : due) {
+    GOPHER_LOG_DEBUG("session {} retiring stream {}", session.id, stream->id);
+    closeStream(session, *stream);
   }
 }
 
 void StreamableSessionManager::sweepFor(event::Dispatcher& owner) {
   if (!running_) {
     return;
+  }
+
+  // Every session this thread owns, whether or not it is idle: a busy
+  // session holds streams that have finished too, and what they are
+  // keeping is owed to nobody once its window is up.
+  std::vector<SessionCtx*> mine;
+  {
+    std::lock_guard<std::mutex> lock(directory_mutex_);
+    for (auto& entry : directory_) {
+      if (entry.second.owner == &owner && entry.second.ctx) {
+        mine.push_back(entry.second.ctx.get());
+      }
+    }
+  }
+  for (SessionCtx* session : mine) {
+    retireStreams(*session);
   }
 
   std::vector<std::string> expired;

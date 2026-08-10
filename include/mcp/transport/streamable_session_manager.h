@@ -9,6 +9,7 @@
 #include <mutex>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "mcp/event/event_loop.h"
@@ -39,9 +40,13 @@ struct StreamCtx {
 
   std::string id;
   Kind kind{Kind::Get};
-  uint64_t next_sequence{1};
 
-  /** What is producing on this stream, when anything is. */
+  /**
+   * What is producing on this stream, when anything is, and what holds
+   * everything it has already sent. The count of events written here is
+   * the exchange's too: it writes the bytes, so it is what decides the
+   * order they are numbered in.
+   */
   RequestExchangePtr exchange;
 
   /**
@@ -67,6 +72,27 @@ struct StreamCtx {
    * there: what is written to it is kept for a client that comes back.
    */
   bool live() const { return conn != nullptr && open(); }
+
+  /**
+   * When this stream stops being kept, once nothing more will be written
+   * to it. Unset while it is still in use.
+   *
+   * The window exists because a client whose connection dropped needs a
+   * chance to come back and say where it got to; one that never returns
+   * must not pin what it was owed forever.
+   */
+  std::chrono::steady_clock::time_point retire_at{};
+
+  /**
+   * Where anything this stream still produces is also sent.
+   *
+   * Set when a client that lost this stream came back on another one: it
+   * is owed not only what it missed but whatever comes next, and what
+   * comes next is written here rather than there. Carried by value
+   * because the deciding and the writing are not always the same thread.
+   */
+  RequestExchangePtr follower_exchange;
+  event::Dispatcher* follower_dispatcher{nullptr};
 };
 
 /**
@@ -103,15 +129,21 @@ struct SessionCtx {
   std::vector<std::unique_ptr<StreamCtx>> streams;
 
   /**
-   * Which stream an event id came from, for replaying to a client that
-   * asks to resume from one.
+   * Which stream a given stream id names, for finding the one a resuming
+   * client asks to carry on from.
+   *
+   * Keyed on the stream rather than on each event, so it holds one entry
+   * per stream however many events a stream sends — an index that grew
+   * with the events would have to be bounded separately from the buffers
+   * it points into, and the two bounds would have to be kept in step.
+   * Where in the stream the client got to is answered by the stream's own
+   * buffer, which is where that answer already lives.
    *
    * The pointers are observers into `streams` and own nothing. Erasing a
-   * stream must purge its entries here first — afterwards there is no way
-   * to tell which entries belonged to it, and a stale one is a dangling
-   * pointer a resuming client would follow.
+   * stream must purge its entry here in the same operation — a stale one
+   * is a dangling pointer a resuming client would follow.
    */
-  std::unordered_map<std::string, StreamCtx*> event_index;
+  std::unordered_map<std::string, StreamCtx*> stream_index;
 
   /**
    * Messages the server had to say while no stream was connected to say
@@ -171,6 +203,36 @@ class StreamableSessionManager {
   static std::string mintId();
 
   /**
+   * Where ids are drawn from. Defaults to the system CSPRNG.
+   *
+   * A seam, for a deployment with its own source and for tests that need
+   * to see what happens when a draw repeats. Whatever is put here is
+   * still expected to be unguessable — there is no fallback to anything
+   * weaker, here or anywhere else in this class.
+   *
+   * @param source Fills the buffer, returning false if it cannot.
+   */
+  using EntropySource = std::function<bool(unsigned char*, size_t)>;
+  void setEntropySource(EntropySource source) { entropy_ = std::move(source); }
+
+  /**
+   * A stream id no other stream anywhere in this manager is using.
+   *
+   * Taken under the directory lock rather than under session affinity, so
+   * it is settled on whichever thread is about to write the stream's
+   * first event: a stream cannot emit ids it does not yet have, and the
+   * record of it on the session may land a moment later.
+   *
+   * Unique across the manager rather than merely within the session,
+   * which is stronger than the protocol asks for and cheaper than asking
+   * a session that belongs to another thread what it already holds.
+   *
+   * @return The id, or empty if none could be drawn. Held until it is
+   *         released with the stream it names.
+   */
+  std::string reserveStreamId();
+
+  /**
    * Create a session owned by the calling dispatcher.
    *
    * @return The new session, or null if no id could be drawn. The pointer
@@ -194,8 +256,10 @@ class StreamableSessionManager {
   bool remove(const std::string& id);
 
   /**
-   * Add a stream to a session, with an id no other stream there is using.
+   * Add a stream to a session under an id already reserved for it.
    *
+   * @param stream_id  From reserveStreamId(), and already the name the
+   *                   exchange is minting event ids under.
    * @param conn       The connection carrying it, for telling a live stream
    *                   from a detached one.
    * @param dispatcher Where that connection lives, which is the only thread
@@ -203,10 +267,76 @@ class StreamableSessionManager {
    * @return The stream, owned by the session; null if no id could be drawn.
    */
   StreamCtx* openStream(SessionCtx& session,
+                        const std::string& stream_id,
                         StreamCtx::Kind kind,
                         const RequestExchangePtr& exchange,
                         network::Connection* conn,
                         event::Dispatcher& dispatcher);
+
+  /**
+   * The same, drawing an id first. For a caller with no reason to have
+   * one in hand before the stream exists.
+   */
+  StreamCtx* openStream(SessionCtx& session,
+                        StreamCtx::Kind kind,
+                        const RequestExchangePtr& exchange,
+                        network::Connection* conn,
+                        event::Dispatcher& dispatcher) {
+    return openStream(session, reserveStreamId(), kind, exchange, conn,
+                      dispatcher);
+  }
+
+  /** Take a stream off its session, with everything keyed on it. */
+  void closeStream(SessionCtx& session, StreamCtx& stream);
+
+  /** What a client's claim about where it got to turned out to be worth. */
+  struct ResumePoint {
+    /** Whether this session has the stream the client named. */
+    bool found{false};
+    StreamCtx::Kind kind{StreamCtx::Kind::Get};
+    std::string stream_id;
+    /** The event the client says it last saw. */
+    std::string cursor;
+    /** The source's producer, and the only thread it may be read on. */
+    RequestExchangePtr exchange;
+    event::Dispatcher* dispatcher{nullptr};
+    /** Whether more is still coming, so there is something to follow. */
+    bool producing{false};
+  };
+
+  /**
+   * Place a Last-Event-ID against the streams this session holds.
+   *
+   * Looked up within one session and no further, which is what makes
+   * replaying another client's events unrepresentable here rather than
+   * merely forbidden. An id this session does not know is not an error:
+   * the client gets a fresh stream, which is all resuming ever promised.
+   *
+   * Runs on the thread that owns the session.
+   */
+  static ResumePoint resumeFrom(SessionCtx& session,
+                                const std::string& last_event_id);
+
+  /**
+   * Take what a client missed, and arrange for what it has not missed yet.
+   *
+   * Both in one visit, on the thread that owns the source stream: between
+   * reading the buffer and starting to follow it there is a gap, and
+   * anything written in that gap would be neither replayed nor forwarded.
+   *
+   * @param cursor    The last event the client saw. Everything after it,
+   *                  in order, is what comes back. An id that is not in
+   *                  the buffer — evicted, or never from this stream —
+   *                  replays nothing.
+   * @param follower  Where anything the source still produces is sent, if
+   *                  it is still producing. Null to replay only.
+   * @return What the client missed, oldest first.
+   */
+  static std::vector<RetainedEvent> collectAndFollow(
+      const RequestExchangePtr& source,
+      const std::string& cursor,
+      const RequestExchangePtr& follower,
+      event::Dispatcher* follower_dispatcher);
 
   /**
    * How many streams of a kind the session is holding.
@@ -262,6 +392,23 @@ class StreamableSessionManager {
   void setSessionRemovedCallback(SessionRemovedCallback callback) {
     session_removed_callback_ = std::move(callback);
   }
+
+  /**
+   * How long a stream nothing more will be written to is kept.
+   *
+   * The window exists so a client whose connection dropped has a chance
+   * to come back and say where it got to. Zero keeps them for as long as
+   * their session lasts, which is a bound but a very loose one.
+   */
+  void setClosedStreamRetention(std::chrono::milliseconds retention) {
+    closed_stream_retention_ = retention;
+  }
+
+  /** Where every resumable stream reports what it is holding. */
+  const ReplayAccountingPtr& accounting() const { return accounting_; }
+
+  /** Streams held across every session, which is the size of the index. */
+  size_t streamCount() const;
 
   /** Idle window after which a session is swept. */
   void setTimeout(std::chrono::milliseconds timeout);
@@ -339,12 +486,32 @@ class StreamableSessionManager {
   void armSweep(event::Dispatcher& owner);
   void sweepFor(event::Dispatcher& owner);
 
+  /**
+   * Start the clock on streams nothing more will be written to, and close
+   * the ones whose time is up. Runs on the session's owner thread.
+   */
+  void retireStreams(SessionCtx& session);
+
+  /** Draw an id of the given length in hex digits, or empty on failure. */
+  std::string drawId(size_t hex_digits) const;
+
+  /** Give up a stream id, so it can be drawn again. */
+  void releaseStreamId(const std::string& stream_id);
+
   event::Dispatcher& dispatcher_;
 
-  // Guards the map structure and the owner pointers, and nothing else. The
-  // SessionCtx behind an entry is the owning thread's alone.
+  // Guards the map structure, the owner pointers and the stream ids in
+  // use, and nothing else. The SessionCtx behind an entry is the owning
+  // thread's alone.
   mutable std::mutex directory_mutex_;
   std::unordered_map<std::string, Entry> directory_;
+
+  // Every stream id currently spoken for, whichever session holds it.
+  // Strings only: what they name belongs to one thread each, and this is
+  // read by all of them.
+  std::unordered_set<std::string> stream_ids_;
+
+  EntropySource entropy_;
 
   // One sweep per dispatcher that owns sessions, so a session is only ever
   // examined by the thread entitled to examine it. Created on the owner's
@@ -353,7 +520,9 @@ class StreamableSessionManager {
 
   SessionRemovedCallback session_removed_callback_;
   std::chrono::milliseconds timeout_{300000};
+  std::chrono::milliseconds closed_stream_retention_{60000};
   size_t pending_limit_{256};
+  ReplayAccountingPtr accounting_{std::make_shared<ReplayAccounting>()};
   bool running_{true};
 };
 

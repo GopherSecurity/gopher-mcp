@@ -134,6 +134,80 @@ TEST_F(StreamableSessionManagerTest, NoTwoIdsAreEverTheSame) {
   }
 }
 
+// ===== Stream ids =====
+
+TEST_F(StreamableSessionManagerTest, AStreamIdIsDrawnAndNotCounted) {
+  const std::string first = manager_->reserveStreamId();
+  const std::string second = manager_->reserveStreamId();
+
+  EXPECT_EQ(first.size(), 8u);
+  EXPECT_NE(first, second);
+  for (char c : first) {
+    const bool is_hex = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
+    EXPECT_TRUE(is_hex) << "stream id contains '" << c << "': " << first;
+  }
+}
+
+TEST_F(StreamableSessionManagerTest, ARepeatedDrawIsDrawnAgain) {
+  // Two streams under one id would cross-link what each of them is
+  // replayed from, and the client would read the answer as this server
+  // replying to a question it never asked. So the draw is checked.
+  std::vector<unsigned char> canned = {0xaa, 0xbb, 0xcc, 0xdd};
+  size_t draws = 0;
+  manager_->setEntropySource(
+      [&canned, &draws](unsigned char* out, size_t length) {
+        ++draws;
+        for (size_t i = 0; i < length; ++i) {
+          // The same four bytes twice over, then something else.
+          out[i] = draws <= 2 ? canned[i % canned.size()]
+                              : static_cast<unsigned char>(0x10 + draws);
+        }
+        return true;
+      });
+
+  const std::string first = manager_->reserveStreamId();
+  const std::string second = manager_->reserveStreamId();
+
+  ASSERT_FALSE(first.empty());
+  ASSERT_FALSE(second.empty());
+  EXPECT_NE(first, second) << "the repeated draw was handed out twice";
+  EXPECT_EQ(draws, 3u) << "the collision has to cost a redraw to be handled";
+}
+
+TEST_F(StreamableSessionManagerTest, AnIdIsHeldOnlyWhileItsStreamIs) {
+  // Every draw is the same, so the only id ever available is the one the
+  // first stream took: asking for a second says whether the first gave it
+  // back. A reservation outliving its stream leaks one id per stream.
+  manager_->setEntropySource([](unsigned char* out, size_t length) {
+    for (size_t i = 0; i < length; ++i) {
+      out[i] = 0x5a;
+    }
+    return true;
+  });
+
+  const std::string id = createSession();
+  std::string stream_id;
+
+  owner_->run([&]() {
+    SessionCtx* session = manager_->find(id);
+    ASSERT_NE(session, nullptr);
+    StreamCtx* stream = manager_->openStream(
+        *session, StreamCtx::Kind::Get, nullptr, nullptr, owner_->dispatcher());
+    ASSERT_NE(stream, nullptr);
+    stream_id = stream->id;
+    EXPECT_EQ(session->stream_index.count(stream_id), 1u);
+    EXPECT_TRUE(manager_->reserveStreamId().empty())
+        << "the id its stream is using was handed out again";
+
+    manager_->closeStream(*session, *stream);
+    EXPECT_TRUE(session->streams.empty());
+    EXPECT_TRUE(session->stream_index.empty());
+  });
+
+  EXPECT_EQ(manager_->reserveStreamId(), stream_id)
+      << "the id was never given up";
+}
+
 TEST_F(StreamableSessionManagerTest, AMintedSessionIsInTheDirectory) {
   const std::string first = createSession("alice");
   const std::string second = createSession("bob");
@@ -198,13 +272,13 @@ TEST_F(StreamableSessionManagerTest, TearingDownASessionReleasesItsStreams) {
     ASSERT_NE(session, nullptr);
 
     std::unique_ptr<StreamCtx> stream(new StreamCtx());
-    stream->id = "p4Kd";
-    session->event_index["p4Kd:1"] = stream.get();
+    stream->id = "p4Kd0000";
+    session->stream_index["p4Kd0000"] = stream.get();
     session->streams.push_back(std::move(stream));
 
     // The index observes the streams and owns nothing, so teardown has to
-    // purge it before the streams go — afterwards there is no way to tell
-    // which entries pointed where.
+    // purge it alongside them — in between there would be a pointer to
+    // freed memory, and a resuming client is exactly what follows one.
     EXPECT_TRUE(manager_->remove(id));
   });
 
