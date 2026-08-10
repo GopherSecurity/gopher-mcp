@@ -35,6 +35,7 @@
 
 #include "mcp/buffer.h"
 #include "mcp/builders.h"
+#include "mcp/client/transport_probe.h"
 #include "mcp/event/event_loop.h"
 #include "mcp/mcp_application_base.h"  // TODO: Migrate to mcp_application_base_refactored.h
 #include "mcp/mcp_connection_manager.h"
@@ -574,6 +575,9 @@ class McpClient : public application::ApplicationBase {
                              const std::string& last_event_id) override {
       client_.handleClientStreamEvent(event, request_id, last_event_id);
     }
+    void onMessageEndpoint(const std::string& endpoint) override {
+      client_.handleMessageEndpoint(endpoint);
+    }
 
    private:
     McpClient& client_;
@@ -597,6 +601,10 @@ class McpClient : public application::ApplicationBase {
   void handleClientStreamEvent(ClientStreamEvent event,
                                const optional<RequestId>& request_id,
                                const std::string& last_event_id);
+
+  // The older transport has said where to post, which is the only proof
+  // that it is what this server speaks. Dispatcher thread.
+  void handleMessageEndpoint(const std::string& endpoint);
 
  private:
   // Internal request handling
@@ -679,6 +687,30 @@ class McpClient : public application::ApplicationBase {
   // capabilities
   TransportType negotiateTransport(const std::string& uri);
   McpConnectionConfig createConnectionConfig(TransportType transport);
+
+  /**
+   * True when what the server speaks is to be found out by asking it
+   * rather than assumed. False for an explicitly chosen transport, for
+   * a scheme that is not HTTP, and where negotiation has been turned
+   * off — each of which is somebody having already decided.
+   */
+  bool detectsTransport(const std::string& uri) const;
+
+  // The ladder. Each rung reports to the next; whichever one settles
+  // brings up a transport or fails the connect, once. Dispatcher thread.
+  void runTransportLadder(const std::string& uri);
+  void runClassicRung(const std::string& uri);
+  void runLegacyRung(const std::string& uri);
+
+  // Bring up a transport that has been decided on.
+  void startTransport(TransportType transport);
+
+  // Give up, saying what was asked and what each answer was. One error,
+  // because three of them leave a caller to work out which mattered.
+  void failDetection(const std::string& reason);
+
+  // Settle the promise connect() is waiting on, if it is still waiting.
+  void settleConnect(const VoidResult& result);
 
   // Progress handling
   void handleProgressNotification(const ProgressNotification& notification);
@@ -768,6 +800,28 @@ class McpClient : public application::ApplicationBase {
   // still the stream, so losing it again is another failed attempt at
   // that answer and not merely a stream that closed.
   optional<RequestId> stream_recovering_;
+
+  // Working out what the server speaks.
+  //
+  // The oldest transport is not asked about, it is attempted: it has
+  // proved itself when the server says where to post, and until then a
+  // connection that is merely up proves nothing. So while this is set,
+  // a connection coming up is not success — which is the one thing
+  // about the connect that the ladder changes.
+  bool legacy_probing_{false};
+  event::TimerPtr legacy_probe_timer_;
+
+  // What the rungs before this one were told, kept so that giving up
+  // can say what was asked rather than only that it did not work.
+  std::string ladder_notes_;
+
+  TransportProbePtr modern_probe_;
+  std::unique_ptr<ClassicProbe> classic_probe_;
+
+  // What was settled on, so a reconnect carries on with the transport
+  // this server was found to speak rather than asking a question that
+  // has already been answered.
+  optional<TransportType> settled_transport_;
 
   // Backoff for asking for the stream back — exponential, capped, and
   // jittered so that every client of a server that has just come back

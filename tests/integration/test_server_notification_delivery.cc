@@ -168,6 +168,11 @@ class ServerNotificationDeliveryTest : public ::testing::Test {
     client_config.client_name = name;
     client_config.client_version = "0.0.1";
     client_config.num_workers = 1;
+    // This is about the older transport's push path, so it says which
+    // transport it means. Left to work it out, a client would find that
+    // this server answers an introduction here too and settle on the
+    // newer one, which has a push path of its own and is not this one.
+    client_config.preferred_transport = TransportType::HttpSse;
     // Tight timeouts: a broken leg of the chain should fail the test,
     // not hang it.
     client_config.request_timeout = 5000ms;

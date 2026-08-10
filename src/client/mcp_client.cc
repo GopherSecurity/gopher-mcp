@@ -212,46 +212,17 @@ VoidResult McpClient::connect(const std::string& uri) {
 
       // Store URI before creating config so it's available
       current_uri_ = uri;
+      ladder_notes_.clear();
 
-      // Negotiate transport based on URI scheme and configuration
-      TransportType transport = negotiateTransport(uri);
-
-      // Create connection configuration with URI information
-      McpConnectionConfig conn_config = createConnectionConfig(transport);
-
-      // Create connection manager in dispatcher context
-      // The manager handles all protocol communication for this transport
-      connection_manager_ = std::make_unique<McpConnectionManager>(
-          *main_dispatcher_, *socket_interface_, conn_config);
-
-      // Set message callback handler
-      connection_manager_->setProtocolCallbacks(*protocol_callbacks_);
-      connection_manager_->setStreamIdleTimeout(
-          config_.streamable_http.stream_idle_timeout);
-
-      // Initiate connection based on transport type
-      // All transports use the same connect() method
-      // The connection manager handles transport-specific details internally
-      VoidResult result = connection_manager_->connect();
-
-      // Check connection initiation result
-      if (is_error<std::nullptr_t>(result)) {
-        auto error = get_error<std::nullptr_t>(result);
-
-        // Fulfill the promise with error immediately
-        {
-          std::lock_guard<std::mutex> lock(connect_promise_mutex_);
-          if (pending_connect_promise_) {
-            pending_connect_promise_->set_value(makeVoidError(*error));
-            pending_connect_promise_.reset();
-          }
-        }
-
-        // Notify protocol state machine of failure
-        if (protocol_state_machine_) {
-          protocol_state_machine_->handleError(*error);
-        }
+      // Either somebody has already decided what this server speaks, or
+      // the server is about to be asked. Nothing in between, and no
+      // reading of the URL: a path is not evidence.
+      if (detectsTransport(uri)) {
+        runTransportLadder(uri);
+      } else {
+        startTransport(negotiateTransport(uri));
       }
+
       // On success, DON'T fulfill the promise here!
       // handleConnectionEvent will fulfill it when the connection is
       // established This ensures connect() waits for the actual TCP+SSL
@@ -378,8 +349,12 @@ VoidResult McpClient::reconnectInternal() {
   }
 
   try {
-    // Negotiate transport based on URI scheme
-    TransportType transport = negotiateTransport(current_uri_);
+    // Whatever was settled on the way in. Asking again would be asking
+    // a question that has been answered, and the answer to it is not
+    // something this URL can be read for.
+    TransportType transport = settled_transport_.has_value()
+                                  ? settled_transport_.value()
+                                  : negotiateTransport(current_uri_);
 
     // Create connection configuration
     McpConnectionConfig conn_config = createConnectionConfig(transport);
@@ -500,6 +475,9 @@ void McpClient::shutdown() {
   // get here, since it is the only one that fires without a request
   // behind it.
   server_stream_timer_.reset();
+  legacy_probe_timer_.reset();
+  classic_probe_.reset();
+  modern_probe_.reset();
 
   // Clean up dispatcher after thread has exited and its owners are gone.
   if (main_dispatcher_) {
@@ -1354,34 +1332,190 @@ TransportType McpClient::negotiateTransport(const std::string& uri) {
       return config_.preferred_transport;
     }
 
-    // For HTTP URLs, use heuristics to determine transport type:
-    // - If URL path contains "/sse" or "/events" -> use SSE transport
-    // - Otherwise -> use Streamable HTTP (simpler, more common)
-
-    // Extract path from URI
-    std::string path;
-    size_t scheme_end = uri.find("://");
-    if (scheme_end != std::string::npos) {
-      size_t path_start = uri.find('/', scheme_end + 3);
-      if (path_start != std::string::npos) {
-        path = uri.substr(path_start);
-      }
-    }
-
-    // Check for SSE-specific paths
-    // SSE transport is indicated by explicit /sse or /events endpoints
-    if (path.find("/sse") != std::string::npos ||
-        path.find("/events") != std::string::npos) {
-      return TransportType::HttpSse;
-    }
-
-    // Default to Streamable HTTP for most HTTP endpoints
-    // (e.g., /rpc, /mcp, /api, etc.)
+    // Nothing about a URL says what a server speaks. Where that has to
+    // be worked out, the ladder works it out by asking; this is only
+    // the rung it starts from, and what it falls back to if asking is
+    // somehow not possible.
     return TransportType::StreamableHttp;
   } else {
     // Default to Streamable HTTP for unknown schemes
     return TransportType::StreamableHttp;
   }
+}
+
+bool McpClient::detectsTransport(const std::string& uri) const {
+  // Only an HTTP URL has eras to tell apart.
+  if (uri.find("http://") != 0 && uri.find("https://") != 0) {
+    return false;
+  }
+  // Turned off, or already decided. Both are somebody saying they know,
+  // and asking anyway would be a request they did not ask for.
+  if (!config_.auto_negotiate_transport) {
+    return false;
+  }
+  return config_.preferred_transport != TransportType::StreamableHttp &&
+         config_.preferred_transport != TransportType::HttpSse;
+}
+
+void McpClient::settleConnect(const VoidResult& result) {
+  std::lock_guard<std::mutex> lock(connect_promise_mutex_);
+  if (pending_connect_promise_) {
+    pending_connect_promise_->set_value(result);
+    pending_connect_promise_.reset();
+  }
+}
+
+void McpClient::startTransport(TransportType transport) {
+  settled_transport_ = mcp::make_optional(transport);
+  McpConnectionConfig conn_config = createConnectionConfig(transport);
+  connection_manager_ = std::make_unique<McpConnectionManager>(
+      *main_dispatcher_, *socket_interface_, conn_config);
+  connection_manager_->setProtocolCallbacks(*protocol_callbacks_);
+  connection_manager_->setStreamIdleTimeout(
+      config_.streamable_http.stream_idle_timeout);
+
+  VoidResult result = connection_manager_->connect();
+  if (is_error<std::nullptr_t>(result)) {
+    auto error = get_error<std::nullptr_t>(result);
+    settleConnect(makeVoidError(*error));
+    if (protocol_state_machine_) {
+      protocol_state_machine_->handleError(*error);
+    }
+  }
+}
+
+void McpClient::failDetection(const std::string& reason) {
+  legacy_probing_ = false;
+  if (legacy_probe_timer_) {
+    legacy_probe_timer_->disableTimer();
+  }
+  if (connection_manager_) {
+    connection_manager_->close();
+  }
+
+  const std::string message =
+      ladder_notes_.empty() ? reason : reason + " (" + ladder_notes_ + ")";
+  GOPHER_LOG_ERROR("Could not work out what {} speaks: {}", current_uri_,
+                   message);
+
+  Error error(::mcp::jsonrpc::INTERNAL_ERROR, message);
+  settleConnect(makeVoidError(error));
+  if (protocol_state_machine_) {
+    protocol_state_machine_->handleError(error);
+  }
+}
+
+void McpClient::runTransportLadder(const std::string& uri) {
+  if (!modern_probe_) {
+    modern_probe_.reset(new NoModernProbe());
+  }
+
+  // The newest revision first, because it has no introduction to make:
+  // a server that speaks it, asked to introduce itself, refuses — and
+  // that refusal is indistinguishable from a server that does not serve
+  // this endpoint at all unless it was asked in the right order.
+  modern_probe_->probe(uri, [this, uri](const ProbeResult& result) {
+    if (result.verdict == ProbeResult::Verdict::Modern) {
+      failDetection(
+          "this server speaks the modern protocol, which this client cannot");
+      return;
+    }
+    runClassicRung(uri);
+  });
+}
+
+void McpClient::runClassicRung(const std::string& uri) {
+  classic_probe_.reset(new ClassicProbe(
+      *main_dispatcher_, *socket_interface_, config_.protocol_version,
+      config_.client_name, config_.client_version,
+      config_.streamable_http.fallback_probe_timeout));
+
+  classic_probe_->probe(uri, [this, uri](const ProbeResult& result) {
+    if (result.verdict == ProbeResult::Verdict::Unreachable) {
+      ladder_notes_ = "POST: " + result.error;
+      runLegacyRung(uri);
+      return;
+    }
+
+    if (isInitializeAnswer(result.status_code, result.content_type,
+                           result.body)) {
+      GOPHER_LOG_INFO("{} speaks Streamable HTTP", uri);
+      // The introduction was a real one, so the session it was given is
+      // the session to carry on under. Kept rather than let go, or
+      // every connect would leave one behind.
+      if (!result.session_id.empty()) {
+        if (!streamable_session_) {
+          streamable_session_ =
+              std::make_shared<transport::StreamableHttpClientSession>();
+        }
+        streamable_session_->setId(result.session_id);
+      }
+      startTransport(TransportType::StreamableHttp);
+      return;
+    }
+
+    if (isModernRefusal(result.status_code, result.body)) {
+      // Stop here rather than fall through. A modern server refusing an
+      // introduction is not a server that speaks something older, and
+      // trying something older would fail for a reason that says
+      // nothing about why.
+      failDetection(
+          "this server speaks the modern protocol, which this client cannot");
+      return;
+    }
+
+    ladder_notes_ = "POST: HTTP " + std::to_string(result.status_code) +
+                    (result.status_code >= 200 && result.status_code < 300
+                         ? " with no introduction in it"
+                         : "");
+    runLegacyRung(uri);
+  });
+}
+
+void McpClient::runLegacyRung(const std::string& uri) {
+  GOPHER_LOG_DEBUG("Trying the older transport at {}", uri);
+
+  // Not asked about but attempted: the older transport has proved
+  // itself when the server says where to post, and a connection that is
+  // merely up proves nothing. So the connect comes up and the answer is
+  // withheld until one of those two things happens.
+  legacy_probing_ = true;
+
+  if (!legacy_probe_timer_) {
+    legacy_probe_timer_ = main_dispatcher_->createTimer([this]() {
+      if (!legacy_probing_) {
+        return;
+      }
+      ladder_notes_ +=
+          "; GET: no endpoint within " +
+          std::to_string(
+              config_.streamable_http.fallback_probe_timeout.count()) +
+          "ms";
+      failDetection(
+          "nothing at this address speaks a protocol this client "
+          "knows");
+    });
+  }
+  legacy_probe_timer_->enableTimer(
+      config_.streamable_http.fallback_probe_timeout);
+
+  startTransport(TransportType::HttpSse);
+}
+
+void McpClient::handleMessageEndpoint(const std::string& endpoint) {
+  if (!legacy_probing_) {
+    return;
+  }
+  // The one thing that could prove it. Everything the connection has
+  // already done — accepting, opening a stream — a server of any era
+  // would have done too.
+  GOPHER_LOG_INFO("{} speaks the older HTTP+SSE transport", current_uri_);
+  legacy_probing_ = false;
+  if (legacy_probe_timer_) {
+    legacy_probe_timer_->disableTimer();
+  }
+  (void)endpoint;
+  settleConnect(VoidResult(nullptr));
 }
 
 // Create connection configuration
@@ -1449,6 +1583,14 @@ McpConnectionConfig McpClient::createConnectionConfig(TransportType transport) {
       }
 
       config.http_sse_config = mcp::make_optional(http_config);
+      // A connection that is still proving this is what the server
+      // speaks gets the probe's window rather than the patient one: the
+      // wait is the question, and 30 seconds is longer than anyone
+      // waiting on connect() is prepared to give it.
+      if (legacy_probing_) {
+        config.sse_negotiation_timeout =
+            config_.streamable_http.fallback_probe_timeout;
+      }
       break;
     }
 
@@ -2355,7 +2497,13 @@ void McpClient::handleConnectionEvent(network::ConnectionEvent event) {
       client_stats_.connections_active++;
 
       // Fulfill the pending connect promise - connection established!
-      {
+      //
+      // Unless the older transport is still proving that it is what
+      // this server speaks. A connection being up is not that proof —
+      // a server of any era would have accepted it — so the answer
+      // waits for the server to say where to post, or for the window
+      // in which it could have to close.
+      if (!legacy_probing_) {
         std::lock_guard<std::mutex> lock(connect_promise_mutex_);
         if (pending_connect_promise_) {
           GOPHER_LOG_DEBUG("Fulfilling connect promise with success");

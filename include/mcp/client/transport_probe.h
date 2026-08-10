@@ -75,6 +75,23 @@ constexpr const char* kUnsupportedProtocolVersion =
 bool isModernRefusal(int status_code, const std::string& body);
 
 /**
+ * True when this answer is a server introducing itself back.
+ *
+ * A status is not enough. The older transport answers a POST with 202
+ * and nothing else — it has taken the message, and the answer will
+ * arrive on the stream it expects the client to be holding. Reading
+ * that as an introduction would have a client settle on the wrong
+ * transport against a server that was telling it so.
+ *
+ * So an introduction has been answered when the answer carries a
+ * JSON-RPC result, or when it is a stream, which is where the result
+ * will be.
+ */
+bool isInitializeAnswer(int status_code,
+                        const std::string& content_type,
+                        const std::string& body);
+
+/**
  * What a probe found.
  *
  * NotModern carries what the server said, so the rung after this one
@@ -101,6 +118,11 @@ struct ProbeResult {
   int status_code{0};
   std::string body;
 
+  // Set for NotModern: what kind of answer it was, since a status
+  // alone cannot tell an introduction that was answered from one that
+  // was merely accepted.
+  std::string content_type;
+
   // Set for NotModern where the server named a session — the classic
   // rung's introduction is a real one, and the session it is given is
   // the session the connection that follows should use.
@@ -116,12 +138,14 @@ struct ProbeResult {
   }
   static ProbeResult notModern(int status_code,
                                std::string body,
-                               std::string session_id = std::string()) {
+                               std::string session_id = std::string(),
+                               std::string content_type = std::string()) {
     ProbeResult result;
     result.verdict = Verdict::NotModern;
     result.status_code = status_code;
     result.body = std::move(body);
     result.session_id = std::move(session_id);
+    result.content_type = std::move(content_type);
     return result;
   }
   static ProbeResult unreachable(std::string error) {

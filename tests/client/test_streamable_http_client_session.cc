@@ -58,6 +58,10 @@ class StreamableHttpClientSessionTest : public ::testing::Test {
     config.client_name = "session-test-client";
     config.client_version = "0.0.1";
     config.num_workers = 1;
+    // These are about a client that has already chosen this transport,
+    // not about how a client works out which one to choose. Saying so
+    // keeps the search for that out of what they count.
+    config.preferred_transport = TransportType::StreamableHttp;
     config.request_timeout = 5000ms;
     config.protocol_initialization_timeout = 5000ms;
     config.protocol_connection_timeout = 5000ms;

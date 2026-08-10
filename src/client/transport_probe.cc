@@ -88,6 +88,31 @@ bool isModernRefusal(int status_code, const std::string& body) {
   return namesUnsupportedVersion(error);
 }
 
+bool isInitializeAnswer(int status_code,
+                        const std::string& content_type,
+                        const std::string& body) {
+  if (status_code < 200 || status_code >= 300) {
+    return false;
+  }
+  // A stream is where the answer will be, and asking for the body to
+  // prove it would mean reading the stream to find out whether to open
+  // one.
+  if (content_type.find("text/event-stream") != std::string::npos) {
+    return true;
+  }
+
+  json::JsonValue parsed;
+  try {
+    parsed = json::JsonValue::parse(body);
+  } catch (const std::exception&) {
+    return false;
+  }
+  // A result, not merely something well-formed: 202 with an empty body
+  // is the older transport accepting a message rather than answering
+  // it.
+  return parsed.isObject() && parsed.contains("result");
+}
+
 void NoModernProbe::probe(const std::string& url, ProbeCallback done) {
   (void)url;
   GOPHER_LOG_DEBUG("Modern probe not built; treating the server as not modern");
@@ -155,9 +180,17 @@ void ClassicProbe::probe(const std::string& url, ProbeCallback done) {
         if (it != response.headers.end()) {
           session_id = it->second;
         }
-        settle(ProbeResult::notModern(response.status_code,
-                                      std::move(response.body),
-                                      std::move(session_id)));
+        std::string content_type;
+        auto type_it = response.headers.find("content-type");
+        if (type_it == response.headers.end()) {
+          type_it = response.headers.find("Content-Type");
+        }
+        if (type_it != response.headers.end()) {
+          content_type = type_it->second;
+        }
+        settle(ProbeResult::notModern(
+            response.status_code, std::move(response.body),
+            std::move(session_id), std::move(content_type)));
       },
       [this](const std::string& error) {
         settle(ProbeResult::unreachable(error));

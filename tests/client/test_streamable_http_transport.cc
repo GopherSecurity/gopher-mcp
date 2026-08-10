@@ -182,14 +182,28 @@ TEST_F(RealTransportNegotiationTest,
             client->negotiateTransport("https://example.com/events"));
 }
 
-TEST_F(RealTransportNegotiationTest,
-       NonHttpPreferredTransportDoesNotOverrideAutoHttpHeuristic) {
+// What a server speaks is no longer read off its URL. A path that used
+// to be taken as evidence of the older transport is now evidence of
+// nothing, and the question is settled by asking the server instead.
+TEST_F(RealTransportNegotiationTest, AnHttpUrlIsAskedAboutRatherThanRead) {
   auto client = makeClient(TransportType::Stdio);
 
-  EXPECT_EQ(TransportType::StreamableHttp,
-            client->negotiateTransport("http://localhost:8080/rpc"));
-  EXPECT_EQ(TransportType::HttpSse,
-            client->negotiateTransport("https://example.com/events"));
+  EXPECT_TRUE(client->detectsTransport("http://localhost:8080/rpc"));
+  EXPECT_TRUE(client->detectsTransport("https://example.com/events"));
+  EXPECT_TRUE(client->detectsTransport("https://example.com/sse"));
+}
+
+// Somebody who has said which transport to use is not asked about it,
+// and neither is a scheme that has no eras to tell apart.
+TEST_F(RealTransportNegotiationTest, AnAnsweredQuestionIsNotAsked) {
+  EXPECT_FALSE(makeClient(TransportType::StreamableHttp)
+                   ->detectsTransport("http://localhost:8080/rpc"));
+  EXPECT_FALSE(makeClient(TransportType::HttpSse)
+                   ->detectsTransport("http://localhost:8080/sse"));
+  EXPECT_FALSE(makeClient(TransportType::Stdio, /*auto_negotiate=*/false)
+                   ->detectsTransport("http://localhost:8080/rpc"));
+  EXPECT_FALSE(
+      makeClient(TransportType::Stdio)->detectsTransport("stdio://local"));
 }
 
 TEST_F(RealTransportNegotiationTest,
