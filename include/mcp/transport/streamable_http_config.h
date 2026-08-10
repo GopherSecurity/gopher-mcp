@@ -120,6 +120,28 @@ struct StreamableHttpClientConfig {
   std::vector<std::string> protocol_versions = {
       protocol::kProtocolVersion20251125, protocol::kProtocolVersion20250618,
       protocol::kProtocolVersion20250326};
+
+  // Hold a standalone stream for the server to reach this client on.
+  // False leaves the conversation request-and-answer only; nothing the
+  // server says unprompted can arrive.
+  bool open_server_stream = true;
+
+  // Window between losing a stream and asking for it back, doubling
+  // each time up to the second, so a server that has just come back is
+  // not met by every client it ever had at once.
+  std::chrono::milliseconds stream_reconnect_min{250};
+  std::chrono::milliseconds stream_reconnect_max{30000};
+
+  // How many times an answer cut off mid-stream is asked for again
+  // before the request it belongs to is failed. A server that cannot
+  // finish an answer must not be able to keep one request alive forever.
+  size_t resume_attempts = 2;
+
+  // How long a stream may say nothing at all before it is treated as
+  // gone. Keep-alive comments count as something. Zero disables it,
+  // which is the default because a silent stream is not by itself a
+  // broken one.
+  std::chrono::milliseconds stream_idle_timeout{0};
 };
 
 }  // namespace transport

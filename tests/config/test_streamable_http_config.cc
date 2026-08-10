@@ -61,6 +61,18 @@ TEST_F(StreamableHttpConfigTest, ClientDefaults) {
   EXPECT_EQ(config.protocol_versions[0], "2025-11-25");
   EXPECT_EQ(config.protocol_versions[1], "2025-06-18");
   EXPECT_EQ(config.protocol_versions[2], "2025-03-26");
+
+  // A client holds a stream by default: without one, nothing the server
+  // says unprompted can reach it.
+  EXPECT_TRUE(config.open_server_stream);
+  EXPECT_EQ(config.stream_reconnect_min, std::chrono::milliseconds(250));
+  EXPECT_EQ(config.stream_reconnect_max, std::chrono::milliseconds(30000));
+  EXPECT_LT(config.stream_reconnect_min, config.stream_reconnect_max)
+      << "a window that cannot grow is not a backoff";
+  EXPECT_EQ(config.resume_attempts, 2u);
+  // Silence is not by itself a broken stream, so nothing watches for it
+  // until a deployment says how much is too much.
+  EXPECT_EQ(config.stream_idle_timeout, std::chrono::milliseconds(0));
 }
 
 TEST_F(StreamableHttpConfigTest, ServerAndClientConfigsCarryStreamableHttp) {
