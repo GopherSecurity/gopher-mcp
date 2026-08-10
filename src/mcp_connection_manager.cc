@@ -592,6 +592,9 @@ bool McpConnectionManager::openServerStream(const std::string& last_event_id) {
   }
   stream_activity_ = std::make_shared<std::atomic<uint64_t>>(0);
   stream_activity_seen_ = 0;
+  // Remembered so that a stream which opens here and says nothing can
+  // still report where it had got to when it goes.
+  stream_cursor_ = last_event_id;
   http_factory->setClientRole(filter::ClientConnectionRole::ServerStream);
   http_factory->setStreamActivityCounter(stream_activity_);
 
@@ -656,6 +659,11 @@ bool McpConnectionManager::openServerStream(const std::string& last_event_id) {
 
   network::ClientConnection* client_conn = connection.get();
   server_stream_connection_ = std::move(connection);
+  // The one it replaces is kept a moment longer rather than destroyed
+  // here: this can be reached from inside the old connection's own
+  // callback dispatch, and the thing being destroyed would be what is
+  // running.
+  retired_opener_ = std::move(stream_opener_);
   stream_opener_.reset(
       new StreamOpener(*this, *client_conn, std::move(headers)));
   server_stream_connection_->addConnectionCallbacks(*stream_opener_);
@@ -675,13 +683,19 @@ void McpConnectionManager::closeServerStream() {
   if (!server_stream_connection_) {
     return;
   }
+  // Taken out of our hands before it is closed, because what tells a
+  // close we asked for from one we did not is whether this is still the
+  // stream by the time the event arrives. Without that, giving up a
+  // stream in order to open a better one reads as the stream being lost,
+  // and asks for it back — forever.
+  auto going = std::move(server_stream_connection_);
+  server_stream_connection_.reset();
+  stream_activity_.reset();
+
   // Nothing is waiting on the way out: the stream is being given up, and
   // a flush would only delay that.
-  server_stream_connection_->close(network::ConnectionCloseType::NoFlush);
-  dispatcher_.deferredDelete(std::move(server_stream_connection_));
-  server_stream_connection_.reset();
-  stream_opener_.reset();
-  stream_activity_.reset();
+  going->close(network::ConnectionCloseType::NoFlush);
+  dispatcher_.deferredDelete(std::move(going));
 }
 
 void McpConnectionManager::armStreamIdleWatchdog() {
@@ -939,11 +953,26 @@ void McpConnectionManager::onClientStreamEvent(
     ClientStreamEvent event,
     const optional<RequestId>& request_id,
     const std::string& last_event_id) {
+  // A stream this layer let go of is not news. Only a stream that is
+  // still ours when it reports its own closing was lost rather than
+  // given up.
+  if (event == ClientStreamEvent::Closed && !server_stream_connection_) {
+    return;
+  }
+
+  // A stream that was opened at a cursor and said nothing has still got
+  // to that cursor. Reporting nowhere would have the next attempt ask
+  // for the whole stream again, and be given events it already had.
+  std::string reached = last_event_id;
+  if (event == ClientStreamEvent::Closed && reached.empty()) {
+    reached = stream_cursor_;
+  }
+
   // A stream that closed is not this layer's to reopen: whether it is
   // worth asking for again, and how long to wait first, are decisions
   // about the conversation rather than about the socket.
   if (protocol_callbacks_) {
-    protocol_callbacks_->onClientStreamEvent(event, request_id, last_event_id);
+    protocol_callbacks_->onClientStreamEvent(event, request_id, reached);
   }
 }
 

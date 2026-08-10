@@ -473,6 +473,10 @@ class McpConnectionManager : public McpProtocolCallbacks,
   // whatever it is held on.
   std::unique_ptr<network::ClientConnection> server_stream_connection_;
   std::unique_ptr<network::ConnectionCallbacks> stream_opener_;
+  std::unique_ptr<network::ConnectionCallbacks> retired_opener_;
+  // What the stream was asked to carry on from, which is where it still
+  // is if it never said otherwise.
+  std::string stream_cursor_;
 
   // Bumped by the stream's filter on every read, sampled by the watchdog
   // below. Shared because the filter outlives nothing and this outlives

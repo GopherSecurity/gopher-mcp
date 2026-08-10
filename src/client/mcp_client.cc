@@ -892,6 +892,18 @@ void McpClient::handleClientStreamEvent(ClientStreamEvent event,
       return;
 
     case ClientStreamEvent::Closed:
+      // A stream that was carrying an interrupted answer is still
+      // carrying it, so losing it again is another failed attempt at
+      // that answer rather than merely a stream that closed.
+      if (stream_recovering_.has_value()) {
+        auto context = request_tracker_->getRequest(stream_recovering_.value());
+        if (context) {
+          resumeAnswer(context, last_event_id);
+          return;
+        }
+        stream_recovering_.reset();
+      }
+
       // Ask for it back, from where it got to. What was missed is
       // replayed; what was not is not sent twice.
       if (config_.streamable_http.open_server_stream) {
@@ -907,32 +919,41 @@ void McpClient::handleClientStreamEvent(ClientStreamEvent event,
       if (request_id.has_value()) {
         context = request_tracker_->getRequest(request_id.value());
       }
-      if (!context) {
-        return;
+      if (context) {
+        resumeAnswer(context, last_event_id);
       }
-
-      if (context->resume_attempts >= config_.streamable_http.resume_attempts) {
-        GOPHER_LOG_WARN("Giving up on the answer to {} after {} attempts",
-                        context->method, context->resume_attempts);
-        completeRequestWithError(
-            context,
-            Error(::mcp::jsonrpc::INTERNAL_ERROR,
-                  "The answer to this request was cut off and could not be "
-                  "picked up again"));
-        return;
-      }
-
-      ++context->resume_attempts;
-      GOPHER_LOG_DEBUG(
-          "Picking up the answer to {} from {}", context->method,
-          last_event_id.empty() ? "<the beginning>" : last_event_id.c_str());
-      // Straight away rather than after a wait: this is not a server
-      // that went away, it is one still working on an answer we are
-      // holding a caller for.
-      openServerStream(last_event_id);
       return;
     }
   }
+}
+
+void McpClient::resumeAnswer(const std::shared_ptr<RequestContext>& context,
+                             const std::string& last_event_id) {
+  if (context->resume_attempts >= config_.streamable_http.resume_attempts) {
+    GOPHER_LOG_WARN("Giving up on the answer to {} after {} attempts",
+                    context->method, context->resume_attempts);
+    stream_recovering_.reset();
+    completeRequestWithError(
+        context, Error(::mcp::jsonrpc::INTERNAL_ERROR,
+                       "The answer to this request was cut off and could not "
+                       "be picked up again"));
+    // The stream is still worth having for its own sake, even though
+    // this answer is not coming back on it.
+    if (config_.streamable_http.open_server_stream) {
+      scheduleServerStreamReopen(std::string());
+    }
+    return;
+  }
+
+  ++context->resume_attempts;
+  stream_recovering_ = mcp::make_optional(context->id);
+  GOPHER_LOG_DEBUG(
+      "Picking up the answer to {} from {}", context->method,
+      last_event_id.empty() ? "<the beginning>" : last_event_id.c_str());
+  // Straight away rather than after a wait: this is not a server that
+  // went away, it is one still working on an answer a caller is being
+  // held for.
+  openServerStream(last_event_id);
 }
 
 void McpClient::handleTransportStatus(int status_code,
@@ -1209,6 +1230,15 @@ void McpClient::handleResponse(const Response& response) {
     return;
   }
   request->completed = true;
+
+  // If the stream was carrying this answer, it has carried it, and is a
+  // plain stream again.
+  if (stream_recovering_.has_value() &&
+      holds_alternative<int64_t>(stream_recovering_.value()) &&
+      holds_alternative<int64_t>(response.id) &&
+      get<int64_t>(stream_recovering_.value()) == get<int64_t>(response.id)) {
+    stream_recovering_.reset();
+  }
   request->promise.set_value(response);
   request_tracker_->removeRequest(response.id);
 

@@ -643,6 +643,12 @@ class McpClient : public application::ApplicationBase {
   void openServerStream(const std::string& last_event_id);
   void scheduleServerStreamReopen(const std::string& last_event_id);
 
+  // Ask for the rest of an answer that was cut off, on a stream carrying
+  // the cursor it stopped at — or answer the request, once it has been
+  // asked for as many times as it is going to be.
+  void resumeAnswer(const std::shared_ptr<RequestContext>& context,
+                    const std::string& last_event_id);
+
   // Internal reconnection logic (must be called on dispatcher thread)
   VoidResult reconnectInternal();
   void clearConnectionCallbacksForShutdown();
@@ -756,6 +762,12 @@ class McpClient : public application::ApplicationBase {
   event::TimerPtr server_stream_timer_;
   // Where the stream that is being waited for should carry on from.
   std::string pending_stream_cursor_;
+
+  // The request whose answer the stream is currently carrying, if it is
+  // carrying one. A stream opened to pick up an interrupted answer is
+  // still the stream, so losing it again is another failed attempt at
+  // that answer and not merely a stream that closed.
+  optional<RequestId> stream_recovering_;
 
   // Backoff for asking for the stream back — exponential, capped, and
   // jittered so that every client of a server that has just come back
