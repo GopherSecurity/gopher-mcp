@@ -113,6 +113,13 @@ add_executable(test_streamable_http_transport client/test_streamable_http_transp
 add_executable(test_streamable_http_client_session client/test_streamable_http_client_session.cc)
 add_executable(test_streamable_http_client_streams client/test_streamable_http_client_streams.cc)
 add_executable(test_transport_probe client/test_transport_probe.cc)
+
+# Interop: driven against a server built on the official SDK. Kept out of
+# `make test` because it needs Node and a package install; `make
+# test-interop` runs it, and it skips rather than fails where those are
+# absent, so that not having Node is not the same as being broken.
+add_executable(test_client_vs_official_server EXCLUDE_FROM_ALL
+    interop/test_client_vs_official_server.cc)
 add_executable(test_builders core/test_builders.cc)
 
 # MCP Client threading tests 
@@ -864,6 +871,16 @@ target_link_libraries(test_transport_probe
     gtest_main
     Threads::Threads
 )
+
+target_link_libraries(test_client_vs_official_server
+    gopher-mcp
+    gopher-mcp-event
+    gtest
+    gtest_main
+    Threads::Threads
+)
+target_compile_definitions(test_client_vs_official_server PRIVATE
+    GOPHER_INTEROP_SERVER_DIR="${CMAKE_CURRENT_SOURCE_DIR}/interop/reference-server-ts")
 
 target_link_libraries(test_builders
     gopher-mcp

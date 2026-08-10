@@ -1251,12 +1251,43 @@ void McpClient::handleResponse(const Response& response) {
 
 // Handle incoming request (server calling client)
 void McpClient::handleRequest(const Request& request) {
-  // Clients typically don't handle requests from server
-  // But we may need to respond to certain protocol requests
-  Response response = Response::make_error(
-      request.id, Error(::mcp::jsonrpc::METHOD_NOT_FOUND,
-                        "Client does not handle requests"));
-  connection_manager_->sendResponse(response);
+  std::function<jsonrpc::ResponseResult(const jsonrpc::Request&)> handler;
+  {
+    std::lock_guard<std::mutex> lock(request_handlers_mutex_);
+    auto it = request_handlers_.find(request.method);
+    if (it != request_handlers_.end()) {
+      handler = it->second;
+    }
+  }
+
+  if (!handler) {
+    // Refused, but answered: a server that asked is waiting, and an
+    // unanswered question is worse for it than a refused one.
+    connection_manager_->sendResponse(Response::make_error(
+        request.id, Error(::mcp::jsonrpc::METHOD_NOT_FOUND,
+                          "This client does not answer " + request.method)));
+    return;
+  }
+
+  try {
+    Response response;
+    response.jsonrpc = "2.0";
+    response.id = request.id;
+    response.result = mcp::make_optional(handler(request));
+    connection_manager_->sendResponse(response);
+  } catch (const std::exception& e) {
+    // Whatever went wrong in the handler is the answer, because the
+    // server is waiting for one either way.
+    connection_manager_->sendResponse(Response::make_error(
+        request.id, Error(::mcp::jsonrpc::INTERNAL_ERROR, e.what())));
+  }
+}
+
+void McpClient::registerRequestHandler(
+    const std::string& method,
+    std::function<jsonrpc::ResponseResult(const jsonrpc::Request&)> handler) {
+  std::lock_guard<std::mutex> lock(request_handlers_mutex_);
+  request_handlers_[method] = std::move(handler);
 }
 
 // Register an application-level notification handler for a given method.
@@ -1440,16 +1471,20 @@ void McpClient::runClassicRung(const std::string& uri) {
     if (isInitializeAnswer(result.status_code, result.content_type,
                            result.body)) {
       GOPHER_LOG_INFO("{} speaks Streamable HTTP", uri);
-      // The introduction was a real one, so the session it was given is
-      // the session to carry on under. Kept rather than let go, or
-      // every connect would leave one behind.
-      if (!result.session_id.empty()) {
-        if (!streamable_session_) {
-          streamable_session_ =
-              std::make_shared<transport::StreamableHttpClientSession>();
-        }
-        streamable_session_->setId(result.session_id);
-      }
+      // The session the introduction was given is deliberately let go
+      // of rather than carried onto the connection that follows.
+      //
+      // Carrying it looked like the tidier choice — one session instead
+      // of two — until a reference server refused the connection's own
+      // introduction with "Server already initialized". A session that
+      // has been introduced to will not be introduced to again, and the
+      // connection has to introduce itself, so the session it does that
+      // under has to be a new one. The probe's expires on its own timer.
+      GOPHER_LOG_DEBUG("{} speaks Streamable HTTP{}", uri,
+                       result.session_id.empty()
+                           ? ""
+                           : "; the session it offered the probe is left "
+                             "to expire");
       startTransport(TransportType::StreamableHttp);
       return;
     }

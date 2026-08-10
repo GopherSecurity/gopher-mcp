@@ -530,6 +530,22 @@ class McpClient : public application::ApplicationBase {
       const std::string& method,
       std::function<void(const jsonrpc::Notification&)> handler);
 
+  /**
+   * Answer a request the server makes of this client.
+   *
+   * A server may ask its client something mid-request — to sample, to
+   * choose — and wait for the answer before it can finish. Without a
+   * handler every such question is refused, which is an answer but not
+   * a useful one. The handler returns the result; throwing turns into
+   * an error response rather than into an unanswered question, because
+   * a server waiting on this has nothing else to wait for.
+   *
+   * Safe to call from any thread; the handler runs on the dispatcher.
+   */
+  void registerRequestHandler(
+      const std::string& method,
+      std::function<jsonrpc::ResponseResult(const jsonrpc::Request&)> handler);
+
   // Progress tracking - register callback for progress updates
   void trackProgress(const ProgressToken& token,
                      std::function<void(double)> callback);
@@ -759,6 +775,12 @@ class McpClient : public application::ApplicationBase {
   std::map<std::string, std::function<void(const jsonrpc::Notification&)>>
       notification_handlers_;
   std::mutex notification_handlers_mutex_;
+
+  // Questions this client can answer when a server asks them.
+  std::map<std::string,
+           std::function<jsonrpc::ResponseResult(const jsonrpc::Request&)>>
+      request_handlers_;
+  std::mutex request_handlers_mutex_;
 
   // Protocol state
   bool initialized_{false};

@@ -1,6 +1,6 @@
 # Makefile for MCP C++ SDK
 
-.PHONY: all build test test-verbose test-parallel test-list check check-verbose check-parallel clean release debug help format format-ts format-python format-rust format-ruby format-cs format-go format-java check-format install uninstall csharp csharp-release csharp-test csharp-clean csharp-format
+.PHONY: all build test test-interop test-verbose test-parallel test-list check check-verbose check-parallel clean release debug help format format-ts format-python format-rust format-ruby format-cs format-go format-java check-format install uninstall csharp csharp-release csharp-test csharp-clean csharp-format
 
 # Configuration detection
 OS := $(shell uname -s 2>/dev/null || echo Windows_NT)
@@ -68,6 +68,17 @@ build-cpp-only:
 test:
 	@echo "Running all tests..."
 	@cd build && ctest --output-on-failure
+
+# Run the interop suite: this project's client against a server built on
+# the official SDK. Kept out of `test` because it needs Node and a
+# package install, and skips rather than fails when they are absent.
+test-interop:
+	@echo "Installing the reference server..."
+	@cd tests/interop/reference-server-ts && npm ci --no-audit --no-fund
+	@echo "Building the interop suite..."
+	@cmake --build build --target test_client_vs_official_server
+	@echo "Running interop against the official SDK's server..."
+	@./build/tests/test_client_vs_official_server
 
 # Run tests with verbose output
 test-verbose:
