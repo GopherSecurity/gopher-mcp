@@ -109,6 +109,144 @@ McpConnectionManager::McpConnectionManager(
 
 McpConnectionManager::~McpConnectionManager() { close(); }
 
+network::Address::InstanceConstSharedPtr
+McpConnectionManager::resolveServerAddress(std::string& error) const {
+  if (!config_.http_sse_config.has_value()) {
+    error = "HTTP config not set for an HTTP transport";
+    return nullptr;
+  }
+
+  const std::string server_address =
+      config_.http_sse_config.value().server_address;
+
+  // Without a port the scheme decides, which here is whether the
+  // transport underneath is doing TLS.
+  const bool is_https =
+      config_.http_sse_config.value().underlying_transport ==
+      transport::HttpSseTransportSocketConfig::UnderlyingTransport::SSL;
+  const uint32_t default_port = is_https ? 443 : 80;
+
+  std::string host = server_address;
+  uint32_t port = default_port;
+
+  // rfind, so that only a trailing :digits counts as a port and a host
+  // that happens to contain a colon is left alone.
+  const size_t colon_pos = server_address.rfind(':');
+  if (colon_pos != std::string::npos) {
+    const std::string port_str = server_address.substr(colon_pos + 1);
+    const bool valid_port =
+        !port_str.empty() &&
+        port_str.find_first_not_of("0123456789") == std::string::npos;
+    if (valid_port) {
+      try {
+        port = static_cast<uint32_t>(std::stoi(port_str));
+        host = server_address.substr(0, colon_pos);
+      } catch (const std::exception&) {
+        host = server_address;
+        port = default_port;
+      }
+    }
+  }
+
+  if (host == "localhost") {
+    host = "127.0.0.1";
+  }
+
+  // A literal address needs no resolving; a name does.
+  auto address = network::Address::parseInternetAddress(host, port);
+  if (!address) {
+    const std::string resolved_ip = resolveHostname(host);
+    if (!resolved_ip.empty()) {
+      address = network::Address::parseInternetAddress(resolved_ip, port);
+    }
+  }
+
+  if (!address) {
+    error = "Failed to resolve server address: " + host + ":" +
+            std::to_string(port) + " (DNS resolution failed)";
+    return nullptr;
+  }
+  return address;
+}
+
+std::unique_ptr<network::ClientConnection>
+McpConnectionManager::createHttpClientConnection(
+    const std::shared_ptr<network::FilterChainFactory>& filter_factory,
+    std::string& error) {
+  auto tcp_address = resolveServerAddress(error);
+  if (!tcp_address) {
+    return nullptr;
+  }
+
+  // Bind nothing in particular: an ephemeral local port on any interface.
+  auto local_address =
+      network::Address::anyAddress(network::Address::IpVersion::v4, 0);
+
+  auto socket_result = socket_interface_.socket(
+      network::SocketType::Stream, network::Address::Type::Ip,
+      network::Address::IpVersion::v4, false);
+  if (!socket_result.ok()) {
+    error = "Failed to create TCP socket: " +
+            (socket_result.error_info ? socket_result.error_info->message
+                                      : std::string("Unknown error"));
+    return nullptr;
+  }
+
+  auto io_handle = socket_interface_.ioHandleForFd(*socket_result.value, false);
+  if (!io_handle) {
+    socket_interface_.close(*socket_result.value);
+    error = "Failed to create IO handle for socket";
+    return nullptr;
+  }
+
+  auto socket_wrapper = std::make_unique<network::ConnectionSocketImpl>(
+      std::move(io_handle), local_address, tcp_address);
+
+  // Non-blocking for async I/O, and Nagle off so a small request goes out
+  // when it is written rather than when the kernel feels like it.
+  socket_wrapper->ioHandle().setBlocking(false);
+  int nodelay = 1;
+  socket_wrapper->setSocketOption(IPPROTO_TCP, TCP_NODELAY, &nodelay,
+                                  sizeof(nodelay));
+
+  auto transport_factory = createTransportSocketFactory();
+  if (!transport_factory) {
+    error = "Failed to create transport factory";
+    return nullptr;
+  }
+
+  auto client_factory = dynamic_cast<network::ClientTransportSocketFactory*>(
+      transport_factory.get());
+  if (!client_factory) {
+    error = "Transport factory does not support client connections";
+    return nullptr;
+  }
+
+  network::TransportSocketPtr transport_socket =
+      client_factory->createTransportSocket(nullptr);
+  if (!transport_socket) {
+    error = "Failed to create transport socket";
+    return nullptr;
+  }
+
+  // Not yet connected — the caller attaches its callbacks and then
+  // connects, so the first event has somewhere to go.
+  auto connection = std::unique_ptr<network::ClientConnection>(
+      new network::ConnectionImpl(dispatcher_, std::move(socket_wrapper),
+                                  std::move(transport_socket), false));
+
+  if (filter_factory) {
+    auto* conn_base =
+        dynamic_cast<network::ConnectionImplBase*>(connection.get());
+    if (conn_base) {
+      filter_factory->createFilterChain(conn_base->filterManager());
+      conn_base->filterManager().initializeReadFilters();
+    }
+  }
+
+  return connection;
+}
+
 VoidResult McpConnectionManager::connect() {
   if (connected_) {
     Error err;
@@ -242,377 +380,36 @@ VoidResult McpConnectionManager::connect() {
     // Notify callbacks
     onConnectionEvent(network::ConnectionEvent::Connected);
 
-  } else if (config_.transport_type == TransportType::HttpSse) {
-    // HTTP/SSE client connection flow:
-    // 1. Parse URL to extract host and port
-    // 2. Create TCP socket using MCP networking layer
-    // 3. Create HTTP/SSE transport socket wrapper
-    // 4. Create ConnectionImpl with TCP socket and transport
-    // 5. Connect asynchronously in dispatcher thread
+  } else if (config_.transport_type == TransportType::HttpSse ||
+             config_.transport_type == TransportType::StreamableHttp) {
+    // HTTP client connection flow, the same for both HTTP transports:
+    // 1. Resolve the server address
+    // 2. Create a TCP socket and wrap it in a transport socket
+    // 3. Apply the filter chain, which is where the two differ
+    // 4. Connect asynchronously in the dispatcher thread
+    //
+    // All callbacks follow the dispatcher thread principle: onEvent() is
+    // called in the dispatcher thread when the connection succeeds or
+    // fails, every state transition happens there, and nothing needs
+    // synchronizing because it is all one thread.
 
-    if (!config_.http_sse_config.has_value()) {
+    std::string failure;
+    auto connection =
+        createHttpClientConnection(createFilterChainFactory(), failure);
+    if (!connection) {
       Error err;
       err.code = -1;
-      err.message = "HTTP/SSE config not set";
+      err.message = failure;
       return makeVoidError(err);
     }
 
-    // Parse server address to get host and port
-    std::string server_address = config_.http_sse_config.value().server_address;
-    std::string host = "127.0.0.1";
+    network::ClientConnection* client_conn = connection.get();
+    active_connection_ = std::move(connection);
 
-    // Check if SSL is being used to determine default port
-    bool is_https =
-        config_.http_sse_config.value().underlying_transport ==
-        transport::HttpSseTransportSocketConfig::UnderlyingTransport::SSL;
-    uint32_t default_port = is_https ? 443 : 80;
-    uint32_t port = default_port;
-
-    // Extract host and port from server_address
-    // Support format: host:port or IP:port or just host
-    size_t colon_pos = server_address.rfind(':');
-    if (colon_pos != std::string::npos) {
-      // Check if there's a valid port number after the colon
-      std::string port_str = server_address.substr(colon_pos + 1);
-      bool valid_port =
-          !port_str.empty() &&
-          port_str.find_first_not_of("0123456789") == std::string::npos;
-      if (valid_port) {
-        try {
-          port = std::stoi(port_str);
-          host = server_address.substr(0, colon_pos);
-        } catch (const std::exception& e) {
-          // Invalid port, use entire string as host with default port
-          host = server_address;
-          port = default_port;
-        }
-      } else {
-        // No valid port, use entire string as host
-        host = server_address;
-      }
-    } else {
-      // No port specified, use entire string as host
-      host = server_address;
-    }
-
-    // Convert localhost to IP
-    if (host == "localhost") {
-      host = "127.0.0.1";
-    }
-
-    // Try to parse as IP address first
-    auto tcp_address = network::Address::parseInternetAddress(host, port);
-
-    // If parsing failed, try DNS resolution for hostnames
-    if (!tcp_address) {
-      std::string resolved_ip = resolveHostname(host);
-      if (!resolved_ip.empty()) {
-        tcp_address = network::Address::parseInternetAddress(resolved_ip, port);
-      }
-    }
-
-    if (!tcp_address) {
-      Error err;
-      err.code = -1;
-      err.message = "Failed to resolve server address: " + host + ":" +
-                    std::to_string(port) + " (DNS resolution failed)";
-      return makeVoidError(err);
-    }
-
-    // Create local address (bind to any interface, port 0 for ephemeral)
-    auto local_address =
-        network::Address::anyAddress(network::Address::IpVersion::v4, 0);
-
-    // Create TCP socket using MCP socket interface
-    // All socket operations happen in dispatcher thread context
-    auto socket_result = socket_interface_.socket(
-        network::SocketType::Stream, network::Address::Type::Ip,
-        network::Address::IpVersion::v4, false);
-
-    if (!socket_result.ok()) {
-      Error err;
-      err.code = -1;
-      err.message =
-          "Failed to create TCP socket: " +
-          (socket_result.error_info ? socket_result.error_info->message
-                                    : "Unknown error");
-      return makeVoidError(err);
-    }
-
-    // Create IO handle wrapper for the socket
-    auto io_handle =
-        socket_interface_.ioHandleForFd(*socket_result.value, false);
-    if (!io_handle) {
-      socket_interface_.close(*socket_result.value);
-      Error err;
-      err.code = -1;
-      err.message = "Failed to create IO handle for socket";
-      return makeVoidError(err);
-    }
-
-    // Create ConnectionSocket wrapper
-    auto socket_wrapper = std::make_unique<network::ConnectionSocketImpl>(
-        std::move(io_handle), local_address, tcp_address);
-
-    // Set socket to non-blocking mode for async I/O
-    socket_wrapper->ioHandle().setBlocking(false);
-
-    // Enable TCP_NODELAY to disable Nagle's algorithm for low latency
-    // This ensures data is sent immediately rather than being buffered
-    int nodelay = 1;
-    socket_wrapper->setSocketOption(IPPROTO_TCP, TCP_NODELAY, &nodelay,
-                                    sizeof(nodelay));
-
-    // Create HTTP/SSE transport socket wrapper
-    auto transport_factory = createTransportSocketFactory();
-    if (!transport_factory) {
-      Error err;
-      err.code = -1;
-      err.message = "Failed to create transport factory";
-      return makeVoidError(err);
-    }
-
-    // Create transport socket instance
-    // Cast to client factory to access createTransportSocket method
-    auto client_factory = dynamic_cast<network::ClientTransportSocketFactory*>(
-        transport_factory.get());
-    if (!client_factory) {
-      Error err;
-      err.code = -1;
-      err.message = "Transport factory does not support client connections";
-      return makeVoidError(err);
-    }
-
-    network::TransportSocketPtr transport_socket =
-        client_factory->createTransportSocket(nullptr);
-    if (!transport_socket) {
-      Error err;
-      err.code = -1;
-      err.message = "Failed to create transport socket";
-      return makeVoidError(err);
-    }
-
-    // Create ConnectionImpl for client connection
-    // Pass false for 'connected' since we need to connect first
-    auto connection = std::make_unique<network::ConnectionImpl>(
-        dispatcher_, std::move(socket_wrapper), std::move(transport_socket),
-        false);  // Not yet connected - will connect asynchronously
-
-    // Store as active connection
-    active_connection_ =
-        std::unique_ptr<network::ClientConnection>(std::move(connection));
-
-    if (!active_connection_) {
-      Error err;
-      err.code = -1;
-      err.message = "Failed to create client connection";
-      return makeVoidError(err);
-    }
-
-    // Add ourselves as connection callbacks to track connection events
+    // Added before the connect below, so the event that connect raises
+    // is not raised at nobody.
     active_connection_->addConnectionCallbacks(*this);
-
-    // Apply filter chain for JSON-RPC message processing
-    auto filter_factory = createFilterChainFactory();
-    if (filter_factory && active_connection_) {
-      auto* conn_base =
-          dynamic_cast<network::ConnectionImplBase*>(active_connection_.get());
-      if (conn_base) {
-        // Apply filter chain for message framing and parsing
-        filter_factory->createFilterChain(conn_base->filterManager());
-        conn_base->filterManager().initializeReadFilters();
-      }
-    }
-
-    // Initiate async TCP connection
-    // This will trigger connect() on the socket in dispatcher thread
-    // Connection callbacks will be invoked when connected or on error
-    // IMPORTANT: All callbacks follow the dispatcher thread principle:
-    // - onEvent() will be called in dispatcher thread when connection
-    // succeeds/fails
-    // - All state transitions happen in dispatcher thread context
-    // - No manual synchronization needed as everything runs single-threaded in
-    // dispatcher
-
-    // Cast to ClientConnection to access connect() method
-    auto client_conn =
-        dynamic_cast<network::ClientConnection*>(active_connection_.get());
-    if (client_conn) {
-      client_conn->connect();
-    } else {
-      Error err;
-      err.code = -1;
-      err.message = "Failed to cast to ClientConnection";
-      return makeVoidError(err);
-    }
-
-    // NOTE: Connection is now in progress
-    // onEvent callback will be called with Connected or LocalClose event
-    // TODO: Add connection timeout handling
-    // TODO: Add retry logic with exponential backoff for connection failures
-    // TODO: Support TLS/HTTPS connections using SSL transport socket
-  } else if (config_.transport_type == TransportType::StreamableHttp) {
-    // Streamable HTTP client connection flow:
-    // Similar to HTTP/SSE but uses simple POST request/response pattern
-    // No SSE event stream needed - responses come back in the HTTP response
-    // body
-
-    if (!config_.http_sse_config.has_value()) {
-      Error err;
-      err.code = -1;
-      err.message = "HTTP config not set for Streamable HTTP transport";
-      return makeVoidError(err);
-    }
-
-    // Parse server address (same as HttpSse)
-    std::string server_address = config_.http_sse_config.value().server_address;
-    std::string host = "127.0.0.1";
-
-    bool is_https =
-        config_.http_sse_config.value().underlying_transport ==
-        transport::HttpSseTransportSocketConfig::UnderlyingTransport::SSL;
-    uint32_t default_port = is_https ? 443 : 80;
-    uint32_t port = default_port;
-
-    size_t colon_pos = server_address.rfind(':');
-    if (colon_pos != std::string::npos) {
-      std::string port_str = server_address.substr(colon_pos + 1);
-      bool valid_port =
-          !port_str.empty() &&
-          port_str.find_first_not_of("0123456789") == std::string::npos;
-      if (valid_port) {
-        try {
-          port = std::stoi(port_str);
-          host = server_address.substr(0, colon_pos);
-        } catch (const std::exception& e) {
-          host = server_address;
-          port = default_port;
-        }
-      } else {
-        host = server_address;
-      }
-    } else {
-      host = server_address;
-    }
-
-    if (host == "localhost") {
-      host = "127.0.0.1";
-    }
-
-    auto tcp_address = network::Address::parseInternetAddress(host, port);
-
-    if (!tcp_address) {
-      std::string resolved_ip = resolveHostname(host);
-      if (!resolved_ip.empty()) {
-        tcp_address = network::Address::parseInternetAddress(resolved_ip, port);
-      }
-    }
-
-    if (!tcp_address) {
-      Error err;
-      err.code = -1;
-      err.message = "Failed to resolve server address: " + host + ":" +
-                    std::to_string(port);
-      return makeVoidError(err);
-    }
-
-    auto local_address =
-        network::Address::anyAddress(network::Address::IpVersion::v4, 0);
-
-    auto socket_result = socket_interface_.socket(
-        network::SocketType::Stream, network::Address::Type::Ip,
-        network::Address::IpVersion::v4, false);
-
-    if (!socket_result.ok()) {
-      Error err;
-      err.code = -1;
-      err.message = "Failed to create TCP socket";
-      return makeVoidError(err);
-    }
-
-    auto io_handle =
-        socket_interface_.ioHandleForFd(*socket_result.value, false);
-    if (!io_handle) {
-      socket_interface_.close(*socket_result.value);
-      Error err;
-      err.code = -1;
-      err.message = "Failed to create IO handle";
-      return makeVoidError(err);
-    }
-
-    auto socket_wrapper = std::make_unique<network::ConnectionSocketImpl>(
-        std::move(io_handle), local_address, tcp_address);
-
-    socket_wrapper->ioHandle().setBlocking(false);
-
-    int nodelay = 1;
-    socket_wrapper->setSocketOption(IPPROTO_TCP, TCP_NODELAY, &nodelay,
-                                    sizeof(nodelay));
-
-    auto transport_factory = createTransportSocketFactory();
-    if (!transport_factory) {
-      Error err;
-      err.code = -1;
-      err.message = "Failed to create transport factory";
-      return makeVoidError(err);
-    }
-
-    auto client_factory = dynamic_cast<network::ClientTransportSocketFactory*>(
-        transport_factory.get());
-    if (!client_factory) {
-      Error err;
-      err.code = -1;
-      err.message = "Transport factory does not support client connections";
-      return makeVoidError(err);
-    }
-
-    network::TransportSocketPtr transport_socket =
-        client_factory->createTransportSocket(nullptr);
-    if (!transport_socket) {
-      Error err;
-      err.code = -1;
-      err.message = "Failed to create transport socket";
-      return makeVoidError(err);
-    }
-
-    auto connection = std::make_unique<network::ConnectionImpl>(
-        dispatcher_, std::move(socket_wrapper), std::move(transport_socket),
-        false);
-
-    active_connection_ =
-        std::unique_ptr<network::ClientConnection>(std::move(connection));
-
-    if (!active_connection_) {
-      Error err;
-      err.code = -1;
-      err.message = "Failed to create client connection";
-      return makeVoidError(err);
-    }
-
-    active_connection_->addConnectionCallbacks(*this);
-
-    // Apply filter chain for Streamable HTTP (simpler than SSE - just HTTP
-    // codec + JSON-RPC)
-    auto filter_factory = createFilterChainFactory();
-    if (filter_factory && active_connection_) {
-      auto* conn_base =
-          dynamic_cast<network::ConnectionImplBase*>(active_connection_.get());
-      if (conn_base) {
-        filter_factory->createFilterChain(conn_base->filterManager());
-        conn_base->filterManager().initializeReadFilters();
-      }
-    }
-
-    auto client_conn =
-        dynamic_cast<network::ClientConnection*>(active_connection_.get());
-    if (client_conn) {
-      client_conn->connect();
-    } else {
-      Error err;
-      err.code = -1;
-      err.message = "Failed to cast to ClientConnection";
-      return makeVoidError(err);
-    }
+    client_conn->connect();
   } else {
     Error err;
     err.code = -1;

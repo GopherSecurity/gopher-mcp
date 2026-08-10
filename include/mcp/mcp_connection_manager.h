@@ -338,6 +338,21 @@ class McpConnectionManager : public McpProtocolCallbacks,
   // Create filter chain factory
   std::shared_ptr<network::FilterChainFactory> createFilterChainFactory();
 
+  // Where the configured server is. Null on failure, with the reason in
+  // `error`.
+  network::Address::InstanceConstSharedPtr resolveServerAddress(
+      std::string& error) const;
+
+  // An HTTP client connection with its filter chain applied, ready for
+  // the caller to attach its callbacks and connect. Both HTTP transports
+  // and the standalone server stream are built here, so a connection
+  // that reaches the server one way reaches it every way — the same
+  // address resolution, the same socket options, the same TLS.
+  // Null on failure, with the reason in `error`.
+  std::unique_ptr<network::ClientConnection> createHttpClientConnection(
+      const std::shared_ptr<network::FilterChainFactory>& filter_factory,
+      std::string& error);
+
   // Send JSON message. The id, where the message has one, is noted
   // against the response it will draw — see recordSent(), and note that
   // this happens inside the posted write and not here, because the order
