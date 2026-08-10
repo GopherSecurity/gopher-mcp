@@ -891,6 +891,17 @@ class HttpSseJsonRpcProtocolFilter
           GOPHER_LOG_DEBUG("Streamable HTTP client joined session {}",
                            session_it->second);
         }
+
+        // What the server made of the request. A refusal says nothing in
+        // the message layer — the body behind it carries no id — so the
+        // status is what has to be remembered until the response is over
+        // and the request it answered can be named.
+        response_status_ = 0;
+        auto status_it = headers.find(":status");
+        if (status_it != headers.end()) {
+          response_status_ = std::atoi(status_it->second.c_str());
+        }
+        refusal_body_.clear();
       }
 
       // Client: check Content-Type for SSE. If the server responded
@@ -944,6 +955,17 @@ class HttpSseJsonRpcProtocolFilter
       // was seen), the body carries SSE event-stream chunks. Otherwise
       // (Streamable HTTP or before SSE headers arrive) it carries
       // JSON-RPC responses. isSseActive() checks client_sse_sm_->isReady().
+      // A refused request's body is an error the message layer cannot
+      // place: the server had no id to answer under, so nothing in it
+      // matches anything outstanding. Feeding it to the JSON-RPC filter
+      // is how a 404 used to turn into an unmatched error while the
+      // request that caused it waited out its deadline. Keep it for the
+      // detail instead.
+      if (isRefusal()) {
+        refusal_body_.append(data);
+        return;
+      }
+
       if (isSseActive()) {
         // In SSE mode, body contains event stream
         // SSE events can span multiple chunks, accumulate in buffer
@@ -970,6 +992,18 @@ class HttpSseJsonRpcProtocolFilter
     GOPHER_LOG_FLOW_DEBUG(
         "HTTP/SSE message complete sse_active={} pending_json_bytes={}",
         isSseActive() ? "true" : "false", pending_json_data_.length());
+
+    // One answer, one place given up. Every response takes one, not just
+    // the refusals — a queue that only moved when something went wrong
+    // would name the wrong request the moment anything went right.
+    if (!is_server_ && client_session_ && response_status_ != 0) {
+      const int status = response_status_;
+      const std::string detail = refusal_body_;
+      response_status_ = 0;
+      refusal_body_.clear();
+      mcp_callbacks_.onTransportStatus(status, client_session_->takeAnswered(),
+                                       detail);
+    }
 
     // HTTP message complete — flush any remaining JSON-RPC data that
     // was not yet processed. In SSE mode the data flows through the
@@ -1691,6 +1725,17 @@ class HttpSseJsonRpcProtocolFilter
     return false;
   }
 
+  /**
+   * Client mode: the response being read is a refusal, so its body is
+   * an explanation rather than an answer. Anything outside 2xx — a
+   * client that asked wrongly, a session that is gone, a server that
+   * broke — has nothing in it for the message layer.
+   */
+  bool isRefusal() const {
+    return response_status_ != 0 &&
+           (response_status_ < 200 || response_status_ >= 300);
+  }
+
   event::Dispatcher& dispatcher_;
   McpProtocolCallbacks& mcp_callbacks_;
   bool is_server_;
@@ -1815,6 +1860,13 @@ class HttpSseJsonRpcProtocolFilter
   // to serve. Shared rather than owned — it was here before this
   // connection and will be here after it.
   transport::StreamableHttpClientSessionPtr client_session_;
+
+  // Client mode: the status of the response being read, and the body of
+  // it when that status is a refusal. Both are cleared as the response
+  // ends, which is the only point at which the request it answered can
+  // be named.
+  int response_status_{0};
+  std::string refusal_body_;
 
   // Frames the response for the event stream this connection is serving,
   // from the prelude through every event. One writer per stream, so the

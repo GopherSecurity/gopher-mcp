@@ -952,6 +952,17 @@ void McpConnectionManager::onError(const Error& error) {
   }
 }
 
+void McpConnectionManager::onTransportStatus(
+    int status_code,
+    const optional<RequestId>& request_id,
+    const std::string& detail) {
+  // Passed straight through: what a status means for a request is a
+  // question about requests, and they are kept a layer up.
+  if (protocol_callbacks_) {
+    protocol_callbacks_->onTransportStatus(status_code, request_id, detail);
+  }
+}
+
 std::string McpConnectionManager::resolveEndpointUrl(
     const std::string& endpoint,
     const std::string& server_address,

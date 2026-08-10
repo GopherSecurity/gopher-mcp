@@ -161,6 +161,30 @@ class McpProtocolCallbacks {
   }
 
   /**
+   * The HTTP status a response carried, and the request it answered
+   * (Streamable HTTP client only).
+   *
+   * A status is not a JSON-RPC message: it carries no id, and the body
+   * behind a refusal carries none either. So what a 404 means — this
+   * session is gone, start another and send that request again — cannot
+   * be worked out from the message layer alone. The request is named
+   * here by the order the answers arrive in, and what to do about it is
+   * decided a layer up, where the requests are.
+   *
+   * @param status_code HTTP status of the response
+   * @param request_id Request the response answered, empty for a message
+   *        that had no id or a response nobody asked for
+   * @param detail Body of a refusal, for the error a caller is given
+   */
+  virtual void onTransportStatus(int status_code,
+                                 const optional<RequestId>& request_id,
+                                 const std::string& detail) {
+    (void)status_code;
+    (void)request_id;
+    (void)detail;
+  }
+
+  /**
    * Send a POST request to the message endpoint
    * Used by HTTP/SSE transport to send messages on a separate connection
    * Returns true if the POST was initiated successfully
@@ -277,6 +301,9 @@ class McpConnectionManager : public McpProtocolCallbacks,
   void onConnectionEvent(network::ConnectionEvent event) override;
   void onError(const Error& error) override;
   void onMessageEndpoint(const std::string& endpoint) override;
+  void onTransportStatus(int status_code,
+                         const optional<RequestId>& request_id,
+                         const std::string& detail) override;
   bool sendHttpPost(const std::string& json_body) override;
   bool sendHttpPost(const std::string& json_body,
                     const std::map<std::string, std::string>& http_headers);
