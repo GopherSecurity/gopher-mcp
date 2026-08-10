@@ -464,6 +464,51 @@ TEST_F(LLHttpParserTest, ParseVariousStatusCodes) {
   }
 }
 
+// Two answers can arrive in one read, and each has to be reported as
+// itself. Asking at the end of the buffer is not the question — the
+// codec asks as each set of headers completes, which is where a second
+// message wearing the first one's status would be believed.
+TEST_F(LLHttpParserTest, EachAnswerInOneBufferReportsItsOwnStatus) {
+  auto parser =
+      factory_->createParser(HttpParserType::RESPONSE, callbacks_.get());
+
+  std::vector<int> reported;
+  EXPECT_CALL(*callbacks_, onMessageBegin())
+      .Times(testing::AnyNumber())
+      .WillRepeatedly(Return(ParserCallbackResult::Success));
+  EXPECT_CALL(*callbacks_, onStatus(_, _))
+      .Times(testing::AnyNumber())
+      .WillRepeatedly(Return(ParserCallbackResult::Success));
+  EXPECT_CALL(*callbacks_, onHeaderField(_, _))
+      .Times(testing::AnyNumber())
+      .WillRepeatedly(Return(ParserCallbackResult::Success));
+  EXPECT_CALL(*callbacks_, onHeaderValue(_, _))
+      .Times(testing::AnyNumber())
+      .WillRepeatedly(Return(ParserCallbackResult::Success));
+  EXPECT_CALL(*callbacks_, onBody(_, _))
+      .Times(testing::AnyNumber())
+      .WillRepeatedly(Return(ParserCallbackResult::Success));
+  EXPECT_CALL(*callbacks_, onMessageComplete())
+      .Times(testing::AnyNumber())
+      .WillRepeatedly(Return(ParserCallbackResult::Success));
+  EXPECT_CALL(*callbacks_, onHeadersComplete())
+      .Times(testing::AnyNumber())
+      .WillRepeatedly(testing::Invoke([&]() {
+        reported.push_back(static_cast<int>(parser->statusCode()));
+        return ParserCallbackResult::Success;
+      }));
+
+  const std::string both =
+      "HTTP/1.1 202 Accepted\r\nContent-Length: 0\r\n\r\n"
+      "HTTP/1.1 404 Not Found\r\nContent-Length: 2\r\n\r\n{}";
+  parser->execute(both.c_str(), both.length());
+
+  ASSERT_EQ(reported.size(), 2u);
+  EXPECT_EQ(reported[0], 202);
+  EXPECT_EQ(reported[1], 404)
+      << "the second answer wore the first one's status";
+}
+
 // Test error handling - malformed request
 TEST_F(LLHttpParserTest, MalformedRequest) {
   auto parser =

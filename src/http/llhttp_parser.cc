@@ -249,7 +249,20 @@ void LLHttpParser::finish() { llhttp_finish(parser_.get()); }
 
 int LLHttpParser::onMessageBegin(llhttp_t* parser) {
   auto* self = static_cast<LLHttpParser*>(parser->data);
-  if (self && self->callbacks_) {
+  if (!self) {
+    return 0;
+  }
+
+  // What was asked and what was answered belong to one message, and a
+  // buffer may hold several. Clearing these only per execute() left the
+  // second message in a buffer reporting the first one's method, status
+  // and version — which reads as a correct answer to the wrong question
+  // rather than as a failure.
+  self->method_cached_ = false;
+  self->status_cached_ = false;
+  self->version_cached_ = false;
+
+  if (self->callbacks_) {
     return toCallbackResult(self->callbacks_->onMessageBegin());
   }
   return 0;
