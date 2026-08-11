@@ -131,6 +131,11 @@ add_executable(test_client_vs_official_server EXCLUDE_FROM_ALL
 # interop suites, same as the suites themselves.
 add_executable(gopher_interop_server EXCLUDE_FROM_ALL
     interop/interop_server_main.cc)
+
+# The other direction: the official SDK's client, driven against that
+# server. Same treatment — needs Node, so it stays out of `make test`.
+add_executable(test_official_client_vs_server EXCLUDE_FROM_ALL
+    interop/test_official_client_vs_server.cc)
 add_executable(test_builders core/test_builders.cc)
 
 # MCP Client threading tests 
@@ -952,6 +957,21 @@ target_link_libraries(gopher_interop_server
     Threads::Threads
     fmt::fmt
 )
+
+target_link_libraries(test_official_client_vs_server
+    gopher-mcp
+    gopher-mcp-logging
+    gtest
+    gtest_main
+    Threads::Threads
+    fmt::fmt
+)
+
+target_compile_definitions(test_official_client_vs_server PRIVATE
+    GOPHER_INTEROP_CLIENT_DIR="${CMAKE_CURRENT_SOURCE_DIR}/interop/official-client-ts"
+    GOPHER_INTEROP_SERVER_BIN="$<TARGET_FILE:gopher_interop_server>")
+
+add_dependencies(test_official_client_vs_server gopher_interop_server)
 
 target_link_libraries(test_builders
     gopher-mcp
