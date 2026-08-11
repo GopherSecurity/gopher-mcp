@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `McpServer::askClient` sends a request to a client mid-request and delivers
+  its answer to a callback, bounded by a deadline. `ResponseStream::sendRequest`
+  carries the question down the stream the answer will arrive on.
+- `McpServer::registerAsyncRequestHandler` registers a handler that answers
+  after its dispatch has returned, which is what a handler asking the client
+  something needs: every connection is on one dispatcher thread, so a handler
+  that waited for the reply would be waiting for the thread that has to accept
+  it.
+- `McpServer::dropSessionStream` closes the stream a session is holding without
+  ending the session, so a client reconnects and is given what it missed.
+- Interop suite running this project's server against the official MCP
+  TypeScript SDK's client, alongside the existing suite for the other
+  direction. Both run from `make test-interop`.
+
 ### Changed
 
 - **Breaking:** `HttpSseFilterChainFactory::setSessionManager` now takes a
@@ -21,7 +35,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   that is not shared-owned refuses cross-thread visits loudly rather than
   reporting sessions as missing.
 
+- A `GET` on the Streamable HTTP endpoint with no `Accept` header is answered
+  `406` rather than served an event stream. A missing header used to read as
+  accepting anything; a `GET` here has exactly one kind of answer, and the
+  spec requires a client to ask for it by name. `POST` is unchanged — a
+  missing `Accept` there only leaves the framing of an ordinary answer to the
+  server.
+
 ### Fixed
+
+- `tools/list` declares an `inputSchema` for every tool, including one
+  registered without one. A peer validating the list against the schema
+  rejects the whole list over a single omission, putting every other tool on
+  the server out of reach.
+- `resources/subscribe` and `resources/unsubscribe` answer with an empty
+  object rather than a null result, which is not a valid JSON-RPC result and
+  which a validating peer cannot parse as a response at all.
+- `prompts/get` passes the arguments it was called with to the prompt handler.
+  They arrive as serialized JSON, because nested objects do not fit in the
+  flat map a request's params are held in, and nothing parsed them back — so
+  every prompt was rendered with no arguments.
 
 ## [0.1.15] - 2026-07-26
 
