@@ -31,14 +31,17 @@
 #include <sys/wait.h>
 
 #include "mcp/client/mcp_client.h"
-#include "mcp/network/address.h"
-#include "mcp/network/socket_interface.h"
 #include "mcp/types.h"
+
+#include "child_process.h"
 
 namespace mcp {
 namespace {
 
 using namespace std::chrono_literals;
+using test::Child;
+using test::pickFreePort;
+using test::waitUntilAccepting;
 
 /** Where the reference server lives, relative to the source tree. */
 std::string referenceServerDir() {
@@ -81,91 +84,27 @@ bool referenceServerAvailable(std::string& why_not) {
   return true;
 }
 
-/** A loopback port the kernel believes is free. */
-uint16_t pickPort() {
-  auto& iface = network::socketInterface();
-  auto fd =
-      iface.socket(network::SocketType::Stream, network::Address::Type::Ip,
-                   network::Address::IpVersion::v4);
-  if (!fd.ok()) {
-    return 0;
-  }
-  auto handle = iface.ioHandleForFd(*fd, false);
-  handle->bind(network::Address::parseInternetAddress("127.0.0.1", 0));
-  handle->listen(1);
-  auto local = handle->localAddress();
-  uint16_t port = 0;
-  if (local.ok()) {
-    const auto* ip = dynamic_cast<const network::Address::Ip*>(local->get());
-    if (ip != nullptr) {
-      port = ip->port();
-    }
-  }
-  handle->close();
-  return port;
-}
-
 /** The reference server, as a process. */
 class ReferenceServer {
  public:
-  ~ReferenceServer() { stop(); }
-
   /** Start it, and wait until something is accepting on its port. */
   bool start(const std::vector<std::string>& flags = {}) {
-    port_ = pickPort();
+    port_ = pickFreePort();
     if (port_ == 0) {
       return false;
     }
-
-    pid_ = fork();
-    if (pid_ < 0) {
+    std::vector<std::string> argv{"node", "server.ts", "--port",
+                                  std::to_string(port_)};
+    for (const auto& flag : flags) {
+      argv.push_back(flag);
+    }
+    if (!process_.start(referenceServerDir(), argv)) {
       return false;
     }
-    if (pid_ == 0) {
-      // Its own process group, so that stopping it stops whatever it
-      // started rather than leaving a listener behind holding the port.
-      setpgid(0, 0);
-      const std::string dir = referenceServerDir();
-      if (chdir(dir.c_str()) != 0) {
-        _exit(127);
-      }
-      std::vector<std::string> args{"node", "server.ts", "--port",
-                                    std::to_string(port_)};
-      for (const auto& flag : flags) {
-        args.push_back(flag);
-      }
-      std::vector<char*> argv;
-      for (auto& arg : args) {
-        argv.push_back(const_cast<char*>(arg.c_str()));
-      }
-      argv.push_back(nullptr);
-      // Its output is not this test's business unless something goes
-      // wrong, and then the C++ side says so.
-      freopen("/dev/null", "w", stdout);
-      execvp("node", argv.data());
-      _exit(127);
-    }
-
-    return waitUntilAccepting(10s);
+    return waitUntilAccepting(port_, 10s);
   }
 
-  void stop() {
-    if (pid_ <= 0) {
-      return;
-    }
-    kill(-pid_, SIGTERM);
-    int status = 0;
-    for (int i = 0; i < 100; ++i) {
-      if (waitpid(pid_, &status, WNOHANG) == pid_) {
-        pid_ = -1;
-        return;
-      }
-      std::this_thread::sleep_for(20ms);
-    }
-    kill(-pid_, SIGKILL);
-    waitpid(pid_, &status, 0);
-    pid_ = -1;
-  }
+  void stop() { process_.stop(); }
 
   uint16_t port() const { return port_; }
   std::string url() const {
@@ -173,29 +112,7 @@ class ReferenceServer {
   }
 
  private:
-  bool waitUntilAccepting(std::chrono::milliseconds budget) {
-    auto& iface = network::socketInterface();
-    auto addr = network::Address::parseInternetAddress("127.0.0.1", port_);
-    const auto deadline = std::chrono::steady_clock::now() + budget;
-    while (std::chrono::steady_clock::now() < deadline) {
-      auto fd =
-          iface.socket(network::SocketType::Stream, network::Address::Type::Ip,
-                       network::Address::IpVersion::v4);
-      if (fd.ok()) {
-        auto handle = iface.ioHandleForFd(*fd, false);
-        handle->setBlocking(true);
-        auto connected = handle->connect(addr);
-        handle->close();
-        if (connected.ok()) {
-          return true;
-        }
-      }
-      std::this_thread::sleep_for(50ms);
-    }
-    return false;
-  }
-
-  pid_t pid_{-1};
+  Child process_;
   uint16_t port_{0};
 };
 
