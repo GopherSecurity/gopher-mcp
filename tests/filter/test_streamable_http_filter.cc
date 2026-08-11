@@ -647,6 +647,59 @@ TEST_F(StreamableHttpFilterTest, AHandlerKeepsItsStreamAfterTheDispatchEnds) {
       << "the response was the last thing the stream had to say";
 }
 
+// A server that needs something from the client mid-request asks on the
+// stream the answer will arrive on, because that is where the client is
+// already listening.
+TEST_F(StreamableHttpFilterTest, AQuestionForTheClientGoesDownTheSameStream) {
+  callbacks_.streaming = StreamingMode::Required;
+  callbacks_.answer_requests = false;
+
+  feed(post("/mcp", kRequestBody, "Accept: text/event-stream\r\n"));
+  ASSERT_TRUE(callbacks_.stream);
+  const size_t after_dispatch = wire_.size();
+
+  jsonrpc::Request question;
+  question.jsonrpc = "2.0";
+  question.id = RequestId(std::string("ask-1"));
+  question.method = "sampling/createMessage";
+  ASSERT_FALSE(
+      holds_alternative<Error>(callbacks_.stream->sendRequest(question)));
+
+  const std::string tail = wire_.substr(after_dispatch);
+  EXPECT_NE(tail.find("sampling/createMessage"), std::string::npos) << tail;
+  EXPECT_NE(tail.find("ask-1"), std::string::npos)
+      << "the question carries the id its answer will come back under: "
+      << tail;
+  EXPECT_TRUE(callbacks_.stream->alive())
+      << "asking a question is not the end of the answer";
+}
+
+// Progress a client cannot read is dropped and the request carries on.
+// A question is not: the handler is waiting for an answer that would now
+// never arrive, so it has to be told.
+TEST_F(StreamableHttpFilterTest, AQuestionWithNowhereToGoIsReported) {
+  callbacks_.streaming = StreamingMode::Optional;
+  callbacks_.answer_requests = false;
+
+  feed(post("/mcp", kRequestBody, "Accept: application/json\r\n"));
+  ASSERT_TRUE(callbacks_.stream);
+
+  jsonrpc::Notification progress;
+  progress.jsonrpc = "2.0";
+  progress.method = "notifications/progress";
+  EXPECT_FALSE(
+      holds_alternative<Error>(callbacks_.stream->sendNotification(progress)))
+      << "progress a client cannot read is not a failed request";
+
+  jsonrpc::Request question;
+  question.jsonrpc = "2.0";
+  question.id = RequestId(std::string("ask-1"));
+  question.method = "sampling/createMessage";
+  EXPECT_TRUE(
+      holds_alternative<Error>(callbacks_.stream->sendRequest(question)))
+      << "a question that can never be shown was reported as asked";
+}
+
 TEST_F(StreamableHttpFilterTest, ANotificationIsNeverAnsweredWithAStream) {
   callbacks_.streaming = StreamingMode::Required;
 

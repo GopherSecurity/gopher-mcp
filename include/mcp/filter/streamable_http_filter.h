@@ -259,6 +259,7 @@ class StreamableHttpFilter : public HttpCodecFilter::MessageCallbacks,
 
     VoidResult sendNotification(
         const jsonrpc::Notification& notification) override;
+    VoidResult sendRequest(const jsonrpc::Request& request) override;
     VoidResult sendResponse(const jsonrpc::Response& response) override;
     bool alive() const override;
 

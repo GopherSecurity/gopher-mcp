@@ -175,6 +175,40 @@ VoidResult StreamableHttpFilter::ResponseStreamImpl::sendNotification(
                    Error(jsonrpc::INTERNAL_ERROR, "notification not written"));
 }
 
+VoidResult StreamableHttpFilter::ResponseStreamImpl::sendRequest(
+    const jsonrpc::Request& request) {
+  if (!exchange_) {
+    Error err;
+    err.code = jsonrpc::INTERNAL_ERROR;
+    err.message = "question dropped: this request has no answer open";
+    return makeVoidError(err);
+  }
+
+  if (!may_stream_) {
+    // Unlike progress, this cannot be dropped and carried on from: the
+    // handler is waiting for an answer that would now never arrive, so
+    // the caller has to hear that it will not.
+    Error err;
+    err.code = jsonrpc::INTERNAL_ERROR;
+    err.message =
+        "question dropped: this client cannot read a streamed response, so "
+        "there is nowhere to ask it";
+    return makeVoidError(err);
+  }
+
+  if (!open()) {
+    Error err;
+    err.code = jsonrpc::INTERNAL_ERROR;
+    err.message = "question dropped: the answer is already committed";
+    return makeVoidError(err);
+  }
+
+  return exchange_->writeEvent("message", json::to_json(request).toString())
+             ? makeVoidSuccess()
+             : makeVoidError(
+                   Error(jsonrpc::INTERNAL_ERROR, "question not written"));
+}
+
 VoidResult StreamableHttpFilter::ResponseStreamImpl::sendResponse(
     const jsonrpc::Response& response) {
   if (!exchange_) {

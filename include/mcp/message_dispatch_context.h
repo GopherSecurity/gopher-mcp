@@ -35,6 +35,27 @@ class ResponseStream {
   virtual VoidResult sendNotification(
       const jsonrpc::Notification& notification) = 0;
 
+  /**
+   * Ask the client something on the way to answering it.
+   *
+   * A server that needs the client to sample a model, or to be asked
+   * anything else mid-request, sends the question here: it belongs to the
+   * request being answered, so it goes down the same stream the answer
+   * will. The client's reply comes back as an ordinary inbound message on
+   * a connection of its choosing, and nothing but the JSON-RPC id
+   * connects the two — so whoever sends one has to be waiting for that id.
+   *
+   * Virtual rather than pure: a transport that answers a request with
+   * exactly one message has nowhere to put a question, and says so.
+   */
+  virtual VoidResult sendRequest(const jsonrpc::Request& request) {
+    (void)request;
+    Error err;
+    err.code = jsonrpc::INTERNAL_ERROR;
+    err.message = "this response cannot carry a question to the client";
+    return makeVoidError(err);
+  }
+
   /** Emit the response and end the stream. */
   virtual VoidResult sendResponse(const jsonrpc::Response& response) = 0;
 
