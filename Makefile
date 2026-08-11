@@ -69,16 +69,22 @@ test:
 	@echo "Running all tests..."
 	@cd build && ctest --output-on-failure
 
-# Run the interop suite: this project's client against a server built on
-# the official SDK. Kept out of `test` because it needs Node and a
-# package install, and skips rather than fails when they are absent.
+# Run both interop suites: this project's client against a server built
+# on the official SDK, and this project's server against that SDK's
+# client. Kept out of `test` because they need Node and a package
+# install, and they skip rather than fail when those are absent.
 test-interop:
 	@echo "Installing the reference server..."
 	@cd tests/interop/reference-server-ts && npm ci --no-audit --no-fund
-	@echo "Building the interop suite..."
+	@echo "Installing the driver..."
+	@cd tests/interop/official-client-ts && npm ci --no-audit --no-fund
+	@echo "Building both interop suites..."
 	@cmake --build build --target test_client_vs_official_server
+	@cmake --build build --target test_official_client_vs_server
 	@echo "Running interop against the official SDK's server..."
 	@./build/tests/test_client_vs_official_server
+	@echo "Running interop against the official SDK's client..."
+	@./build/tests/test_official_client_vs_server
 
 # Run tests with verbose output
 test-verbose:
