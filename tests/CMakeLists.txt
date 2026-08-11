@@ -127,6 +127,10 @@ add_executable(test_client_transport_autodetect integration/test_client_transpor
 add_executable(test_client_vs_official_server EXCLUDE_FROM_ALL
     interop/test_client_vs_official_server.cc)
 
+# The server the official SDK's client is pointed at. Built only for the
+# interop suites, same as the suites themselves.
+add_executable(gopher_interop_server EXCLUDE_FROM_ALL
+    interop/interop_server_main.cc)
 add_executable(test_builders core/test_builders.cc)
 
 # MCP Client threading tests 
@@ -942,6 +946,12 @@ target_link_libraries(test_client_vs_official_server
 target_compile_definitions(test_client_vs_official_server PRIVATE
     GOPHER_INTEROP_SERVER_DIR="${CMAKE_CURRENT_SOURCE_DIR}/interop/reference-server-ts")
 
+target_link_libraries(gopher_interop_server
+    gopher-mcp
+    gopher-mcp-logging
+    Threads::Threads
+    fmt::fmt
+)
 
 target_link_libraries(test_builders
     gopher-mcp
