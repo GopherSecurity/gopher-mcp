@@ -856,6 +856,7 @@ void McpClient::handleClientStreamEvent(ClientStreamEvent event,
       // the next one that closes starts the window again from the floor.
       GOPHER_LOG_DEBUG("Server stream open");
       server_stream_attempts_ = 0;
+      server_stream_open_ = true;
       return;
 
     case ClientStreamEvent::Refused:
@@ -864,12 +865,14 @@ void McpClient::handleClientStreamEvent(ClientStreamEvent event,
       GOPHER_LOG_INFO(
           "Server does not serve a standalone stream; carrying on without one");
       server_stream_refused_ = true;
+      server_stream_open_ = false;
       if (server_stream_timer_) {
         server_stream_timer_->disableTimer();
       }
       return;
 
     case ClientStreamEvent::Closed:
+      server_stream_open_ = false;
       // A stream that was carrying an interrupted answer is still
       // carrying it, so losing it again is another failed attempt at
       // that answer rather than merely a stream that closed.

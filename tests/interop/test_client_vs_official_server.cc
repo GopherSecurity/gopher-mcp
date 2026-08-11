@@ -332,6 +332,24 @@ class OfficialServerInteropTest : public ::testing::Test {
         << "could not reach the reference server at " << server_.url();
   }
 
+  /**
+   * Wait until the server is holding a stream to this client.
+   *
+   * Anything the server says unprompted has nowhere to arrive until
+   * then, so a test that triggered one first would be asking the server
+   * to talk into a gap and calling the silence a failure.
+   */
+  bool waitForServerStream(std::chrono::milliseconds budget = 10000ms) {
+    const auto deadline = std::chrono::steady_clock::now() + budget;
+    while (std::chrono::steady_clock::now() < deadline) {
+      if (client_->isServerStreamOpen()) {
+        return true;
+      }
+      std::this_thread::sleep_for(10ms);
+    }
+    return client_->isServerStreamOpen();
+  }
+
   InitializeResult handshake() {
     auto init = client_->initializeProtocol();
     EXPECT_EQ(init.wait_for(15s), std::future_status::ready)
@@ -416,15 +434,28 @@ TEST_F(OfficialServerInteropTest, ProgressArrivesBeforeTheAnswer) {
 
 // Something the server says unprompted, which has nowhere to arrive
 // except a stream this client opened and is holding.
-// DISABLED: unresolved. A hand-driven run of the same sequence does
-// receive the push, so the path works; something about it inside this
-// fixture does not, and it has not been run down yet. Left here rather
-// than deleted because it is the scenario, and it is the one worth
-// answering next.
+// Something the server says unprompted, which has nowhere to arrive
+// except a stream this client opened and is holding.
+//
+// DISABLED, and the reason is sharper than it was. It is not a race
+// with the stream being established: that is now waited for, and
+// removing the wait makes this fail differently, so the wait is doing
+// work. Run on its own it passes every time. Run after any other test
+// in this process it fails — and the logs show the stream opening, the
+// notice arriving on the wire, and the handler not seeing it. So the
+// fault is on this side and it is about something outliving a test,
+// not about the transport. Left here because it is the scenario.
 TEST_F(OfficialServerInteropTest, DISABLED_APushArrivesOnTheHeldStream) {
   ASSERT_TRUE(server_.start());
   startClient();
   ASSERT_NO_THROW(handshake());
+
+  // Waited for rather than assumed: the stream is opened once the
+  // handshake lands, and asking the server to say something before
+  // there is anywhere for it to arrive would be a test of the timing
+  // and not of the path.
+  ASSERT_TRUE(waitForServerStream())
+      << "the server never got a stream to reach this client on";
 
   auto answer = callTool("trigger_notification", R"({"text":"interop"})");
   ASSERT_FALSE(answer.error.has_value());

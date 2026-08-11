@@ -553,6 +553,16 @@ class McpClient : public application::ApplicationBase {
   // Get client statistics
   const McpClientStats& getClientStats() const { return client_stats_; }
 
+  /**
+   * True while the server is holding a stream open to this client.
+   *
+   * What it answers is whether anything the server says unprompted has
+   * somewhere to arrive. False before the stream is established, after
+   * it is lost, and for as long as a server that serves no stream is
+   * being talked to.
+   */
+  bool isServerStreamOpen() const { return server_stream_open_; }
+
   // Set server capabilities (after initialization)
   void setServerCapabilities(const ServerCapabilities& caps) {
     server_capabilities_ = caps;
@@ -808,6 +818,10 @@ class McpClient : public application::ApplicationBase {
   // answer rather than a passing one, so it is remembered and not asked
   // again for as long as this client lives.
   bool server_stream_refused_{false};
+
+  // The server has a stream to reach this client on. Read from other
+  // threads, written on the dispatcher.
+  std::atomic<bool> server_stream_open_{false};
 
   // How many times in a row asking for the stream back has been tried,
   // which is what decides how long to wait before the next one. Reset
