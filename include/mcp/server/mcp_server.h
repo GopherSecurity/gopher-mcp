@@ -199,6 +199,12 @@ struct McpServerStats : public application::ApplicationStats {
   // confused peer or a waiter released too early, and neither is visible
   // any other way.
   std::atomic<uint64_t> responses_unmatched{0};
+
+  // Questions this server asked a client, and the ones that ran out of
+  // time. A rising second number is a client that accepts questions and
+  // does not answer them, which looks from the outside like slow tools.
+  std::atomic<uint64_t> requests_to_clients{0};
+  std::atomic<uint64_t> client_requests_timed_out{0};
 };
 
 /**
@@ -1049,6 +1055,38 @@ class McpServer : public application::ApplicationBase,
   // Broadcast notification to all sessions
   void broadcastNotification(const jsonrpc::Notification& notification);
 
+  /**
+   * Ask the client something on the way to answering it.
+   *
+   * For the questions a server asks mid-request — sample this, elicit
+   * that. The question goes down the stream the request is being answered
+   * on, because that is where the client is already listening, and the
+   * answer comes back as an ordinary inbound message on whichever
+   * connection the client chose. Nothing but the JSON-RPC id connects the
+   * two, so the id is registered here before the question goes out.
+   *
+   * The handler asking must not wait for the answer: every connection
+   * this server accepts is on one dispatcher thread, and the answer
+   * arrives on a request that same thread has to accept. Ask, return, and
+   * answer from the callback.
+   *
+   * @param stream    Where the question goes and where the eventual answer
+   *                  to the original request will go. Must still be open.
+   * @param request   Carrying an id no other outstanding question uses.
+   * @param on_answer Told exactly once: with the client's response, or
+   *                  with an error when the deadline passed first.
+   * @param timeout   How long the client has. Zero waits forever, which
+   *                  hands a client the power to keep a request open
+   *                  indefinitely — so it is not the default.
+   * @return An error when the question could not be sent at all, in which
+   *         case on_answer is never called.
+   */
+  VoidResult askClient(
+      const ResponseStreamPtr& stream,
+      const jsonrpc::Request& request,
+      std::function<void(const jsonrpc::Response&)> on_answer,
+      std::chrono::milliseconds timeout = std::chrono::milliseconds(30000));
+
  protected:
   // ApplicationBase overrides
   void initializeWorker(application::WorkerContext& worker) override;
@@ -1320,6 +1358,11 @@ class McpServer : public application::ApplicationBase,
 
   // Answers we are waiting on from clients, for questions this server asked.
   ClientRequestCorrelator client_requests_;
+
+  // A deadline per outstanding question. Held here because a timer that
+  // goes out of scope never fires, and dropped when the question is
+  // settled either way. Dispatcher thread only, like the questions.
+  std::map<RequestIdKey, event::TimerPtr> client_request_deadlines_;
 
   // Resource, tool, and prompt management
   std::unique_ptr<ResourceManager> resource_manager_;

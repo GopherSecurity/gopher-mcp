@@ -886,6 +886,77 @@ void McpServer::broadcastNotification(
   }
 }
 
+VoidResult McpServer::askClient(
+    const ResponseStreamPtr& stream,
+    const jsonrpc::Request& request,
+    std::function<void(const jsonrpc::Response&)> on_answer,
+    std::chrono::milliseconds timeout) {
+  assert((!main_dispatcher_ || main_dispatcher_->isThreadSafe()) &&
+         "askClient off dispatcher");
+
+  if (!stream) {
+    return makeVoidError(Error(jsonrpc::INTERNAL_ERROR,
+                               "cannot ask the client anything without a "
+                               "stream to ask on"));
+  }
+  if (!on_answer) {
+    return makeVoidError(
+        Error(jsonrpc::INTERNAL_ERROR,
+              "a question nobody is waiting for is not a question"));
+  }
+
+  const RequestIdKey key = requestIdKey(request.id);
+
+  // Registered before the question goes out, not after: the answer may be
+  // on its way back before this function returns, and an answer arriving
+  // to nobody is dropped.
+  client_requests_.expect(
+      request.id, [this, key, on_answer](const jsonrpc::Response& response) {
+        // Settled, so its deadline is no longer anybody's business. Safe to
+        // drop here because this runs from the inbound dispatch, never from
+        // inside the timer's own callback.
+        client_request_deadlines_.erase(key);
+        on_answer(response);
+      });
+
+  auto sent = stream->sendRequest(request);
+  if (holds_alternative<Error>(sent)) {
+    client_requests_.forget(request.id);
+    return sent;
+  }
+  ++server_stats_.requests_to_clients;
+
+  if (timeout.count() <= 0 || main_dispatcher_ == nullptr) {
+    // No deadline asked for, or nowhere to hang one. Either way the
+    // client now holds this request open for as long as it likes.
+    return makeVoidSuccess();
+  }
+
+  auto timer = main_dispatcher_->createTimer([this, key, request, on_answer]() {
+    // Whoever was waiting has to be told something, and told once. A
+    // waiter that is no longer registered was already told by the answer
+    // itself, and this has nothing left to do.
+    if (!client_requests_.forget(request.id)) {
+      return;
+    }
+
+    ++server_stats_.client_requests_timed_out;
+    GOPHER_LOG_WARN("No answer from the client to {} in time",
+                    requestIdKeyToString(key));
+    on_answer(jsonrpc::Response::make_error(
+        request.id,
+        Error(jsonrpc::INTERNAL_ERROR, "the client did not answer in time")));
+
+    // Not erased inline: this is running from inside that timer, and a
+    // timer must outlive its own callback.
+    main_dispatcher_->post(
+        [this, key]() { client_request_deadlines_.erase(key); });
+  });
+  timer->enableTimer(timeout);
+  client_request_deadlines_[key] = std::move(timer);
+  return makeVoidSuccess();
+}
+
 // ApplicationBase overrides
 void McpServer::initializeWorker(application::WorkerContext& worker) {
   // Initialize worker-specific resources
