@@ -961,6 +961,71 @@ void McpServer::broadcastNotification(
   }
 }
 
+void McpServer::dropSessionStream(const std::string& session_id,
+                                  std::function<void(bool)> done) {
+  auto report = [done](bool dropped) {
+    if (done) {
+      done(dropped);
+    }
+  };
+
+  if (!http_sse_factory_) {
+    // No endpoint of this kind on this listener, so no stream to drop.
+    report(false);
+    return;
+  }
+  auto sessions = http_sse_factory_->sessionManagerShared();
+  if (!sessions) {
+    report(false);
+    return;
+  }
+
+  // The caller names the session this server knows; the manager knows it
+  // under the id the client echoes, which is the one the stream hangs on.
+  auto session = session_manager_->getSession(session_id);
+  const std::string transport_id =
+      session ? session->getTransportSessionId() : session_id;
+  if (transport_id.empty()) {
+    report(false);
+    return;
+  }
+
+  if (!main_dispatcher_) {
+    report(false);
+    return;
+  }
+
+  auto dropped = std::make_shared<bool>(false);
+  sessions->withSession(
+      *main_dispatcher_, transport_id,
+      [dropped](transport::SessionCtx& ctx) {
+        auto* stream = transport::StreamableSessionManager::currentStream(ctx);
+        if (stream == nullptr || !stream->exchange ||
+            stream->dispatcher == nullptr) {
+          return;
+        }
+
+        // Finished on the wire, not merely forgotten. A stream taken out
+        // of the bookkeeping while its HTTP response stays open leaves the
+        // client holding something that has gone quiet, with no reason to
+        // come back — and takes its replay buffer with it, so there would
+        // be nothing to come back for.
+        //
+        // What is left behind is deliberate: the stream stays on the
+        // session until its retention window passes, so a client naming
+        // where it got to is still answered from it.
+        auto exchange = stream->exchange;
+        auto* where = stream->dispatcher;
+        if (where->isThreadSafe()) {
+          exchange->complete();
+        } else {
+          where->post([exchange]() { exchange->complete(); });
+        }
+        *dropped = true;
+      },
+      [report, dropped](bool found) { report(found && *dropped); });
+}
+
 VoidResult McpServer::askClient(
     const ResponseStreamPtr& stream,
     const jsonrpc::Request& request,

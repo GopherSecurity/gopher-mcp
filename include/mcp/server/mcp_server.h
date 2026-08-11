@@ -1088,6 +1088,26 @@ class McpServer : public application::ApplicationBase,
   void broadcastNotification(const jsonrpc::Notification& notification);
 
   /**
+   * Close the stream a session is holding, without ending the session.
+   *
+   * The session survives, its replay buffer survives, and anything said
+   * while nothing is connected waits for whatever connects next — so a
+   * client that comes back naming where it got to is given what it
+   * missed. That is the difference between this and ending the session,
+   * which throws all of it away.
+   *
+   * For making a client reconnect: to move it off a server about to go
+   * away, or to prove that coming back works.
+   *
+   * @return False when the session is unknown or was holding no stream.
+   *         Delivered asynchronously because the stream may belong to
+   *         another thread, and a caller with nothing to do afterwards
+   *         may pass nothing.
+   */
+  void dropSessionStream(const std::string& session_id,
+                         std::function<void(bool dropped)> done = nullptr);
+
+  /**
    * Ask the client something on the way to answering it.
    *
    * For the questions a server asks mid-request — sample this, elicit
