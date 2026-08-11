@@ -230,7 +230,7 @@ class StreamableHttpSessionsTest : public test::RealIoTestBase {
     ServerOptions options;
     runOnOtherWorker([&]() {
       other_factory_ = makeFactory(*other_dispatcher_, options);
-      other_factory_->setSessionManager(factory_->sessionManager());
+      other_factory_->setSessionManager(factory_->sessionManagerShared());
 
       auto pair = createSocketPair();
       auto local = network::Address::parseInternetAddress("127.0.0.1", 0);

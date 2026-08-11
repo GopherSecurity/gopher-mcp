@@ -297,7 +297,7 @@ class StreamableHttpGetStreamTest : public test::RealIoTestBase {
 
     runOnOtherWorker([&]() {
       other_factory_ = makeFactory(*other_dispatcher_, options_);
-      other_factory_->setSessionManager(factory_->sessionManager());
+      other_factory_->setSessionManager(factory_->sessionManagerShared());
     });
   }
 

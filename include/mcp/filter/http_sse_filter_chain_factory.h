@@ -301,6 +301,16 @@ class HttpSseFilterChainFactory : public network::FilterChainFactory {
   transport::StreamableSessionManager* sessionManager() const;
 
   /**
+   * The same manager, as something a reference can be held to.
+   *
+   * Handed to another factory that is to serve the same sessions: a
+   * borrowed raw pointer would leave that factory unable to say whether
+   * the manager is still there when one of its hops comes back.
+   */
+  std::shared_ptr<transport::StreamableSessionManager> sessionManagerShared()
+      const;
+
+  /**
    * Serve sessions someone else keeps, rather than a set of this
    * factory's own.
    *
@@ -309,7 +319,8 @@ class HttpSseFilterChainFactory : public network::FilterChainFactory {
    * that reconnects elsewhere has to find it. The manager is not owned
    * here and must outlive every connection built from this factory.
    */
-  void setSessionManager(transport::StreamableSessionManager* manager) {
+  void setSessionManager(
+      const std::shared_ptr<transport::StreamableSessionManager>& manager) {
     shared_session_manager_ = manager;
   }
 
@@ -442,10 +453,14 @@ class HttpSseFilterChainFactory : public network::FilterChainFactory {
   // The sessions these connections serve. Above the connection for the
   // same reason as the store: a session is what a client comes back to
   // after the connection it was created on has gone.
-  mutable std::unique_ptr<transport::StreamableSessionManager> session_manager_;
+  // Shared rather than owned outright: a session visit that hops to
+  // another thread holds the manager for the length of the visit, and
+  // it can only do that if the manager is something a reference can be
+  // held to.
+  mutable std::shared_ptr<transport::StreamableSessionManager> session_manager_;
   // Someone else's, when a deployment keeps one set of sessions across
   // several listeners. Not owned, and used instead of the one above.
-  transport::StreamableSessionManager* shared_session_manager_{nullptr};
+  std::shared_ptr<transport::StreamableSessionManager> shared_session_manager_;
   bool sessions_enabled_{true};
   std::chrono::milliseconds session_timeout_{300000};
   std::chrono::milliseconds closed_stream_retention_{60000};

@@ -174,7 +174,8 @@ struct SessionCtx {
  * The directory — id to owning dispatcher — is the one locked structure,
  * and it holds pointers only.
  */
-class StreamableSessionManager {
+class StreamableSessionManager
+    : public std::enable_shared_from_this<StreamableSessionManager> {
  public:
   /**
    * @param dispatcher The thread this manager was built on, which owns any
@@ -524,12 +525,6 @@ class StreamableSessionManager {
   size_t pending_limit_{256};
   ReplayAccountingPtr accounting_{std::make_shared<ReplayAccounting>()};
   bool running_{true};
-
-  // Held by every hop this manager posts to another thread, and let go
-  // of when it is destroyed. A hop cannot ask whether the manager is
-  // still running without touching it, so what a hop checks has to be
-  // something that outlives it.
-  std::shared_ptr<bool> alive_{std::make_shared<bool>(true)};
 };
 
 }  // namespace transport

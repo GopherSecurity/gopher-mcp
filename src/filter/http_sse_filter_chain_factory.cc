@@ -2076,17 +2076,25 @@ transport::StreamableSessionManager* HttpSseFilterChainFactory::sessionManager()
     // in, no connection here can mint one or believe one.
     return nullptr;
   }
-  if (shared_session_manager_ != nullptr) {
-    return shared_session_manager_;
+  if (shared_session_manager_) {
+    return shared_session_manager_.get();
   }
   if (!session_manager_) {
-    session_manager_.reset(
-        new transport::StreamableSessionManager(dispatcher_));
+    session_manager_ =
+        std::make_shared<transport::StreamableSessionManager>(dispatcher_);
     session_manager_->setTimeout(session_timeout_);
     session_manager_->setPendingLimit(pending_limit_);
     session_manager_->setClosedStreamRetention(closed_stream_retention_);
   }
   return session_manager_.get();
+}
+
+std::shared_ptr<transport::StreamableSessionManager>
+HttpSseFilterChainFactory::sessionManagerShared() const {
+  // Through the same lazy construction, so that asking for it this way
+  // and asking for it the other cannot end up with two.
+  (void)sessionManager();
+  return shared_session_manager_ ? shared_session_manager_ : session_manager_;
 }
 
 bool HttpSseFilterChainFactory::createFilterChain(

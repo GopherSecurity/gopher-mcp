@@ -81,7 +81,7 @@ class StreamableSessionManagerTest : public ::testing::Test {
     factory_ = event::createLibeventDispatcherFactory();
     owner_.reset(new DispatcherThread(*factory_, "session_owner"));
     other_.reset(new DispatcherThread(*factory_, "other_worker"));
-    manager_.reset(new StreamableSessionManager(owner_->dispatcher()));
+    manager_ = std::make_shared<StreamableSessionManager>(owner_->dispatcher());
   }
 
   void TearDown() override {
@@ -106,7 +106,9 @@ class StreamableSessionManagerTest : public ::testing::Test {
   event::DispatcherFactoryPtr factory_;
   std::unique_ptr<DispatcherThread> owner_;
   std::unique_ptr<DispatcherThread> other_;
-  std::unique_ptr<StreamableSessionManager> manager_;
+  // Shared, because a visit that hops threads holds the manager for
+  // the length of the visit and can only hold something shared.
+  std::shared_ptr<StreamableSessionManager> manager_;
 };
 
 // ===== The id itself =====

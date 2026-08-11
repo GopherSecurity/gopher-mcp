@@ -223,7 +223,8 @@ class StreamableHttpFilterTest : public ::testing::Test {
 
   /** Rebuild the filter as a server that keeps sessions. */
   void keepSessions(bool require_principal_match = true) {
-    sessions_.reset(new transport::StreamableSessionManager(*dispatcher_));
+    sessions_ =
+        std::make_shared<transport::StreamableSessionManager>(*dispatcher_);
     sessions_options_ = StreamableHttpOptions();
     sessions_options_.sessions = sessions_.get();
     sessions_options_.require_principal_match = require_principal_match;
@@ -294,7 +295,10 @@ class StreamableHttpFilterTest : public ::testing::Test {
   event::DispatcherPtr dispatcher_;
   std::unique_ptr<TestHost> host_;
   std::unique_ptr<transport::ExchangeRegistry> exchanges_;
-  std::unique_ptr<transport::StreamableSessionManager> sessions_;
+  // Shared, because a session visit that hops threads holds the
+  // manager for the length of the visit and can only do that if it is
+  // something a reference can be held to.
+  std::shared_ptr<transport::StreamableSessionManager> sessions_;
   std::unique_ptr<StreamableHttpFilter> filter_;
   std::unique_ptr<HttpCodecFilter> codec_;
 };

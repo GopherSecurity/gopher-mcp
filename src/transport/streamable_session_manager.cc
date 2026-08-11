@@ -50,10 +50,6 @@ StreamableSessionManager::StreamableSessionManager(
 
 StreamableSessionManager::~StreamableSessionManager() {
   running_ = false;
-  // Let go of what every posted hop is holding a weak reference to, so
-  // that a hop still queued on another thread finds out this manager is
-  // gone without having to touch it.
-  alive_.reset();
   // Disabled before anything else goes away, so a sweep that was already
   // scheduled cannot run against a half-destroyed manager.
   std::lock_guard<std::mutex> lock(directory_mutex_);
@@ -605,12 +601,36 @@ void StreamableSessionManager::withSession(event::Dispatcher& caller,
   }
 
   event::Dispatcher* caller_dispatcher = &caller;
-  std::weak_ptr<bool> alive = alive_;
-  owner->post([this, alive, id, fn, done, caller_dispatcher]() {
-    // Asked before anything of this manager is touched: checking a
-    // member to find out whether the manager is still there is reading
-    // the thing whose existence is in question.
-    if (alive.expired() || !running_) {
+  // A weak reference to this manager, not to a token standing for it.
+  // Asking a token whether the manager is alive and then using the
+  // manager is two steps with a gap between them, and destruction can
+  // happen in that gap. Holding the manager itself for the length of
+  // the visit closes the gap, because there is no moment where the
+  // answer is true and the object is gone.
+  std::weak_ptr<StreamableSessionManager> weak_self = weak_from_this();
+
+  // Empty here means this manager is not held by a shared_ptr, and a
+  // visit that cannot hold it cannot be made safe. Said loudly rather
+  // than quietly degraded: silently answering "no such session" for
+  // every cross-thread visit would look like sessions going missing,
+  // which is a much harder thing to find than this.
+  assert(!weak_self.expired() &&
+         "a session manager reached across threads must be owned by a "
+         "shared_ptr");
+  if (weak_self.expired()) {
+    GOPHER_LOG_ERROR(
+        "session manager is not shared-owned; a visit from another thread "
+        "cannot be made safe and is being refused");
+    if (done) {
+      done(false);
+    }
+    return;
+  }
+
+  owner->post([this, weak_self, id, fn, done, caller_dispatcher]() {
+    // Held, not merely checked, for as long as the visit lasts.
+    std::shared_ptr<StreamableSessionManager> self = weak_self.lock();
+    if (!self || !running_) {
       // Whoever is waiting is told, rather than left waiting: a request
       // parked on this answer would otherwise never be answered at all.
       if (done) {
