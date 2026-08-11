@@ -154,6 +154,16 @@ std::unique_ptr<http::HttpAsyncClient> ClassicProbe::clientFor(
     config.underlying_transport =
         transport::HttpSseTransportSocketConfig::UnderlyingTransport::SSL;
     transport::HttpSseTransportSocketConfig::SslConfig ssl;
+    // Judged exactly as the connection this is deciding for will be
+    // judged. A probe held to a stricter standard than the connection
+    // that follows it answers a question nobody asked: it would refuse
+    // a certificate the real connection goes on to accept, and report
+    // that as this server speaking nothing.
+    //
+    // What that standard should be is a separate question, and not one
+    // to settle here by accident — this follows createConnectionConfig,
+    // and changing it means changing both together and on purpose.
+    ssl.verify_peer = false;
     ssl.alpn_protocols = std::vector<std::string>{"http/1.1"};
     // The host to present, taken from the URL between the scheme and
     // whatever ends it.
