@@ -2041,13 +2041,23 @@ jsonrpc::Response McpServer::handleGetPrompt(const jsonrpc::Request& request,
 
   std::string name = get<std::string>(name_it->second);
 
-  // Extract optional arguments
-  // TODO: Properly handle nested metadata arguments
+  // Extract optional arguments. Nested objects do not fit in Metadata, so
+  // they arrive as the serialized form and are parsed back — the same way
+  // a tool call's arguments are, and for the same reason.
   optional<Metadata> arguments;
   auto args_it = params.find("arguments");
   if (args_it != params.end()) {
-    // For now, create empty metadata if arguments are present
-    arguments = mcp::make_optional(make<Metadata>().build());
+    arguments = mcp::make_optional(Metadata());
+    if (holds_alternative<std::string>(args_it->second)) {
+      try {
+        auto parsed = json::JsonValue::parse(get<std::string>(args_it->second));
+        arguments = mcp::make_optional(json::jsonToMetadata(parsed));
+      } catch (const json::JsonException&) {
+        // Unparseable arguments are no arguments. A prompt that needs one
+        // says so itself; refusing here would refuse a prompt that does
+        // not care.
+      }
+    }
   }
 
   // Get prompt

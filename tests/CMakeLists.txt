@@ -28,6 +28,7 @@ add_executable(test_empty_result_shape server/test_empty_result_shape.cc)
 add_executable(test_ask_client server/test_ask_client.cc)
 add_executable(test_deferred_handler server/test_deferred_handler.cc)
 add_executable(test_drop_session_stream server/test_drop_session_stream.cc)
+add_executable(test_prompt_arguments server/test_prompt_arguments.cc)
 # CORS tests
 # Event tests
 add_executable(test_event_loop event/test_event_loop.cc)
@@ -125,6 +126,7 @@ add_executable(test_client_transport_autodetect integration/test_client_transpor
 # absent, so that not having Node is not the same as being broken.
 add_executable(test_client_vs_official_server EXCLUDE_FROM_ALL
     interop/test_client_vs_official_server.cc)
+
 add_executable(test_builders core/test_builders.cc)
 
 # MCP Client threading tests 
@@ -333,6 +335,15 @@ target_link_libraries(test_deferred_handler
 )
 
 target_link_libraries(test_drop_session_stream
+    gopher-mcp
+    gopher-mcp-logging
+    gtest
+    gtest_main
+    Threads::Threads
+    fmt::fmt
+)
+
+target_link_libraries(test_prompt_arguments
     gopher-mcp
     gopher-mcp-logging
     gtest
@@ -931,6 +942,7 @@ target_link_libraries(test_client_vs_official_server
 target_compile_definitions(test_client_vs_official_server PRIVATE
     GOPHER_INTEROP_SERVER_DIR="${CMAKE_CURRENT_SOURCE_DIR}/interop/reference-server-ts")
 
+
 target_link_libraries(test_builders
     gopher-mcp
     gtest
@@ -1455,6 +1467,7 @@ add_test(NAME EmptyResultShapeTest COMMAND test_empty_result_shape)
 add_test(NAME AskClientTest COMMAND test_ask_client)
 add_test(NAME DeferredHandlerTest COMMAND test_deferred_handler)
 add_test(NAME DropSessionStreamTest COMMAND test_drop_session_stream)
+add_test(NAME PromptArgumentsTest COMMAND test_prompt_arguments)
 add_test(NAME EventLoopTest COMMAND test_event_loop)
 add_test(NAME TimerLifetimeTest COMMAND test_timer_lifetime)
 add_test(NAME DeferredDeleteOrderingTest COMMAND test_deferred_delete_ordering)
