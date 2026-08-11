@@ -142,12 +142,14 @@ class HttpAsyncClient::RequestContext
                  HttpRequest request,
                  ParsedUrl url,
                  HttpResponseCallback on_response,
-                 HttpErrorCallback on_error)
+                 HttpErrorCallback on_error,
+                 HttpHeadersCallback on_headers)
       : parent_(parent),
         request_(std::move(request)),
         url_(std::move(url)),
         on_response_(std::move(on_response)),
-        on_error_(std::move(on_error)) {}
+        on_error_(std::move(on_error)),
+        on_headers_(std::move(on_headers)) {}
 
   // Build the connection and codec filter, then initiate connect().
   // Caller must guarantee dispatcher-thread context.
@@ -264,6 +266,15 @@ class HttpAsyncClient::RequestContext
     if (response_.status_text.empty()) {
       response_.status_text = statusTextForCode(response_.status_code);
     }
+
+    // A caller that has seen enough is answered here rather than at an
+    // ending that may never come: an event stream is a response that
+    // stays open, and waiting for it to finish is waiting for the
+    // server to stop talking.
+    if (on_headers_ && !completed_ &&
+        on_headers_(response_.status_code, response_.headers)) {
+      complete();
+    }
   }
 
   void onBody(const std::string& data, bool end_stream) override {
@@ -280,7 +291,9 @@ class HttpAsyncClient::RequestContext
     }
   }
 
-  void onMessageComplete() override {
+  void onMessageComplete() override { complete(); }
+
+  void complete() {
     if (completed_) {
       return;
     }
@@ -367,6 +380,7 @@ class HttpAsyncClient::RequestContext
   ParsedUrl url_;
   HttpResponseCallback on_response_;
   HttpErrorCallback on_error_;
+  HttpHeadersCallback on_headers_;
   std::unique_ptr<network::ClientConnection> connection_;
   std::shared_ptr<filter::HttpCodecFilter> codec_filter_;
   HttpResponse response_;
@@ -394,7 +408,8 @@ HttpAsyncClient::~HttpAsyncClient() {
 
 bool HttpAsyncClient::send(const HttpRequest& request,
                            HttpResponseCallback on_response,
-                           HttpErrorCallback on_error) {
+                           HttpErrorCallback on_error,
+                           HttpHeadersCallback on_headers) {
   assert(dispatcher_.isThreadSafe() &&
          "HttpAsyncClient::send must be called from the dispatcher thread");
 
@@ -404,9 +419,9 @@ bool HttpAsyncClient::send(const HttpRequest& request,
     return false;
   }
 
-  auto ctx = std::make_unique<RequestContext>(*this, request, std::move(url),
-                                              std::move(on_response),
-                                              std::move(on_error));
+  auto ctx = std::make_unique<RequestContext>(
+      *this, request, std::move(url), std::move(on_response),
+      std::move(on_error), std::move(on_headers));
   auto* raw = ctx.get();
   active_requests_.emplace(raw, std::move(ctx));
   if (!raw->start()) {

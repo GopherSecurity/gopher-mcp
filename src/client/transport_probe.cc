@@ -233,6 +233,19 @@ void ClassicProbe::probe(const std::string& url, ProbeCallback done) {
       },
       [this](const std::string& error) {
         settle(ProbeResult::unreachable(error));
+      },
+      [](int status_code, const std::map<std::string, std::string>& headers) {
+        // An answer that arrives as a stream is an answer, and waiting
+        // for it to finish is waiting for the server to stop talking.
+        // Everything the ladder needs is in the headers by now: the
+        // status, the kind of answer, and the session it was given.
+        auto type = headers.find("content-type");
+        if (type == headers.end()) {
+          type = headers.find("Content-Type");
+        }
+        (void)status_code;
+        return type != headers.end() &&
+               type->second.find("text/event-stream") != std::string::npos;
       });
 
   if (!sent) {

@@ -36,6 +36,17 @@ struct HttpResponse {
 using HttpResponseCallback = std::function<void(HttpResponse)>;
 using HttpErrorCallback = std::function<void(const std::string& error)>;
 
+// Called as soon as a response's headers have been read, before any of
+// its body. Return true to be answered now, with whatever has arrived,
+// rather than when the message completes.
+//
+// This exists because some responses do not complete: a server that
+// answers with an event stream holds it open, and a caller that only
+// wanted to know what kind of answer it was would otherwise wait for an
+// ending that is not coming.
+using HttpHeadersCallback = std::function<bool(
+    int status_code, const std::map<std::string, std::string>& headers)>;
+
 /**
  * HttpAsyncClient — minimal fire-and-forget HTTP/1.1 client.
  *
@@ -69,7 +80,8 @@ class HttpAsyncClient {
    */
   bool send(const HttpRequest& request,
             HttpResponseCallback on_response,
-            HttpErrorCallback on_error);
+            HttpErrorCallback on_error,
+            HttpHeadersCallback on_headers = nullptr);
 
  private:
   class RequestContext;
