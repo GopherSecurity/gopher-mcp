@@ -97,7 +97,7 @@ Two flags change what the client has to cope with:
 
 ## Currently disabled, and why
 
-Three scenarios are disabled. They are left in place rather than deleted
+Two scenarios are disabled. They are left in place rather than deleted
 because they are the scenarios; what is wrong is on our side.
 
 - **`TheHandshakeIsAnsweredAndUnderstood`** and
@@ -108,13 +108,6 @@ because they are the scenarios; what is wrong is on our side.
   expected. The same limitation is noted in
   `tests/integration/test_mcp_client_initialize_routing.cc`. Enable both
   with the parser that closes it.
-- **`APushArrivesOnTheHeldStream`** passes on its own, every time, and
-  fails whenever another test has run before it in the same process.
-  The client now waits for the stream to be established rather than
-  assuming it, and the logs show the stream opening and the notice
-  arriving on the wire — but the handler does not see it. So the fault
-  is on this side, and it is about something outliving a test rather
-  than about the transport.
 
 ## What this suite does not cover
 

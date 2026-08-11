@@ -437,15 +437,14 @@ TEST_F(OfficialServerInteropTest, ProgressArrivesBeforeTheAnswer) {
 // Something the server says unprompted, which has nowhere to arrive
 // except a stream this client opened and is holding.
 //
-// DISABLED, and the reason is sharper than it was. It is not a race
-// with the stream being established: that is now waited for, and
-// removing the wait makes this fail differently, so the wait is doing
-// work. Run on its own it passes every time. Run after any other test
-// in this process it fails — and the logs show the stream opening, the
-// notice arriving on the wire, and the handler not seeing it. So the
-// fault is on this side and it is about something outliving a test,
-// not about the transport. Left here because it is the scenario.
-TEST_F(OfficialServerInteropTest, DISABLED_APushArrivesOnTheHeldStream) {
+// This was disabled for a while: it passed alone and failed after any
+// other test in the same process, with the stream open and the notice
+// on the wire but the handler never seeing it. That turned out to be a
+// session manager reached across threads outliving what was holding it;
+// the notice was going to a manager whose state had been freed. Fixing
+// the lifetime fixed this, which is the usual shape of a test that
+// fails only in company.
+TEST_F(OfficialServerInteropTest, APushArrivesOnTheHeldStream) {
   ASSERT_TRUE(server_.start());
   startClient();
   ASSERT_NO_THROW(handshake());
