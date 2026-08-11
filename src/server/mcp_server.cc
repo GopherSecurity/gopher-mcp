@@ -1623,9 +1623,11 @@ jsonrpc::Response McpServer::handleSubscribe(const jsonrpc::Request& request,
   // Subscribe to resource
   resource_manager_->subscribe(uri, session);
 
-  // Return empty success
+  // Nothing to say, which on the wire is an empty object. A null result
+  // is not an empty one: a peer validating against the schema cannot read
+  // it as a response at all.
   return jsonrpc::Response::success(request.id,
-                                    jsonrpc::ResponseResult(nullptr));
+                                    jsonrpc::ResponseResult(Metadata()));
 }
 
 jsonrpc::Response McpServer::handleUnsubscribe(const jsonrpc::Request& request,
@@ -1649,9 +1651,9 @@ jsonrpc::Response McpServer::handleUnsubscribe(const jsonrpc::Request& request,
   // Unsubscribe from resource
   resource_manager_->unsubscribe(uri, session);
 
-  // Return empty success
+  // Empty, and an object rather than a null — see handleSubscribe.
   return jsonrpc::Response::success(request.id,
-                                    jsonrpc::ResponseResult(nullptr));
+                                    jsonrpc::ResponseResult(Metadata()));
 }
 
 jsonrpc::Response McpServer::handleListTools(const jsonrpc::Request& request,

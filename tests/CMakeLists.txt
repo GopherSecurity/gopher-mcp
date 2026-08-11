@@ -24,6 +24,7 @@ add_executable(test_resource_read server/test_resource_read.cc)
 add_executable(test_session_manager_capacity server/test_session_manager_capacity.cc)
 add_executable(test_session_transport_binding server/test_session_transport_binding.cc)
 add_executable(test_legacy_dispatch_session server/test_legacy_dispatch_session.cc)
+add_executable(test_empty_result_shape server/test_empty_result_shape.cc)
 # CORS tests
 # Event tests
 add_executable(test_event_loop event/test_event_loop.cc)
@@ -293,6 +294,15 @@ target_link_libraries(test_session_transport_binding
 )
 
 target_link_libraries(test_legacy_dispatch_session
+    gopher-mcp
+    gopher-mcp-logging
+    gtest
+    gtest_main
+    Threads::Threads
+    fmt::fmt
+)
+
+target_link_libraries(test_empty_result_shape
     gopher-mcp
     gopher-mcp-logging
     gtest
@@ -1411,6 +1421,7 @@ add_test(NAME ResourceReadTest COMMAND test_resource_read)
 add_test(NAME SessionManagerCapacityTest COMMAND test_session_manager_capacity)
 add_test(NAME SessionTransportBindingTest COMMAND test_session_transport_binding)
 add_test(NAME LegacyDispatchSessionTest COMMAND test_legacy_dispatch_session)
+add_test(NAME EmptyResultShapeTest COMMAND test_empty_result_shape)
 add_test(NAME EventLoopTest COMMAND test_event_loop)
 add_test(NAME TimerLifetimeTest COMMAND test_timer_lifetime)
 add_test(NAME DeferredDeleteOrderingTest COMMAND test_deferred_delete_ordering)
