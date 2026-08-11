@@ -146,6 +146,32 @@ TEST_F(MCPSerializationTest, Tool) {
   testRoundTrip(legacy_tool);
 }
 
+// A tool takes no arguments as often as it takes some, and the schema
+// says every tool has an input schema regardless. Leaving the key out
+// costs more than the tool that omitted it: a peer validating a tool
+// list rejects the whole list, so one tool registered without a schema
+// puts every other tool on the server out of reach.
+TEST_F(MCPSerializationTest, ToolWithoutASchemaStillDeclaresOne) {
+  Tool no_schema("system_info");
+  JsonValue serialized = to_json(no_schema);
+
+  ASSERT_TRUE(serialized.contains("inputSchema"))
+      << "a tool must declare an input schema: " << serialized.toString();
+  EXPECT_TRUE(serialized["inputSchema"].isObject());
+  EXPECT_EQ(serialized["inputSchema"]["type"].getString(), "object")
+      << "the schema for no arguments is an object with no properties";
+
+  // And the one a tool actually declared is not touched.
+  Tool declared =
+      make<Tool>("weather")
+          .inputSchema(JsonValue::parse(
+              R"({"type":"object","properties":{"city":{"type":"string"}}})"))
+          .build();
+  JsonValue declared_json = to_json(declared);
+  EXPECT_TRUE(declared_json["inputSchema"].contains("properties"))
+      << "a declared schema must survive: " << declared_json.toString();
+}
+
 TEST_F(MCPSerializationTest, Prompt) {
   Prompt simple_prompt("greeting");
   testRoundTrip(simple_prompt);

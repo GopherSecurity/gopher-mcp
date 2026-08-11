@@ -380,6 +380,15 @@ JsonValue serialize_Tool(const Tool& tool) {
   if (tool.inputSchema.has_value()) {
     // inputSchema is already JsonValue
     builder.add("inputSchema", tool.inputSchema.value());
+  } else {
+    // Every tool has one, whether or not whoever registered it said so.
+    // A tool taking no arguments is an object with no properties, and
+    // leaving the key out entirely costs more than the tool that omitted
+    // it: a peer validating a tool list rejects the whole list, putting
+    // every other tool on the server out of reach.
+    JsonObjectBuilder empty_schema;
+    empty_schema.add("type", "object");
+    builder.add("inputSchema", empty_schema.build());
   }
 
   return builder.build();
