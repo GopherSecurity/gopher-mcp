@@ -607,17 +607,22 @@ void StreamableSessionManager::withSession(event::Dispatcher& caller,
   // happen in that gap. Holding the manager itself for the length of
   // the visit closes the gap, because there is no moment where the
   // answer is true and the object is gone.
-  std::weak_ptr<StreamableSessionManager> weak_self = weak_from_this();
-
-  // Empty here means this manager is not held by a shared_ptr, and a
-  // visit that cannot hold it cannot be made safe. Said loudly rather
-  // than quietly degraded: silently answering "no such session" for
-  // every cross-thread visit would look like sessions going missing,
-  // which is a much harder thing to find than this.
-  assert(!weak_self.expired() &&
-         "a session manager reached across threads must be owned by a "
-         "shared_ptr");
-  if (weak_self.expired()) {
+  // shared_from_this rather than weak_from_this, which does not exist
+  // before C++17 and this project builds at C++14. It throws where
+  // there is no shared owner, which is the same question asked a
+  // different way.
+  std::weak_ptr<StreamableSessionManager> weak_self;
+  try {
+    weak_self = shared_from_this();
+  } catch (const std::bad_weak_ptr&) {
+    // Not held by a shared_ptr, and a visit that cannot hold the
+    // manager cannot be made safe. Said loudly rather than quietly
+    // degraded: silently answering "no such session" for every visit
+    // from another thread would look like sessions going missing, which
+    // is a much harder thing to find than the mistake behind it.
+    assert(false &&
+           "a session manager reached across threads must be owned by a "
+           "shared_ptr");
     GOPHER_LOG_ERROR(
         "session manager is not shared-owned; a visit from another thread "
         "cannot be made safe and is being refused");
