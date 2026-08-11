@@ -403,6 +403,11 @@ void McpClient::shutdown() {
     return;
   }
   shutting_down_ = true;
+  // Said here rather than left to a stream event that is not coming:
+  // the callbacks are cut below, so nothing will report the stream
+  // closing, and a client that has stopped listening must not still
+  // claim the server can reach it.
+  server_stream_open_ = false;
 
   // Give the session back before anything is torn down. It happens
   // here, ahead of alive_ being dropped and the callbacks being cut,
@@ -1423,17 +1428,23 @@ void McpClient::failDetection(const std::string& reason) {
   if (legacy_probe_timer_) {
     legacy_probe_timer_->disableTimer();
   }
-  if (connection_manager_) {
-    connection_manager_->close();
-  }
 
   const std::string message =
       ladder_notes_.empty() ? reason : reason + " (" + ladder_notes_ + ")";
   GOPHER_LOG_ERROR("Could not work out what {} speaks: {}", current_uri_,
                    message);
 
+  // Answered before anything is torn down. Closing first raises a
+  // connection event that settles the answer itself — with the last
+  // thing that happened to a socket, rather than with what was learned
+  // about the server — and by the time this got to say anything there
+  // was nobody left to say it to.
   Error error(::mcp::jsonrpc::INTERNAL_ERROR, message);
   settleConnect(makeVoidError(error));
+
+  if (connection_manager_) {
+    connection_manager_->close();
+  }
   if (protocol_state_machine_) {
     protocol_state_machine_->handleError(error);
   }
@@ -2562,6 +2573,18 @@ void McpClient::handleConnectionEvent(network::ConnectionEvent event) {
     case network::ConnectionEvent::LocalClose:
       connected_ = false;
       client_stats_.connections_active--;
+
+      // A connection lost while the older transport is still proving
+      // itself is that attempt failing, not the connect failing. Saying
+      // so here would replace what was actually learned — which server
+      // said what, to which question — with the last thing that
+      // happened to the socket.
+      if (legacy_probing_) {
+        ladder_notes_ += "; GET: the connection closed";
+        failDetection(
+            "nothing at this address speaks a protocol this client knows");
+        break;
+      }
 
       // Fulfill the pending connect promise with error - connection failed
       {

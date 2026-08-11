@@ -877,6 +877,28 @@ void McpConnectionManager::onConnectionEvent(network::ConnectionEvent event) {
       transport.onConnected();
       processing_connected_event_ = false;
     }
+
+    // The older transport's handshake is a GET the client sends, and the
+    // codec sends it on the first write. That was fine while the first
+    // write was always some message the application wanted to send —
+    // and wrong the moment something needed the handshake to happen
+    // before there was anything to say. Working out whether a server
+    // speaks this transport is exactly that: it waits for the server to
+    // announce where to post, which cannot happen until the GET goes,
+    // which was waiting for traffic that the waiting itself prevented.
+    //
+    // An empty write is what asks the codec for it. Posted rather than
+    // written here, because this runs inside the connection's own
+    // callback loop.
+    if (config_.transport_type == TransportType::HttpSse && !is_server_) {
+      dispatcher_.post([this]() {
+        if (!active_connection_) {
+          return;
+        }
+        OwnedBuffer nudge;
+        active_connection_->write(nudge, false);
+      });
+    }
   } else if (event == network::ConnectionEvent::RemoteClose ||
              event == network::ConnectionEvent::LocalClose) {
     // Guard against duplicate close events - the transport stack may raise
