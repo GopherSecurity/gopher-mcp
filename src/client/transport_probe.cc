@@ -7,6 +7,7 @@
 #include "mcp/json/json_bridge.h"
 #include "mcp/logging/log_macros.h"
 #include "mcp/network/transport_socket.h"
+#include "mcp/transport/https_sse_transport_factory.h"
 
 #undef GOPHER_LOG_COMPONENT
 #define GOPHER_LOG_COMPONENT "client"
@@ -128,20 +129,58 @@ ClassicProbe::ClassicProbe(event::Dispatcher& dispatcher,
                            std::string client_version,
                            std::chrono::milliseconds timeout)
     : dispatcher_(dispatcher),
+      socket_interface_(socket_interface),
       timeout_(timeout),
       protocol_version_(std::move(protocol_version)),
       client_name_(std::move(client_name)),
-      client_version_(std::move(client_version)) {
-  http_.reset(new http::HttpAsyncClient(
-      dispatcher_, socket_interface,
-      std::unique_ptr<network::TransportSocketFactoryBase>(
-          new network::RawBufferTransportSocketFactory())));
+      client_version_(std::move(client_version)) {}
+
+std::unique_ptr<http::HttpAsyncClient> ClassicProbe::clientFor(
+    const std::string& url) {
+  // A question asked in plaintext of a server expecting TLS is not a
+  // question that gets an answer, and the silence would be read as this
+  // server not speaking anything — which is the wrong conclusion drawn
+  // from the wrong evidence.
+  const bool secure = url.compare(0, 8, "https://") == 0;
+
+  std::unique_ptr<network::TransportSocketFactoryBase> factory;
+  if (secure) {
+    transport::HttpSseTransportSocketConfig config;
+    config.mode = transport::HttpSseTransportSocketConfig::Mode::CLIENT;
+    config.underlying_transport =
+        transport::HttpSseTransportSocketConfig::UnderlyingTransport::SSL;
+    transport::HttpSseTransportSocketConfig::SslConfig ssl;
+    ssl.alpn_protocols = std::vector<std::string>{"http/1.1"};
+    // The host to present, taken from the URL between the scheme and
+    // whatever ends it.
+    const size_t host_start = 8;
+    size_t host_end = url.find('/', host_start);
+    if (host_end == std::string::npos) {
+      host_end = url.size();
+    }
+    std::string host = url.substr(host_start, host_end - host_start);
+    const size_t colon = host.rfind(':');
+    if (colon != std::string::npos) {
+      host = host.substr(0, colon);
+    }
+    if (!host.empty()) {
+      ssl.sni_hostname = mcp::make_optional(host);
+    }
+    config.ssl_config = mcp::make_optional(ssl);
+    factory = transport::createHttpsSseTransportFactory(config, dispatcher_);
+  } else {
+    factory.reset(new network::RawBufferTransportSocketFactory());
+  }
+
+  return std::unique_ptr<http::HttpAsyncClient>(new http::HttpAsyncClient(
+      dispatcher_, socket_interface_, std::move(factory)));
 }
 
 ClassicProbe::~ClassicProbe() = default;
 
 void ClassicProbe::probe(const std::string& url, ProbeCallback done) {
   done_ = std::move(done);
+  http_ = clientFor(url);
 
   // The introduction, spelled the way this transport spells it: both
   // content types accepted, because a server may answer either with a

@@ -219,7 +219,12 @@ class ClassicProbe : public TransportProbe {
   // first, and stop the other from reporting after it.
   void settle(const ProbeResult& result);
 
+  // Built per probe rather than once, because what carries the request
+  // depends on the URL being probed and the URL is not known until then.
+  std::unique_ptr<http::HttpAsyncClient> clientFor(const std::string& url);
+
   event::Dispatcher& dispatcher_;
+  network::SocketInterface& socket_interface_;
   std::chrono::milliseconds timeout_;
   std::string protocol_version_;
   std::string client_name_;
