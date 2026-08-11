@@ -113,6 +113,7 @@ add_executable(test_streamable_http_transport client/test_streamable_http_transp
 add_executable(test_streamable_http_client_session client/test_streamable_http_client_session.cc)
 add_executable(test_streamable_http_client_streams client/test_streamable_http_client_streams.cc)
 add_executable(test_transport_probe client/test_transport_probe.cc)
+add_executable(test_client_transport_autodetect integration/test_client_transport_autodetect.cc)
 
 # Interop: driven against a server built on the official SDK. Kept out of
 # `make test` because it needs Node and a package install; `make
@@ -872,6 +873,14 @@ target_link_libraries(test_transport_probe
     Threads::Threads
 )
 
+target_link_libraries(test_client_transport_autodetect
+    gopher-mcp
+    gopher-mcp-event
+    gtest
+    gtest_main
+    Threads::Threads
+)
+
 target_link_libraries(test_client_vs_official_server
     gopher-mcp
     gopher-mcp-event
@@ -1477,6 +1486,7 @@ add_test(NAME McpClientNotificationTest COMMAND test_mcp_client_notifications)
 add_test(NAME StreamableHttpClientSessionTest COMMAND test_streamable_http_client_session)
 add_test(NAME StreamableHttpClientStreamTest COMMAND test_streamable_http_client_streams)
 add_test(NAME TransportProbeTest COMMAND test_transport_probe)
+add_test(NAME TransportAutodetectTest COMMAND test_client_transport_autodetect)
 
 # New tests for recent fixes
 add_test(NAME ConnectionPoolCallbacksTest COMMAND test_connection_pool_callbacks)
