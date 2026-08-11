@@ -1134,6 +1134,46 @@ TEST_F(StreamableHttpFilterTest, AClientThatCannotReadAStreamIsToldSo) {
   EXPECT_TRUE(sessions_->find(id)->streams.empty());
 }
 
+// Saying nothing is not the same as saying yes. A GET here has exactly
+// one kind of answer, and a client that never named it has not asked for
+// one — where a POST that names nothing is only leaving the framing of
+// an ordinary answer to the server, which is why that stays served.
+TEST_F(StreamableHttpFilterTest, AClientThatSaidNothingIsNotGivenAStream) {
+  keepSessions();
+  feed(post("/mcp", kRequestBody));
+  const std::string id = sessionIdOnTheWire();
+  ASSERT_FALSE(id.empty());
+
+  wire_.clear();
+  feed(
+      "GET /mcp HTTP/1.1\r\n"
+      "Host: localhost\r\n"
+      "Mcp-Session-Id: " +
+      id +
+      "\r\n"
+      "Content-Length: 0\r\n\r\n");
+
+  EXPECT_EQ(wire_.find("HTTP/1.1 406 "), 0u) << wire_;
+  EXPECT_TRUE(sessions_->find(id)->streams.empty())
+      << "a stream was opened for a request that never asked for one";
+}
+
+// The same silence on a POST is left alone: there is nothing a client
+// has to name to be sent an ordinary answer.
+TEST_F(StreamableHttpFilterTest, APostThatSaidNothingIsStillAnswered) {
+  keepSessions();
+
+  feed(
+      "POST /mcp HTTP/1.1\r\n"
+      "Host: localhost\r\n"
+      "Content-Type: application/json\r\n"
+      "Content-Length: " +
+      std::to_string(std::string(kRequestBody).size()) + "\r\n\r\n" +
+      kRequestBody);
+
+  EXPECT_EQ(wire_.find("HTTP/1.1 200 "), 0u) << wire_;
+}
+
 TEST_F(StreamableHttpFilterTest, AStreamHasToNameASession) {
   keepSessions();
 

@@ -188,6 +188,18 @@ struct ExchangeClientContext {
   bool accepts_sse{true};
 
   /**
+   * Whether the request said anything at all about what it accepts.
+   *
+   * Kept apart from the two above because silence and consent are not the
+   * same answer, and which of them a missing header is depends on what is
+   * being asked. A request that leaves the framing of an ordinary answer
+   * to the server has said nothing and meant anything. A request for a
+   * stream has to name the one thing a stream is made of, so silence
+   * there is not a request for one.
+   */
+  bool stated_accept{false};
+
+  /**
    * Who the request is from, as resolved when it arrived.
    *
    * Recorded here rather than looked up later because a session is bound

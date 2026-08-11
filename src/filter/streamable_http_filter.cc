@@ -366,6 +366,7 @@ void StreamableHttpFilter::beginRequest(
   auto& client = exchange_->clientContext();
   auto accept = headers.find("accept");
   if (accept != headers.end() && !accept->second.empty()) {
+    client.stated_accept = true;
     client.accepts_json = mentions(accept->second, "application/json");
     client.accepts_sse = mentions(accept->second, "text/event-stream");
     if (!client.accepts_json) {
@@ -730,14 +731,17 @@ void StreamableHttpFilter::openEventStream(const Judgement& judged) {
   }
   const size_t live_streams = judged.live_get_streams;
 
-  if (!exchange_->clientContext().accepts_sse) {
-    // There is only one thing a GET here produces, and this client has
-    // said it cannot read it.
-    GOPHER_LOG_DEBUG("event stream refused: the client will not accept one");
+  const auto& client = exchange_->clientContext();
+  if (!client.stated_accept || !client.accepts_sse) {
+    // There is only one thing a GET here produces, so a client that has
+    // not asked for it by name has not asked for it — whether it named
+    // something else or named nothing at all.
+    GOPHER_LOG_DEBUG("event stream refused: the client did not ask for one{}",
+                     client.stated_accept ? "" : " (no Accept header)");
     respondWithError(static_cast<int>(http::HttpStatusCode::NotAcceptable),
                      jsonrpc::INVALID_REQUEST,
                      "Not Acceptable: this endpoint answers GET with "
-                     "text/event-stream");
+                     "text/event-stream, which this request did not ask for");
     abandonRequest();
     return;
   }
