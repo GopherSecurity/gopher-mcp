@@ -998,6 +998,38 @@ class McpServer : public application::ApplicationBase,
           handler,
       StreamingMode streaming);
 
+  /**
+   * A handler that answers whenever it can, rather than by returning.
+   *
+   * Given the stream its answer goes on, and told nothing about when to
+   * use it: it may answer before it returns, or minutes later from a
+   * callback. Nothing is sent on its behalf, so a handler that never
+   * calls sendResponse leaves the client waiting — which is the price of
+   * being allowed to wait for something itself.
+   *
+   * This is what a handler needing to ask the client something is
+   * registered as. Every connection this server accepts is on one
+   * dispatcher thread, and the client's answer arrives on a request that
+   * same thread has to accept, so a handler that blocked waiting for it
+   * would be waiting for itself.
+   */
+  using AsyncRequestHandler = std::function<void(
+      const jsonrpc::Request&, SessionContext&, const ResponseStreamPtr&)>;
+
+  /**
+   * Register one.
+   *
+   * @param streaming Optional serves a client that cannot read a stream by
+   *        answering it plainly; Required refuses such a client outright,
+   *        which is right for a handler that will ask it something. None
+   *        would leave the handler with nothing to answer on and is
+   *        treated as Optional.
+   */
+  void registerAsyncRequestHandler(
+      const std::string& method,
+      AsyncRequestHandler handler,
+      StreamingMode streaming = StreamingMode::Optional);
+
   /** What kind of response a request will need, asked before dispatch. */
   StreamingMode streamingFor(const jsonrpc::Request& request) const;
 
@@ -1116,6 +1148,13 @@ class McpServer : public application::ApplicationBase,
    * being dropped as unrecognized.
    */
   ClientRequestCorrelator& clientRequests() { return client_requests_; }
+
+  /**
+   * Stop tracking a request, by the key onRequestWithContext filed it
+   * under. For an answer that arrives after its dispatch returned, where
+   * there is no scope left to unwind.
+   */
+  void forgetPendingRequest(const std::string& key);
 
   // Request tracking helpers
   bool isRequestCancelled(const RequestId& id) const {
@@ -1377,6 +1416,10 @@ class McpServer : public application::ApplicationBase,
   std::map<std::string,
            std::function<void(const jsonrpc::Notification&, SessionContext&)>>
       notification_handlers_;
+  // Handlers that answer after their dispatch has returned. Looked up
+  // before the ones above, so a method registered both ways answers the
+  // way it was most recently registered rather than twice.
+  std::map<std::string, AsyncRequestHandler> async_request_handlers_;
   // Methods whose handler answers with more than one message. Absent means
   // None, so a handler registered without saying anything stays on the
   // unary path.

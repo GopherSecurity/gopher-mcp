@@ -32,6 +32,61 @@ namespace server {
 namespace {
 
 /**
+ * The stream a deferred handler answers on, with the request's own
+ * bookkeeping attached to it.
+ *
+ * A handler that answers by returning has an obvious end: the dispatch
+ * that called it. One that answers later has none, so the thing that has
+ * to happen when the request is finally over is hung on the only event
+ * that means it is — the response going out.
+ *
+ * A handler that never answers leaves the request outstanding, exactly as
+ * a handler that never returns would.
+ */
+class DeferredAnswer : public ResponseStream {
+ public:
+  DeferredAnswer(ResponseStreamPtr stream, std::function<void()> on_answered)
+      : stream_(std::move(stream)), on_answered_(std::move(on_answered)) {}
+
+  VoidResult sendNotification(
+      const jsonrpc::Notification& notification) override {
+    return stream_ ? stream_->sendNotification(notification) : noStream();
+  }
+
+  VoidResult sendRequest(const jsonrpc::Request& request) override {
+    return stream_ ? stream_->sendRequest(request) : noStream();
+  }
+
+  VoidResult sendResponse(const jsonrpc::Response& response) override {
+    if (!stream_) {
+      return noStream();
+    }
+    auto sent = stream_->sendResponse(response);
+    // Told once, whether or not the write reached anyone: the request is
+    // over either way, and a client that has gone is not a reason to keep
+    // accounting for it.
+    if (on_answered_) {
+      auto finished = std::move(on_answered_);
+      on_answered_ = nullptr;
+      finished();
+    }
+    return sent;
+  }
+
+  bool alive() const override { return stream_ && stream_->alive(); }
+
+ private:
+  static VoidResult noStream() {
+    return makeVoidError(
+        Error(jsonrpc::INTERNAL_ERROR,
+              "this request was dispatched with nowhere to answer it"));
+  }
+
+  ResponseStreamPtr stream_;
+  std::function<void()> on_answered_;
+};
+
+/**
  * Split "scheme://host:port" into the host and port a listener binds.
  *
  * An address with no host binds the loopback interface, which is what a
@@ -648,6 +703,7 @@ void McpServer::registerRequestHandler(
         handler) {
   std::lock_guard<std::mutex> lock(handlers_mutex_);
   request_handlers_[method] = handler;
+  async_request_handlers_.erase(method);
   streaming_methods_.erase(method);
 }
 
@@ -658,11 +714,30 @@ void McpServer::registerRequestHandler(
     StreamingMode streaming) {
   std::lock_guard<std::mutex> lock(handlers_mutex_);
   request_handlers_[method] = handler;
+  async_request_handlers_.erase(method);
   if (streaming == StreamingMode::None) {
     streaming_methods_.erase(method);
   } else {
     streaming_methods_[method] = streaming;
   }
+}
+
+void McpServer::registerAsyncRequestHandler(const std::string& method,
+                                            AsyncRequestHandler handler,
+                                            StreamingMode streaming) {
+  std::lock_guard<std::mutex> lock(handlers_mutex_);
+  async_request_handlers_[method] = std::move(handler);
+  request_handlers_.erase(method);
+  // A handler that answers later needs somewhere to answer, and None is
+  // the one mode that leaves it without one. Taken as Optional rather
+  // than refused: what was meant is not in doubt.
+  streaming_methods_[method] =
+      streaming == StreamingMode::None ? StreamingMode::Optional : streaming;
+}
+
+void McpServer::forgetPendingRequest(const std::string& key) {
+  std::lock_guard<std::mutex> lock(pending_requests_mutex_);
+  pending_requests_.erase(key);
 }
 
 StreamingMode McpServer::streamingFor(const jsonrpc::Request& request) const {
@@ -1223,6 +1298,43 @@ void McpServer::onRequestWithContext(const jsonrpc::Request& request,
   if (streamingFor(request) != StreamingMode::None) {
     stream = context.beginResponseStream();
     session->setResponseStream(stream);
+  }
+
+  // A handler that answers later takes the request off this thread's
+  // hands entirely: nothing is sent on its behalf here, and the dispatch
+  // ends with the client still waiting on a stream somebody else holds.
+  AsyncRequestHandler async_handler;
+  {
+    std::lock_guard<std::mutex> lock(handlers_mutex_);
+    auto it = async_request_handlers_.find(request.method);
+    if (it != async_request_handlers_.end()) {
+      async_handler = it->second;
+    }
+  }
+
+  if (async_handler) {
+    // The stream leaves the session for the same reason it was ever
+    // attached: it belongs to this request, and this request is not over.
+    session->setResponseStream(nullptr);
+
+    const std::string pending_key =
+        holds_alternative<std::string>(request.id)
+            ? get<std::string>(request.id)
+            : std::to_string(get<int64_t>(request.id));
+    auto answer = std::make_shared<DeferredAnswer>(
+        stream, [this, pending_key]() { forgetPendingRequest(pending_key); });
+
+    try {
+      async_handler(request, *session, answer);
+      server_stats_.requests_success++;
+    } catch (const std::exception& e) {
+      server_stats_.requests_failed++;
+      GOPHER_LOG_ERROR("Deferred handler for {} threw: {}", request.method,
+                       e.what());
+      answer->sendResponse(jsonrpc::Response::make_error(
+          request.id, Error(jsonrpc::INTERNAL_ERROR, e.what())));
+    }
+    return;
   }
 
   // Route request to appropriate handler
