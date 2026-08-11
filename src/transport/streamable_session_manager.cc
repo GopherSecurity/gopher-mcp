@@ -50,6 +50,10 @@ StreamableSessionManager::StreamableSessionManager(
 
 StreamableSessionManager::~StreamableSessionManager() {
   running_ = false;
+  // Let go of what every posted hop is holding a weak reference to, so
+  // that a hop still queued on another thread finds out this manager is
+  // gone without having to touch it.
+  alive_.reset();
   // Disabled before anything else goes away, so a sweep that was already
   // scheduled cannot run against a half-destroyed manager.
   std::lock_guard<std::mutex> lock(directory_mutex_);
@@ -601,8 +605,17 @@ void StreamableSessionManager::withSession(event::Dispatcher& caller,
   }
 
   event::Dispatcher* caller_dispatcher = &caller;
-  owner->post([this, id, fn, done, caller_dispatcher]() {
-    if (!running_) {
+  std::weak_ptr<bool> alive = alive_;
+  owner->post([this, alive, id, fn, done, caller_dispatcher]() {
+    // Asked before anything of this manager is touched: checking a
+    // member to find out whether the manager is still there is reading
+    // the thing whose existence is in question.
+    if (alive.expired() || !running_) {
+      // Whoever is waiting is told, rather than left waiting: a request
+      // parked on this answer would otherwise never be answered at all.
+      if (done) {
+        caller_dispatcher->post([done]() { done(false); });
+      }
       return;
     }
     SessionCtx* session = find(id);
@@ -613,12 +626,9 @@ void StreamableSessionManager::withSession(event::Dispatcher& caller,
     if (!done) {
       return;
     }
-    caller_dispatcher->post([this, done, found]() {
-      if (!running_) {
-        return;
-      }
-      done(found);
-    });
+    // The answer is the caller's, not this manager's, so it is not
+    // withheld because the manager has since gone.
+    caller_dispatcher->post([done, found]() { done(found); });
   });
 }
 
