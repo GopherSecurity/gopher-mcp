@@ -11,6 +11,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Breaking:** `HttpSseFilterChainFactory::setSessionManager` now takes a
+  `std::shared_ptr<transport::StreamableSessionManager>` rather than a raw
+  pointer, and `StreamableSessionManager` must be owned by a `shared_ptr`.
+  A session visit that crosses dispatcher threads holds the manager for the
+  length of the visit, which a borrowed pointer cannot express: without it
+  the manager could be destroyed mid-visit. Callers sharing one manager
+  between factories should use the new `sessionManagerShared()`. A manager
+  that is not shared-owned refuses cross-thread visits loudly rather than
+  reporting sessions as missing.
+
 ### Fixed
 
 ## [0.1.15] - 2026-07-26

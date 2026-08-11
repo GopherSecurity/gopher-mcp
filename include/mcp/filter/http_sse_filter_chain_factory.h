@@ -316,8 +316,15 @@ class HttpSseFilterChainFactory : public network::FilterChainFactory {
    *
    * For a deployment with more than one listener: a session belongs to
    * one conversation, not to the socket it was created on, so a client
-   * that reconnects elsewhere has to find it. The manager is not owned
-   * here and must outlive every connection built from this factory.
+   * that reconnects elsewhere has to find it.
+   *
+   * Takes a shared reference rather than a borrowed pointer, and that
+   * is a deliberate break for anyone calling this: a session visit that
+   * crosses threads holds the manager for the length of the visit, and
+   * it can only hold something shared. A caller passing a manager it
+   * owns outright has no way to say whether that manager still exists
+   * when the visit comes back. Use sessionManagerShared() to obtain one
+   * from another factory.
    */
   void setSessionManager(
       const std::shared_ptr<transport::StreamableSessionManager>& manager) {
