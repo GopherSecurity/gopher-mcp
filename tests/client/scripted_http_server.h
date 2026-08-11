@@ -191,9 +191,19 @@ inline std::string streamPrelude(
   return out;
 }
 
-/** One SSE event, chunk-framed so it can follow a prelude. */
-inline std::string streamEvent(const std::string& id, const std::string& data) {
+/**
+ * One SSE event, chunk-framed so it can follow a prelude.
+ *
+ * The event name matters for the older transport, whose whole handshake
+ * is an event called "endpoint"; the newer one leaves it unnamed.
+ */
+inline std::string streamEvent(const std::string& id,
+                               const std::string& data,
+                               const std::string& event_name = std::string()) {
   std::string frame;
+  if (!event_name.empty()) {
+    frame += "event: " + event_name + "\r\n";
+  }
   if (!id.empty()) {
     frame += "id: " + id + "\r\n";
   }

@@ -92,6 +92,15 @@ bool isInitializeAnswer(int status_code,
                         const std::string& body);
 
 /**
+ * True when a probe to this URL has to speak TLS.
+ *
+ * Its own function because it is the decision, and because the way it
+ * was wrong — every probe built in plaintext whatever the URL said —
+ * is invisible from outside the probe and would have stayed so.
+ */
+bool probeRequiresTls(const std::string& url);
+
+/**
  * What a probe found.
  *
  * NotModern carries what the server said, so the rung after this one

@@ -135,13 +135,17 @@ ClassicProbe::ClassicProbe(event::Dispatcher& dispatcher,
       client_name_(std::move(client_name)),
       client_version_(std::move(client_version)) {}
 
-std::unique_ptr<http::HttpAsyncClient> ClassicProbe::clientFor(
-    const std::string& url) {
+bool probeRequiresTls(const std::string& url) {
   // A question asked in plaintext of a server expecting TLS is not a
   // question that gets an answer, and the silence would be read as this
   // server not speaking anything — which is the wrong conclusion drawn
   // from the wrong evidence.
-  const bool secure = url.compare(0, 8, "https://") == 0;
+  return url.size() >= 8 && url.compare(0, 8, "https://") == 0;
+}
+
+std::unique_ptr<http::HttpAsyncClient> ClassicProbe::clientFor(
+    const std::string& url) {
+  const bool secure = probeRequiresTls(url);
 
   std::unique_ptr<network::TransportSocketFactoryBase> factory;
   if (secure) {

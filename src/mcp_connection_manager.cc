@@ -664,7 +664,18 @@ void McpConnectionManager::closeServerStream() {
   // Nothing is waiting on the way out: the stream is being given up, and
   // a flush would only delay that.
   going->close(network::ConnectionCloseType::NoFlush);
-  dispatcher_.deferredDelete(std::move(going));
+
+  // Deferred only where there is still a dispatcher to defer to.
+  // Teardown can reach here from whichever thread is tearing down, with
+  // the dispatcher's own thread already finished — and handing work to
+  // a loop that will never run again is worse than doing it here, since
+  // the callback frame this exists to get past has also already
+  // unwound.
+  if (dispatcher_.isThreadSafe()) {
+    dispatcher_.deferredDelete(std::move(going));
+  } else {
+    going.reset();
+  }
 }
 
 void McpConnectionManager::armStreamIdleWatchdog() {
@@ -719,7 +730,16 @@ void McpConnectionManager::close() {
   // Close active connection if any
   if (active_connection_) {
     if (active_connection_->state() != network::ConnectionState::Open) {
-      dispatcher_.deferredDelete(std::move(active_connection_));
+      // Deferred only where there is still a dispatcher to defer to:
+      // teardown can reach here after that thread has finished, and
+      // handing work to a loop that will never run again leaves the
+      // connection alive forever rather than getting past a callback
+      // frame that has itself already unwound.
+      if (dispatcher_.isThreadSafe()) {
+        dispatcher_.deferredDelete(std::move(active_connection_));
+      } else {
+        active_connection_.reset();
+      }
     } else {
       // Use NoFlush to avoid triggering writes during shutdown
       // FlushWrite can cause SSL close_notify to be sent which may access
