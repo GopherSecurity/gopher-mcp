@@ -201,7 +201,33 @@ void RetainedExchangeStore::scheduleRelease(
   // One timer re-armed as needed rather than one per exchange: a retained
   // exchange is a rare thing, and a timer each would be a lot of machinery
   // for something that only has to be roughly on time.
-  expiry_timer_->enableTimer(retention_);
+  armExpiryTimer();
+}
+
+void RetainedExchangeStore::armExpiryTimer() {
+  assertOnDispatcher();
+  if (!expiry_timer_ || expiring_.empty()) {
+    return;
+  }
+
+  // The soonest of them, not a fresh full window. Arming for the full
+  // retention on every arrival is what let a steady trickle of them push
+  // the timer out ahead of the oldest for as long as the trickle lasted,
+  // so nothing was ever released and "how long this is kept" meant
+  // nothing.
+  auto soonest = expiring_.front().second;
+  for (const auto& entry : expiring_) {
+    if (entry.second < soonest) {
+      soonest = entry.second;
+    }
+  }
+
+  const auto now = std::chrono::steady_clock::now();
+  const auto wait = soonest <= now
+                        ? std::chrono::milliseconds(0)
+                        : std::chrono::duration_cast<std::chrono::milliseconds>(
+                              soonest - now);
+  expiry_timer_->enableTimer(wait);
 }
 
 void RetainedExchangeStore::releaseExpired() {
@@ -240,18 +266,8 @@ void RetainedExchangeStore::releaseExpired() {
   }
   expired.clear();
 
-  if (!expiring_.empty() && expiry_timer_) {
-    // Something is still waiting; come back when the nearest one is due.
-    auto nearest = expiring_.front().second;
-    for (const auto& entry : expiring_) {
-      nearest = std::min(nearest, entry.second);
-    }
-    const auto remaining =
-        std::chrono::duration_cast<std::chrono::milliseconds>(nearest - now);
-    expiry_timer_->enableTimer(remaining > std::chrono::milliseconds(0)
-                                   ? remaining
-                                   : std::chrono::milliseconds(0));
-  }
+  // Something may still be waiting; come back when the nearest is due.
+  armExpiryTimer();
 }
 
 void RetainedExchangeStore::clear() {

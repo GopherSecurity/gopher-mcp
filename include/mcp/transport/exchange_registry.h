@@ -134,6 +134,12 @@ class RetainedExchangeStore {
   void assertOnDispatcher() const;
   void releaseExpired();
 
+  // Point the one timer at the soonest outstanding deadline. Called
+  // whenever that set changes, because arming it for a full window each
+  // time lets a steady trickle of arrivals push it out ahead of the
+  // oldest forever.
+  void armExpiryTimer();
+
   event::Dispatcher& dispatcher_;
   std::vector<RequestExchangePtr> exchanges_;
 
