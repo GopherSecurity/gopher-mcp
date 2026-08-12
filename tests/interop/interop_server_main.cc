@@ -31,12 +31,10 @@
  * the thread that has to accept the client's reply.
  */
 
-#include <atomic>
 #include <chrono>
 #include <cstdlib>
 #include <iostream>
 #include <memory>
-#include <signal.h>
 #include <string>
 #include <vector>
 
@@ -570,13 +568,6 @@ void registerSurface(InteropServer& server) {
       });
 }
 
-std::atomic<bool>* stopFlagStorage() {
-  static std::atomic<bool> stop{false};
-  return &stop;
-}
-
-void onSignal(int) { stopFlagStorage()->store(true); }
-
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -607,8 +598,10 @@ int main(int argc, char** argv) {
   InteropServer server(config);
   registerSurface(server);
 
-  signal(SIGTERM, onSignal);
-  signal(SIGINT, onSignal);
+  // No signal handler on purpose. This server runs until it is stopped
+  // from outside, and a handler that only set a flag nothing read would
+  // suppress the default action without replacing it — which is a server
+  // that ignores being asked to stop.
 
   const std::string address =
       "http://127.0.0.1:" + std::to_string(options.port);
