@@ -430,6 +430,9 @@ void McpServer::performListen() {
         // Whether a client is given something to come back with, and how
         // long it stays worth coming back with.
         http_sse_factory->setSessionConfig(config_.streamable_http);
+        // Where the endpoint asks which arguments a tool mirrors into
+        // headers, so a call can be held to both halves of that rule.
+        http_sse_factory->setDesignatedParams(&tool_designations_);
 
         // Tools can designate parameters to travel as request headers, and
         // a browser cannot send a header CORS preflight did not advertise.
@@ -736,6 +739,15 @@ void McpServer::registerAsyncRequestHandler(const std::string& method,
 void McpServer::forgetPendingRequest(const std::string& key) {
   std::lock_guard<std::mutex> lock(pending_requests_mutex_);
   pending_requests_.erase(key);
+}
+
+bool McpServer::ToolDesignations::paramsForTool(
+    const std::string& tool_name,
+    std::vector<protocol::modern::DesignatedParam>* out) const {
+  if (!server_.tool_registry_ || out == nullptr) {
+    return false;
+  }
+  return server_.tool_registry_->paramsForTool(tool_name, out);
 }
 
 bool McpServer::knowsMethod(const std::string& method) const {

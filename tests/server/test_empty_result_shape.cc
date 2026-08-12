@@ -164,6 +164,46 @@ TEST(ServerDiscover, ItNamesOnlyWhatIsActuallyServed) {
       << "a revision with nothing behind it was advertised: " << context.wire();
 }
 
+// A tool whose designations both ends cannot resolve identically is
+// refused, and the rest of the registry is unaffected: every call to it
+// would be rejected for a mismatch neither end introduced, and one bad
+// definition must not cost the others.
+TEST(ToolDesignations, AnUnusableDefinitionIsRefusedAndTheRestAreServed) {
+  DispatchTestServer server(testConfig());
+
+  Tool good("add");
+  good.inputSchema = mcp::make_optional(json::JsonValue::parse(
+      R"({"type":"object","properties":{"a":{"type":"integer"}}})"));
+  EXPECT_TRUE(server.registerTool(
+      good, [](const std::string&, const optional<Metadata>&, SessionContext&) {
+        return CallToolResult();
+      }));
+
+  Tool bad("execute_sql");
+  bad.inputSchema = mcp::make_optional(json::JsonValue::parse(
+      R"({"type":"object","properties":{
+          "n":{"type":"number","x-mcp-header":"N"}}})"));
+  EXPECT_FALSE(server.registerTool(bad, [](const std::string&,
+                                           const optional<Metadata>&,
+                                           SessionContext&) {
+    return CallToolResult();
+  })) << "a tool nobody could call correctly was registered";
+
+  CapturingContext context;
+  jsonrpc::Request request;
+  request.jsonrpc = "2.0";
+  request.id = make_request_id(1);
+  request.method = "tools/list";
+  server.onRequestWithContext(request, context);
+
+  ASSERT_TRUE(context.captured.has_value());
+  const std::string wire = context.wire();
+  EXPECT_NE(wire.find("\"add\""), std::string::npos)
+      << "a usable tool was lost with the unusable one: " << wire;
+  EXPECT_EQ(wire.find("execute_sql"), std::string::npos)
+      << "a refused tool was listed anyway: " << wire;
+}
+
 }  // namespace
 }  // namespace server
 }  // namespace mcp

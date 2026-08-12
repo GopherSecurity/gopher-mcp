@@ -337,7 +337,20 @@ class HttpSseFilterChainFactory : public network::FilterChainFactory {
   StreamableHttpOptions streamableOptions() const {
     StreamableHttpOptions options = streamable_options_;
     options.sessions = sessionManager();
+    options.designated_params = designated_params_;
     return options;
+  }
+
+  /**
+   * Where to ask which arguments a tool mirrors into headers.
+   *
+   * Borrowed, and expected to outlive this factory: it is the tool
+   * registry of the server the endpoint belongs to. Null is a deployment
+   * that designates none, and then none of the checking exists either.
+   */
+  void setDesignatedParams(
+      const protocol::modern::DesignatedParamLookup* lookup) {
+    designated_params_ = lookup;
   }
 
   /**
@@ -442,6 +455,9 @@ class HttpSseFilterChainFactory : public network::FilterChainFactory {
   std::string sse_path_;  // Server-side SSE endpoint path (e.g., "/sse")
   std::string rpc_path_;  // Server-side JSON-RPC endpoint path (e.g., "/mcp")
   std::string external_url_;  // External URL for absolute SSE callback URLs
+  // Where to ask which arguments a tool mirrors into headers. Borrowed;
+  // null is a deployment that designates none.
+  const protocol::modern::DesignatedParamLookup* designated_params_{nullptr};
   mutable bool enable_metrics_ = true;  // Enable metrics by default
 
   // SSE session registry — maps session IDs to the connections that are

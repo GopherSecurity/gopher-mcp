@@ -4,6 +4,8 @@
 
 #include "mcp/filter/streamable_http_filter.h"
 
+#include <cctype>
+
 #include "mcp/buffer.h"
 #include "mcp/http/http_parser.h"
 #include "mcp/json/json_bridge.h"
@@ -40,6 +42,14 @@ std::string requestPath(const std::map<std::string, std::string>& headers) {
   }
   const size_t query = path.find('?');
   return query == std::string::npos ? path : path.substr(0, query);
+}
+
+std::string lowered(const std::string& text) {
+  std::string out = text;
+  for (char& c : out) {
+    c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+  }
+  return out;
 }
 
 bool mentions(const std::string& header, const std::string& media_type) {
@@ -683,6 +693,10 @@ bool StreamableHttpFilter::validateModernRequest(
                   method_header + " and the body says " + method_name);
   }
 
+  if (!validateMirroredParams(message, method_name)) {
+    return false;
+  }
+
   if (protocol::modern::carriesName(method_name)) {
     const std::string field = protocol::modern::nameFieldFor(method_name);
     json::JsonValue named;
@@ -826,6 +840,76 @@ bool StreamableHttpFilter::settleProtocolVersion(
                        client.protocol_version + "; this server serves " +
                        served);
   return false;
+}
+
+bool StreamableHttpFilter::validateMirroredParams(
+    const json::JsonValue& message, const std::string& method_name) {
+  if (options_.designated_params == nullptr ||
+      method_name != protocol::modern::kMethodToolsCall) {
+    return true;
+  }
+
+  std::string tool;
+  json::JsonValue arguments = json::JsonValue::object();
+  if (message.contains("params") && message["params"].isObject()) {
+    const auto& params = message["params"];
+    if (params.contains("name") && params["name"].isString()) {
+      tool = params["name"].getString();
+    }
+    if (params.contains("arguments") && params["arguments"].isObject()) {
+      arguments = params["arguments"];
+    }
+  }
+
+  std::vector<protocol::modern::DesignatedParam> designated;
+  if (tool.empty() ||
+      !options_.designated_params->paramsForTool(tool, &designated)) {
+    // A tool this server does not have is not this check's business; the
+    // layer that owns the tools answers that, and refusing here would
+    // refuse it first and for the wrong reason.
+    return true;
+  }
+
+  const auto refuse = [this](const std::string& why) {
+    GOPHER_LOG_DEBUG("MCP endpoint refused a modern request: {}", why);
+    respondWithError(static_cast<int>(http::HttpStatusCode::BadRequest),
+                     protocol::modern::kHeaderMismatch, "Bad Request: " + why);
+    return false;
+  };
+
+  for (const auto& param : designated) {
+    const std::string header_key = lowered(param.headerName());
+    auto sent = mirrored_headers_.find(header_key);
+
+    json::JsonValue value;
+    const bool in_body =
+        protocol::modern::valueAtPath(arguments, param.path, &value);
+
+    if (!in_body) {
+      // Nothing to mirror, so nothing should have been sent. A header
+      // naming a value the call does not carry is one an intermediary
+      // could act on and this server never would.
+      if (sent != mirrored_headers_.end()) {
+        return refuse(param.headerName() +
+                      " was sent for an argument this call does not carry");
+      }
+      continue;
+    }
+
+    if (sent == mirrored_headers_.end()) {
+      // The half that is easy to miss. A value in the body with no header
+      // beside it means anything routing on that header saw nothing,
+      // which is exactly the split the mirroring exists to prevent.
+      return refuse(param.headerName() +
+                    " is missing for an argument this call carries");
+    }
+    if (!protocol::modern::headerMatchesValue(sent->second, value)) {
+      return refuse(param.headerName() + " value '" + sent->second +
+                    "' does not match the body");
+    }
+  }
+
+  return true;
 }
 
 bool StreamableHttpFilter::modernMethodExists(const std::string& method_name) {

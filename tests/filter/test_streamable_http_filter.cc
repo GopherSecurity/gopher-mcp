@@ -29,6 +29,7 @@
 #include "mcp/event/libevent_dispatcher.h"
 #include "mcp/filter/streamable_http_filter.h"
 #include "mcp/mcp_connection_manager.h"
+#include "mcp/protocol/designated_params.h"
 #include "mcp/protocol/modern_era.h"
 #include "mcp/protocol/protocol_versions.h"
 
@@ -994,6 +995,96 @@ TEST_F(StreamableHttpFilterTest, ASessionIdMeansNothingToAModernRequest) {
       << "a session was named to a revision that has none: " << wire_;
   EXPECT_EQ(callbacks_.session_at_request, "")
       << "an offered session id was believed";
+}
+
+/** A tool or two that designate an argument to be carried in a header. */
+class TestDesignations : public protocol::modern::DesignatedParamLookup {
+ public:
+  bool paramsForTool(
+      const std::string& tool_name,
+      std::vector<protocol::modern::DesignatedParam>* out) const override {
+    if (tool_name != "execute_sql") {
+      return false;
+    }
+    protocol::modern::DesignatedParam region;
+    region.header_name = "Region";
+    region.path = {"region"};
+    *out = {region};
+    return true;
+  }
+};
+
+// The mirroring is only worth anything while the header and the body
+// agree, so both halves are held to: a header that disagrees is refused,
+// and so is a body carrying a value whose header was left out. The second
+// is the half that is easy to miss, and it is the one where an
+// intermediary routing on the header saw nothing at all.
+TEST_F(StreamableHttpFilterTest, ADesignatedArgumentMustMatchItsHeader) {
+  TestDesignations designations;
+  StreamableHttpOptions options;
+  options.enable_modern_era = true;
+  options.protocol_versions = {protocol::kProtocolVersion20260728};
+  options.designated_params = &designations;
+  buildFilter(options);
+
+  const auto call = [this](const std::string& arguments,
+                           const std::string& extra_headers) {
+    wire_.clear();
+    callbacks_.requests.clear();
+    const std::string body =
+        std::string(
+            "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",") +
+        "\"params\":{\"name\":\"execute_sql\",\"arguments\":" + arguments +
+        "," + modernMeta() + "}}";
+    feed(post("/mcp", body,
+              modernHeaders("tools/call", "execute_sql") + extra_headers));
+  };
+
+  call(R"({"region":"us-west1"})", "Mcp-Param-Region: us-west1\r\n");
+  EXPECT_EQ(callbacks_.requests.size(), 1u)
+      << "a call whose header matched its body was refused: " << wire_;
+
+  call(R"({"region":"us-west1"})", "Mcp-Param-Region: us-east1\r\n");
+  EXPECT_TRUE(callbacks_.requests.empty()) << "a mismatched header was served";
+  EXPECT_EQ(wire_.find("HTTP/1.1 400 "), 0u) << wire_;
+
+  call(R"({"region":"us-west1"})", "");
+  EXPECT_TRUE(callbacks_.requests.empty())
+      << "a value in the body with no header beside it was served, so "
+         "anything routing on that header saw nothing";
+  EXPECT_EQ(wire_.find("HTTP/1.1 400 "), 0u) << wire_;
+
+  // An argument that was not given needs no header, and must not have
+  // one: a header naming a value the call does not carry is one an
+  // intermediary could act on and this server never would.
+  call(R"({"query":"SELECT 1"})", "");
+  EXPECT_EQ(callbacks_.requests.size(), 1u)
+      << "a call that designated nothing was refused: " << wire_;
+
+  call(R"({"query":"SELECT 1"})", "Mcp-Param-Region: us-west1\r\n");
+  EXPECT_TRUE(callbacks_.requests.empty())
+      << "a header was accepted for an argument the call never sent";
+}
+
+// A tool this server does not have is not this check's business: the
+// layer that owns the tools answers that, and refusing here would refuse
+// it first and for the wrong reason.
+TEST_F(StreamableHttpFilterTest, AToolWithNoDesignationsIsLeftAlone) {
+  TestDesignations designations;
+  StreamableHttpOptions options;
+  options.enable_modern_era = true;
+  options.protocol_versions = {protocol::kProtocolVersion20260728};
+  options.designated_params = &designations;
+  buildFilter(options);
+
+  const std::string body =
+      std::string("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",") +
+      "\"params\":{\"name\":\"something_else\",\"arguments\":{\"region\":\"x\"}"
+      "," +
+      modernMeta() + "}}";
+  feed(post("/mcp", body, modernHeaders("tools/call", "something_else")));
+
+  EXPECT_EQ(callbacks_.requests.size(), 1u) << wire_;
 }
 
 // A server that needs something from the client mid-request asks on the

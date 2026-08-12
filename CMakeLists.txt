@@ -505,6 +505,7 @@ set(MCP_CORE_SOURCES
     src/mcp_connection_manager.cc
     src/protocol/mcp_protocol_state_machine.cc
     src/protocol/header_sentinel.cc         # Header values that survive the trip
+    src/protocol/designated_params.cc       # Tool arguments mirrored into headers
     src/config/config_manager.cc
     src/config/file_config_source.cc
     src/config/config_merger.cc

@@ -45,6 +45,7 @@
 #include "mcp/mcp_application_base.h"  // TODO: Migrate to mcp_application_base_refactored.h
 #include "mcp/mcp_connection_manager.h"
 #include "mcp/network/filter.h"
+#include "mcp/protocol/designated_params.h"
 #include "mcp/transport/streamable_http_config.h"
 #include "mcp/types.h"
 
@@ -541,10 +542,45 @@ class ToolRegistry {
   ToolRegistry(McpServerStats& stats) : stats_(stats) {}
 
   // Register a tool
-  void registerTool(const Tool& tool, ToolHandler handler) {
+  /**
+   * Register a tool, unless its definition cannot be served.
+   *
+   * A tool whose schema designates arguments to be mirrored into headers
+   * in a way both ends cannot resolve identically is refused: every call
+   * to it would be rejected for a mismatch neither end introduced, and a
+   * tool nobody can call correctly is not a tool. The rest of the
+   * registry is unaffected, which is the same shape the protocol asks of
+   * a client reading such a definition — one bad tool must not cost the
+   * others.
+   *
+   * @return False when the tool was refused, with the reason logged.
+   */
+  bool registerTool(const Tool& tool, ToolHandler handler) {
+    std::vector<protocol::modern::DesignatedParam> designated;
+    auto usable = protocol::modern::designatedParams(tool, &designated);
+    if (!holds_alternative<std::nullptr_t>(usable)) {
+      GOPHER_LOG_ERROR("{}", get<Error>(usable).message);
+      return false;
+    }
+
     std::lock_guard<std::mutex> lock(mutex_);
     tools_[tool.name] = tool;
     tool_handlers_[tool.name] = handler;
+    designated_[tool.name] = std::move(designated);
+    return true;
+  }
+
+  /** The arguments a tool asks to have carried in headers as well. */
+  bool paramsForTool(
+      const std::string& tool_name,
+      std::vector<protocol::modern::DesignatedParam>* out) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto it = designated_.find(tool_name);
+    if (it == designated_.end()) {
+      return false;
+    }
+    *out = it->second;
+    return true;
   }
 
   // List all tools
@@ -598,6 +634,11 @@ class ToolRegistry {
   mutable std::mutex mutex_;
   std::map<std::string, Tool> tools_;
   std::map<std::string, ToolHandler> tool_handlers_;
+  // Derived once at registration rather than at each call: the schema
+  // does not change, and a call is not the moment to discover that a tool
+  // was never usable.
+  std::map<std::string, std::vector<protocol::modern::DesignatedParam>>
+      designated_;
   McpServerStats& stats_;
 };
 
@@ -1079,11 +1120,15 @@ class McpServer : public application::ApplicationBase,
   void notifyResourceUpdate(const std::string& uri);
 
   // Tool management
-  void registerTool(const Tool& tool,
+  /**
+   * @return False when the definition cannot be served and was refused,
+   *         with the reason logged. See ToolRegistry::registerTool.
+   */
+  bool registerTool(const Tool& tool,
                     std::function<CallToolResult(const std::string&,
                                                  const optional<Metadata>&,
                                                  SessionContext&)> handler) {
-    tool_registry_->registerTool(tool, handler);
+    return tool_registry_->registerTool(tool, handler);
   }
 
   // Prompt management
@@ -1445,6 +1490,24 @@ class McpServer : public application::ApplicationBase,
   // goes out of scope never fires, and dropped when the question is
   // settled either way. Dispatcher thread only, like the questions.
   std::map<RequestIdKey, event::TimerPtr> client_request_deadlines_;
+
+  /**
+   * The endpoint's way of asking the tool registry what a tool
+   * designates. An adapter rather than the registry itself, so the
+   * transport depends on a question rather than on where the answer is
+   * kept.
+   */
+  class ToolDesignations : public protocol::modern::DesignatedParamLookup {
+   public:
+    explicit ToolDesignations(McpServer& server) : server_(server) {}
+    bool paramsForTool(
+        const std::string& tool_name,
+        std::vector<protocol::modern::DesignatedParam>* out) const override;
+
+   private:
+    McpServer& server_;
+  };
+  ToolDesignations tool_designations_{*this};
 
   // Resource, tool, and prompt management
   std::unique_ptr<ResourceManager> resource_manager_;

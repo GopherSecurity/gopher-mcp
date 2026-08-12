@@ -11,6 +11,7 @@
 #include "mcp/filter/http_codec_filter.h"
 #include "mcp/filter/json_rpc_protocol_filter.h"
 #include "mcp/message_dispatch_context.h"
+#include "mcp/protocol/designated_params.h"
 #include "mcp/transport/exchange_registry.h"
 #include "mcp/transport/request_exchange.h"
 #include "mcp/transport/streamable_session_manager.h"
@@ -54,6 +55,17 @@ struct StreamableHttpOptions {
    * follow.
    */
   bool enable_modern_era{false};
+
+  /**
+   * Which arguments each tool asks to have mirrored into headers.
+   *
+   * Null designates none, which is every deployment that does not use
+   * the feature — and then none of the checking exists either. When it is
+   * set, the endpoint can hold a call to both halves of the rule: a
+   * header that disagrees with the body is refused, and so is a body
+   * carrying a value whose header was left out.
+   */
+  const protocol::modern::DesignatedParamLookup* designated_params{nullptr};
 
   /**
    * Whether a request must come from the caller its session was minted
@@ -347,6 +359,15 @@ class StreamableHttpFilter : public HttpCodecFilter::MessageCallbacks,
    *
    * @return False when the request has been answered and is over.
    */
+  /**
+   * Hold a tool call to both halves of the mirroring rule: what was sent
+   * must match the body, and what the body carries must have been sent.
+   *
+   * @return False when the request has been answered and is over.
+   */
+  bool validateMirroredParams(const json::JsonValue& message,
+                              const std::string& method_name);
+
   bool modernMethodExists(const std::string& method_name);
 
   /**
