@@ -17,6 +17,7 @@
 #include <string>
 #include <vector>
 
+#include "mcp/protocol/modern_era.h"
 #include "mcp/protocol/protocol_versions.h"
 
 namespace mcp {
@@ -106,7 +107,62 @@ struct StreamableHttpConfig {
 
   // Keep serving the older HTTP+SSE transport alongside this one.
   bool legacy_http_sse_enabled = true;
+
+  // Serve the revision that has no handshake: every request carrying its
+  // own version, caller and capabilities, no sessions, no standalone
+  // stream, nothing resumable.
+  //
+  // Off by default, and it is this flag rather than the list above that
+  // decides whether the revision is advertised — a version named in the
+  // list while the pipeline behind it is off would be offered to clients
+  // this server cannot then serve.
+  bool enable_modern_era = false;
 };
+
+/**
+ * The revisions this configuration actually serves.
+ *
+ * The list is what an operator asked for; this is what can be honoured.
+ * The newest revision appears only when the pipeline that serves it is
+ * switched on, and disappears when it is not, however the list was
+ * written.
+ */
+inline std::vector<std::string> servedProtocolVersions(
+    const StreamableHttpConfig& config) {
+  std::vector<std::string> served;
+  served.reserve(config.protocol_versions.size() + 1);
+  if (config.enable_modern_era) {
+    served.push_back(protocol::kProtocolVersion20260728);
+  }
+  for (const auto& version : config.protocol_versions) {
+    if (protocol::modern::isModernVersion(version)) {
+      // Named by an operator, but only the flag can turn it on.
+      continue;
+    }
+    served.push_back(version);
+  }
+  return served;
+}
+
+/**
+ * The revisions an `initialize` handshake may settle on.
+ *
+ * Never a modern one. The newest revision has no handshake at all, so a
+ * client that introduces itself cannot be answered with it — and a server
+ * that answered a version-less introduction with its newest supported
+ * revision would hand a classic client a version it has no way to speak.
+ */
+inline std::vector<std::string> handshakeProtocolVersions(
+    const std::vector<std::string>& supported) {
+  std::vector<std::string> classic;
+  classic.reserve(supported.size());
+  for (const auto& version : supported) {
+    if (!protocol::modern::isModernVersion(version)) {
+      classic.push_back(version);
+    }
+  }
+  return classic;
+}
 
 /**
  * Client-side Streamable HTTP settings.

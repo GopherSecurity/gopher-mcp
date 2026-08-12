@@ -98,6 +98,59 @@ TEST_F(StreamableHttpConfigTest, VersionConstants) {
   EXPECT_STREQ(kLegacyAssumedVersion, "2025-03-26");
 }
 
+// The newest revision is not served until the pipeline that serves it
+// exists. Advertising it earlier would offer clients a version this
+// server would then have to refuse every request in.
+TEST_F(StreamableHttpConfigTest, TheNewestRevisionIsOffUntilItIsOn) {
+  StreamableHttpConfig config;
+  ASSERT_FALSE(config.enable_modern_era) << "it must be opt-in";
+
+  auto served = servedProtocolVersions(config);
+  EXPECT_FALSE(isSupportedVersion(kProtocolVersion20260728, served));
+  EXPECT_TRUE(isSupportedVersion(kProtocolVersion20251125, served));
+
+  config.enable_modern_era = true;
+  served = servedProtocolVersions(config);
+  ASSERT_FALSE(served.empty());
+  EXPECT_EQ(served.front(), kProtocolVersion20260728)
+      << "the newest revision is the newest, so it comes first";
+  EXPECT_TRUE(isSupportedVersion(kProtocolVersion20251125, served))
+      << "turning it on stopped an older revision being served";
+}
+
+// And naming it in the list does not turn it on: the flag decides,
+// because the list is what an operator asked for and the flag is whether
+// the code behind it is there.
+TEST_F(StreamableHttpConfigTest, NamingTheNewestRevisionDoesNotEnableIt) {
+  StreamableHttpConfig config;
+  config.protocol_versions.insert(config.protocol_versions.begin(),
+                                  kProtocolVersion20260728);
+
+  const auto served = servedProtocolVersions(config);
+  EXPECT_FALSE(isSupportedVersion(kProtocolVersion20260728, served))
+      << "a revision was advertised with nothing behind it";
+}
+
+// An introduction can never settle on the newest revision, whatever else
+// this server serves: that era has no introduction. A client that named
+// no version would otherwise be told the server speaks something it has
+// no way to speak.
+TEST_F(StreamableHttpConfigTest, AnIntroductionNeverSettlesOnTheNewest) {
+  StreamableHttpConfig config;
+  config.enable_modern_era = true;
+
+  const auto handshake =
+      handshakeProtocolVersions(servedProtocolVersions(config));
+  EXPECT_FALSE(isSupportedVersion(kProtocolVersion20260728, handshake));
+  ASSERT_FALSE(handshake.empty());
+  EXPECT_EQ(negotiateProtocolVersion("", handshake), kProtocolVersion20251125)
+      << "a client that named no version was answered with an era it "
+         "cannot speak";
+  EXPECT_EQ(negotiateProtocolVersion(kProtocolVersion20250618, handshake),
+            kProtocolVersion20250618)
+      << "a version a classic client asked for stopped being echoed back";
+}
+
 TEST_F(StreamableHttpConfigTest, IsSupportedVersion) {
   StreamableHttpConfig config;
   const auto& supported = config.protocol_versions;

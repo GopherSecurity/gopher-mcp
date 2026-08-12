@@ -1741,8 +1741,14 @@ jsonrpc::Response McpServer::handleInitialize(const jsonrpc::Request& request,
 
   // Negotiate against the revisions we can serve. An empty list means the
   // single configured version is all we speak.
-  std::vector<std::string> supported =
-      config_.streamable_http.protocol_versions;
+  //
+  // Never a modern one, whatever this server also serves: that era has no
+  // handshake, so a client that introduced itself cannot speak it, and
+  // answering an introduction that named no version with the newest thing
+  // on the list would hand such a client a revision with no way to use
+  // it.
+  std::vector<std::string> supported = transport::handshakeProtocolVersions(
+      transport::servedProtocolVersions(config_.streamable_http));
   if (supported.empty()) {
     supported.push_back(config_.protocol_version);
   }

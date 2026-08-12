@@ -43,6 +43,19 @@ struct StreamableHttpOptions {
   std::vector<std::string> protocol_versions;
 
   /**
+   * Whether requests declaring the handshakeless revision are served by
+   * its rules rather than refused.
+   *
+   * Separate from the list above because the two answer different
+   * questions: the list says which revisions this endpoint will serve at
+   * all, and this says whether the pipeline that serves the newest one
+   * exists. With it off, a request declaring that revision is refused the
+   * way its own era expects rather than being served by rules it does not
+   * follow.
+   */
+  bool enable_modern_era{false};
+
+  /**
    * Whether a request must come from the caller its session was minted
    * for. Off means a session id alone is enough to be served as whoever
    * created it, which is only defensible where nothing distinguishes

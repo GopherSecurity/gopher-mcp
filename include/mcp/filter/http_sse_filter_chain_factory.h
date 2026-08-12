@@ -266,7 +266,9 @@ class HttpSseFilterChainFactory : public network::FilterChainFactory {
   void setSessionConfig(const transport::StreamableHttpConfig& config) {
     sessions_enabled_ = config.enable_sessions;
     session_timeout_ = config.session_timeout;
-    streamable_options_.protocol_versions = config.protocol_versions;
+    streamable_options_.protocol_versions =
+        transport::servedProtocolVersions(config);
+    streamable_options_.enable_modern_era = config.enable_modern_era;
     streamable_options_.require_principal_match =
         config.require_principal_match;
     streamable_options_.allow_client_termination =
