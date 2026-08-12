@@ -64,6 +64,24 @@ class CapturingContext : public NullMessageDispatchContext {
   std::shared_ptr<Stream> stream;
 };
 
+/**
+ * A transport that answers a request with exactly one message.
+ *
+ * Which is every transport but the Streamable HTTP endpoint: the base
+ * class returns nothing from beginResponseStream, and nothing here
+ * overrides it. There is no handle that outlives the dispatch, so there
+ * is nowhere for an answer to arrive later.
+ */
+class UnaryContext : public NullMessageDispatchContext {
+ public:
+  VoidResult sendResponse(const jsonrpc::Response& response) override {
+    answered.push_back(response);
+    return makeVoidSuccess();
+  }
+
+  std::vector<jsonrpc::Response> answered;
+};
+
 class DeferringServer : public McpServer {
  public:
   explicit DeferringServer(const McpServerConfig& config) : McpServer(config) {}
@@ -184,6 +202,31 @@ TEST(DeferredHandler, RegisteringOneWayRemovesTheOther) {
       << "the handler registered last did not answer";
   EXPECT_FALSE(context.stream)
       << "a handler answering by returning asked for a stream it never needs";
+}
+
+// A handler that answers later, on a transport with nowhere to answer
+// later into. Accepting it would leave the caller waiting for a reply
+// that was never going to come — the one outcome worse than a refusal.
+TEST(DeferredHandler, ATransportThatCannotHoldAnAnswerIsRefusedNotHung) {
+  DeferringServer server(testConfig());
+  UnaryContext context;
+
+  bool called = false;
+  server.registerAsyncRequestHandler(
+      "tools/call", [&called](const jsonrpc::Request&, SessionContext&,
+                              const ResponseStreamPtr&) { called = true; });
+
+  server.onRequestWithContext(call(1, "tools/call"), context);
+
+  EXPECT_FALSE(called)
+      << "a handler was started with nowhere to put its answer";
+  ASSERT_EQ(context.answered.size(), 1u)
+      << "the caller was left waiting for an answer that cannot come";
+  ASSERT_TRUE(context.answered[0].error.has_value())
+      << "a request that will never be answered was reported as answered";
+  ASSERT_TRUE(holds_alternative<int64_t>(context.answered[0].id));
+  EXPECT_EQ(get<int64_t>(context.answered[0].id), 1)
+      << "the refusal answers a different request than the one refused";
 }
 
 }  // namespace

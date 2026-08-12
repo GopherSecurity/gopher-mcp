@@ -58,13 +58,10 @@ class DeferredAnswer : public ResponseStream {
   }
 
   VoidResult sendResponse(const jsonrpc::Response& response) override {
-    if (!stream_) {
-      return noStream();
-    }
-    auto sent = stream_->sendResponse(response);
+    auto sent = stream_ ? stream_->sendResponse(response) : noStream();
     // Told once, whether or not the write reached anyone: the request is
-    // over either way, and a client that has gone is not a reason to keep
-    // accounting for it.
+    // over either way, and a client that has gone — or a stream that was
+    // never there — is not a reason to keep accounting for it.
     if (on_answered_) {
       auto finished = std::move(on_answered_);
       on_answered_ = nullptr;
@@ -1364,6 +1361,34 @@ void McpServer::onRequestWithContext(const jsonrpc::Request& request,
     if (it != async_request_handlers_.end()) {
       async_handler = it->second;
     }
+  }
+
+  if (async_handler && !stream) {
+    // Nothing here can hold an answer open. A transport that answers a
+    // request with exactly one message has no handle that outlives this
+    // dispatch, so a handler answering later would answer into nothing
+    // and the client would wait for a reply that was never going to
+    // come. Refused now, on the return path that is still good, rather
+    // than accepted and abandoned.
+    server_stats_.requests_failed++;
+    GOPHER_LOG_ERROR(
+        "'{}' is registered to answer later, and this transport cannot hold "
+        "an answer open; refusing rather than leaving the caller waiting",
+        request.method);
+    auto refusal = jsonrpc::Response::make_error(
+        request.id,
+        Error(jsonrpc::INTERNAL_ERROR,
+              "This method answers asynchronously, which this transport "
+              "cannot carry"));
+    auto sent = context.sendResponse(refusal);
+    if (holds_alternative<Error>(sent)) {
+      GOPHER_LOG_ERROR("Failed to refuse '{}': {}", request.method,
+                       get<Error>(sent).message);
+    }
+    forgetPendingRequest(holds_alternative<std::string>(request.id)
+                             ? get<std::string>(request.id)
+                             : std::to_string(get<int64_t>(request.id)));
+    return;
   }
 
   if (async_handler) {

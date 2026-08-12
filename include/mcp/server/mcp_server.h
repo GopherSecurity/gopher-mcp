@@ -1012,6 +1012,13 @@ class McpServer : public application::ApplicationBase,
    * dispatcher thread, and the client's answer arrives on a request that
    * same thread has to accept, so a handler that blocked waiting for it
    * would be waiting for itself.
+   *
+   * **Needs a transport that can hold an answer open**, which today means
+   * the Streamable HTTP endpoint. One that answers a request with exactly
+   * one message has no handle outliving the dispatch, so a request for
+   * such a method arriving there is refused with an error rather than
+   * accepted and left unanswered — a hung request being the one outcome
+   * worse than a refusal.
    */
   using AsyncRequestHandler = std::function<void(
       const jsonrpc::Request&, SessionContext&, const ResponseStreamPtr&)>;
