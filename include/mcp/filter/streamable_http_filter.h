@@ -323,6 +323,16 @@ class StreamableHttpFilter : public HttpCodecFilter::MessageCallbacks,
   void settleMintedSession(const jsonrpc::Response& response);
 
   /**
+   * Take what a modern request says about itself out of its body.
+   *
+   * The version, the caller and the caller's capabilities travel in
+   * `params._meta` because that era has no introduction to have said them
+   * in. Read before anything is judged — reading is not accepting, and
+   * what the body says is what the header is then compared against.
+   */
+  void readModernContext(const json::JsonValue& message);
+
+  /**
    * Settle which protocol revision this request is speaking, and refuse it
    * if that is one this server cannot serve.
    *
@@ -441,6 +451,11 @@ class StreamableHttpFilter : public HttpCodecFilter::MessageCallbacks,
   // request rather than remembered per connection: the whole point of it
   // is that this is not the connection the events were sent on.
   std::string last_event_id_;
+  // What the body said its protocol version was, which in the modern era
+  // is where the version actually lives. Kept apart from the one on the
+  // exchange so the two can be compared rather than one overwriting the
+  // other. Empty when the body said nothing.
+  std::string body_protocol_version_;
   // Set only for a request that created its session, which is the one
   // request whose answer decides whether that session survives.
   std::string minted_session_id_;

@@ -10,6 +10,8 @@
 #include "mcp/json/json_serialization.h"
 #include "mcp/logging/log_macros.h"
 #include "mcp/mcp_connection_manager.h"
+#include "mcp/protocol/header_sentinel.h"
+#include "mcp/protocol/modern_era.h"
 #include "mcp/protocol/protocol_versions.h"
 
 namespace mcp {
@@ -414,6 +416,12 @@ void StreamableHttpFilter::beginRequest(
 
   client.protocol_version =
       headerOr(headers, "mcp-protocol-version", client.protocol_version);
+  // Settled from the header alone, and settled now: a GET or a DELETE has
+  // no body to say it again, and the answer those get depends on which
+  // era asked.
+  client.era = protocol::modern::isModernVersion(client.protocol_version)
+                   ? transport::ProtocolEra::Modern
+                   : transport::ProtocolEra::Classic;
   client.principal = host_.principal();
 
   // What the client says it last saw. Judged against the session, so it
@@ -523,12 +531,63 @@ void StreamableHttpFilter::finishRequest() {
     method_name = message["method"].getString();
   }
 
+  // Read before the version is judged, because in the modern era the body
+  // is where the version is actually declared and the header only mirrors
+  // it. Reading it is not accepting it: what the two say is compared next.
+  readModernContext(message);
+
   if (!settleProtocolVersion(method_name)) {
     abandonRequest();
     return;
   }
 
   validateThenDispatch(method_name);
+}
+
+void StreamableHttpFilter::readModernContext(const json::JsonValue& message) {
+  if (!exchange_) {
+    return;
+  }
+  auto& client = exchange_->clientContext();
+
+  if (!message.contains("params") || !message["params"].isObject()) {
+    return;
+  }
+  const auto& params = message["params"];
+  if (!params.contains("_meta") || !params["_meta"].isObject()) {
+    return;
+  }
+  const auto& meta = params["_meta"];
+
+  // The version in the body is the one that counts; the header mirrors
+  // it. Taken here so that the comparison between them has something to
+  // compare, and so that the era is settled by the body on a transport
+  // where the header could have been rewritten in flight.
+  if (meta.contains(protocol::modern::kMetaProtocolVersion) &&
+      meta[protocol::modern::kMetaProtocolVersion].isString()) {
+    body_protocol_version_ =
+        meta[protocol::modern::kMetaProtocolVersion].getString();
+    // A body declaring the modern revision is a modern request even if
+    // its header does not say so — that is a modern client with a
+    // missing header, and it has to be told which of those it is rather
+    // than quietly served by the older rules.
+    if (protocol::modern::isModernVersion(body_protocol_version_)) {
+      client.era = transport::ProtocolEra::Modern;
+    }
+  }
+
+  // Kept as they arrived. Neither is the transport's business beyond
+  // carrying it; whoever needs a field parses what it needs.
+  if (meta.contains(protocol::modern::kMetaClientInfo) &&
+      meta[protocol::modern::kMetaClientInfo].isObject()) {
+    client.client_info =
+        mcp::make_optional(meta[protocol::modern::kMetaClientInfo].toString());
+  }
+  if (meta.contains(protocol::modern::kMetaClientCapabilities) &&
+      meta[protocol::modern::kMetaClientCapabilities].isObject()) {
+    client.client_capabilities = mcp::make_optional(
+        meta[protocol::modern::kMetaClientCapabilities].toString());
+  }
 }
 
 bool StreamableHttpFilter::settleProtocolVersion(
@@ -1139,6 +1198,7 @@ void StreamableHttpFilter::abandonRequest() {
   }
   body_.clear();
   session_id_.clear();
+  body_protocol_version_.clear();
   minted_session_id_.clear();
   method_.clear();
   carried_ = Carried::Nothing;

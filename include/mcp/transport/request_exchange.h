@@ -165,9 +165,43 @@ class CancellationToken {
  * without a handshake has no session-establishing moment to record it at —
  * every request states its own terms.
  */
+/**
+ * Which set of rules a request is served by.
+ *
+ * Classic is everything up to and including 2025-11-25: a client
+ * introduces itself, the server may mint a session, and both are carried
+ * for the length of the conversation. Modern is the revision that has no
+ * introduction — each request declares its own version, caller and
+ * capabilities and stands alone.
+ *
+ * Settled once, from the version the request declares, before anything
+ * else looks at it. Every difference between the two hangs off this, so
+ * that the older era cannot be changed by accident while the newer one is
+ * being built.
+ */
+enum class ProtocolEra { Classic, Modern };
+
 struct ExchangeClientContext {
   /** Protocol revision in force for this request. */
   std::string protocol_version;
+
+  /** Which era's rules that revision belongs to. */
+  ProtocolEra era{ProtocolEra::Classic};
+
+  /**
+   * Who is calling and what they can do, as this request declared it.
+   *
+   * Only the modern era carries these: with no introduction there is
+   * nowhere else for them to have been said. Both are held as they
+   * arrived, serialized, like the metadata above — the transport does not
+   * need to understand them, and whoever does can parse what it needs.
+   *
+   * The caller's identity is optional and its absence is not a fault. A
+   * request that never says who is calling is served like any other; only
+   * the version decides whether it can be served at all.
+   */
+  optional<std::string> client_info;
+  optional<std::string> client_capabilities;
   /**
    * The request's params._meta, still in its serialized form. Nested JSON
    * arrives stringified, so it is carried as it came and parsed by whoever

@@ -28,6 +28,7 @@
 #include "mcp/event/libevent_dispatcher.h"
 #include "mcp/filter/streamable_http_filter.h"
 #include "mcp/mcp_connection_manager.h"
+#include "mcp/protocol/modern_era.h"
 #include "mcp/protocol/protocol_versions.h"
 
 namespace mcp {
@@ -232,6 +233,30 @@ class StreamableHttpFilterTest : public ::testing::Test {
   }
 
   StreamableHttpOptions sessions_options_;
+
+  /** An endpoint that serves the revision with no handshake as well. */
+  void serveModernEra() {
+    StreamableHttpOptions options;
+    options.enable_modern_era = true;
+    options.protocol_versions = {protocol::kProtocolVersion20260728,
+                                 protocol::kProtocolVersion20251125,
+                                 protocol::kProtocolVersion20250618};
+    buildFilter(options);
+  }
+
+  /** The `_meta` a modern request carries, with or without a caller. */
+  static std::string modernMeta(bool with_client_info = true) {
+    std::string meta = std::string("\"_meta\":{\"") +
+                       protocol::modern::kMetaProtocolVersion + "\":\"" +
+                       protocol::kProtocolVersion20260728 + "\"";
+    if (with_client_info) {
+      meta += std::string(",\"") + protocol::modern::kMetaClientInfo +
+              "\":{\"name\":\"ExampleClient\",\"version\":\"1.0.0\"}";
+    }
+    meta += std::string(",\"") + protocol::modern::kMetaClientCapabilities +
+            "\":{\"roots\":{}}}";
+    return meta;
+  }
 
   /** The session id the last answer handed back, if it handed one back. */
   std::string sessionIdOnTheWire() const {
@@ -645,6 +670,89 @@ TEST_F(StreamableHttpFilterTest, AHandlerKeepsItsStreamAfterTheDispatchEnds) {
   EXPECT_NE(tail.find("\"result\""), std::string::npos) << tail;
   EXPECT_FALSE(callbacks_.stream->alive())
       << "the response was the last thing the stream had to say";
+}
+
+// ── The era with no handshake ──────────────────────────────────────────
+
+// With no introduction, everything a server would have learned from one
+// arrives on every request instead. What it says about itself has to
+// reach the exchange, or nothing downstream can gate on it.
+TEST_F(StreamableHttpFilterTest, AModernRequestSaysWhoIsCallingOnEveryOne) {
+  serveModernEra();
+
+  const std::string body = std::string(
+                               "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":"
+                               "\"tools/list\",\"params\":{") +
+                           modernMeta() + "}}";
+  feed(post("/mcp", body,
+            std::string("MCP-Protocol-Version: ") +
+                protocol::kProtocolVersion20260728 + "\r\n"));
+
+  ASSERT_EQ(callbacks_.requests.size(), 1u) << wire_;
+  const auto& client = callbacks_.client_at_request;
+  EXPECT_EQ(client.era, transport::ProtocolEra::Modern);
+  EXPECT_EQ(client.protocol_version, protocol::kProtocolVersion20260728);
+
+  ASSERT_TRUE(client.client_info.has_value())
+      << "the caller named itself and the exchange did not hear it";
+  EXPECT_NE(client.client_info->find("ExampleClient"), std::string::npos);
+  ASSERT_TRUE(client.client_capabilities.has_value())
+      << "what the caller can do never reached the exchange";
+  EXPECT_NE(client.client_capabilities->find("roots"), std::string::npos);
+}
+
+// Naming yourself is optional, and a request that does not is served like
+// any other. Only the version decides whether it can be served at all.
+TEST_F(StreamableHttpFilterTest, AModernRequestNeedNotSayWhoIsCalling) {
+  serveModernEra();
+
+  const std::string body = std::string(
+                               "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":"
+                               "\"tools/list\",\"params\":{") +
+                           modernMeta(/*with_client_info=*/false) + "}}";
+  feed(post("/mcp", body,
+            std::string("MCP-Protocol-Version: ") +
+                protocol::kProtocolVersion20260728 + "\r\n"));
+
+  ASSERT_EQ(callbacks_.requests.size(), 1u)
+      << "a request that did not name its caller was refused: " << wire_;
+  const auto& client = callbacks_.client_at_request;
+  EXPECT_EQ(client.era, transport::ProtocolEra::Modern);
+  EXPECT_FALSE(client.client_info.has_value())
+      << "a caller that said nothing about itself was reported as having";
+  EXPECT_TRUE(client.client_capabilities.has_value());
+}
+
+// And a request from the older era is untouched by any of it.
+TEST_F(StreamableHttpFilterTest, AClassicRequestIsStillClassic) {
+  serveModernEra();
+
+  feed(post("/mcp", kRequestBody,
+            std::string("MCP-Protocol-Version: ") +
+                protocol::kProtocolVersion20250618 + "\r\n"));
+
+  ASSERT_EQ(callbacks_.requests.size(), 1u) << wire_;
+  const auto& client = callbacks_.client_at_request;
+  EXPECT_EQ(client.era, transport::ProtocolEra::Classic);
+  EXPECT_FALSE(client.client_info.has_value());
+  EXPECT_FALSE(client.client_capabilities.has_value());
+}
+
+// A server that serves a standalone stream to a request that never asked for
+// one
+TEST_F(StreamableHttpFilterTest, AModernBodyWithoutItsHeaderIsStillModern) {
+  serveModernEra();
+
+  const std::string body = std::string(
+                               "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":"
+                               "\"tools/list\",\"params\":{") +
+                           modernMeta() + "}}";
+  feed(post("/mcp", body));
+
+  // Which era it belongs to is not in doubt — the body said so. Whether
+  // a request missing the header it was required to send is served is a
+  // separate question, and a later one.
+  EXPECT_EQ(callbacks_.client_at_request.era, transport::ProtocolEra::Modern);
 }
 
 // A server that needs something from the client mid-request asks on the
