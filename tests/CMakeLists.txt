@@ -1886,6 +1886,7 @@ add_test(NAME JsonRpcProtocolFilterTest COMMAND test_json_rpc_protocol_filter)
 
 # MCP Protocol State Machine Tests
 add_executable(test_mcp_protocol_state_machine protocol/test_mcp_protocol_state_machine.cc)
+add_executable(test_header_sentinel protocol/test_header_sentinel.cc)
 target_link_libraries(test_mcp_protocol_state_machine 
     gopher-mcp
     gopher-mcp-event
@@ -1895,6 +1896,14 @@ target_link_libraries(test_mcp_protocol_state_machine
     Threads::Threads
 )
 add_test(NAME McpProtocolStateMachineTest COMMAND test_mcp_protocol_state_machine)
+
+target_link_libraries(test_header_sentinel
+    gopher-mcp
+    gtest
+    gtest_main
+    Threads::Threads
+)
+add_test(NAME HeaderSentinelTest COMMAND test_header_sentinel)
 
 # Stdio Filter Chain Factory Tests
 add_executable(test_stdio_filter_chain_factory filter/test_stdio_filter_chain_factory.cc)

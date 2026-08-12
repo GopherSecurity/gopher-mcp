@@ -504,6 +504,7 @@ set(MCP_CORE_SOURCES
     src/filter/filter_event_emitter.cc
     src/mcp_connection_manager.cc
     src/protocol/mcp_protocol_state_machine.cc
+    src/protocol/header_sentinel.cc         # Header values that survive the trip
     src/config/config_manager.cc
     src/config/file_config_source.cc
     src/config/config_merger.cc
