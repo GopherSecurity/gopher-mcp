@@ -388,6 +388,15 @@ class RequestExchange : public std::enable_shared_from_this<RequestExchange> {
   VoidResult respondJson(const jsonrpc::Response& response);
 
   /**
+   * A response as the peer that asked for it should read it.
+   *
+   * The one place a response becomes bytes, so that anything the era it
+   * belongs to requires of every result is added once rather than by each
+   * handler — and never for a peer whose era has no such thing.
+   */
+  std::string serializeResponse(const jsonrpc::Response& response) const;
+
+  /**
    * Answer with a body this exchange frames itself, and finish.
    *
    * For answers that are not a JSON-RPC response: an empty 202, or an error

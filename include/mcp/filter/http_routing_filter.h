@@ -209,6 +209,9 @@ class HttpRoutingFilter : public HttpCodecFilter::MessageCallbacks {
 
   // State for POST requests that need body
   bool pending_post_request_ = false;
+  // Whether the request being routed comes from a caller whose revision
+  // serves POST alone, so a 405 derived from the table names only that.
+  bool serves_post_alone_ = false;
   bool suppress_current_request_ = false;
   RequestContext pending_context_;
   HandlerFunc pending_handler_;

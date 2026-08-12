@@ -251,7 +251,8 @@ VoidResult StreamableHttpFilter::ResponseStreamImpl::sendResponse(
   }
 
   exchange_->setPhase(transport::RequestExchange::Phase::RespondingSseDraining);
-  if (!exchange_->writeEvent("message", json::to_json(response).toString())) {
+  if (!exchange_->writeEvent("message",
+                             exchange_->serializeResponse(response))) {
     Error err;
     err.code = jsonrpc::INTERNAL_ERROR;
     err.message = "response not written";
@@ -462,6 +463,18 @@ void StreamableHttpFilter::beginRequest(
   // is read here and placed there.
   last_event_id_ = headerOr(headers, "last-event-id", "");
 
+  if (client.era == transport::ProtocolEra::Modern) {
+    // Neither exists in this era. Both are disregarded rather than
+    // refused: they are what an older client sends, and a request is not
+    // wrong for carrying something this revision simply dropped.
+    if (!last_event_id_.empty()) {
+      GOPHER_LOG_DEBUG(
+          "MCP endpoint request offered a resume point to a revision with no "
+          "resumable streams; ignoring it");
+      last_event_id_.clear();
+    }
+  }
+
   const std::string offered_session = headerOr(headers, "mcp-session-id", "");
   if (sessions_ == nullptr) {
     // Stateless: an inbound session id is not merely unrecognised, it is
@@ -472,6 +485,16 @@ void StreamableHttpFilter::beginRequest(
       GOPHER_LOG_DEBUG(
           "MCP endpoint request presented a session id to a server that keeps "
           "no sessions; ignoring it");
+    }
+    session_id_.clear();
+  } else if (client.era == transport::ProtocolEra::Modern) {
+    // Disregarded, exactly as on a server that keeps none: this revision
+    // has no sessions, so an id offered by an older client names nothing
+    // and must not be allowed to name something.
+    if (!offered_session.empty()) {
+      GOPHER_LOG_DEBUG(
+          "MCP endpoint request presented a session id under a revision that "
+          "has none; ignoring it");
     }
     session_id_.clear();
   } else {
@@ -976,7 +999,14 @@ void StreamableHttpFilter::resumeAfterValidation(const Judgement& judged) {
   parked_ = false;
 
   if (exchange_) {
-    if (judged.verdict != SessionVerdict::Serve) {
+    const bool modern =
+        exchange_->clientContext().era == transport::ProtocolEra::Modern;
+    if (refuseNonPostForModern()) {
+      abandonRequest();
+    } else if (!modern && judged.verdict != SessionVerdict::Serve) {
+      // Skipped for a modern request, which has no session to judge: the
+      // verdict would refuse it for not carrying an id its own revision
+      // does not have.
       refuseSession(judged.verdict);
       abandonRequest();
     } else if (method_ == kDeleteMethod) {
@@ -996,6 +1026,33 @@ void StreamableHttpFilter::resumeAfterValidation(const Judgement& judged) {
     // written.
     host_.holdInput(false);
   }
+}
+
+bool StreamableHttpFilter::refuseNonPostForModern() {
+  if (!exchange_ || method_ == "POST") {
+    return false;
+  }
+  if (exchange_->clientContext().era != transport::ProtocolEra::Modern) {
+    return false;
+  }
+
+  // The newest revision serves POST and nothing else: no standalone
+  // stream to open with a GET, and no session to end with a DELETE. The
+  // Allow header says POST alone whatever else this endpoint serves for
+  // older callers, because it answers what *this* caller may send.
+  GOPHER_LOG_DEBUG(
+      "MCP endpoint refused {} from a caller speaking a revision "
+      "that serves POST alone",
+      method_);
+  exchange_->setPhase(transport::RequestExchange::Phase::RespondingError);
+  exchange_->setStatus(
+      static_cast<int>(http::HttpStatusCode::MethodNotAllowed));
+  exchange_->setResponseHeader("Allow", "POST");
+  exchange_->respondUnary(
+      "application/json",
+      idLessError(jsonrpc::INVALID_REQUEST,
+                  "Method Not Allowed: this revision serves POST alone"));
+  return true;
 }
 
 void StreamableHttpFilter::openEventStream(const Judgement& judged) {
@@ -1295,6 +1352,12 @@ void StreamableHttpFilter::dispatchBody() {
 
 void StreamableHttpFilter::mintSessionFor(const jsonrpc::Request& request) {
   if (sessions_ == nullptr || !exchange_) {
+    return;
+  }
+  if (exchange_->clientContext().era == transport::ProtocolEra::Modern) {
+    // The newest revision has no sessions at all. Minting one for a
+    // client that will never echo it would leave state behind on every
+    // request, and naming it in the answer would invite a client to.
     return;
   }
   if (request.method != kInitializeMethod) {

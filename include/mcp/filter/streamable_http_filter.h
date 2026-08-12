@@ -350,6 +350,17 @@ class StreamableHttpFilter : public HttpCodecFilter::MessageCallbacks,
   bool modernMethodExists(const std::string& method_name);
 
   /**
+   * Refuse a GET or a DELETE from a caller whose revision has neither.
+   *
+   * The Allow header names POST alone, whatever else this endpoint serves
+   * for older callers: it answers what this caller may send, not what the
+   * route table happens to hold.
+   *
+   * @return True when the request has been answered and is over.
+   */
+  bool refuseNonPostForModern();
+
+  /**
    * Settle which protocol revision this request is speaking, and refuse it
    * if that is one this server cannot serve.
    *

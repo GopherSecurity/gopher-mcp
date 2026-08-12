@@ -901,6 +901,101 @@ TEST_F(StreamableHttpFilterTest, AMethodThisServerHasNotIsNotFound) {
       << wire_;
 }
 
+// Every success in the newest revision says what kind of result it is,
+// and an ordinary one is complete. Stamped by the transport rather than
+// asked of each handler, since which era a request belongs to is not a
+// handler's business.
+TEST_F(StreamableHttpFilterTest, EveryModernAnswerSaysItIsComplete) {
+  serveModernEra();
+
+  const std::string body = std::string(
+                               "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":"
+                               "\"tools/list\",\"params\":{") +
+                           modernMeta() + "}}";
+  feed(post("/mcp", body, modernHeaders("tools/list")));
+
+  EXPECT_NE(wire_.find("\"resultType\":\"complete\""), std::string::npos)
+      << wire_;
+}
+
+// And an older peer is handed no such thing: it has no field for it and
+// would be given one it does not expect.
+TEST_F(StreamableHttpFilterTest, AClassicAnswerSaysNoSuchThing) {
+  serveModernEra();
+
+  feed(post("/mcp", kRequestBody,
+            std::string("MCP-Protocol-Version: ") +
+                protocol::kProtocolVersion20250618 + "\r\n"));
+
+  EXPECT_EQ(wire_.find("resultType"), std::string::npos) << wire_;
+}
+
+// The newest revision serves POST alone. A GET from such a caller is
+// refused even where a stream is served, because what it may send is
+// decided by its own era rather than by what the endpoint happens to
+// offer everyone else.
+TEST_F(StreamableHttpFilterTest, AModernCallerMaySendOnlyPost) {
+  keepSessions();
+  StreamableHttpOptions options = sessions_options_;
+  options.enable_modern_era = true;
+  options.protocol_versions = {protocol::kProtocolVersion20260728,
+                               protocol::kProtocolVersion20250618};
+  buildFilter(options);
+
+  feed(get("/mcp", std::string("MCP-Protocol-Version: ") +
+                       protocol::kProtocolVersion20260728 + "\r\n"));
+
+  EXPECT_EQ(wire_.find("HTTP/1.1 405 "), 0u) << wire_;
+  EXPECT_NE(wire_.find("Allow: POST\r\n"), std::string::npos)
+      << "a caller was told about methods its revision does not have: "
+      << wire_;
+}
+
+// While a caller from the older era, on the same server, is served the
+// stream it asked for.
+TEST_F(StreamableHttpFilterTest, AClassicCallerStillOpensAStream) {
+  keepSessions();
+  StreamableHttpOptions options = sessions_options_;
+  options.enable_modern_era = true;
+  options.protocol_versions = {protocol::kProtocolVersion20260728,
+                               protocol::kProtocolVersion20250618};
+  buildFilter(options);
+
+  feed(post("/mcp", kRequestBody));
+  const std::string id = sessionIdOnTheWire();
+  ASSERT_FALSE(id.empty());
+
+  wire_.clear();
+  feed(get("/mcp", "Mcp-Session-Id: " + id + "\r\n"));
+
+  EXPECT_EQ(wire_.find("HTTP/1.1 200 OK\r\n"), 0u) << wire_;
+  EXPECT_NE(wire_.find("text/event-stream"), std::string::npos) << wire_;
+}
+
+// A session id from an older client names nothing here, and must not be
+// allowed to name something: this revision has no sessions, so one is
+// neither honoured nor minted.
+TEST_F(StreamableHttpFilterTest, ASessionIdMeansNothingToAModernRequest) {
+  keepSessions();
+  StreamableHttpOptions options = sessions_options_;
+  options.enable_modern_era = true;
+  options.protocol_versions = {protocol::kProtocolVersion20260728,
+                               protocol::kProtocolVersion20250618};
+  buildFilter(options);
+
+  const std::string body =
+      std::string("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",") +
+      "\"params\":{" + modernMeta() + "}}";
+  feed(post("/mcp", body,
+            modernHeaders("initialize") +
+                "Mcp-Session-Id: a-session-from-somewhere-else\r\n"));
+
+  EXPECT_TRUE(sessionIdOnTheWire().empty())
+      << "a session was named to a revision that has none: " << wire_;
+  EXPECT_EQ(callbacks_.session_at_request, "")
+      << "an offered session id was believed";
+}
+
 // A server that needs something from the client mid-request asks on the
 // stream the answer will arrive on, because that is where the client is
 // already listening.

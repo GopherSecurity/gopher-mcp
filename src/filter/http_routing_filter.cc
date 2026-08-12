@@ -13,6 +13,7 @@
 #include "mcp/http/http_parser.h"
 #include "mcp/logging/log_macros.h"
 #include "mcp/network/connection.h"
+#include "mcp/protocol/modern_era.h"
 
 namespace mcp {
 namespace filter {
@@ -144,6 +145,13 @@ void HttpRoutingFilter::onHeaders(
   suppress_current_request_ = false;
   pending_post_request_ = false;
   accumulated_body_.clear();
+
+  // Which era asked, so that a refusal derived from the route table can
+  // name only what this caller may send. Read here because a rejecting
+  // route answers without the headers ever reaching anything else.
+  auto version = headers.find("mcp-protocol-version");
+  serves_post_alone_ = version != headers.end() &&
+                       protocol::modern::isModernVersion(version->second);
 
   std::string method = extractMethod(headers);
   std::string path =
@@ -316,7 +324,10 @@ HttpRoutingFilter::Response HttpRoutingFilter::buildRejectResponse(
   if (allow.empty() &&
       target.status_code ==
           static_cast<int>(http::HttpStatusCode::MethodNotAllowed)) {
-    allow = allowedMethodsFor(path);
+    // The table says what this endpoint serves; a caller speaking the
+    // newest revision may send only one of those, and telling it about
+    // the rest would be advertising an era it does not have.
+    allow = serves_post_alone_ ? "POST" : allowedMethodsFor(path);
   }
   if (!allow.empty()) {
     resp.headers["Allow"] = allow;

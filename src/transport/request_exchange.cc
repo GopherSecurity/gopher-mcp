@@ -9,6 +9,7 @@
 #include "mcp/json/json_serialization.h"
 #include "mcp/logging/log_macros.h"
 #include "mcp/network/connection.h"
+#include "mcp/protocol/modern_era.h"
 
 namespace mcp {
 namespace transport {
@@ -230,6 +231,29 @@ bool RequestExchange::writeBytes(const std::string& bytes) {
   return sink_->write(buffer);
 }
 
+std::string RequestExchange::serializeResponse(
+    const jsonrpc::Response& response) const {
+  json::JsonValue body = json::to_json(response);
+
+  // Every result in the newest revision says what kind of result it is,
+  // and an ordinary one is complete. Stamped here rather than asked of
+  // each handler: which era a request belongs to is the transport's
+  // business, and a handler that had to know would be a handler written
+  // twice.
+  //
+  // Never for an older peer, which has no such field and would be handed
+  // one it does not expect.
+  if (client_context_.era == ProtocolEra::Modern && body.isObject() &&
+      body.contains("result") && body["result"].isObject() &&
+      !body["result"].contains(protocol::modern::kResultTypeField)) {
+    json::JsonValue result = body["result"];
+    result.set(protocol::modern::kResultTypeField,
+               json::JsonValue(protocol::modern::kResultTypeComplete));
+    body.set("result", result);
+  }
+  return body.toString();
+}
+
 VoidResult RequestExchange::respondJson(const jsonrpc::Response& response) {
   assertOnDispatcher();
   auto self = shared_from_this();
@@ -242,7 +266,7 @@ VoidResult RequestExchange::respondJson(const jsonrpc::Response& response) {
     return makeVoidError(err);
   }
 
-  const std::string body = json::to_json(response).toString();
+  const std::string body = serializeResponse(response);
 
   bool written = false;
   if (needsOwnFraming()) {
