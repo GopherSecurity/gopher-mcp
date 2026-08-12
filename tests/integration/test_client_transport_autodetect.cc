@@ -218,6 +218,38 @@ TEST_F(TransportAutodetectTest, AServerThatAnswersTheDiscoveryIsModern) {
   EXPECT_EQ(server_.countOfMethod("GET"), 0u);
 }
 
+// Every server answers the discovery, including one that has never heard
+// of the newest revision — it is mandatory, and this project serves it to
+// callers of both eras. So answering is not evidence of an era, and a
+// client that read it that way would refuse to talk to every server it
+// could have talked to. What decides is the list.
+TEST_F(TransportAutodetectTest, AnsweringTheDiscoveryIsNotEnoughToBeModern) {
+  const uint16_t port = server_.start([](const Seen& seen) -> Reply {
+    if (seen.rpc_method == "server/discover") {
+      return Reply::write(
+          withBody(200, "OK", "application/json",
+                   "{\"jsonrpc\":\"2.0\",\"id\":\"discover-1\",\"result\":{"
+                   "\"supportedVersions\":[\"2025-11-25\",\"2025-06-18\"],"
+                   "\"capabilities\":{}}}",
+                   std::string()));
+    }
+    if (seen.rpc_method == "initialize") {
+      return Reply::write(handshakeAnswer(seen, kSession, "2025-06-18"));
+    }
+    if (seen.rpc_id.empty()) {
+      return Reply::write(accepted());
+    }
+    return Reply::write(answer(seen, "{}"));
+  });
+
+  auto connected = connectClient(port);
+  EXPECT_TRUE(holds_alternative<std::nullptr_t>(connected))
+      << "a server naming only older revisions was treated as one this "
+         "client cannot talk to";
+  EXPECT_GE(server_.countOf("initialize"), 1u)
+      << "the ladder stopped instead of going on to introduce itself";
+}
+
 // A newer server's refusal stops the ladder. Falling through would fail
 // for a reason that says nothing about why.
 TEST_F(TransportAutodetectTest, ANewerServerStopsTheLadder) {

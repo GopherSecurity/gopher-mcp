@@ -151,8 +151,20 @@ std::vector<std::string> supportedVersionsIn(const std::string& body) {
   return supported;
 }
 
-/** Whether an answer is a modern server answering rather than refusing. */
-bool isDiscoverAnswer(int status_code, const std::string& body) {
+/**
+ * What a discovery answer says the server serves.
+ *
+ * Answering this method is not by itself evidence of an era: it is
+ * mandatory for every server and is deliberately served to callers of
+ * both, so a server that has never heard of the newest revision answers
+ * it too. What decides is the list — a server that does not name a
+ * modern revision is telling this client to talk to it the older way.
+ *
+ * @return False when this is not a discovery answer at all.
+ */
+bool discoveredVersions(int status_code,
+                        const std::string& body,
+                        std::vector<std::string>* supported) {
   if (status_code < 200 || status_code >= 300) {
     return false;
   }
@@ -162,8 +174,32 @@ bool isDiscoverAnswer(int status_code, const std::string& body) {
   } catch (const std::exception&) {
     return false;
   }
-  return parsed.isObject() && parsed.contains("result") &&
-         parsed["result"].isObject();
+  if (!parsed.isObject() || !parsed.contains("result") ||
+      !parsed["result"].isObject()) {
+    return false;
+  }
+
+  const auto& result = parsed["result"];
+  if (result.contains("supportedVersions") &&
+      result["supportedVersions"].isArray()) {
+    const auto& listed = result["supportedVersions"];
+    for (size_t i = 0; i < listed.size(); ++i) {
+      if (listed[i].isString()) {
+        supported->push_back(listed[i].getString());
+      }
+    }
+  }
+  return true;
+}
+
+/** Whether any of these is a revision of the newest era. */
+bool namesAModernVersion(const std::vector<std::string>& versions) {
+  for (const auto& version : versions) {
+    if (protocol::modern::isModernVersion(version)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 }  // namespace
@@ -288,9 +324,19 @@ void ModernProbe::probe(const std::string& url, ProbeCallback done) {
   const bool sent = http_->send(
       request,
       [this](http::HttpResponse response) {
-        if (isDiscoverAnswer(response.status_code, response.body)) {
-          // It answered the question only this era has.
-          settle(ProbeResult::modern());
+        std::vector<std::string> discovered;
+        if (discoveredVersions(response.status_code, response.body,
+                               &discovered)) {
+          if (namesAModernVersion(discovered)) {
+            settle(ProbeResult::modern(std::move(discovered)));
+            return;
+          }
+          // It answered, and named nothing this client would have to
+          // stop for. Every server answers this method, so an answer
+          // listing only older revisions is a server saying "talk to me
+          // the older way" — and the rung below is where that is done.
+          settle(ProbeResult::notModern(response.status_code,
+                                        std::move(response.body)));
           return;
         }
         if (isModernRefusal(response.status_code, response.body)) {
