@@ -1490,6 +1490,8 @@ void McpServer::onRequestWithContext(const jsonrpc::Request& request,
         response = handleListPrompts(request, *session);
       } else if (request.method == "prompts/get") {
         response = handleGetPrompt(request, *session);
+      } else if (request.method == protocol::modern::kMethodServerDiscover) {
+        response = handleDiscover(request, *session);
       } else {
         // Method not found
         response = jsonrpc::Response::make_error(
@@ -1842,6 +1844,45 @@ jsonrpc::Response McpServer::handleInitialize(const jsonrpc::Request& request,
   // Return response with JSON result directly
   return jsonrpc::Response::success(request.id,
                                     jsonrpc::ResponseResult(result_json));
+}
+
+jsonrpc::Response McpServer::handleDiscover(const jsonrpc::Request& request,
+                                            SessionContext& session) {
+  (void)session;
+
+  // What a client would otherwise have learned from an introduction. In
+  // the era that has none this is the only way to ask, which is why it is
+  // served whichever era asked: a method being new does not make it
+  // modern-only, and a classic client is entitled to the same answer.
+  json::JsonValue result = json::JsonValue::object();
+
+  json::JsonValue versions = json::JsonValue::array();
+  for (const auto& version :
+       transport::servedProtocolVersions(config_.streamable_http)) {
+    versions.push_back(json::JsonValue(version));
+  }
+  if (versions.size() == 0) {
+    versions.push_back(json::JsonValue(config_.protocol_version));
+  }
+  result.set("supportedVersions", versions);
+
+  result.set("capabilities", json::to_json(config_.capabilities));
+
+  if (!config_.instructions.empty()) {
+    result.set("instructions", json::JsonValue(config_.instructions));
+  }
+
+  // Named under the metadata key rather than as a field of its own: with
+  // no handshake, this is where a server says what it is.
+  json::JsonValue server_info = json::JsonValue::object();
+  server_info.set("name", json::JsonValue(config_.server_name));
+  server_info.set("version", json::JsonValue(config_.server_version));
+  json::JsonValue meta = json::JsonValue::object();
+  meta.set(protocol::modern::kMetaServerInfo, server_info);
+  result.set("_meta", meta);
+
+  return jsonrpc::Response::success(request.id,
+                                    jsonrpc::ResponseResult(result));
 }
 
 jsonrpc::Response McpServer::handlePing(const jsonrpc::Request& request,

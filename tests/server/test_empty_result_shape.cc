@@ -116,6 +116,54 @@ TEST(EmptyResultShape, AnEmptyAnswerStillCarriesNoError) {
       << "a success must not also carry an error: " << context.wire();
 }
 
+// With no handshake there is no other moment to ask what a server is, so
+// this is the one method every server must answer. Served in both eras: a
+// method being new does not make it modern-only, and a classic client is
+// entitled to the same answer.
+TEST(ServerDiscover, AServerSaysWhatItIsAndWhatItSpeaks) {
+  McpServerConfig config = testConfig();
+  config.server_name = "discoverable";
+  config.server_version = "2.0.0";
+  config.instructions = "how to use this";
+  config.streamable_http.enable_modern_era = true;
+  DispatchTestServer server(config);
+  CapturingContext context;
+
+  jsonrpc::Request request;
+  request.jsonrpc = "2.0";
+  request.id = make_request_id(1);
+  request.method = "server/discover";
+  server.onRequestWithContext(request, context);
+
+  ASSERT_TRUE(context.captured.has_value())
+      << "server/discover went unanswered";
+  const std::string wire = context.wire();
+
+  EXPECT_NE(wire.find("\"supportedVersions\""), std::string::npos) << wire;
+  EXPECT_NE(wire.find("2026-07-28"), std::string::npos)
+      << "a server serving the newest revision did not say so: " << wire;
+  EXPECT_NE(wire.find("io.modelcontextprotocol/serverInfo"), std::string::npos)
+      << "a server that cannot be introduced to did not name itself: " << wire;
+  EXPECT_NE(wire.find("discoverable"), std::string::npos) << wire;
+  EXPECT_NE(wire.find("how to use this"), std::string::npos) << wire;
+}
+
+// And it never claims a revision whose pipeline is switched off.
+TEST(ServerDiscover, ItNamesOnlyWhatIsActuallyServed) {
+  DispatchTestServer server(testConfig());
+  CapturingContext context;
+
+  jsonrpc::Request request;
+  request.jsonrpc = "2.0";
+  request.id = make_request_id(1);
+  request.method = "server/discover";
+  server.onRequestWithContext(request, context);
+
+  ASSERT_TRUE(context.captured.has_value());
+  EXPECT_EQ(context.wire().find("2026-07-28"), std::string::npos)
+      << "a revision with nothing behind it was advertised: " << context.wire();
+}
+
 }  // namespace
 }  // namespace server
 }  // namespace mcp

@@ -1259,6 +1259,8 @@ class McpServer : public application::ApplicationBase,
   // Built-in request handlers
   jsonrpc::Response handleInitialize(const jsonrpc::Request& request,
                                      SessionContext& session);
+  jsonrpc::Response handleDiscover(const jsonrpc::Request& request,
+                                   SessionContext& session);
   jsonrpc::Response handlePing(const jsonrpc::Request& request,
                                SessionContext& session);
   jsonrpc::Response handleListResources(const jsonrpc::Request& request,
