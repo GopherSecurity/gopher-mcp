@@ -17,6 +17,7 @@
 #include "mcp/filter/json_rpc_protocol_filter.h"
 #include "mcp/filter/sse_session_registry.h"
 #include "mcp/logging/log_macros.h"
+#include "mcp/protocol/modern_era.h"
 #include "mcp/protocol/protocol_versions.h"
 #include "mcp/transport/http_sse_transport_socket.h"
 // NOTE: We'll implement connection handler directly in server for now
@@ -735,6 +736,39 @@ void McpServer::registerAsyncRequestHandler(const std::string& method,
 void McpServer::forgetPendingRequest(const std::string& key) {
   std::lock_guard<std::mutex> lock(pending_requests_mutex_);
   pending_requests_.erase(key);
+}
+
+bool McpServer::knowsMethod(const std::string& method) const {
+  {
+    std::lock_guard<std::mutex> lock(handlers_mutex_);
+    if (request_handlers_.count(method) != 0 ||
+        async_request_handlers_.count(method) != 0) {
+      return true;
+    }
+  }
+
+  // The built-ins, which onRequestWithContext answers directly. Listed
+  // here rather than derived, because they are a list there too — and a
+  // method that is served but not named here would be refused before it
+  // ever reached the branch that serves it.
+  static const char* const kBuiltIn[] = {
+      "initialize",
+      "ping",
+      "resources/list",
+      "resources/read",
+      "resources/subscribe",
+      "resources/unsubscribe",
+      "tools/list",
+      "tools/call",
+      "prompts/list",
+      "prompts/get",
+      protocol::modern::kMethodServerDiscover};
+  for (const char* known : kBuiltIn) {
+    if (method == known) {
+      return true;
+    }
+  }
+  return false;
 }
 
 StreamingMode McpServer::streamingFor(const jsonrpc::Request& request) const {

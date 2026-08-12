@@ -15,6 +15,7 @@
  * at the wire level instead.
  */
 
+#include <algorithm>
 #include <chrono>
 #include <map>
 #include <memory>
@@ -152,6 +153,16 @@ class RecordingCallbacks : public McpProtocolCallbacks {
   void onConnectionEvent(network::ConnectionEvent) override {}
   void onError(const Error&) override {}
 
+  bool knowsMethod(const std::string& method) const override {
+    // Empty means "no opinion", which is what a receiver that cannot say
+    // answers — and it must not be read as refusing everything.
+    return known_methods.empty() ||
+           std::find(known_methods.begin(), known_methods.end(), method) !=
+               known_methods.end();
+  }
+
+  std::vector<std::string> known_methods;
+
   // Set by the fixture so a test can see what the exchange recorded about
   // the peer while the message was still being dispatched.
   StreamableHttpFilter* filter{nullptr};
@@ -242,6 +253,20 @@ class StreamableHttpFilterTest : public ::testing::Test {
                                  protocol::kProtocolVersion20251125,
                                  protocol::kProtocolVersion20250618};
     buildFilter(options);
+  }
+
+  /** The headers a modern request must carry to be served at all. */
+  static std::string modernHeaders(const std::string& method,
+                                   const std::string& name = "") {
+    std::string headers =
+        std::string(protocol::modern::kProtocolVersionHeader) + ": " +
+        protocol::kProtocolVersion20260728 + "\r\n" +
+        protocol::modern::kMethodHeader + ": " + method + "\r\n";
+    if (!name.empty()) {
+      headers +=
+          std::string(protocol::modern::kNameHeader) + ": " + name + "\r\n";
+    }
+    return headers;
   }
 
   /** The `_meta` a modern request carries, with or without a caller. */
@@ -684,9 +709,7 @@ TEST_F(StreamableHttpFilterTest, AModernRequestSaysWhoIsCallingOnEveryOne) {
                                "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":"
                                "\"tools/list\",\"params\":{") +
                            modernMeta() + "}}";
-  feed(post("/mcp", body,
-            std::string("MCP-Protocol-Version: ") +
-                protocol::kProtocolVersion20260728 + "\r\n"));
+  feed(post("/mcp", body, modernHeaders("tools/list")));
 
   ASSERT_EQ(callbacks_.requests.size(), 1u) << wire_;
   const auto& client = callbacks_.client_at_request;
@@ -710,9 +733,7 @@ TEST_F(StreamableHttpFilterTest, AModernRequestNeedNotSayWhoIsCalling) {
                                "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":"
                                "\"tools/list\",\"params\":{") +
                            modernMeta(/*with_client_info=*/false) + "}}";
-  feed(post("/mcp", body,
-            std::string("MCP-Protocol-Version: ") +
-                protocol::kProtocolVersion20260728 + "\r\n"));
+  feed(post("/mcp", body, modernHeaders("tools/list")));
 
   ASSERT_EQ(callbacks_.requests.size(), 1u)
       << "a request that did not name its caller was refused: " << wire_;
@@ -738,9 +759,11 @@ TEST_F(StreamableHttpFilterTest, AClassicRequestIsStillClassic) {
   EXPECT_FALSE(client.client_capabilities.has_value());
 }
 
-// A server that serves a standalone stream to a request that never asked for
-// one
-TEST_F(StreamableHttpFilterTest, AModernBodyWithoutItsHeaderIsStillModern) {
+// A body declaring the newest revision is a modern request whatever its
+// headers say — so a modern request that forgot them is refused as one,
+// rather than quietly served by the older rules it is not following.
+TEST_F(StreamableHttpFilterTest,
+       AModernBodyWithoutItsHeadersIsRefusedAsModern) {
   serveModernEra();
 
   const std::string body = std::string(
@@ -749,10 +772,133 @@ TEST_F(StreamableHttpFilterTest, AModernBodyWithoutItsHeaderIsStillModern) {
                            modernMeta() + "}}";
   feed(post("/mcp", body));
 
-  // Which era it belongs to is not in doubt — the body said so. Whether
-  // a request missing the header it was required to send is served is a
-  // separate question, and a later one.
-  EXPECT_EQ(callbacks_.client_at_request.era, transport::ProtocolEra::Modern);
+  EXPECT_TRUE(callbacks_.requests.empty())
+      << "a request missing the headers it must carry was served";
+  EXPECT_EQ(wire_.find("HTTP/1.1 400 "), 0u) << wire_;
+  EXPECT_NE(wire_.find(std::to_string(protocol::modern::kHeaderMismatch)),
+            std::string::npos)
+      << wire_;
+}
+
+// The headers exist so that something between the two ends can route on
+// them without parsing the body. That is only safe if the two agree, so a
+// disagreement is a refusal rather than a preference — otherwise a router
+// and a server act on different values for the same request.
+TEST_F(StreamableHttpFilterTest, HeadersThatDisagreeWithTheBodyAreRefused) {
+  serveModernEra();
+
+  struct Row {
+    const char* headers;
+    const char* body_method;
+    const char* why;
+  };
+  const Row rows[] = {
+      {"MCP-Protocol-Version: 2025-11-25\r\nMcp-Method: tools/list\r\n",
+       "tools/list", "the header names a different revision than the body"},
+      {"MCP-Protocol-Version: 2026-07-28\r\n", "tools/list",
+       "no Mcp-Method at all"},
+      {"MCP-Protocol-Version: 2026-07-28\r\nMcp-Method: tools/call\r\n",
+       "tools/list", "Mcp-Method names a different method than the body"},
+  };
+
+  for (const auto& row : rows) {
+    wire_.clear();
+    callbacks_.requests.clear();
+    const std::string body = std::string("{\"jsonrpc\":\"2.0\",\"id\":1,") +
+                             "\"method\":\"" + row.body_method +
+                             "\",\"params\":{" + modernMeta() + "}}";
+    feed(post("/mcp", body, row.headers));
+
+    EXPECT_TRUE(callbacks_.requests.empty()) << row.why << ": " << wire_;
+    EXPECT_EQ(wire_.find("HTTP/1.1 400 "), 0u) << row.why << ": " << wire_;
+    EXPECT_NE(wire_.find(std::to_string(protocol::modern::kHeaderMismatch)),
+              std::string::npos)
+        << row.why << ": " << wire_;
+  }
+}
+
+// The three methods that name what they are about carry that name in a
+// header too, and the server compares the decoded header against the body
+// — so a name in another script travels encoded and still matches.
+TEST_F(StreamableHttpFilterTest, TheNameHeaderIsComparedAgainstTheBody) {
+  serveModernEra();
+
+  const auto call = [this](const std::string& tool,
+                           const std::string& name_header) {
+    wire_.clear();
+    callbacks_.requests.clear();
+    const std::string body =
+        std::string(
+            "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",") +
+        "\"params\":{\"name\":\"" + tool + "\"," + modernMeta() + "}}";
+    feed(post("/mcp", body, modernHeaders("tools/call", name_header)));
+  };
+
+  call("get_weather", "get_weather");
+  EXPECT_EQ(callbacks_.requests.size(), 1u) << wire_;
+
+  call("get_weather", "get_forecast");
+  EXPECT_TRUE(callbacks_.requests.empty()) << "a mismatched name was served";
+  EXPECT_EQ(wire_.find("HTTP/1.1 400 "), 0u) << wire_;
+
+  call("get_weather", "");
+  EXPECT_TRUE(callbacks_.requests.empty()) << "a missing name was served";
+
+  // A tool named outside the header-safe set travels encoded, and the
+  // server decodes before it compares.
+  call("\xe5\xa4\xa9\xe6\xb0\x97", "=?base64?5aSp5rCX?=");
+  EXPECT_EQ(callbacks_.requests.size(), 1u)
+      << "an encoded name was not decoded before comparison: " << wire_;
+}
+
+// A version this server does not serve is refused in the shape its own
+// era reads: a code of its own, and the list as data rather than prose,
+// so a client can pick from it without parsing a sentence.
+TEST_F(StreamableHttpFilterTest, AnUnservedRevisionIsRefusedWithTheList) {
+  StreamableHttpOptions options;
+  options.enable_modern_era = true;
+  options.protocol_versions = {protocol::kProtocolVersion20260728,
+                               protocol::kProtocolVersion20251125};
+  buildFilter(options);
+
+  const std::string body =
+      std::string("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\",") +
+      "\"params\":{\"_meta\":{\"" + protocol::modern::kMetaProtocolVersion +
+      "\":\"2030-01-01\"}}}";
+  feed(post("/mcp", body,
+            "MCP-Protocol-Version: 2030-01-01\r\nMcp-Method: tools/list\r\n"));
+
+  EXPECT_EQ(wire_.find("HTTP/1.1 400 "), 0u) << wire_;
+  EXPECT_NE(
+      wire_.find(std::to_string(protocol::modern::kUnsupportedProtocolVersion)),
+      std::string::npos)
+      << wire_;
+  EXPECT_NE(wire_.find("\"supported\""), std::string::npos)
+      << "the refusal did not say what is served: " << wire_;
+  EXPECT_NE(wire_.find(protocol::kProtocolVersion20251125), std::string::npos)
+      << wire_;
+  EXPECT_NE(wire_.find("\"requested\":\"2030-01-01\""), std::string::npos)
+      << wire_;
+}
+
+// A method this server does not have is a 404 carrying a JSON-RPC error,
+// which is the only thing distinguishing a server that is there and has
+// no such method from a URL that is not an endpoint at all.
+TEST_F(StreamableHttpFilterTest, AMethodThisServerHasNotIsNotFound) {
+  serveModernEra();
+  callbacks_.known_methods = {"tools/list"};
+
+  const std::string body = std::string(
+                               "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":"
+                               "\"tools/invent\",\"params\":{") +
+                           modernMeta() + "}}";
+  feed(post("/mcp", body, modernHeaders("tools/invent")));
+
+  EXPECT_TRUE(callbacks_.requests.empty()) << wire_;
+  EXPECT_EQ(wire_.find("HTTP/1.1 404 "), 0u) << wire_;
+  EXPECT_NE(wire_.find(std::to_string(protocol::modern::kMethodNotFound)),
+            std::string::npos)
+      << wire_;
 }
 
 // A server that needs something from the client mid-request asks on the

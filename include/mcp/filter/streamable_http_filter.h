@@ -333,6 +333,23 @@ class StreamableHttpFilter : public HttpCodecFilter::MessageCallbacks,
   void readModernContext(const json::JsonValue& message);
 
   /**
+   * Everything the newest revision requires of a request before it is
+   * served: that its headers say what its body says.
+   *
+   * @return False when the request has been answered and is over.
+   */
+  bool validateModernRequest(const json::JsonValue& message,
+                             const std::string& method_name);
+
+  /**
+   * Whether the layer above has any answer for this method, and the 404
+   * that says it does not.
+   *
+   * @return False when the request has been answered and is over.
+   */
+  bool modernMethodExists(const std::string& method_name);
+
+  /**
    * Settle which protocol revision this request is speaking, and refuse it
    * if that is one this server cannot serve.
    *
@@ -425,6 +442,12 @@ class StreamableHttpFilter : public HttpCodecFilter::MessageCallbacks,
    */
   void respondWithError(int status_code, int code, const std::string& message);
 
+  /** The same, carrying data a caller can act on. */
+  void respondWithError(int status_code,
+                        int code,
+                        const std::string& message,
+                        const json::JsonValue& data);
+
   event::Dispatcher& dispatcher_;
   McpProtocolCallbacks& mcp_callbacks_;
   HttpCodecFilter::MessageCallbacks& fallback_;
@@ -456,6 +479,10 @@ class StreamableHttpFilter : public HttpCodecFilter::MessageCallbacks,
   // exchange so the two can be compared rather than one overwriting the
   // other. Empty when the body said nothing.
   std::string body_protocol_version_;
+  // The headers this revision mirrors from the body, kept until the body
+  // has been read and the two can be compared. Keys are lowercased by the
+  // codec, as header names are compared without regard to case.
+  std::map<std::string, std::string> mirrored_headers_;
   // Set only for a request that created its session, which is the one
   // request whose answer decides whether that session survives.
   std::string minted_session_id_;

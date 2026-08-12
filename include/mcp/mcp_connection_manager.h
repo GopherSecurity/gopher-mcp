@@ -123,6 +123,24 @@ class McpProtocolCallbacks {
   virtual ~McpProtocolCallbacks() = default;
 
   /**
+   * Whether this receiver has any answer for this method at all.
+   *
+   * Asked before dispatch by a transport that has to distinguish "no such
+   * method" from "no such endpoint" in its own status codes — the newest
+   * revision answers the first with 404 and a JSON-RPC error, which is
+   * the only thing telling a client that the server is there and the
+   * method is not.
+   *
+   * Answers true by default: a receiver that cannot say is not the same
+   * as one that says no, and refusing on its behalf would refuse methods
+   * it would have served.
+   */
+  virtual bool knowsMethod(const std::string& method) const {
+    (void)method;
+    return true;
+  }
+
+  /**
    * What kind of response this request will need, asked before it is
    * dispatched. Takes the whole request rather than the method so that a
    * receiver can answer per tool or per parameter, not just per method.

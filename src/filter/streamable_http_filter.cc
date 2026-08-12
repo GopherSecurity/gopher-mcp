@@ -110,6 +110,29 @@ std::string idLessError(int code, const std::string& message) {
   return body.toString();
 }
 
+/**
+ * The same, carrying what the caller needs in order to do better.
+ *
+ * A refusal that only says no leaves a peer to retry the same request. A
+ * version complaint that names what this server does serve lets it pick
+ * something, which is the difference between a dead end and a
+ * negotiation.
+ */
+std::string idLessError(int code,
+                        const std::string& message,
+                        const json::JsonValue& data) {
+  json::JsonValue error = json::JsonValue::object();
+  error.set("code", json::JsonValue(static_cast<int64_t>(code)));
+  error.set("message", json::JsonValue(message));
+  error.set("data", data);
+
+  json::JsonValue body = json::JsonValue::object();
+  body.set("jsonrpc", json::JsonValue("2.0"));
+  body.set("id", json::JsonValue());
+  body.set("error", error);
+  return body.toString();
+}
+
 }  // namespace
 
 // ===== ResponseStreamImpl =====
@@ -424,6 +447,17 @@ void StreamableHttpFilter::beginRequest(
                    : transport::ProtocolEra::Classic;
   client.principal = host_.principal();
 
+  // Kept because they are compared against the body, which has not been
+  // read yet. Only the mirrored ones: the rest of a request's headers are
+  // not this filter's business.
+  mirrored_headers_.clear();
+  for (const auto& header : headers) {
+    if (header.first == "mcp-method" || header.first == "mcp-name" ||
+        header.first.compare(0, 10, "mcp-param-") == 0) {
+      mirrored_headers_[header.first] = header.second;
+    }
+  }
+
   // What the client says it last saw. Judged against the session, so it
   // is read here and placed there.
   last_event_id_ = headerOr(headers, "last-event-id", "");
@@ -536,12 +570,120 @@ void StreamableHttpFilter::finishRequest() {
   // it. Reading it is not accepting it: what the two say is compared next.
   readModernContext(message);
 
+  if (exchange_->clientContext().era == transport::ProtocolEra::Modern) {
+    if (!validateModernRequest(message, method_name)) {
+      abandonRequest();
+      return;
+    }
+  }
+
   if (!settleProtocolVersion(method_name)) {
     abandonRequest();
     return;
   }
 
+  // After the version, because a request for a revision this server does
+  // not serve is refused for that rather than for the method it names.
+  if (exchange_->clientContext().era == transport::ProtocolEra::Modern &&
+      !modernMethodExists(method_name)) {
+    abandonRequest();
+    return;
+  }
+
   validateThenDispatch(method_name);
+}
+
+/**
+ * Everything the newest revision requires of a request before it is
+ * served, in the order the caller can act on.
+ *
+ * The body is the source of truth throughout: headers exist so that
+ * something between the two ends can route without parsing, and a header
+ * that disagrees with the body is exactly the case that would let a
+ * router and a server act on different values. So a disagreement is a
+ * refusal rather than a preference.
+ *
+ * @return False when the request has been answered and is over.
+ */
+bool StreamableHttpFilter::validateModernRequest(
+    const json::JsonValue& message, const std::string& method_name) {
+  if (!exchange_) {
+    return false;
+  }
+  auto& client = exchange_->clientContext();
+
+  const auto refuse = [this](const std::string& why) {
+    GOPHER_LOG_DEBUG("MCP endpoint refused a modern request: {}", why);
+    respondWithError(static_cast<int>(http::HttpStatusCode::BadRequest),
+                     protocol::modern::kHeaderMismatch, "Bad Request: " + why);
+    return false;
+  };
+
+  // A response is not something a client may send. There is nothing on
+  // this endpoint that asked it a question, so a body carrying an answer
+  // is a client speaking rules this era does not have.
+  if (method_name.empty() &&
+      (message.contains("result") || message.contains("error"))) {
+    return refuse(
+        "this endpoint takes requests and notifications, and a response "
+        "answers a question it never asked");
+  }
+
+  // A notification's headers are not specified by this revision, so
+  // there is nothing here to hold one to.
+  const bool is_request = message.contains("id") && !message["id"].isNull();
+  if (!is_request) {
+    return true;
+  }
+
+  if (body_protocol_version_.empty()) {
+    return refuse("every request carries its protocol version in its body");
+  }
+  if (client.protocol_version.empty()) {
+    return refuse(std::string("every request carries the ") +
+                  protocol::modern::kProtocolVersionHeader + " header");
+  }
+  if (client.protocol_version != body_protocol_version_) {
+    return refuse(std::string(protocol::modern::kProtocolVersionHeader) +
+                  " says " + client.protocol_version + " and the body says " +
+                  body_protocol_version_);
+  }
+
+  const std::string method_header =
+      headerOr(mirrored_headers_, "mcp-method", "");
+  if (method_header.empty()) {
+    return refuse(std::string("every request carries the ") +
+                  protocol::modern::kMethodHeader + " header");
+  }
+  if (method_header != method_name) {
+    return refuse(std::string(protocol::modern::kMethodHeader) + " says " +
+                  method_header + " and the body says " + method_name);
+  }
+
+  if (protocol::modern::carriesName(method_name)) {
+    const std::string field = protocol::modern::nameFieldFor(method_name);
+    json::JsonValue named;
+    if (message.contains("params") && message["params"].isObject() &&
+        message["params"].contains(field)) {
+      named = message["params"][field];
+    }
+    if (named.isNull()) {
+      return refuse(method_name + " names what it is about in params." + field +
+                    ", and this one does not");
+    }
+
+    auto name_header = mirrored_headers_.find("mcp-name");
+    if (name_header == mirrored_headers_.end()) {
+      return refuse(std::string(method_name) + " carries the " +
+                    protocol::modern::kNameHeader + " header");
+    }
+    if (!protocol::modern::headerMatchesValue(name_header->second, named)) {
+      return refuse(std::string(protocol::modern::kNameHeader) + " value '" +
+                    name_header->second + "' does not match the body");
+    }
+  }
+
+  return true;
 }
 
 void StreamableHttpFilter::readModernContext(const json::JsonValue& message) {
@@ -636,11 +778,49 @@ bool StreamableHttpFilter::settleProtocolVersion(
       "MCP endpoint asked for protocol revision {}, which it "
       "does not serve",
       client.protocol_version);
+
+  if (client.era == transport::ProtocolEra::Modern) {
+    // The same refusal, in the shape its own era reads: a code of its
+    // own, and the list as data rather than as prose, so a client can
+    // pick from it without parsing a sentence.
+    json::JsonValue supported = json::JsonValue::array();
+    for (const auto& version : options_.protocol_versions) {
+      supported.push_back(json::JsonValue(version));
+    }
+    json::JsonValue data = json::JsonValue::object();
+    data.set(protocol::modern::kSupportedVersionsField, supported);
+    data.set(protocol::modern::kRequestedVersionField,
+             json::JsonValue(client.protocol_version));
+    respondWithError(static_cast<int>(http::HttpStatusCode::BadRequest),
+                     protocol::modern::kUnsupportedProtocolVersion,
+                     "Unsupported protocol version", data);
+    return false;
+  }
+
   respondWithError(static_cast<int>(http::HttpStatusCode::BadRequest),
                    jsonrpc::INVALID_REQUEST,
                    "Bad Request: unsupported MCP-Protocol-Version " +
                        client.protocol_version + "; this server serves " +
                        served);
+  return false;
+}
+
+bool StreamableHttpFilter::modernMethodExists(const std::string& method_name) {
+  if (!exchange_ || method_name.empty()) {
+    return true;
+  }
+  if (mcp_callbacks_.knowsMethod(method_name)) {
+    return true;
+  }
+
+  // 404 with a JSON-RPC error, which is what distinguishes a server that
+  // is there and has no such method from a URL that is not an endpoint at
+  // all — and a client detecting which era it is talking to reads exactly
+  // that difference.
+  GOPHER_LOG_DEBUG("MCP endpoint has no method '{}'", method_name);
+  respondWithError(static_cast<int>(http::HttpStatusCode::NotFound),
+                   protocol::modern::kMethodNotFound,
+                   "Method not found: " + method_name);
   return false;
 }
 
@@ -1189,6 +1369,18 @@ void StreamableHttpFilter::respondWithError(int status_code,
   exchange_->respondUnary("application/json", idLessError(code, message));
 }
 
+void StreamableHttpFilter::respondWithError(int status_code,
+                                            int code,
+                                            const std::string& message,
+                                            const json::JsonValue& data) {
+  if (!exchange_) {
+    return;
+  }
+  exchange_->setPhase(transport::RequestExchange::Phase::RespondingError);
+  exchange_->setStatus(status_code);
+  exchange_->respondUnary("application/json", idLessError(code, message, data));
+}
+
 void StreamableHttpFilter::abandonRequest() {
   if (parked_) {
     // Whatever is coming back for this request has nothing to answer any
@@ -1199,6 +1391,7 @@ void StreamableHttpFilter::abandonRequest() {
   body_.clear();
   session_id_.clear();
   body_protocol_version_.clear();
+  mirrored_headers_.clear();
   minted_session_id_.clear();
   method_.clear();
   carried_ = Carried::Nothing;

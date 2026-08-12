@@ -1040,6 +1040,16 @@ class McpServer : public application::ApplicationBase,
   /** What kind of response a request will need, asked before dispatch. */
   StreamingMode streamingFor(const jsonrpc::Request& request) const;
 
+  /**
+   * Whether this server has any answer for a method at all.
+   *
+   * Asked by a transport that has to tell "no such method" apart from "no
+   * such endpoint" in its status codes. Covers what is built in as well
+   * as what has been registered, because a caller cannot see the
+   * difference and neither should the answer.
+   */
+  bool knowsMethod(const std::string& method) const;
+
   void registerNotificationHandler(
       const std::string& method,
       std::function<void(const jsonrpc::Notification&, SessionContext&)>
@@ -1353,6 +1363,10 @@ class McpServer : public application::ApplicationBase,
 
     StreamingMode streamingFor(const jsonrpc::Request& request) const override {
       return server_.streamingFor(request);
+    }
+
+    bool knowsMethod(const std::string& method) const override {
+      return server_.knowsMethod(method);
     }
 
    private:
