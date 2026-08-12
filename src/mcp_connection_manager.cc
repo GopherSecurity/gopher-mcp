@@ -1441,6 +1441,26 @@ VoidResult McpConnectionManager::sendJsonMessage(
         "McpConnectionManager write callback executing, conn={}, msg_len={}",
         (void*)active_connection_.get(), json_str.length());
 
+    // The newest revision has no introduction, so a request states its
+    // own version, caller and capabilities every time. Added here rather
+    // than at the call site: none of it is the application's to know,
+    // and this is the layer that knows which revision is being spoken.
+    std::string body = json_str;
+    json::JsonValue outgoing;
+    bool outgoing_parsed = false;
+    if (config_.streamable_client_session) {
+      try {
+        outgoing = json::JsonValue::parse(json_str);
+        outgoing_parsed = true;
+      } catch (const std::exception&) {
+        outgoing = json::JsonValue::object();
+      }
+      if (outgoing_parsed) {
+        outgoing = config_.streamable_client_session->declareSelf(outgoing);
+        body = outgoing.toString();
+      }
+    }
+
     bool reset_current_http_headers = false;
     if (config_.current_http_headers) {
       auto merged_headers = config_.http_headers;
@@ -1449,15 +1469,9 @@ VoidResult McpConnectionManager::sendJsonMessage(
       // it. The initialize request carries neither header for that
       // reason alone, without anything here asking which request this is.
       if (config_.streamable_client_session) {
-        // The message itself, because the newest revision mirrors parts
-        // of it into headers and the only place both are in hand is
-        // here.
-        json::JsonValue outgoing;
-        try {
-          outgoing = json::JsonValue::parse(json_str);
-        } catch (const std::exception&) {
-          outgoing = json::JsonValue::object();
-        }
+        // Against the message as it will actually go out, so a header
+        // mirroring part of the body cannot mirror a version of it that
+        // was never sent.
         config_.streamable_client_session->decorate(merged_headers, outgoing);
       }
       for (const auto& header : http_headers) {
@@ -1477,7 +1491,7 @@ VoidResult McpConnectionManager::sendJsonMessage(
 
     // Create buffer with JSON payload
     OwnedBuffer buffer;
-    buffer.add(json_str);
+    buffer.add(body);
 
     // Write through filter chain - each filter handles its protocol layer:
     // - JSON-RPC filter: message framing if configured

@@ -85,5 +85,72 @@ void StreamableHttpClientSession::decorate(
   }
 }
 
+json::JsonValue StreamableHttpClientSession::declareSelf(
+    const json::JsonValue& message) const {
+  if (!protocol::modern::isModernVersion(protocol_version_)) {
+    return message;
+  }
+  if (!message.isObject() || !message.contains("method") ||
+      !message.contains("id") || message["id"].isNull()) {
+    // Only requests. This revision defines nothing about what a
+    // notification carries, so nothing is added to one.
+    return message;
+  }
+
+  json::JsonValue params =
+      message.contains("params") && message["params"].isObject()
+          ? message["params"]
+          : json::JsonValue::object();
+  json::JsonValue meta = params.contains("_meta") && params["_meta"].isObject()
+                             ? params["_meta"]
+                             : json::JsonValue::object();
+
+  meta.set(protocol::modern::kMetaProtocolVersion,
+           json::JsonValue(protocol_version_));
+
+  // Required, and empty is a perfectly good answer: it says this client
+  // can do nothing beyond the core protocol, which is true of one that
+  // declared nothing.
+  meta.set(protocol::modern::kMetaClientCapabilities,
+           client_capabilities_.isObject() ? client_capabilities_
+                                           : json::JsonValue::object());
+
+  // Optional, and left out rather than filled with a placeholder: a
+  // server must serve a request that never says who is calling, and a
+  // made-up name would be worse than none.
+  if (!client_name_.empty()) {
+    json::JsonValue who = json::JsonValue::object();
+    who.set("name", json::JsonValue(client_name_));
+    who.set("version", json::JsonValue(client_version_));
+    meta.set(protocol::modern::kMetaClientInfo, who);
+  }
+
+  params.set("_meta", meta);
+  json::JsonValue declared = message;
+  declared.set("params", params);
+  return declared;
+}
+
+std::vector<Tool> StreamableHttpClientSession::acceptListing(
+    const std::vector<Tool>& tools) {
+  std::vector<Tool> usable;
+  usable.reserve(tools.size());
+
+  for (const auto& tool : tools) {
+    std::vector<protocol::modern::DesignatedParam> designated;
+    auto readable = protocol::modern::designatedParams(tool, &designated);
+    if (!holds_alternative<std::nullptr_t>(readable)) {
+      GOPHER_LOG_WARN("not offering tool '{}': {}", tool.name,
+                      get<Error>(readable).message);
+      designations_.erase(tool.name);
+      continue;
+    }
+    designations_[tool.name] = std::move(designated);
+    usable.push_back(tool);
+  }
+
+  return usable;
+}
+
 }  // namespace transport
 }  // namespace mcp

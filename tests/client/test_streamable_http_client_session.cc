@@ -449,4 +449,101 @@ TEST(ModernDecoration, ADesignatedArgumentTravelsWhenTheCallCarriesIt) {
   EXPECT_EQ(headers.count("Mcp-Param-Region"), 0u);
 }
 
+// With no introduction, a request has to say all of it every time.
+TEST(ModernDecoration, EveryRequestDeclaresItself) {
+  transport::StreamableHttpClientSession session;
+  session.setProtocolVersion(protocol::kProtocolVersion20260728);
+  session.setClientIdentity("ExampleClient", "1.0.0");
+  session.setClientCapabilities(json::JsonValue::parse(R"({"roots":{}})"));
+
+  const auto declared = session.declareSelf(outgoing("tools/list"));
+  ASSERT_TRUE(declared.contains("params"));
+  const auto& meta = declared["params"]["_meta"];
+
+  EXPECT_EQ(meta[protocol::modern::kMetaProtocolVersion].getString(),
+            protocol::kProtocolVersion20260728);
+  EXPECT_TRUE(meta.contains(protocol::modern::kMetaClientCapabilities));
+  EXPECT_EQ(meta[protocol::modern::kMetaClientInfo]["name"].getString(),
+            "ExampleClient");
+}
+
+// Saying who you are is optional, and a made-up name would be worse than
+// none — so a client that was told nothing about itself says nothing.
+TEST(ModernDecoration, ANamelessClientStaysNameless) {
+  transport::StreamableHttpClientSession session;
+  session.setProtocolVersion(protocol::kProtocolVersion20260728);
+
+  const auto declared = session.declareSelf(outgoing("tools/list"));
+  const auto& meta = declared["params"]["_meta"];
+
+  EXPECT_FALSE(meta.contains(protocol::modern::kMetaClientInfo));
+  EXPECT_TRUE(meta.contains(protocol::modern::kMetaClientCapabilities))
+      << "capabilities are required, and none is a perfectly good answer";
+}
+
+// What a request already carries is kept: this adds, it does not
+// replace.
+TEST(ModernDecoration, WhatARequestAlreadyCarriesSurvives) {
+  transport::StreamableHttpClientSession session;
+  session.setProtocolVersion(protocol::kProtocolVersion20260728);
+
+  const auto declared = session.declareSelf(outgoing(
+      "tools/call", R"({"name":"add","_meta":{"progressToken":"p-1"}})"));
+  const auto& params = declared["params"];
+
+  EXPECT_EQ(params["name"].getString(), "add");
+  EXPECT_EQ(params["_meta"]["progressToken"].getString(), "p-1")
+      << "something the caller put in _meta was thrown away";
+  EXPECT_TRUE(params["_meta"].contains(protocol::modern::kMetaProtocolVersion));
+}
+
+TEST(ModernDecoration, AnOlderRevisionDeclaresNothing) {
+  transport::StreamableHttpClientSession session;
+  session.setProtocolVersion(protocol::kProtocolVersion20250618);
+
+  const auto declared = session.declareSelf(outgoing("tools/list"));
+  EXPECT_FALSE(declared.contains("params"))
+      << "a revision with an introduction repeated itself on every request";
+}
+
+/** A tool with whatever schema the listing carried. */
+Tool listed(const std::string& name, const std::string& schema_json) {
+  Tool tool(name);
+  tool.inputSchema = mcp::make_optional(json::JsonValue::parse(schema_json));
+  return tool;
+}
+
+// A tool this client would call wrongly every time is not worth
+// offering: the header it sent and the body the server read would
+// disagree, and the call would be refused for a mismatch neither end
+// introduced. The rest of the listing is unaffected.
+TEST(ModernDecoration, AToolThatCannotBeCalledIsNotOffered) {
+  transport::StreamableHttpClientSession session;
+  session.setProtocolVersion(protocol::kProtocolVersion20260728);
+
+  const std::vector<Tool> listing = {
+      listed("add", R"({"type":"object","properties":{
+          "a":{"type":"integer"}}})"),
+      listed("execute_sql", R"({"type":"object","properties":{
+          "region":{"type":"string","x-mcp-header":"Region"}}})"),
+      listed("broken", R"({"type":"object","properties":{
+          "n":{"type":"number","x-mcp-header":"N"}}})"),
+  };
+
+  const auto usable = session.acceptListing(listing);
+
+  ASSERT_EQ(usable.size(), 2u) << "one bad definition cost the others";
+  EXPECT_EQ(usable[0].name, "add");
+  EXPECT_EQ(usable[1].name, "execute_sql");
+
+  // And what survived is remembered, so a call to it mirrors what it
+  // said it would.
+  const auto* designated = session.designationsFor("execute_sql");
+  ASSERT_NE(designated, nullptr);
+  ASSERT_EQ(designated->size(), 1u);
+  EXPECT_EQ((*designated)[0].header_name, "Region");
+  EXPECT_EQ(session.designationsFor("broken"), nullptr)
+      << "a tool that was dropped is still remembered as callable";
+}
+
 }  // namespace mcp

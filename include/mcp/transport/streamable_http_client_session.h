@@ -127,6 +127,31 @@ class StreamableHttpClientSession {
                 const json::JsonValue& message) const;
 
   /**
+   * Put on a request what the newest revision expects every one to carry
+   * about itself.
+   *
+   * That era has no introduction, so a request states its own protocol
+   * version, who is calling and what the caller can do — every time, in
+   * `params._meta`. The body is the source of truth for all three, and
+   * the headers beside it only mirror the version.
+   *
+   * @return The message as it should go out. Unchanged for an older
+   *         revision, and for anything that is not a request.
+   */
+  json::JsonValue declareSelf(const json::JsonValue& message) const;
+
+  /** Who this client says it is, for the requests that have to say. */
+  void setClientIdentity(const std::string& name, const std::string& version) {
+    client_name_ = name;
+    client_version_ = version;
+  }
+
+  /** What this client says it can do, as a capabilities object. */
+  void setClientCapabilities(const json::JsonValue& capabilities) {
+    client_capabilities_ = capabilities;
+  }
+
+  /**
    * Remember what a tool asks to have carried in headers.
    *
    * Learned from a listing rather than configured: which arguments a
@@ -140,6 +165,22 @@ class StreamableHttpClientSession {
       const std::vector<protocol::modern::DesignatedParam>& params) {
     designations_[tool] = params;
   }
+
+  /**
+   * Take a tool listing as read, keeping what can be called and dropping
+   * what cannot.
+   *
+   * A tool whose designations this client cannot resolve is one it would
+   * call wrongly every time — the header it sent and the body the server
+   * read would disagree, and the call would be refused for a mismatch
+   * neither end introduced. So it is left out of the listing rather than
+   * offered, and the reason is logged so that whoever wrote the tool can
+   * find out. The other tools are unaffected: one bad definition must not
+   * cost the rest.
+   *
+   * @return The tools worth offering.
+   */
+  std::vector<Tool> acceptListing(const std::vector<Tool>& tools);
 
   /** What a tool was last seen to designate. */
   const std::vector<protocol::modern::DesignatedParam>* designationsFor(
@@ -197,6 +238,11 @@ class StreamableHttpClientSession {
 
  private:
   std::string session_id_;
+  // What this client says about itself on every modern request, there
+  // being no introduction in which to have said it once.
+  std::string client_name_;
+  std::string client_version_;
+  json::JsonValue client_capabilities_;
   // What each tool asks to have mirrored, as its listing said. Kept per
   // session because a server may change its tools and a client is
   // expected to re-read them rather than remember forever.
