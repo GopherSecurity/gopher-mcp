@@ -34,7 +34,10 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <vector>
 
+#include "mcp/protocol/designated_params.h"
+#include "mcp/protocol/header_sentinel.h"
 #include "mcp/types.h"
 
 namespace mcp {
@@ -109,6 +112,42 @@ class StreamableHttpClientSession {
     }
   }
 
+  /**
+   * The same, plus what the newest revision mirrors out of this message.
+   *
+   * That era carries the method, and for three of them the name of what
+   * the request is about, in headers beside the body — so that something
+   * between the two ends can route on them without parsing. A value that
+   * cannot travel as itself is encoded, and a server compares the decoded
+   * header against the body, so the two agree by construction.
+   *
+   * Does nothing for an older revision, which mirrors nothing.
+   */
+  void decorate(std::map<std::string, std::string>& headers,
+                const json::JsonValue& message) const;
+
+  /**
+   * Remember what a tool asks to have carried in headers.
+   *
+   * Learned from a listing rather than configured: which arguments a
+   * tool mirrors is the server's decision, and a client that guessed
+   * would send headers the server never expects. A tool whose
+   * designations cannot be resolved is remembered as designating
+   * nothing, since it is one this client will not be calling.
+   */
+  void rememberDesignations(
+      const std::string& tool,
+      const std::vector<protocol::modern::DesignatedParam>& params) {
+    designations_[tool] = params;
+  }
+
+  /** What a tool was last seen to designate. */
+  const std::vector<protocol::modern::DesignatedParam>* designationsFor(
+      const std::string& tool) const {
+    auto it = designations_.find(tool);
+    return it == designations_.end() ? nullptr : &it->second;
+  }
+
   // ===== Who said it =====
 
   /**
@@ -158,6 +197,11 @@ class StreamableHttpClientSession {
 
  private:
   std::string session_id_;
+  // What each tool asks to have mirrored, as its listing said. Kept per
+  // session because a server may change its tools and a client is
+  // expected to re-read them rather than remember forever.
+  std::map<std::string, std::vector<protocol::modern::DesignatedParam>>
+      designations_;
   std::string protocol_version_;
   bool established_{false};
   std::deque<optional<RequestId>> in_flight_;

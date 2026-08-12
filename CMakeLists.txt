@@ -466,6 +466,7 @@ set(MCP_CORE_SOURCES
     src/transport/request_exchange.cc        # Per-request runtime
     src/transport/exchange_registry.cc       # Per-connection exchange bookkeeping
     src/transport/streamable_session_manager.cc  # Streamable HTTP sessions
+    src/transport/streamable_http_client_session.cc  # What a client puts on a request
     src/transport/stdio_transport_socket.cc
     src/transport/stdio_pipe_transport.cc
     src/transport/ssl_context.cc

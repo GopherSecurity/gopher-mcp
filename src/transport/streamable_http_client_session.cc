@@ -1,0 +1,89 @@
+/**
+ * What a client puts on a request beside its body. See the header.
+ */
+
+#include "mcp/transport/streamable_http_client_session.h"
+
+#include "mcp/logging/log_macros.h"
+
+namespace mcp {
+namespace transport {
+
+void StreamableHttpClientSession::decorate(
+    std::map<std::string, std::string>& headers,
+    const json::JsonValue& message) const {
+  decorate(headers);
+
+  if (!protocol::modern::isModernVersion(protocol_version_)) {
+    // Every older revision mirrors nothing, so there is nothing to add
+    // and nothing to get wrong.
+    return;
+  }
+  if (!message.isObject() || !message.contains("method") ||
+      !message["method"].isString()) {
+    return;
+  }
+
+  const std::string method = message["method"].getString();
+  headers[protocol::modern::kMethodHeader] = method;
+
+  json::JsonValue params;
+  if (message.contains("params") && message["params"].isObject()) {
+    params = message["params"];
+  }
+
+  // Two of the three call it `name` and one calls it `uri`, so which
+  // field carries it is known from the method rather than guessed from
+  // the body.
+  if (protocol::modern::carriesName(method)) {
+    const std::string field = protocol::modern::nameFieldFor(method);
+    if (params.isObject() && params.contains(field)) {
+      std::string text;
+      if (protocol::modern::headerTextForScalar(params[field], &text)) {
+        headers[protocol::modern::kNameHeader] =
+            protocol::modern::encodeHeaderValue(text);
+      }
+    }
+  }
+
+  if (method != protocol::modern::kMethodToolsCall || !params.isObject() ||
+      !params.contains("name") || !params["name"].isString()) {
+    return;
+  }
+  const auto* designated = designationsFor(params["name"].getString());
+  if (designated == nullptr) {
+    return;
+  }
+
+  json::JsonValue arguments = json::JsonValue::object();
+  if (params.contains("arguments") && params["arguments"].isObject()) {
+    arguments = params["arguments"];
+  }
+
+  for (const auto& param : *designated) {
+    json::JsonValue value;
+    if (!protocol::modern::valueAtPath(arguments, param.path, &value)) {
+      // An argument this call does not carry gets no header, and a
+      // server that saw one would refuse the call for naming a value it
+      // was never sent.
+      continue;
+    }
+    if (value.isInteger() &&
+        !protocol::modern::isExactlyCarryableInteger(value.getInt())) {
+      GOPHER_LOG_WARN(
+          "not mirroring {} into a header: {} cannot be carried exactly, and "
+          "a value the two ends round differently is a value they disagree "
+          "about",
+          param.headerName(), value.getInt());
+      continue;
+    }
+    std::string text;
+    if (!protocol::modern::headerTextForScalar(value, &text)) {
+      continue;
+    }
+    headers[param.headerName()] = protocol::modern::encodeHeaderValue(text);
+  }
+}
+
+}  // namespace transport
+}  // namespace mcp

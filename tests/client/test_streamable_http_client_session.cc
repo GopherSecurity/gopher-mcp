@@ -349,4 +349,104 @@ TEST_F(StreamableHttpClientSessionTest, EndingTheClientEndsTheSession) {
 }
 
 }  // namespace
+
+// ── The revision that mirrors what it sends ───────────────────────────
+
+/** A request as it would go out. */
+json::JsonValue outgoing(const std::string& method,
+                         const std::string& params_json = "") {
+  std::string text =
+      "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"" + method + "\"";
+  if (!params_json.empty()) {
+    text += ",\"params\":" + params_json;
+  }
+  text += "}";
+  return json::JsonValue::parse(text);
+}
+
+TEST(ModernDecoration, AnOlderRevisionMirrorsNothing) {
+  transport::StreamableHttpClientSession session;
+  session.setProtocolVersion(protocol::kProtocolVersion20250618);
+
+  std::map<std::string, std::string> headers;
+  session.decorate(headers, outgoing("tools/list"));
+
+  EXPECT_EQ(headers.count(protocol::modern::kMethodHeader), 0u)
+      << "a revision that mirrors nothing sent a mirrored header";
+  EXPECT_EQ(headers[protocol::modern::kProtocolVersionHeader],
+            protocol::kProtocolVersion20250618);
+}
+
+TEST(ModernDecoration, TheMethodTravelsBesideTheBody) {
+  transport::StreamableHttpClientSession session;
+  session.setProtocolVersion(protocol::kProtocolVersion20260728);
+
+  std::map<std::string, std::string> headers;
+  session.decorate(headers, outgoing("tools/list"));
+
+  EXPECT_EQ(headers[protocol::modern::kMethodHeader], "tools/list");
+  EXPECT_EQ(headers.count(protocol::modern::kNameHeader), 0u)
+      << "a method that names nothing sent a name";
+}
+
+// The three that say what they are about carry that too, out of
+// whichever field holds it.
+TEST(ModernDecoration, WhatARequestIsAboutTravelsToo) {
+  transport::StreamableHttpClientSession session;
+  session.setProtocolVersion(protocol::kProtocolVersion20260728);
+
+  std::map<std::string, std::string> headers;
+  session.decorate(headers,
+                   outgoing("tools/call", R"({"name":"get_weather"})"));
+  EXPECT_EQ(headers[protocol::modern::kNameHeader], "get_weather");
+
+  headers.clear();
+  session.decorate(headers,
+                   outgoing("resources/read", R"({"uri":"file:///a.json"})"));
+  EXPECT_EQ(headers[protocol::modern::kNameHeader], "file:///a.json")
+      << "a resource says what it is about under a different name";
+
+  // And one that cannot travel as itself is encoded, which is what lets
+  // the server decode it and find the body it came from.
+  headers.clear();
+  session.decorate(headers,
+                   outgoing("tools/call", "{\"name\":\"\\u5929\\u6c17\"}"));
+  EXPECT_EQ(headers[protocol::modern::kNameHeader], "=?base64?5aSp5rCX?=");
+}
+
+// What a tool designates is learned from its listing rather than
+// guessed: which arguments are mirrored is the server's decision, and a
+// client that invented them would send headers the server never expects.
+TEST(ModernDecoration, ADesignatedArgumentTravelsWhenTheCallCarriesIt) {
+  transport::StreamableHttpClientSession session;
+  session.setProtocolVersion(protocol::kProtocolVersion20260728);
+
+  protocol::modern::DesignatedParam region;
+  region.header_name = "Region";
+  region.path = {"region"};
+  session.rememberDesignations("execute_sql", {region});
+
+  std::map<std::string, std::string> headers;
+  session.decorate(headers, outgoing("tools/call",
+                                     R"({"name":"execute_sql","arguments":{
+                                "region":"us-west1","query":"SELECT 1"}})"));
+  EXPECT_EQ(headers["Mcp-Param-Region"], "us-west1");
+
+  // An argument the call does not carry gets no header: a server that
+  // saw one would refuse the call for naming a value it was never sent.
+  headers.clear();
+  session.decorate(
+      headers,
+      outgoing("tools/call",
+               R"({"name":"execute_sql","arguments":{"query":"SELECT 1"}})"));
+  EXPECT_EQ(headers.count("Mcp-Param-Region"), 0u);
+
+  // And a tool nothing was learned about mirrors nothing.
+  headers.clear();
+  session.decorate(headers, outgoing("tools/call",
+                                     R"({"name":"something_else","arguments":{
+                                "region":"us-west1"}})"));
+  EXPECT_EQ(headers.count("Mcp-Param-Region"), 0u);
+}
+
 }  // namespace mcp
