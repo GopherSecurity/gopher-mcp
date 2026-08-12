@@ -20,7 +20,7 @@ namespace {
 /** True when the error's data names the version complaint by name. */
 bool namesUnsupportedVersion(const json::JsonValue& error) {
   const auto mentions = [](const std::string& text) {
-    return text.find(modern_error::kUnsupportedProtocolVersion) !=
+    return text.find(modern_error::kUnsupportedProtocolVersionName) !=
            std::string::npos;
   };
 
@@ -44,11 +44,12 @@ bool namesUnsupportedVersion(const json::JsonValue& error) {
 }  // namespace
 
 bool isModernRefusal(int status_code, const std::string& body) {
-  // Only these two. A modern server refusing an introduction it has no
-  // concept of answers with one of them; anything else is a different
-  // conversation, and reading a 500 or a 200 this way would stop the
-  // ladder over something that says nothing about the era.
-  if (status_code != 400 && status_code != 404) {
+  // Only these three, which are the ones the revision's own fallback rule
+  // names: a modern server refusing an introduction it has no concept of
+  // answers with one of them. Anything else is a different conversation,
+  // and reading a 500 or a 200 this way would stop the ladder over
+  // something that says nothing about the era.
+  if (status_code != 400 && status_code != 404 && status_code != 405) {
     return false;
   }
   if (body.empty()) {
@@ -81,7 +82,9 @@ bool isModernRefusal(int status_code, const std::string& body) {
   if (error.contains("code") && error["code"].isInteger()) {
     const int code = error["code"].getInt();
     if (code == modern_error::kHeaderMismatch ||
-        code == modern_error::kMethodNotFound) {
+        code == modern_error::kMethodNotFound ||
+        code == modern_error::kUnsupportedProtocolVersion ||
+        code == modern_error::kMissingRequiredClientCapability) {
       return true;
     }
   }

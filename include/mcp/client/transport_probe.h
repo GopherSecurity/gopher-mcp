@@ -33,6 +33,7 @@
 #include "mcp/event/event_loop.h"
 #include "mcp/http/http_async_client.h"
 #include "mcp/network/socket_interface.h"
+#include "mcp/protocol/modern_era.h"
 
 namespace mcp {
 namespace client {
@@ -40,22 +41,19 @@ namespace client {
 /**
  * Refusals that only a server speaking the newest revision produces.
  *
- * Kept beside the one thing that reads them. When the modern era
- * arrives and something else needs them, they can move; putting them
- * where nothing yet looks would be filing them under a guess.
+ * These were sketched here before the revision that defines them was
+ * available to read, and they now come from the one place that holds its
+ * vocabulary. The version complaint in particular was recorded as having
+ * no code of its own; it has one, and a server that sends it would not
+ * have been recognized.
  */
 namespace modern_error {
 
-// The request's headers did not say what this server requires.
-constexpr int kHeaderMismatch = -32020;
-
-// This server has never heard of the method — which, for `initialize`,
-// is a server that does not have one.
-constexpr int kMethodNotFound = -32601;
-
-// Named in the error's data rather than given a code of its own.
-constexpr const char* kUnsupportedProtocolVersion =
-    "UnsupportedProtocolVersionError";
+using protocol::modern::kHeaderMismatch;
+using protocol::modern::kMethodNotFound;
+using protocol::modern::kMissingRequiredClientCapability;
+using protocol::modern::kUnsupportedProtocolVersion;
+using protocol::modern::kUnsupportedProtocolVersionName;
 
 }  // namespace modern_error
 
@@ -65,7 +63,7 @@ constexpr const char* kUnsupportedProtocolVersion =
  *
  * Deliberately narrow. A body is a modern refusal only if it is a
  * JSON-RPC error object — an `error` that is an object carrying an
- * integer `code` — and only for the two statuses such a refusal comes
+ * integer `code` — and only for the three statuses such a refusal comes
  * back with. Anything looser would read this project's own 404 for an
  * unknown path, `{"error":"not_found"}`, as a modern server and refuse
  * to fall back to the transport that would have worked.

@@ -25,13 +25,33 @@ std::string jsonRpcError(int code, const std::string& message) {
          std::to_string(code) + ",\"message\":\"" + message + "\"}}";
 }
 
-// The two codes that mean "you are talking to a newer protocol than you
+// The codes that mean "you are talking to a newer protocol than you
 // think", whichever of them a given server chose.
 TEST(ModernRefusalTest, ARecognisedCodeIsAModernRefusal) {
   EXPECT_TRUE(isModernRefusal(
       400, jsonRpcError(modern_error::kHeaderMismatch, "header mismatch")));
   EXPECT_TRUE(isModernRefusal(
       404, jsonRpcError(modern_error::kMethodNotFound, "no such method")));
+  EXPECT_TRUE(isModernRefusal(
+      400, jsonRpcError(modern_error::kUnsupportedProtocolVersion,
+                        "Unsupported protocol version")));
+  EXPECT_TRUE(isModernRefusal(
+      400, jsonRpcError(modern_error::kMissingRequiredClientCapability,
+                        "capability not declared")));
+}
+
+// The version complaint as a conformant server actually sends it: a code
+// of its own, and a data object naming what it does serve. This was the
+// one recorded as having no code — a server sending it would have been
+// read as legacy and downgraded.
+TEST(ModernRefusalTest, TheVersionComplaintIsRecognisedByItsOwnCode) {
+  const std::string body =
+      "{\"jsonrpc\":\"2.0\",\"id\":1,\"error\":{\"code\":-32022,\"message\":"
+      "\"Unsupported protocol version\",\"data\":{\"supported\":"
+      "[\"2026-07-28\"],\"requested\":\"1900-01-01\"}}}";
+  EXPECT_TRUE(isModernRefusal(400, body));
+  EXPECT_EQ(modern_error::kUnsupportedProtocolVersion, -32022)
+      << "the code this ladder watches for is not the one that is sent";
 }
 
 // And the complaint that arrives by name rather than by code, in
@@ -87,10 +107,22 @@ TEST(ModernRefusalTest, TheStatusIsPartOfTheQuestion) {
       jsonRpcError(modern_error::kHeaderMismatch, "header mismatch");
   EXPECT_FALSE(isModernRefusal(200, modern_body));
   EXPECT_FALSE(isModernRefusal(500, modern_body));
-  EXPECT_FALSE(isModernRefusal(405, modern_body));
-  // The same body, at the statuses it would actually arrive with.
+  EXPECT_FALSE(isModernRefusal(403, modern_body));
+  // The same body, at the three statuses it would actually arrive with.
+  // 405 is one of them: the newest revision serves POST alone, so a
+  // client that opened with anything else is told so — and a body naming
+  // a modern code alongside it is still a modern server saying no.
   EXPECT_TRUE(isModernRefusal(400, modern_body));
   EXPECT_TRUE(isModernRefusal(404, modern_body));
+  EXPECT_TRUE(isModernRefusal(405, modern_body));
+}
+
+// But a 405 on its own is not evidence of anything: it is also what an
+// ordinary HTTP server says about a method it does not route, and this
+// project's own answer for one carries no JSON-RPC error at all.
+TEST(ModernRefusalTest, AMethodNotAllowedWithoutAModernBodyIsNotOne) {
+  EXPECT_FALSE(isModernRefusal(405, R"({"error":"method_not_allowed"})"));
+  EXPECT_FALSE(isModernRefusal(405, ""));
 }
 
 // The rung stands empty until there is a request to put on it, and
