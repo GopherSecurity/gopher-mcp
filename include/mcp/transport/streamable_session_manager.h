@@ -290,6 +290,30 @@ class StreamableSessionManager
   /** Take a stream off its session, with everything keyed on it. */
   void closeStream(SessionCtx& session, StreamCtx& stream);
 
+  /**
+   * End a stream whose client is still there, as the server's own
+   * decision rather than as something that happened to it.
+   *
+   * Two things, and they must not come apart. The HTTP response is
+   * finished, so the client sees the stream end and has a reason to come
+   * back; and the stream is marked as having no client, which is what
+   * everything downstream keys on. Retention treats a standalone stream
+   * as finished only when its client is gone, and "gone" is otherwise
+   * only ever discovered from a connection that dropped — so a stream
+   * ended without this stays on its session, holding its id and its
+   * replay buffer, for as long as the connection underneath happens to
+   * live. That connection is keep-alive, and outlives the stream by
+   * design.
+   *
+   * What is kept is deliberate: the stream stays on the session for its
+   * retention window, so a client naming where it got to is still
+   * answered from it. Compare closeStream, which forgets a stream
+   * immediately and releases what it was holding.
+   *
+   * @return False when there was no open stream here to end.
+   */
+  bool endStream(SessionCtx& session, StreamCtx& stream);
+
   /** What a client's claim about where it got to turned out to be worth. */
   struct ResumePoint {
     /** Whether this session has the stream the client named. */

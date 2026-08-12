@@ -517,6 +517,75 @@ TEST_F(StreamableSessionManagerTest, TheNewestStreamIsWhereAMessageGoes) {
   });
 }
 
+// Ending a stream on purpose has to leave it looking exactly like one
+// whose client went away, because that is the only state anything
+// downstream recognizes as finished. Retention starts the clock on a
+// standalone stream when its connection pointer is null and at no other
+// time — and a connection that is keep-alive outlives the stream on it by
+// design, so a stream ended without this is one whose clock never starts:
+// it holds its id and its replay buffer until the socket happens to close.
+TEST_F(StreamableSessionManagerTest, AnEndedStreamIsOneWithNoClient) {
+  const std::string id = createSession();
+
+  owner_->run([&]() {
+    SessionCtx* session = manager_->find(id);
+    ASSERT_NE(session, nullptr);
+    FakeStream held(*manager_, *session, owner_->dispatcher(),
+                    fakeConnection(1));
+    ASSERT_TRUE(held.ctx()->live());
+
+    EXPECT_TRUE(manager_->endStream(*session, *held.ctx()));
+
+    EXPECT_EQ(held.ctx()->conn, nullptr)
+        << "the stream still claims a client, so it will never be retired";
+    EXPECT_FALSE(held.ctx()->open()) << "the response was not finished";
+    EXPECT_FALSE(held.ctx()->live());
+    EXPECT_EQ(StreamableSessionManager::currentStream(*session), nullptr)
+        << "a stream on its way out is still being chosen to carry messages";
+
+    // Kept on purpose, which is the whole difference from closeStream: a
+    // client naming where it got to is still answered from this.
+    EXPECT_EQ(session->streams.size(), 1u)
+        << "what the client would come back for was thrown away";
+    EXPECT_EQ(session->stream_index.count(held.ctx()->id), 1u);
+  });
+}
+
+TEST_F(StreamableSessionManagerTest, WhatIsSaidAfterAnEndingWaits) {
+  const std::string id = createSession();
+
+  owner_->run([&]() {
+    SessionCtx* session = manager_->find(id);
+    ASSERT_NE(session, nullptr);
+    FakeStream held(*manager_, *session, owner_->dispatcher(),
+                    fakeConnection(1));
+
+    manager_->endStream(*session, *held.ctx());
+
+    // False is "queued", which is what it must be: writing to the stream
+    // just ended would put it somewhere the client will never read.
+    EXPECT_FALSE(manager_->routeUnsolicited(*session, "{\"after\":true}"));
+    EXPECT_EQ(held.bytes().find("after"), std::string::npos) << held.bytes();
+    EXPECT_EQ(session->pending.size(), 1u)
+        << "what was said after the ending went nowhere at all";
+  });
+}
+
+TEST_F(StreamableSessionManagerTest, EndingTwiceIsOneEnding) {
+  const std::string id = createSession();
+
+  owner_->run([&]() {
+    SessionCtx* session = manager_->find(id);
+    ASSERT_NE(session, nullptr);
+    FakeStream held(*manager_, *session, owner_->dispatcher(),
+                    fakeConnection(1));
+
+    EXPECT_TRUE(manager_->endStream(*session, *held.ctx()));
+    EXPECT_FALSE(manager_->endStream(*session, *held.ctx()))
+        << "a stream that was already finished was reported as ended again";
+  });
+}
+
 TEST_F(StreamableSessionManagerTest, TheTargetFallsBackWhenTheNewestGoes) {
   const std::string id = createSession();
 

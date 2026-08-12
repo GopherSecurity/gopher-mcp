@@ -998,31 +998,20 @@ void McpServer::dropSessionStream(const std::string& session_id,
   auto dropped = std::make_shared<bool>(false);
   sessions->withSession(
       *main_dispatcher_, transport_id,
-      [dropped](transport::SessionCtx& ctx) {
+      [sessions, dropped](transport::SessionCtx& ctx) {
         auto* stream = transport::StreamableSessionManager::currentStream(ctx);
-        if (stream == nullptr || !stream->exchange ||
-            stream->dispatcher == nullptr) {
+        if (stream == nullptr) {
           return;
         }
-
-        // Finished on the wire, not merely forgotten. A stream taken out
-        // of the bookkeeping while its HTTP response stays open leaves the
-        // client holding something that has gone quiet, with no reason to
-        // come back — and takes its replay buffer with it, so there would
-        // be nothing to come back for.
-        //
-        // What is left behind is deliberate: the stream stays on the
-        // session until its retention window passes, so a client naming
-        // where it got to is still answered from it.
-        auto exchange = stream->exchange;
-        auto* where = stream->dispatcher;
-        if (where->isThreadSafe()) {
-          exchange->complete();
-        } else {
-          where->post([exchange]() { exchange->complete(); });
-        }
-        *dropped = true;
+        // Finished on the wire and marked as having no client, together:
+        // a stream ended without the second is one the retention window
+        // never starts on, and it would hold its id and its replay buffer
+        // for as long as the keep-alive connection under it lived.
+        *dropped = sessions->endStream(ctx, *stream);
       },
+      // Only once that has happened, so nothing said next is routed to a
+      // stream that is on its way out rather than queued for the one the
+      // client is about to open.
       [report, dropped](bool found) { report(found && *dropped); });
 }
 

@@ -269,6 +269,33 @@ void StreamableSessionManager::closeStream(SessionCtx& session,
   GOPHER_LOG_DEBUG("session {} closed stream {}", session.id, stream_id);
 }
 
+bool StreamableSessionManager::endStream(SessionCtx& session,
+                                         StreamCtx& stream) {
+  RequestExchangePtr exchange = stream.exchange;
+  if (!exchange || stream.dispatcher == nullptr || !stream.open()) {
+    return false;
+  }
+
+  // Marked here, on the session's own thread, and before the bytes go
+  // anywhere: this flag is the session's state rather than the
+  // connection's, and a stream left looking live until some other thread
+  // got around to finishing it would be routed a message it can no longer
+  // carry. Nothing follows the pointer, so nulling it early costs
+  // nothing and closes that window.
+  stream.conn = nullptr;
+
+  if (stream.dispatcher->isThreadSafe()) {
+    exchange->complete();
+  } else {
+    // Decided on the session's thread; the bytes belong on the
+    // connection's. Carried by value so it cannot go away in between.
+    stream.dispatcher->post([exchange]() { exchange->complete(); });
+  }
+
+  GOPHER_LOG_DEBUG("session {} ended stream {}", session.id, stream.id);
+  return true;
+}
+
 StreamableSessionManager::ResumePoint StreamableSessionManager::resumeFrom(
     SessionCtx& session, const std::string& last_event_id) {
   ResumePoint point;
