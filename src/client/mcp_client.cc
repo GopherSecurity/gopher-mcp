@@ -1452,7 +1452,10 @@ void McpClient::failDetection(const std::string& reason) {
 
 void McpClient::runTransportLadder(const std::string& uri) {
   if (!modern_probe_) {
-    modern_probe_.reset(new NoModernProbe());
+    modern_probe_.reset(
+        new ModernProbe(*main_dispatcher_, *socket_interface_,
+                        config_.client_name, config_.client_version,
+                        config_.streamable_http.fallback_probe_timeout));
   }
 
   // The newest revision first, because it has no introduction to make:
@@ -1461,8 +1464,22 @@ void McpClient::runTransportLadder(const std::string& uri) {
   // this endpoint at all unless it was asked in the right order.
   modern_probe_->probe(uri, [this, uri](const ProbeResult& result) {
     if (result.verdict == ProbeResult::Verdict::Modern) {
+      // Stopping here rather than falling through is the whole point of
+      // asking first. A server that speaks only this revision would
+      // refuse the introduction below, and a client that read that
+      // refusal as "not this transport" would try the oldest one, fail
+      // there too, and report the wrong thing about the wrong attempt.
+      std::string served;
+      for (const auto& version : result.supported_versions) {
+        if (!served.empty()) {
+          served += ", ";
+        }
+        served += version;
+      }
       failDetection(
-          "this server speaks the modern protocol, which this client cannot");
+          "this server speaks the modern protocol, which this client cannot" +
+          (served.empty() ? std::string()
+                          : std::string("; it serves ") + served));
       return;
     }
     runClassicRung(uri);

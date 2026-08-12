@@ -7,6 +7,7 @@
 #include "mcp/json/json_bridge.h"
 #include "mcp/logging/log_macros.h"
 #include "mcp/network/transport_socket.h"
+#include "mcp/protocol/protocol_versions.h"
 #include "mcp/transport/https_sse_transport_factory.h"
 
 #undef GOPHER_LOG_COMPONENT
@@ -117,37 +118,67 @@ bool isInitializeAnswer(int status_code,
   return parsed.isObject() && parsed.contains("result");
 }
 
-void NoModernProbe::probe(const std::string& url, ProbeCallback done) {
-  (void)url;
-  GOPHER_LOG_DEBUG("Modern probe not built; treating the server as not modern");
-  if (done) {
-    done(ProbeResult::notModern(0, std::string()));
+namespace {
+
+/** The versions a modern refusal named, if it named any. */
+std::vector<std::string> supportedVersionsIn(const std::string& body) {
+  std::vector<std::string> supported;
+  json::JsonValue parsed;
+  try {
+    parsed = json::JsonValue::parse(body);
+  } catch (const std::exception&) {
+    return supported;
   }
+  if (!parsed.isObject() || !parsed.contains("error") ||
+      !parsed["error"].isObject()) {
+    return supported;
+  }
+  const auto& error = parsed["error"];
+  if (!error.contains("data") || !error["data"].isObject()) {
+    return supported;
+  }
+  const auto& data = error["data"];
+  if (!data.contains(protocol::modern::kSupportedVersionsField) ||
+      !data[protocol::modern::kSupportedVersionsField].isArray()) {
+    return supported;
+  }
+  const auto& listed = data[protocol::modern::kSupportedVersionsField];
+  for (size_t i = 0; i < listed.size(); ++i) {
+    if (listed[i].isString()) {
+      supported.push_back(listed[i].getString());
+    }
+  }
+  return supported;
 }
 
-ClassicProbe::ClassicProbe(event::Dispatcher& dispatcher,
-                           network::SocketInterface& socket_interface,
-                           std::string protocol_version,
-                           std::string client_name,
-                           std::string client_version,
-                           std::chrono::milliseconds timeout)
-    : dispatcher_(dispatcher),
-      socket_interface_(socket_interface),
-      timeout_(timeout),
-      protocol_version_(std::move(protocol_version)),
-      client_name_(std::move(client_name)),
-      client_version_(std::move(client_version)) {}
-
-bool probeRequiresTls(const std::string& url) {
-  // A question asked in plaintext of a server expecting TLS is not a
-  // question that gets an answer, and the silence would be read as this
-  // server not speaking anything — which is the wrong conclusion drawn
-  // from the wrong evidence.
-  return url.size() >= 8 && url.compare(0, 8, "https://") == 0;
+/** Whether an answer is a modern server answering rather than refusing. */
+bool isDiscoverAnswer(int status_code, const std::string& body) {
+  if (status_code < 200 || status_code >= 300) {
+    return false;
+  }
+  json::JsonValue parsed;
+  try {
+    parsed = json::JsonValue::parse(body);
+  } catch (const std::exception&) {
+    return false;
+  }
+  return parsed.isObject() && parsed.contains("result") &&
+         parsed["result"].isObject();
 }
 
-std::unique_ptr<http::HttpAsyncClient> ClassicProbe::clientFor(
-    const std::string& url) {
+}  // namespace
+
+/**
+ * The client that carries a probe to this URL.
+ *
+ * Shared by both rungs: which transport a probe needs is a property of
+ * the URL, not of the question being asked, and two copies of that
+ * decision would be two chances to get the TLS one wrong.
+ */
+std::unique_ptr<http::HttpAsyncClient> buildProbeClient(
+    const std::string& url,
+    event::Dispatcher& dispatcher,
+    network::SocketInterface& socket_interface) {
   const bool secure = probeRequiresTls(url);
 
   std::unique_ptr<network::TransportSocketFactoryBase> factory;
@@ -184,20 +215,134 @@ std::unique_ptr<http::HttpAsyncClient> ClassicProbe::clientFor(
       ssl.sni_hostname = mcp::make_optional(host);
     }
     config.ssl_config = mcp::make_optional(ssl);
-    factory = transport::createHttpsSseTransportFactory(config, dispatcher_);
+    factory = transport::createHttpsSseTransportFactory(config, dispatcher);
   } else {
     factory.reset(new network::RawBufferTransportSocketFactory());
   }
 
   return std::unique_ptr<http::HttpAsyncClient>(new http::HttpAsyncClient(
-      dispatcher_, socket_interface_, std::move(factory)));
+      dispatcher, socket_interface, std::move(factory)));
 }
 
 ClassicProbe::~ClassicProbe() = default;
 
+ModernProbe::ModernProbe(event::Dispatcher& dispatcher,
+                         network::SocketInterface& socket_interface,
+                         std::string client_name,
+                         std::string client_version,
+                         std::chrono::milliseconds timeout)
+    : dispatcher_(dispatcher),
+      socket_interface_(socket_interface),
+      timeout_(timeout),
+      client_name_(std::move(client_name)),
+      client_version_(std::move(client_version)) {}
+
+ModernProbe::~ModernProbe() = default;
+
+void ModernProbe::settle(const ProbeResult& result) {
+  if (!done_) {
+    return;
+  }
+  if (deadline_) {
+    deadline_->disableTimer();
+  }
+  auto done = std::move(done_);
+  done_ = nullptr;
+  done(result);
+}
+
+void ModernProbe::probe(const std::string& url, ProbeCallback done) {
+  done_ = std::move(done);
+  http_ = buildProbeClient(url, dispatcher_, socket_interface_);
+
+  const std::string version = protocol::kProtocolVersion20260728;
+
+  // Everything this revision requires of a request, because a server
+  // that validates them is exactly the server this is trying to find:
+  // one that answers a request missing them would be answering
+  // something else.
+  http::HttpRequest request;
+  request.method = "POST";
+  request.url = url;
+  request.headers["Content-Type"] = "application/json";
+  request.headers["Accept"] = "application/json, text/event-stream";
+  request.headers[protocol::modern::kProtocolVersionHeader] = version;
+  request.headers[protocol::modern::kMethodHeader] =
+      protocol::modern::kMethodServerDiscover;
+  request.body =
+      std::string("{\"jsonrpc\":\"2.0\",\"id\":\"discover-1\",\"method\":\"") +
+      protocol::modern::kMethodServerDiscover + "\",\"params\":{\"_meta\":{\"" +
+      protocol::modern::kMetaProtocolVersion + "\":\"" + version + "\",\"" +
+      protocol::modern::kMetaClientInfo + "\":{\"name\":\"" + client_name_ +
+      "\",\"version\":\"" + client_version_ + "\"},\"" +
+      protocol::modern::kMetaClientCapabilities + "\":{}}}}";
+
+  deadline_ = dispatcher_.createTimer([this]() {
+    GOPHER_LOG_DEBUG("No answer to the discovery within {}ms",
+                     timeout_.count());
+    settle(ProbeResult::unreachable("no answer within " +
+                                    std::to_string(timeout_.count()) + "ms"));
+  });
+  deadline_->enableTimer(timeout_);
+
+  const bool sent = http_->send(
+      request,
+      [this](http::HttpResponse response) {
+        if (isDiscoverAnswer(response.status_code, response.body)) {
+          // It answered the question only this era has.
+          settle(ProbeResult::modern());
+          return;
+        }
+        if (isModernRefusal(response.status_code, response.body)) {
+          // It refused in a way only this era refuses, which is the
+          // same evidence — and it may have said what it does serve.
+          settle(ProbeResult::modern(supportedVersionsIn(response.body)));
+          return;
+        }
+        settle(ProbeResult::notModern(response.status_code,
+                                      std::move(response.body)));
+      },
+      [this](const std::string& error) {
+        settle(ProbeResult::unreachable(error));
+      });
+
+  if (!sent) {
+    settle(ProbeResult::unreachable("could not be asked: " + url));
+  }
+}
+
+void NoModernProbe::probe(const std::string& url, ProbeCallback done) {
+  (void)url;
+  GOPHER_LOG_DEBUG("Modern probe not built; treating the server as not modern");
+  if (done) {
+    done(ProbeResult::notModern(0, std::string()));
+  }
+}
+
+ClassicProbe::ClassicProbe(event::Dispatcher& dispatcher,
+                           network::SocketInterface& socket_interface,
+                           std::string protocol_version,
+                           std::string client_name,
+                           std::string client_version,
+                           std::chrono::milliseconds timeout)
+    : dispatcher_(dispatcher),
+      socket_interface_(socket_interface),
+      timeout_(timeout),
+      protocol_version_(std::move(protocol_version)),
+      client_name_(std::move(client_name)),
+      client_version_(std::move(client_version)) {}
+
+bool probeRequiresTls(const std::string& url) {
+  // A question asked in plaintext of a server expecting TLS is not a
+  // question that gets an answer, and the silence would be read as this
+  // server not speaking anything — which is the wrong conclusion drawn
+  // from the wrong evidence.
+  return url.size() >= 8 && url.compare(0, 8, "https://") == 0;
+}
+
 void ClassicProbe::probe(const std::string& url, ProbeCallback done) {
   done_ = std::move(done);
-  http_ = clientFor(url);
+  http_ = buildProbeClient(url, dispatcher_, socket_interface_);
 
   // The introduction, spelled the way this transport spells it: both
   // content types accepted, because a server may answer either with a

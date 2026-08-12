@@ -29,6 +29,7 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "mcp/event/event_loop.h"
 #include "mcp/http/http_async_client.h"
@@ -138,9 +139,17 @@ struct ProbeResult {
   // Set for Unreachable.
   std::string error;
 
-  static ProbeResult modern() {
+  // Set for Modern when the server named what it serves — a refusal
+  // that lists them is the difference between a dead end and a
+  // negotiation, and the ladder retries with one of these rather than
+  // repeating the request it was just refused.
+  std::vector<std::string> supported_versions;
+
+  static ProbeResult modern(
+      std::vector<std::string> supported = std::vector<std::string>()) {
     ProbeResult result;
     result.verdict = Verdict::Modern;
+    result.supported_versions = std::move(supported);
     return result;
   }
   static ProbeResult notModern(int status_code,
@@ -183,17 +192,52 @@ class TransportProbe {
 using TransportProbePtr = std::unique_ptr<TransportProbe>;
 
 /**
- * The modern rung, standing empty.
+ * A modern rung that asks nothing and answers "not modern".
  *
- * A modern probe is a request this client cannot yet build — modern
- * request construction does not exist. Rather than leave the rung out
- * and have the ladder rewritten when it does, the rung is here and
- * answers "not modern" straight away. What replaces it replaces only
- * this.
+ * Kept for callers that have no business asking — and for tests that
+ * pin what the ladder does when the rung above it falls through. The
+ * rung that actually asks is ModernProbe, below.
  */
 class NoModernProbe : public TransportProbe {
  public:
   void probe(const std::string& url, ProbeCallback done) override;
+};
+
+/**
+ * The modern rung: ask the server what it is.
+ *
+ * One POST of `server/discover`, carrying everything the newest revision
+ * requires of a request — the version, caller and capabilities in the
+ * body, and the version and method mirrored into headers. A server that
+ * answers it speaks this era; one that refuses it with a code this era
+ * defines speaks it too, and says which revisions it serves.
+ *
+ * Anything else is not evidence of this era, and the ladder goes on to
+ * ask the older question rather than stopping on a maybe.
+ */
+class ModernProbe : public TransportProbe {
+ public:
+  ModernProbe(event::Dispatcher& dispatcher,
+              network::SocketInterface& socket_interface,
+              std::string client_name,
+              std::string client_version,
+              std::chrono::milliseconds timeout);
+  ~ModernProbe() override;
+
+  void probe(const std::string& url, ProbeCallback done) override;
+
+ private:
+  void settle(const ProbeResult& result);
+
+  event::Dispatcher& dispatcher_;
+  network::SocketInterface& socket_interface_;
+  std::chrono::milliseconds timeout_;
+  std::string client_name_;
+  std::string client_version_;
+
+  std::unique_ptr<http::HttpAsyncClient> http_;
+  event::TimerPtr deadline_;
+  ProbeCallback done_;
 };
 
 /**
@@ -225,10 +269,6 @@ class ClassicProbe : public TransportProbe {
   // Report once, whichever of the answer and the deadline arrives
   // first, and stop the other from reporting after it.
   void settle(const ProbeResult& result);
-
-  // Built per probe rather than once, because what carries the request
-  // depends on the URL being probed and the URL is not known until then.
-  std::unique_ptr<http::HttpAsyncClient> clientFor(const std::string& url);
 
   event::Dispatcher& dispatcher_;
   network::SocketInterface& socket_interface_;

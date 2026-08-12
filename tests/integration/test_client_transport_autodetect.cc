@@ -148,6 +148,76 @@ TEST_F(TransportAutodetectTest, AnAnswerOnAStreamIsStillAnAnswer) {
       << "fell back to an older transport after being answered on a stream";
 }
 
+// The rung that was standing empty until the newest revision existed.
+// A server that answers the question only that revision asks is one this
+// client cannot talk to, and the ladder stops rather than falling
+// through — a server speaking only that revision would refuse the
+// introduction below, and reading that refusal as "not this transport"
+// would try the oldest one, fail there too, and report the wrong thing
+// about the wrong attempt.
+TEST_F(TransportAutodetectTest,
+       AModernServerStopsTheLadderAndSaysWhatItServes) {
+  const uint16_t port = server_.start([](const Seen& seen) -> Reply {
+    if (seen.rpc_method == "server/discover") {
+      // The refusal a conformant server sends, with its own code and the
+      // list a client is meant to pick from.
+      return Reply::write(
+          withBody(400, "Bad Request", "application/json",
+                   "{\"jsonrpc\":\"2.0\",\"id\":\"discover-1\",\"error\":{"
+                   "\"code\":-32022,"
+                   "\"message\":\"Unsupported protocol "
+                   "version\",\"data\":{\"supported\":"
+                   "[\"2027-01-01\"],\"requested\":\"2026-07-28\"}}}",
+                   std::string()));
+    }
+    return Reply::write(accepted());
+  });
+
+  auto connected = connectClient(port);
+  ASSERT_FALSE(holds_alternative<std::nullptr_t>(connected))
+      << "a server this client cannot speak to was reported as reachable";
+
+  const auto* error = get_error<std::nullptr_t>(connected);
+  ASSERT_NE(error, nullptr);
+  EXPECT_NE(error->message.find("modern"), std::string::npos)
+      << "the caller was not told why: " << error->message;
+  EXPECT_NE(error->message.find("2027-01-01"), std::string::npos)
+      << "the server said what it serves and the caller was not told: "
+      << error->message;
+
+  std::this_thread::sleep_for(300ms);
+  EXPECT_EQ(server_.countOf("initialize"), 0u)
+      << "introduced itself to a server that has no introduction";
+  EXPECT_EQ(server_.countOfMethod("GET"), 0u)
+      << "fell through to the oldest transport after a modern answer";
+}
+
+// And a server that answers the discovery outright is just as modern,
+// without having refused anything.
+TEST_F(TransportAutodetectTest, AServerThatAnswersTheDiscoveryIsModern) {
+  const uint16_t port = server_.start([](const Seen& seen) -> Reply {
+    if (seen.rpc_method == "server/discover") {
+      // Written out rather than built with answer(), which cannot echo a
+      // string id — and the id this request carries is one, as the
+      // revision's own example has it.
+      return Reply::write(
+          withBody(200, "OK", "application/json",
+                   "{\"jsonrpc\":\"2.0\",\"id\":\"discover-1\",\"result\":{"
+                   "\"resultType\":\"complete\",\"supportedVersions\":"
+                   "[\"2026-07-28\"],\"capabilities\":{}}}",
+                   std::string()));
+    }
+    return Reply::write(accepted());
+  });
+
+  auto connected = connectClient(port);
+  ASSERT_FALSE(holds_alternative<std::nullptr_t>(connected));
+
+  std::this_thread::sleep_for(300ms);
+  EXPECT_EQ(server_.countOf("initialize"), 0u);
+  EXPECT_EQ(server_.countOfMethod("GET"), 0u);
+}
+
 // A newer server's refusal stops the ladder. Falling through would fail
 // for a reason that says nothing about why.
 TEST_F(TransportAutodetectTest, ANewerServerStopsTheLadder) {
