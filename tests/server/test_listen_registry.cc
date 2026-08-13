@@ -13,6 +13,7 @@
  * a connection that dropped.
  */
 
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -48,7 +49,24 @@ class StreamSpy : public ResponseStream {
     return makeVoidSuccess();
   }
   bool alive() const override { return alive_; }
+  bool onCancelled(std::function<void()> observer) override {
+    cancellation = std::move(observer);
+    return true;
+  }
+
   void die() { alive_ = false; }
+
+  /** What a client closing this stream does. */
+  void clientWentAway() {
+    alive_ = false;
+    if (cancellation) {
+      auto observer = cancellation;
+      cancellation = nullptr;
+      observer();
+    }
+  }
+
+  std::function<void()> cancellation;
 
   /** The methods delivered here, in order. */
   std::vector<std::string> methods() const {
@@ -268,6 +286,38 @@ TEST(ListenRegistry, AskingForNothingHearsNothing) {
             0u);
   EXPECT_EQ(stream->notifications.size(), 1u)
       << "only the acknowledgement should have arrived";
+}
+
+// There is no message for ending a subscription: a client ends one by
+// stopping reading it. So the close has to be what does it — and it has
+// to end that subscription only, since one client may hold several on the
+// same connection and closing all of them is not what closing one means.
+TEST(ListenRegistry, AClientThatStopsReadingHasEndedThatSubscription) {
+  ListenRegistry registry;
+  auto abandoned = std::make_shared<StreamSpy>();
+  auto kept = std::make_shared<StreamSpy>();
+
+  registry.open(make_request_id(1), abandoned,
+                filterFrom(R"({"notifications":{"toolsListChanged":true}})"));
+  registry.open(make_request_id(2), kept,
+                filterFrom(R"({"notifications":{"toolsListChanged":true}})"));
+  ASSERT_EQ(registry.size(), 2u);
+
+  abandoned->clientWentAway();
+
+  EXPECT_EQ(registry.size(), 1u)
+      << "a subscription nobody is reading is still being held";
+  EXPECT_EQ(registry.publish(modern::kNotificationToolsListChanged,
+                             json::JsonValue::object()),
+            1u)
+      << "a change was still being written to a stream nobody reads";
+  EXPECT_EQ(kept->notifications.size(), 2u)
+      << "one subscription ending ended another";
+
+  // Nothing was said about the ending, because there was nobody left to
+  // say it to: the response that marks a graceful close would have gone
+  // down a stream that is no longer read.
+  EXPECT_TRUE(abandoned->responses.empty());
 }
 
 // The method has to be reachable, or the whole of the above is

@@ -21,6 +21,7 @@
 #pragma once
 
 #include <map>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -124,6 +125,15 @@ class ListenRegistry {
   };
 
   std::map<RequestIdKey, Subscription> subscriptions_;
+
+  /**
+   * Proof this registry is still here, for the cancellations it asked to
+   * be told about. A subscription's stream is held by machinery that
+   * outlives the server holding this, and a cancellation arriving after
+   * would otherwise be delivered into freed memory. Compared, never
+   * followed.
+   */
+  std::shared_ptr<int> alive_{new int(0)};
 };
 
 }  // namespace server

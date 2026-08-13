@@ -5,6 +5,8 @@
 #include "mcp/server/listen_registry.h"
 
 #include <algorithm>
+#include <memory>
+#include <utility>
 
 #include "mcp/logging/log_macros.h"
 #include "mcp/protocol/modern_era.h"
@@ -157,6 +159,24 @@ bool ListenRegistry::open(const RequestId& id,
   }
 
   subscriptions_.emplace(key, std::move(subscription));
+
+  // A subscription ends when its client stops reading it: there is no
+  // message for cancelling one, and on the revision this belongs to
+  // closing the stream is the only way to ask. Dropped rather than closed
+  // — a stream nobody is reading cannot be told anything, and the response
+  // that says an ending was graceful would go nowhere.
+  std::weak_ptr<int> alive = alive_;
+  const RequestId id_copy = id;
+  stream->onCancelled([this, alive, id_copy]() {
+    if (alive.expired()) {
+      return;
+    }
+    if (forget(id_copy)) {
+      GOPHER_LOG_DEBUG("subscription {} ended by its client",
+                       requestIdKeyToString(requestIdKey(id_copy)));
+    }
+  });
+
   GOPHER_LOG_DEBUG("subscription {} opened", requestIdKeyToString(key));
   return true;
 }
