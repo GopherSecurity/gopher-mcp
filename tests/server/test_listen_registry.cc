@@ -104,8 +104,8 @@ TEST(ListenRegistry, ASubscriptionIsAcknowledgedBeforeAnythingElse) {
   ListenRegistry registry;
   auto stream = std::make_shared<StreamSpy>();
 
-  ASSERT_TRUE(
-      registry.open(make_request_id(1), stream, filterFrom(R"({"notifications":{
+  ASSERT_TRUE(registry.open("caller-a", make_request_id(1), stream,
+                            filterFrom(R"({"notifications":{
                                 "toolsListChanged":true}})")));
 
   ASSERT_EQ(stream->notifications.size(), 1u)
@@ -128,7 +128,7 @@ TEST(ListenRegistry, ASubscriptionIsAcknowledgedBeforeAnythingElse) {
 TEST(ListenRegistry, NothingArrivesThatWasNotAskedFor) {
   ListenRegistry registry;
   auto stream = std::make_shared<StreamSpy>();
-  registry.open(make_request_id(1), stream,
+  registry.open("caller-a", make_request_id(1), stream,
                 filterFrom(R"({"notifications":{"toolsListChanged":true}})"));
 
   EXPECT_EQ(registry.publish(modern::kNotificationToolsListChanged,
@@ -155,7 +155,8 @@ TEST(ListenRegistry, NothingArrivesThatWasNotAskedFor) {
 TEST(ListenRegistry, AResourceUpdateGoesOnlyToWhoAskedForThatResource) {
   ListenRegistry registry;
   auto stream = std::make_shared<StreamSpy>();
-  registry.open(make_request_id(1), stream, filterFrom(R"({"notifications":{
+  registry.open("caller-a", make_request_id(1), stream,
+                filterFrom(R"({"notifications":{
                     "resourceSubscriptions":["file:///a"]}})"));
 
   EXPECT_EQ(registry.publish(modern::kNotificationResourcesUpdated,
@@ -179,10 +180,10 @@ TEST(ListenRegistry, OneChangeReachesEveryMatchingSubscriptionOnce) {
   auto both = std::make_shared<StreamSpy>();
   auto tools_only = std::make_shared<StreamSpy>();
 
-  registry.open(make_request_id(1), both,
+  registry.open("caller-a", make_request_id(1), both,
                 filterFrom(R"({"notifications":{"toolsListChanged":true,
                     "promptsListChanged":true}})"));
-  registry.open(make_request_id(2), tools_only,
+  registry.open("caller-a", make_request_id(2), tools_only,
                 filterFrom(R"({"notifications":{"toolsListChanged":true}})"));
 
   EXPECT_EQ(registry.publish(modern::kNotificationToolsListChanged,
@@ -214,12 +215,12 @@ TEST(ListenRegistry, AnEndingIsSaidOnTheStreamThatIsEnding) {
   auto ending = std::make_shared<StreamSpy>();
   auto carrying_on = std::make_shared<StreamSpy>();
 
-  registry.open(make_request_id(1), ending,
+  registry.open("caller-a", make_request_id(1), ending,
                 filterFrom(R"({"notifications":{"toolsListChanged":true}})"));
-  registry.open(make_request_id(2), carrying_on,
+  registry.open("caller-a", make_request_id(2), carrying_on,
                 filterFrom(R"({"notifications":{"toolsListChanged":true}})"));
 
-  ASSERT_TRUE(registry.close(make_request_id(1)));
+  ASSERT_TRUE(registry.close("caller-a", make_request_id(1)));
   EXPECT_EQ(registry.size(), 1u);
 
   ASSERT_EQ(ending->responses.size(), 1u)
@@ -240,13 +241,49 @@ TEST(ListenRegistry, AnEndingIsSaidOnTheStreamThatIsEnding) {
   EXPECT_EQ(carrying_on->notifications.size(), 2u);
 }
 
-TEST(ListenRegistry, TwoSubscriptionsCannotAnswerToOneName) {
+// A subscription's id is one its own client chose, so two clients each
+// numbering their requests from one is the ordinary case rather than a
+// collision. Refusing the second would mean whichever client subscribed
+// first could stop any other from subscribing at all.
+TEST(ListenRegistry, TwoClientsMayUseTheSameIdForDifferentSubscriptions) {
   ListenRegistry registry;
   auto first = std::make_shared<StreamSpy>();
   auto second = std::make_shared<StreamSpy>();
 
-  ASSERT_TRUE(registry.open(make_request_id(1), first, NotificationFilter()));
-  EXPECT_FALSE(registry.open(make_request_id(1), second, NotificationFilter()))
+  ASSERT_TRUE(registry.open(
+      "caller-a", make_request_id(1), first,
+      filterFrom(R"({"notifications":{"toolsListChanged":true}})")));
+  ASSERT_TRUE(registry.open(
+      "caller-b", make_request_id(1), second,
+      filterFrom(R"({"notifications":{"toolsListChanged":true}})")))
+      << "one client's choice of id stopped another from subscribing";
+  EXPECT_EQ(registry.size(), 2u);
+
+  // Both are real subscriptions, and each carries the id its own client
+  // chose — which is the same number, meaning something different to
+  // each of them.
+  EXPECT_EQ(registry.publish(modern::kNotificationToolsListChanged,
+                             json::JsonValue::object()),
+            2u);
+  EXPECT_EQ(first->subscriptionOf(1), 1);
+  EXPECT_EQ(second->subscriptionOf(1), 1);
+
+  // And ending one ends that one only, though they are named alike.
+  ASSERT_TRUE(registry.close("caller-a", make_request_id(1)));
+  EXPECT_EQ(registry.size(), 1u);
+  EXPECT_TRUE(second->responses.empty())
+      << "ending one client's subscription ended another's";
+}
+
+TEST(ListenRegistry, OneClientCannotUseOneIdTwice) {
+  ListenRegistry registry;
+  auto first = std::make_shared<StreamSpy>();
+  auto second = std::make_shared<StreamSpy>();
+
+  ASSERT_TRUE(registry.open("caller-a", make_request_id(1), first,
+                            NotificationFilter()));
+  EXPECT_FALSE(registry.open("caller-a", make_request_id(1), second,
+                             NotificationFilter()))
       << "a second subscription took a name already answered to";
   EXPECT_EQ(registry.size(), 1u);
   EXPECT_TRUE(second->notifications.empty());
@@ -257,9 +294,9 @@ TEST(ListenRegistry, ASubscriptionWhoseStreamHasGoneIsDropped) {
   auto living = std::make_shared<StreamSpy>();
   auto dead = std::make_shared<StreamSpy>();
 
-  registry.open(make_request_id(1), living,
+  registry.open("caller-a", make_request_id(1), living,
                 filterFrom(R"({"notifications":{"toolsListChanged":true}})"));
-  registry.open(make_request_id(2), dead,
+  registry.open("caller-a", make_request_id(2), dead,
                 filterFrom(R"({"notifications":{"toolsListChanged":true}})"));
   dead->die();
 
@@ -276,7 +313,7 @@ TEST(ListenRegistry, ASubscriptionWhoseStreamHasGoneIsDropped) {
 TEST(ListenRegistry, AskingForNothingHearsNothing) {
   ListenRegistry registry;
   auto stream = std::make_shared<StreamSpy>();
-  registry.open(make_request_id(1), stream, filterFrom(R"({})"));
+  registry.open("caller-a", make_request_id(1), stream, filterFrom(R"({})"));
 
   EXPECT_EQ(registry.publish(modern::kNotificationToolsListChanged,
                              json::JsonValue::object()),
@@ -297,9 +334,9 @@ TEST(ListenRegistry, AClientThatStopsReadingHasEndedThatSubscription) {
   auto abandoned = std::make_shared<StreamSpy>();
   auto kept = std::make_shared<StreamSpy>();
 
-  registry.open(make_request_id(1), abandoned,
+  registry.open("caller-a", make_request_id(1), abandoned,
                 filterFrom(R"({"notifications":{"toolsListChanged":true}})"));
-  registry.open(make_request_id(2), kept,
+  registry.open("caller-a", make_request_id(2), kept,
                 filterFrom(R"({"notifications":{"toolsListChanged":true}})"));
   ASSERT_EQ(registry.size(), 2u);
 

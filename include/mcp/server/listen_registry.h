@@ -69,6 +69,28 @@ struct NotificationFilter {
   }
 };
 
+/**
+ * What tells one subscription from another, server-wide.
+ *
+ * The id a subscription answers to is the JSON-RPC id of the request
+ * that opened it, and that id is only ever unique to the client that
+ * chose it — two clients each numbering their requests from one is the
+ * ordinary case, not a collision. So what a server holds them under has
+ * to carry who they belong to as well; only the id travels on the wire,
+ * where the client it went to is the context.
+ */
+struct SubscriptionKey {
+  std::string caller;
+  RequestIdKey id;
+
+  bool operator<(const SubscriptionKey& other) const {
+    if (caller != other.caller) {
+      return caller < other.caller;
+    }
+    return id < other.id;
+  }
+};
+
 /** Every subscription this server is holding open. */
 class ListenRegistry {
  public:
@@ -76,11 +98,14 @@ class ListenRegistry {
    * Take one on, and say so on its own stream before anything else goes
    * down it.
    *
+   * @param caller Who it belongs to. Two clients using the same request
+   *        id are two subscriptions, not one taken twice.
    * @return False when there is nothing to hold — no stream, or an id
-   *         already subscribed, which would leave two subscriptions
-   *         answering to one name.
+   *         this caller has already subscribed under, which would leave
+   *         two of its subscriptions answering to one name.
    */
-  bool open(const RequestId& id,
+  bool open(const std::string& caller,
+            const RequestId& id,
             const ResponseStreamPtr& stream,
             const NotificationFilter& filter);
 
@@ -104,13 +129,13 @@ class ListenRegistry {
    *
    * @return False when no such subscription is held.
    */
-  bool close(const RequestId& id);
+  bool close(const std::string& caller, const RequestId& id);
 
   /** The same for all of them, as a server going away does. */
   void closeAll();
 
   /** Forget one whose stream has gone, without trying to answer it. */
-  bool forget(const RequestId& id);
+  bool forget(const std::string& caller, const RequestId& id);
 
   /** Drop every subscription whose stream can no longer be reached. */
   size_t forgetDead();
@@ -119,12 +144,13 @@ class ListenRegistry {
 
  private:
   struct Subscription {
+    std::string caller;
     RequestId id;
     ResponseStreamPtr stream;
     NotificationFilter filter;
   };
 
-  std::map<RequestIdKey, Subscription> subscriptions_;
+  std::map<SubscriptionKey, Subscription> subscriptions_;
 
   /**
    * Proof this registry is still here, for the cancellations it asked to

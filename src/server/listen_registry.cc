@@ -120,22 +120,25 @@ bool NotificationFilter::wants(const std::string& method,
   return false;
 }
 
-bool ListenRegistry::open(const RequestId& id,
+bool ListenRegistry::open(const std::string& caller,
+                          const RequestId& id,
                           const ResponseStreamPtr& stream,
                           const NotificationFilter& filter) {
   if (!stream) {
     return false;
   }
-  const RequestIdKey key = requestIdKey(id);
+  const SubscriptionKey key{caller, requestIdKey(id)};
   if (subscriptions_.count(key) != 0) {
-    // Two subscriptions answering to one name would make every message
-    // on either ambiguous.
-    GOPHER_LOG_WARN("a subscription already answers to {}",
-                    requestIdKeyToString(key));
+    // Two of one caller's subscriptions answering to one name would make
+    // every message on either ambiguous. Two callers using the same id
+    // are not that, and are held apart rather than refused.
+    GOPHER_LOG_WARN("a subscription of {} already answers to {}", caller,
+                    requestIdKeyToString(key.id));
     return false;
   }
 
   Subscription subscription;
+  subscription.caller = caller;
   subscription.id = id;
   subscription.stream = stream;
   subscription.filter = filter;
@@ -154,7 +157,7 @@ bool ListenRegistry::open(const RequestId& id,
   auto sent = stream->sendNotification(acknowledgement);
   if (holds_alternative<Error>(sent)) {
     GOPHER_LOG_WARN("subscription {} could not be acknowledged: {}",
-                    requestIdKeyToString(key), get<Error>(sent).message);
+                    requestIdKeyToString(key.id), get<Error>(sent).message);
     return false;
   }
 
@@ -167,17 +170,20 @@ bool ListenRegistry::open(const RequestId& id,
   // that says an ending was graceful would go nowhere.
   std::weak_ptr<int> alive = alive_;
   const RequestId id_copy = id;
-  stream->onCancelled([this, alive, id_copy]() {
+  const std::string caller_copy = caller;
+  stream->onCancelled([this, alive, caller_copy, id_copy]() {
     if (alive.expired()) {
       return;
     }
-    if (forget(id_copy)) {
-      GOPHER_LOG_DEBUG("subscription {} ended by its client",
-                       requestIdKeyToString(requestIdKey(id_copy)));
+    if (forget(caller_copy, id_copy)) {
+      GOPHER_LOG_DEBUG("subscription {} of {} ended by its client",
+                       requestIdKeyToString(requestIdKey(id_copy)),
+                       caller_copy);
     }
   });
 
-  GOPHER_LOG_DEBUG("subscription {} opened", requestIdKeyToString(key));
+  GOPHER_LOG_DEBUG("subscription {} of {} opened", requestIdKeyToString(key.id),
+                   caller);
   return true;
 }
 
@@ -227,7 +233,7 @@ size_t ListenRegistry::publish(const std::string& method,
     auto sent = subscription.stream->sendNotification(notification);
     if (holds_alternative<Error>(sent)) {
       GOPHER_LOG_DEBUG("subscription {} did not take {}: {}",
-                       requestIdKeyToString(entry.first), method,
+                       requestIdKeyToString(entry.first.id), method,
                        get<Error>(sent).message);
       continue;
     }
@@ -237,8 +243,8 @@ size_t ListenRegistry::publish(const std::string& method,
   return delivered;
 }
 
-bool ListenRegistry::close(const RequestId& id) {
-  auto it = subscriptions_.find(requestIdKey(id));
+bool ListenRegistry::close(const std::string& caller, const RequestId& id) {
+  auto it = subscriptions_.find(SubscriptionKey{caller, requestIdKey(id)});
   if (it == subscriptions_.end()) {
     return false;
   }
@@ -256,25 +262,26 @@ bool ListenRegistry::close(const RequestId& id) {
   it->second.stream->sendResponse(jsonrpc::Response::success(
       it->second.id, jsonrpc::ResponseResult(result)));
 
-  GOPHER_LOG_DEBUG("subscription {} closed", requestIdKeyToString(it->first));
+  GOPHER_LOG_DEBUG("subscription {} of {} closed",
+                   requestIdKeyToString(it->first.id), it->first.caller);
   subscriptions_.erase(it);
   return true;
 }
 
 void ListenRegistry::closeAll() {
   // Collected first: closing rearranges what the walk is reading.
-  std::vector<RequestId> held;
+  std::vector<std::pair<std::string, RequestId>> held;
   held.reserve(subscriptions_.size());
   for (const auto& entry : subscriptions_) {
-    held.push_back(entry.second.id);
+    held.push_back(std::make_pair(entry.second.caller, entry.second.id));
   }
-  for (const auto& id : held) {
-    close(id);
+  for (const auto& one : held) {
+    close(one.first, one.second);
   }
 }
 
-bool ListenRegistry::forget(const RequestId& id) {
-  return subscriptions_.erase(requestIdKey(id)) != 0;
+bool ListenRegistry::forget(const std::string& caller, const RequestId& id) {
+  return subscriptions_.erase(SubscriptionKey{caller, requestIdKey(id)}) != 0;
 }
 
 size_t ListenRegistry::forgetDead() {
@@ -286,8 +293,8 @@ size_t ListenRegistry::forgetDead() {
     }
     // Nothing to say goodbye to: a stream that is gone cannot be told
     // that its subscription ended.
-    GOPHER_LOG_DEBUG("subscription {} dropped with its stream",
-                     requestIdKeyToString(it->first));
+    GOPHER_LOG_DEBUG("subscription {} of {} dropped with its stream",
+                     requestIdKeyToString(it->first.id), it->first.caller);
     it = subscriptions_.erase(it);
     ++dropped;
   }

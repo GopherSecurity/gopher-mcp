@@ -1860,7 +1860,6 @@ void McpServer::registerBuiltinHandlers() {
       protocol::modern::kMethodSubscriptionsListen,
       [this](const jsonrpc::Request& request, SessionContext& session,
              const ResponseStreamPtr& stream) {
-        (void)session;
         if (!stream) {
           return;
         }
@@ -1873,7 +1872,10 @@ void McpServer::registerBuiltinHandlers() {
         }
 
         const auto filter = NotificationFilter::parse(params);
-        if (!subscriptions_.open(request.id, stream, filter)) {
+        // Held under who asked as well as what they called it: the id a
+        // subscription answers to is one its own client chose, and two
+        // clients each numbering their requests from one is ordinary.
+        if (!subscriptions_.open(session.getId(), request.id, stream, filter)) {
           stream->sendResponse(jsonrpc::Response::make_error(
               request.id, Error(jsonrpc::INVALID_REQUEST,
                                 "this subscription could not be opened")));
