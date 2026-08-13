@@ -158,6 +158,55 @@ CarriedInput carriedInputOf(const json::JsonValue& params) {
   return carried;
 }
 
+AskedFor askedForIn(const json::JsonValue& result) {
+  AskedFor asked;
+  if (!result.isObject() || !result.contains(kResultTypeField) ||
+      !result[kResultTypeField].isString() ||
+      result[kResultTypeField].getString() != kResultTypeInputRequired) {
+    return asked;
+  }
+
+  if (result.contains(kInputRequestsField) &&
+      result[kInputRequestsField].isObject()) {
+    const auto& requests = result[kInputRequestsField];
+    for (const auto& name : requests.keys()) {
+      const auto& one = requests[name];
+      if (!one.isObject() || !one.contains("method") ||
+          !one["method"].isString()) {
+        // A question with no method is one nothing could be asked of.
+        // Skipped rather than guessed at.
+        continue;
+      }
+      InputRequest request;
+      request.method = one["method"].getString();
+      request.params = one.contains("params") && one["params"].isObject()
+                           ? one["params"]
+                           : json::JsonValue::object();
+      asked.requests[name] = request;
+    }
+  }
+
+  if (result.contains(kRequestStateField) &&
+      result[kRequestStateField].isString()) {
+    asked.request_state =
+        mcp::make_optional(result[kRequestStateField].getString());
+  }
+
+  // Only now: a question that asks nothing and carries nothing would send
+  // the same request again unchanged, and be answered the same way.
+  asked.asked = !asked.requests.empty() || asked.request_state.has_value();
+  return asked;
+}
+
+json::JsonValue renderInputResponses(
+    const std::map<std::string, json::JsonValue>& answers) {
+  json::JsonValue responses = json::JsonValue::object();
+  for (const auto& entry : answers) {
+    responses.set(entry.first, entry.second);
+  }
+  return responses;
+}
+
 }  // namespace modern
 }  // namespace protocol
 }  // namespace mcp

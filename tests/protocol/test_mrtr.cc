@@ -9,6 +9,7 @@
  * since such a question would sit unanswerable with no way to say so.
  */
 
+#include <map>
 #include <string>
 #include <vector>
 
@@ -197,6 +198,95 @@ TEST(Mrtr, OnlySomeRequestsMayBeAnsweredWithAQuestion) {
   EXPECT_FALSE(mayAskForInput("tools/list"));
   EXPECT_FALSE(mayAskForInput(kMethodServerDiscover));
   EXPECT_FALSE(mayAskForInput(kMethodSubscriptionsListen));
+}
+
+// The other end of the same shape. What a handler asked for has to come
+// back off the wire as what it asked for, or the client answers the
+// wrong questions.
+TEST(Mrtr, AQuestionIsReadBackAsTheQuestionItWas) {
+  NeedsInput needed;
+  InputRequest who;
+  who.method = kMethodElicitation;
+  who.params = json::JsonValue::object();
+  who.params.set("message", json::JsonValue("Who are you?"));
+  needed.requests["who"] = who;
+  needed.request_state = mcp::make_optional(std::string("round-1"));
+
+  const auto asked = askedForIn(renderInputRequired(needed));
+  ASSERT_TRUE(asked.asked);
+  ASSERT_EQ(asked.requests.size(), 1u);
+  ASSERT_EQ(asked.requests.count("who"), 1u)
+      << "the name a question was asked under did not survive, so its "
+         "answer could not be matched to it";
+  EXPECT_EQ(asked.requests.at("who").method, kMethodElicitation);
+  EXPECT_EQ(asked.requests.at("who").params["message"].getString(),
+            "Who are you?");
+  ASSERT_TRUE(asked.request_state.has_value());
+  EXPECT_EQ(asked.request_state.value(), "round-1");
+}
+
+// An answer is an answer. A server of an older revision says nothing
+// about what kind of result it is sending, and reading silence as a
+// question would make every one of its answers a retry.
+TEST(Mrtr, AnAnswerIsNotMistakenForAQuestion) {
+  json::JsonValue complete = json::JsonValue::object();
+  complete.set(kResultTypeField, json::JsonValue(kResultTypeComplete));
+  EXPECT_FALSE(askedForIn(complete).asked);
+
+  json::JsonValue silent = json::JsonValue::object();
+  silent.set("tools", json::JsonValue::array());
+  EXPECT_FALSE(askedForIn(silent).asked);
+
+  EXPECT_FALSE(askedForIn(json::JsonValue("not even an object")).asked);
+}
+
+// A question that asks for nothing and carries nothing would be answered
+// by sending the identical request again — and answered the same way,
+// without end.
+TEST(Mrtr, AQuestionThatAsksNothingIsNotOne) {
+  json::JsonValue empty = json::JsonValue::object();
+  empty.set(kResultTypeField, json::JsonValue(kResultTypeInputRequired));
+  EXPECT_FALSE(askedForIn(empty).asked);
+
+  json::JsonValue unanswerable = json::JsonValue::object();
+  unanswerable.set(kResultTypeField, json::JsonValue(kResultTypeInputRequired));
+  json::JsonValue requests = json::JsonValue::object();
+  requests.set("who", json::JsonValue::object());  // no method to ask of
+  unanswerable.set(kInputRequestsField, requests);
+  EXPECT_FALSE(askedForIn(unanswerable).asked)
+      << "a question naming nothing to ask was taken as answerable";
+}
+
+// The state is carried, not read. A server that encoded JSON into it gets
+// the same bytes back rather than something that meant the same.
+TEST(Mrtr, TheStateIsCarriedAcrossUntouched) {
+  const std::string awkward = "{\"round\":2,\"who\":\"unverified\"}";
+  json::JsonValue answer = json::JsonValue::object();
+  answer.set(kResultTypeField, json::JsonValue(kResultTypeInputRequired));
+  answer.set(kRequestStateField, json::JsonValue(awkward));
+
+  const auto asked = askedForIn(answer);
+  ASSERT_TRUE(asked.asked);
+  ASSERT_TRUE(asked.request_state.has_value());
+  EXPECT_EQ(asked.request_state.value(), awkward);
+}
+
+// Every name asked about comes back, including the ones nothing was
+// found for: a server that asked two questions and gets one key back
+// cannot tell which of the two went unanswered.
+TEST(Mrtr, TheAnswersComeBackUnderTheNamesTheyWereAskedFor) {
+  std::map<std::string, json::JsonValue> answers;
+  answers["who"] = json::JsonValue::object();
+  answers["who"].set("action", json::JsonValue("accept"));
+  answers["where"] = json::JsonValue();  // nothing could be found
+
+  const auto rendered = renderInputResponses(answers);
+  ASSERT_TRUE(rendered.isObject());
+  EXPECT_TRUE(rendered.contains("who"));
+  EXPECT_TRUE(rendered.contains("where"))
+      << "a question the client could not answer vanished, leaving the "
+         "server unable to tell which one it was";
+  EXPECT_EQ(rendered["who"]["action"].getString(), "accept");
 }
 
 }  // namespace

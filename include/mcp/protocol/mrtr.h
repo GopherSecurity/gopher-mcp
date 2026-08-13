@@ -135,6 +135,45 @@ struct CarriedInput {
 /** Read out of a request's params what a previous round put there. */
 CarriedInput carriedInputOf(const json::JsonValue& params);
 
+/**
+ * What an answer turned out to be asking for, read from the client side.
+ *
+ * The same shape `renderInputRequired` writes, coming back the other way.
+ */
+struct AskedFor {
+  /**
+   * Whether this is a question rather than an answer.
+   *
+   * A result that says nothing about its kind came from a server of an
+   * older revision and is the answer, since no earlier one could ask.
+   */
+  bool asked{false};
+
+  InputRequests requests;
+  /** Handed back untouched, which is the whole of what it is for. */
+  optional<std::string> request_state;
+};
+
+/**
+ * Read a server's answer as a question, if that is what it is.
+ *
+ * A result claiming to be a question while asking for nothing and
+ * carrying nothing is not one: retrying it would send the identical
+ * request a second time and be answered the same way, forever. It is
+ * read as malformed rather than obeyed.
+ */
+AskedFor askedForIn(const json::JsonValue& result);
+
+/**
+ * The answers, ready to go back under the names they were asked for.
+ *
+ * Every name asked about appears, including ones nothing could be found
+ * for: a server that asked two questions and gets one key back cannot
+ * tell which of the two the client failed to answer.
+ */
+json::JsonValue renderInputResponses(
+    const std::map<std::string, json::JsonValue>& answers);
+
 }  // namespace modern
 }  // namespace protocol
 }  // namespace mcp
