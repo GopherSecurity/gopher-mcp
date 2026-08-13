@@ -1697,9 +1697,18 @@ void StreamableHttpFilter::onRequest(const jsonrpc::Request& request) {
 
   DispatchContext context(*this);
 
-  if (streaming == StreamingMode::Required) {
+  if (streaming == StreamingMode::Required &&
+      exchange_->clientContext().era != transport::ProtocolEra::Modern) {
     // Opened before the handler runs, so the response headers are on the
-    // wire before anything it emits.
+    // wire before anything it emits — which is what a handler about to
+    // ask the client something on this stream needs.
+    //
+    // Classic only. The newest revision sends nothing to a client on a
+    // response stream, so there is nothing to open it early for; and
+    // opening it commits the status, which a handler that turns out to
+    // need a refusal of its own can then no longer set. A modern stream
+    // opens on its first write instead, and a handler that never writes
+    // one still has its whole answer to choose.
     auto stream = context.beginResponseStream();
     if (stream && !stream_->open()) {
       GOPHER_LOG_ERROR("MCP endpoint response stream failed to open");

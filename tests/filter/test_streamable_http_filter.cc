@@ -1195,6 +1195,51 @@ TEST_F(StreamableHttpFilterTest, EverythingElseStillNeedsASession) {
   EXPECT_EQ(wire_.find("HTTP/1.1 400 "), 0u) << wire_;
 }
 
+// A refusal has a status of its own, and a stream opened before the
+// handler ran would have spent it. The newest revision sends nothing to
+// a client on a response stream, so there is nothing to open one early
+// for — and a handler that turns out to need a refusal still can.
+TEST_F(StreamableHttpFilterTest, AModernStreamIsNotOpenedBeforeItIsWrittenTo) {
+  serveModernEra();
+  callbacks_.streaming = StreamingMode::Required;
+  callbacks_.answer_requests = false;
+
+  const std::string body = std::string(
+                               "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":"
+                               "\"tools/call\",\"params\":{\"name\":\"x\",") +
+                           modernMeta() + "}}";
+  feed(post("/mcp", body, modernHeaders("tools/call", "x")));
+
+  ASSERT_EQ(callbacks_.requests.size(), 1u) << wire_;
+  EXPECT_TRUE(wire_.empty())
+      << "a status went out before the handler had said anything: " << wire_;
+
+  // And the handler still has every answer available, refusals included.
+  ASSERT_TRUE(callbacks_.stream);
+  json::JsonValue data = json::JsonValue::object();
+  data.set("requiredCapabilities", json::JsonValue::object());
+  ASSERT_FALSE(holds_alternative<Error>(callbacks_.stream->sendRefusal(
+      400, Error(protocol::modern::kMissingRequiredClientCapability, "no"),
+      data)));
+
+  EXPECT_EQ(wire_.find("HTTP/1.1 400 "), 0u) << wire_;
+  EXPECT_NE(wire_.find("requiredCapabilities"), std::string::npos)
+      << "the refusal lost what the caller needed to know: " << wire_;
+}
+
+// A classic handler still gets its stream up front, because there it may
+// be asked something the moment it wants to be.
+TEST_F(StreamableHttpFilterTest, AClassicRequiredStreamStillOpensEarly) {
+  callbacks_.streaming = StreamingMode::Required;
+  callbacks_.answer_requests = false;
+
+  feed(post("/mcp", kRequestBody, "Accept: text/event-stream\r\n"));
+
+  EXPECT_EQ(wire_.find("HTTP/1.1 200 OK\r\n"), 0u) << wire_;
+  EXPECT_NE(wire_.find("Content-Type: text/event-stream"), std::string::npos)
+      << wire_;
+}
+
 // A server that needs something from the client mid-request asks on the
 // stream the answer will arrive on, because that is where the client is
 // already listening.
