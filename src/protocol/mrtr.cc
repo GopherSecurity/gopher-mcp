@@ -121,6 +121,23 @@ std::string declaredCapabilitiesIn(const std::string& raw_meta) {
   return std::string();
 }
 
+std::string declaredVersionIn(const std::string& raw_meta) {
+  if (raw_meta.empty()) {
+    return std::string();
+  }
+  try {
+    auto meta = json::JsonValue::parse(raw_meta);
+    if (meta.isObject() && meta.contains(kMetaProtocolVersion) &&
+        meta[kMetaProtocolVersion].isString()) {
+      return meta[kMetaProtocolVersion].getString();
+    }
+  } catch (const std::exception&) {
+    // Unreadable metadata declares nothing, and a request that declared
+    // no version is not one of an era where every request declares one.
+  }
+  return std::string();
+}
+
 json::JsonValue requiredCapabilitiesData(
     const std::vector<std::string>& missing) {
   // Shaped as a capabilities object rather than a list of names: it is

@@ -129,6 +129,18 @@ constexpr const char* kMethodElicitation = "elicitation/create";
 constexpr const char* kMethodListRoots = "roots/list";
 
 /** The capability a request of that kind requires, or empty. */
+/**
+ * Whether a method exists only in the newest revision.
+ *
+ * Such a method is not one an older caller may reach: it is defined by
+ * the era, and a server serving both must not let one leak into the
+ * other. A caller of an older era asking for it is asking for something
+ * that, for it, does not exist.
+ */
+inline bool isEraOnlyMethod(const std::string& method) {
+  return method == kMethodSubscriptionsListen;
+}
+
 inline const char* capabilityFor(const std::string& method) {
   if (method == kMethodSampling) {
     return "sampling";

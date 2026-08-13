@@ -110,6 +110,16 @@ std::vector<std::string> capabilitiesMissingFor(const InputRequests& requests,
  */
 std::string declaredCapabilitiesIn(const std::string& raw_meta);
 
+/**
+ * The revision a request declared it is speaking, out of the same
+ * metadata.
+ *
+ * Empty when it declared none, which is every request of every earlier
+ * era: those settle a version once at the handshake this one does not
+ * have, so a request that says nothing is not of this era.
+ */
+std::string declaredVersionIn(const std::string& raw_meta);
+
 /** The data a refusal for missing capabilities carries. */
 json::JsonValue requiredCapabilitiesData(
     const std::vector<std::string>& missing);

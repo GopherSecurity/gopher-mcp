@@ -24,6 +24,7 @@
 #include "mcp/json/json_serialization.h"
 #include "mcp/message_dispatch_context.h"
 #include "mcp/protocol/modern_era.h"
+#include "mcp/protocol/protocol_versions.h"
 #include "mcp/server/listen_registry.h"
 #include "mcp/server/mcp_server.h"
 
@@ -373,6 +374,22 @@ TEST(ListenRegistry, TheMethodIsOneThisServerHas) {
   EXPECT_FALSE(server.knowsMethod("tools/invent"));
 }
 
+/** A request declaring the era it belongs to, the way one does. */
+jsonrpc::Request listenRequest(bool modern_era) {
+  jsonrpc::Request request;
+  request.jsonrpc = "2.0";
+  request.id = make_request_id(1);
+  request.method = modern::kMethodSubscriptionsListen;
+  if (modern_era) {
+    Metadata params;
+    params["_meta"] =
+        MetadataValue(std::string("{\"") + modern::kMetaProtocolVersion +
+                      "\":\"" + protocol::kProtocolVersion20260728 + "\"}");
+    request.params = mcp::make_optional(params);
+  }
+  return request;
+}
+
 // And it is answered by a handler that answers later — a subscription's
 // response arrives when it ends, which for most of them is never.
 TEST(ListenRegistry, ListeningIsAnsweredOnAStream) {
@@ -381,14 +398,28 @@ TEST(ListenRegistry, ListeningIsAnsweredOnAStream) {
   config.server_version = "0.0.1";
   McpServer server(config);
 
-  jsonrpc::Request request;
-  request.jsonrpc = "2.0";
-  request.id = make_request_id(1);
-  request.method = modern::kMethodSubscriptionsListen;
-
-  EXPECT_EQ(server.streamingFor(request), StreamingMode::Required)
+  EXPECT_EQ(server.streamingFor(listenRequest(/*modern_era=*/true)),
+            StreamingMode::Required)
       << "a subscription that is not a stream is a request that never "
          "answers";
+}
+
+// This method belongs to one era. A server serving both must not let it
+// leak into the other — and least of all leak how it would be answered,
+// which is what a refusal for not accepting a stream would tell a caller
+// about a method it cannot call.
+TEST(ListenRegistry, ACallerOfAnOlderEraHasNoSuchMethod) {
+  McpServerConfig config;
+  config.server_name = "listen-era-test";
+  config.server_version = "0.0.1";
+  McpServer server(config);
+
+  EXPECT_EQ(server.streamingFor(listenRequest(/*modern_era=*/false)),
+            StreamingMode::None)
+      << "a classic caller was told how a method it does not have would "
+         "be answered";
+  EXPECT_TRUE(server.isModernRequest(listenRequest(true)));
+  EXPECT_FALSE(server.isModernRequest(listenRequest(false)));
 }
 
 }  // namespace

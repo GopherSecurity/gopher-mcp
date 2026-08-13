@@ -788,7 +788,32 @@ bool McpServer::knowsMethod(const std::string& method) const {
   return false;
 }
 
+bool McpServer::isModernRequest(const jsonrpc::Request& request) const {
+  // A request of the newest era declares its revision in its own body,
+  // every time, because that era has no handshake to have settled one
+  // at. Anything that declares none belongs to an era that did.
+  if (!request.params.has_value()) {
+    return false;
+  }
+  const auto& params = request.params.value();
+  auto meta = params.find("_meta");
+  if (meta == params.end() || !holds_alternative<std::string>(meta->second)) {
+    return false;
+  }
+  return protocol::modern::isModernVersion(
+      protocol::modern::declaredVersionIn(get<std::string>(meta->second)));
+}
+
 StreamingMode McpServer::streamingFor(const jsonrpc::Request& request) const {
+  if (protocol::modern::isEraOnlyMethod(request.method) &&
+      !isModernRequest(request)) {
+    // Not a method this caller's era has, so nothing about how it would
+    // be answered applies — least of all a refusal for not accepting a
+    // stream, which would tell a classic caller something about a method
+    // it cannot call.
+    return StreamingMode::None;
+  }
+
   // Asked from the dispatcher thread while handlers may be registered from
   // another, so it reads under the same lock registration takes.
   std::lock_guard<std::mutex> lock(handlers_mutex_);
@@ -1861,6 +1886,16 @@ void McpServer::registerBuiltinHandlers() {
       [this](const jsonrpc::Request& request, SessionContext& session,
              const ResponseStreamPtr& stream) {
         if (!stream) {
+          return;
+        }
+
+        if (!isModernRequest(request)) {
+          // This method belongs to one era, and a caller of another is
+          // owed the same answer it would get for anything else this
+          // server does not have.
+          stream->sendResponse(jsonrpc::Response::make_error(
+              request.id, Error(jsonrpc::METHOD_NOT_FOUND,
+                                "Method not found: " + request.method)));
           return;
         }
 

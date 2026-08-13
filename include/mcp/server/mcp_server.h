@@ -1084,6 +1084,15 @@ class McpServer : public application::ApplicationBase,
   StreamingMode streamingFor(const jsonrpc::Request& request) const;
 
   /**
+   * Whether a request is of the era that has no handshake.
+   *
+   * Read from the request itself, which is the only place it is said:
+   * that era settles no version anywhere else, and every earlier one
+   * settles it at a handshake this one does not have.
+   */
+  bool isModernRequest(const jsonrpc::Request& request) const;
+
+  /**
    * Whether this server has any answer for a method at all.
    *
    * Asked by a transport that has to tell "no such method" apart from "no
