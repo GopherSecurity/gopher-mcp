@@ -512,12 +512,21 @@ std::future<InitializeResult> McpClient::initializeProtocol() {
 
   auto request_future_ptr = std::make_shared<std::future<jsonrpc::Response>>();
   std::weak_ptr<bool> alive = alive_;
-  std::string protocol_version = config_.protocol_version;
   event::Dispatcher* dispatcher = main_dispatcher_;
   McpClient* client = this;
 
+  // Which era this conversation is in was settled when the transport was
+  // chosen, and it decides what an introduction even is here: the newest
+  // revision has none, so what would have been asked in one is asked of
+  // the one method that answers it.
+  const bool modern =
+      streamable_session_ &&
+      protocol::modern::isModernVersion(streamable_session_->protocolVersion());
+  std::string protocol_version = modern ? streamable_session_->protocolVersion()
+                                        : config_.protocol_version;
+
   // Step 1: Post to dispatcher to send the request (non-blocking)
-  dispatcher->post([this, alive, request_future_ptr]() {
+  dispatcher->post([this, alive, request_future_ptr, modern]() {
     if (alive.expired()) {
       *request_future_ptr = makeReadyResponseFuture(Response::make_error(
           RequestId(0),
@@ -530,6 +539,17 @@ std::future<InitializeResult> McpClient::initializeProtocol() {
     if (protocol_state_machine_) {
       protocol_state_machine_->handleEvent(
           protocol::McpProtocolEvent::INITIALIZE_REQUESTED);
+    }
+
+    if (modern) {
+      // Nothing to offer and nothing to negotiate: the version is already
+      // settled and travels on every request. This only asks what the
+      // server is and what it can do.
+      GOPHER_LOG_FLOW_DEBUG("MCP invoke: {}",
+                            protocol::modern::kMethodServerDiscover);
+      *request_future_ptr = sendRequest(protocol::modern::kMethodServerDiscover,
+                                        optional<Metadata>());
+      return;
     }
 
     auto init_params = buildInitializeParams();
@@ -552,7 +572,7 @@ std::future<InitializeResult> McpClient::initializeProtocol() {
   // would be a data race. Only the final promise resolution runs on whichever
   // thread (dispatcher or worker) completes parsing.
   std::thread([alive, dispatcher, protocol_version, client, result_promise,
-               request_future_ptr]() {
+               request_future_ptr, modern]() {
     try {
       // Wait for dispatcher to publish the request future.
       while (!request_future_ptr->valid()) {
@@ -579,7 +599,8 @@ std::future<InitializeResult> McpClient::initializeProtocol() {
 
       // Parse InitializeResult from response (pure parsing — no shared state).
       InitializeResult init_result =
-          parseInitializeResponse(response, protocol_version);
+          modern ? parseDiscoverResponse(response, protocol_version)
+                 : parseInitializeResponse(response, protocol_version);
 
       // Commit state on the dispatcher thread, then fulfill the promise.
       // The promise is fulfilled after the post completes so callers who
@@ -695,6 +716,60 @@ InitializeResult McpClient::parseInitializeResponse(
   return init_result;
 }
 
+InitializeResult McpClient::parseDiscoverResponse(
+    const jsonrpc::Response& response, const std::string& protocol_version) {
+  if (!response.result.has_value()) {
+    throw std::runtime_error("Discovery answered with nothing");
+  }
+
+  // What a handshake would have said, from the one method that says it in
+  // an era without one. The version is not read out of the answer: this
+  // client settled which revision it is speaking before it sent anything,
+  // and a server listing several is listing what it serves rather than
+  // what is being spoken.
+  InitializeResult init_result;
+  init_result.protocolVersion = protocol_version;
+  init_result.capabilities = ServerCapabilities();
+
+  json::JsonValue result;
+  if (holds_alternative<json::JsonValue>(response.result.value())) {
+    result = get<json::JsonValue>(response.result.value());
+  } else if (holds_alternative<Metadata>(response.result.value())) {
+    result = json::metadataToJson(get<Metadata>(response.result.value()));
+  } else {
+    return init_result;
+  }
+
+  if (result.isObject() && result.contains("capabilities")) {
+    init_result.capabilities =
+        json::from_json<ServerCapabilities>(result["capabilities"]);
+  }
+
+  // With no handshake there is no `serverInfo` field to carry it; the
+  // revision puts it under the metadata key instead.
+  if (result.isObject() && result.contains("_meta") &&
+      result["_meta"].isObject() &&
+      result["_meta"].contains(protocol::modern::kMetaServerInfo)) {
+    const auto& who = result["_meta"][protocol::modern::kMetaServerInfo];
+    if (who.isObject() && who.contains("name") && who["name"].isString()) {
+      Implementation server_info(
+          who["name"].getString(),
+          who.contains("version") && who["version"].isString()
+              ? who["version"].getString()
+              : std::string());
+      init_result.serverInfo = mcp::make_optional(server_info);
+    }
+  }
+
+  if (result.isObject() && result.contains("instructions") &&
+      result["instructions"].isString()) {
+    init_result.instructions =
+        mcp::make_optional(result["instructions"].getString());
+  }
+
+  return init_result;
+}
+
 Metadata McpClient::buildInitializeParams() const {
   // MCP spec requires: protocolVersion, capabilities, clientInfo (nested
   // object)
@@ -747,6 +822,13 @@ void McpClient::completeRequestWithError(
 
 void McpClient::startReinitialize() {
   if (reinitializing_) {
+    return;
+  }
+  if (streamable_session_ && protocol::modern::isModernVersion(
+                                 streamable_session_->protocolVersion())) {
+    // Nothing to start again. This era has no session to have been
+    // forgotten and no introduction to make a second time, so a request
+    // that failed failed on its own terms.
     return;
   }
   reinitializing_ = true;
@@ -1469,6 +1551,31 @@ void McpClient::runTransportLadder(const std::string& uri) {
       // refuse the introduction below, and a client that read that
       // refusal as "not this transport" would try the oldest one, fail
       // there too, and report the wrong thing about the wrong attempt.
+      const std::string settled = transport::modernVersionInCommon(
+          config_.streamable_http, result.supported_versions);
+      if (!settled.empty()) {
+        // Settled here and nowhere else. Everything downstream — what a
+        // request declares about itself, which headers mirror the body,
+        // whether there is a handshake at all — hangs off this one
+        // string, so it is written once, before the transport that
+        // reads it exists.
+        GOPHER_LOG_INFO("{} speaks {}, and so does this client", uri, settled);
+        if (!streamable_session_) {
+          // Ordinarily made with the first connection; made here because
+          // what it is about to be told has to be true before that
+          // connection sends anything.
+          streamable_session_ =
+              std::make_shared<transport::StreamableHttpClientSession>();
+        }
+        streamable_session_->setProtocolVersion(settled);
+        streamable_session_->setClientIdentity(config_.client_name,
+                                               config_.client_version);
+        streamable_session_->setClientCapabilities(
+            json::to_json(config_.capabilities));
+        startTransport(TransportType::StreamableHttp);
+        return;
+      }
+
       std::string served;
       for (const auto& version : result.supported_versions) {
         if (!served.empty()) {

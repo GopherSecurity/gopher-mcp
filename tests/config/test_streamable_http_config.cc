@@ -208,3 +208,42 @@ TEST_F(StreamableHttpConfigTest, VersionAtLeast) {
   EXPECT_TRUE(versionAtLeast("2026-07-28", "2025-11-25"));
   EXPECT_FALSE(versionAtLeast("2024-11-05", "2025-03-26"));
 }
+
+// Which revision of the newest era gets spoken, when both ends have a
+// say. A client that has not been switched on for it speaks none of
+// them however many a server serves — the two switches are independent
+// on purpose, so neither end can drag the other into an era it is not
+// ready for.
+TEST_F(StreamableHttpConfigTest, TheNewestEraIsSpokenOnlyWhenBothEndsAgree) {
+  StreamableHttpClientConfig client;
+  const std::vector<std::string> served = {kProtocolVersion20260728,
+                                           "2025-11-25"};
+
+  EXPECT_EQ(modernVersionInCommon(client, served), "")
+      << "a client that was never switched on for this era entered it";
+
+  client.enable_modern_era = true;
+  EXPECT_EQ(modernVersionInCommon(client, served), kProtocolVersion20260728);
+
+  // A server serving nothing of this era leaves nothing to speak, which
+  // is not a failure — it is a server of an older era.
+  EXPECT_EQ(modernVersionInCommon(client, {"2025-11-25"}), "");
+  EXPECT_EQ(modernVersionInCommon(client, {}), "");
+}
+
+// The client's order is what decides, since it says which revision this
+// client would rather speak. A server listing one this client does not
+// accept has listed something they cannot talk in.
+TEST_F(StreamableHttpConfigTest, TheClientsOrderDecidesWhatIsSpoken) {
+  StreamableHttpClientConfig client;
+  client.enable_modern_era = true;
+  client.modern_protocol_versions = {"2027-01-01", kProtocolVersion20260728};
+
+  EXPECT_EQ(
+      modernVersionInCommon(client, {kProtocolVersion20260728, "2027-01-01"}),
+      "2027-01-01");
+  EXPECT_EQ(modernVersionInCommon(client, {kProtocolVersion20260728}),
+            kProtocolVersion20260728);
+  EXPECT_EQ(modernVersionInCommon(client, {"2028-05-05"}), "")
+      << "a client agreed to speak a revision it never said it accepts";
+}

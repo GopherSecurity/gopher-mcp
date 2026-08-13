@@ -204,7 +204,53 @@ struct StreamableHttpClientConfig {
   // a server that opens a stream and never says where to post has
   // answered, and waiting longer will not change the answer.
   std::chrono::milliseconds fallback_probe_timeout{5000};
+
+  // Speak the revision that has no handshake, when a server turns out to
+  // serve one. Off by default, matching the server's own switch: until
+  // both are on, such a server is reported as one this client cannot
+  // talk to rather than talked to badly.
+  //
+  // Deliberately not part of the list above. That list is what this
+  // client offers when it introduces itself, and this era has no
+  // introduction to offer anything in.
+  bool enable_modern_era = false;
+
+  // Revisions of that era this client accepts, newest first. What is
+  // spoken is the newest entry here the server also serves.
+  std::vector<std::string> modern_protocol_versions = {
+      protocol::kProtocolVersion20260728};
+
+  // How many times a request may be sent again with what the server
+  // asked for before it is failed. A server that answers every round by
+  // asking for something else must not be able to keep one request
+  // going forever.
+  size_t mrtr_max_rounds = 5;
 };
+
+/**
+ * The revision to speak to a server that serves these, or empty when
+ * there is none in common.
+ *
+ * Newest the client accepts rather than newest the server serves: the
+ * client's order is the one that says what it would rather speak, and a
+ * server listing something this client does not accept is listing
+ * something it cannot be talked to in.
+ */
+inline std::string modernVersionInCommon(
+    const StreamableHttpClientConfig& config,
+    const std::vector<std::string>& served) {
+  if (!config.enable_modern_era) {
+    return std::string();
+  }
+  for (const auto& wanted : config.modern_protocol_versions) {
+    for (const auto& offered : served) {
+      if (wanted == offered) {
+        return wanted;
+      }
+    }
+  }
+  return std::string();
+}
 
 }  // namespace transport
 }  // namespace mcp

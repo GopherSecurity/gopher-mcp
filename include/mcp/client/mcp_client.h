@@ -883,6 +883,16 @@ class McpClient : public application::ApplicationBase {
   // Protocol state coordination
   static InitializeResult parseInitializeResponse(
       const jsonrpc::Response& response, const std::string& protocol_version);
+
+  /**
+   * The same, from the answer an era without a handshake gives instead.
+   *
+   * @param protocol_version What is being spoken, settled before any of
+   *                         this was sent. Not read out of the answer,
+   *                         which lists what the server serves.
+   */
+  static InitializeResult parseDiscoverResponse(
+      const jsonrpc::Response& response, const std::string& protocol_version);
   void coordinateProtocolState();
   void handleProtocolStateChange(
       const protocol::ProtocolStateTransitionContext& context);
