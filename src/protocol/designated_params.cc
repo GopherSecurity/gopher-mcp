@@ -127,11 +127,6 @@ VoidResult walk(const std::string& tool,
                               "time");
     }
   }
-  if (schema.contains("$ref")) {
-    return refuse(tool,
-                  "its schema designates parameters behind a $ref, which "
-                  "cannot be followed without resolving the schema");
-  }
 
   if (!schema.contains("properties") || !schema["properties"].isObject()) {
     return makeVoidSuccess();
@@ -147,6 +142,17 @@ VoidResult walk(const std::string& tool,
     path.push_back(name);
 
     if (property.contains(kAnnotation)) {
+      // A designation on a node that is a reference: where its value
+      // actually lives depends on resolving the reference, which nothing
+      // here does. An ordinary $ref with no designation on it is not this
+      // check's business at all — a schema is free to use references.
+      if (property.contains("$ref")) {
+        return refuse(tool, "'" + name +
+                                "' is designated and is a reference, so where "
+                                "its value lives cannot be known without "
+                                "resolving the schema");
+      }
+
       const auto& annotation = property[kAnnotation];
       if (!annotation.isString()) {
         return refuse(tool, "the designation on '" + name + "' is not a name");

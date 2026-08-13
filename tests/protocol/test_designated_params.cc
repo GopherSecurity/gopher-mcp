@@ -214,6 +214,31 @@ TEST(DesignatedParams, TheValueIsFoundWhereTheSchemaSaidItWouldBe) {
       << "a null argument is one that was not given";
 }
 
+// A schema is free to use references. Only a designation *on* one is a
+// problem, because where its value lives would depend on resolving the
+// reference — and refusing every schema that merely contains a $ref
+// refuses tools that have nothing to do with headers at all.
+TEST(DesignatedParams, AnOrdinaryReferenceIsNotAViolation) {
+  EXPECT_TRUE(refusalFor(R"({"type":"object","$defs":{
+      "region":{"type":"string"}},
+      "properties":{"region":{"$ref":"#/$defs/region"},
+                    "query":{"type":"string"}}})")
+                  .empty())
+      << "a tool using an ordinary schema reference was refused";
+
+  EXPECT_TRUE(designated(R"({"type":"object","$defs":{
+      "region":{"type":"string"}},
+      "properties":{"region":{"$ref":"#/$defs/region"},
+                    "zone":{"type":"string","x-mcp-header":"Zone"}}})")
+                  .size() == 1u)
+      << "a reference beside a designation cost the designation";
+
+  // And a designation on the reference itself is still refused.
+  EXPECT_FALSE(refusalFor(R"({"type":"object","properties":{
+      "region":{"$ref":"#/$defs/region","x-mcp-header":"Region"}}})")
+                   .empty());
+}
+
 // A number too large to be held exactly would be rounded, and two ends
 // that round differently disagree about a value neither of them changed.
 TEST(DesignatedParams, AnIntegerTooLargeToCarryExactlyIsRefused) {
