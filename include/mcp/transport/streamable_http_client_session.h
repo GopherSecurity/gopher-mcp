@@ -33,6 +33,7 @@
 #include <deque>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -160,12 +161,17 @@ class StreamableHttpClientSession {
    * designations cannot be resolved is remembered as designating
    * nothing, since it is one this client will not be calling.
    *
-   * Dispatcher thread only, like everything else here: what this records
-   * is read while an outgoing request is being decorated.
+   * Guarded, unlike everything else here: a listing arrives on whichever
+   * thread read it off the wire, and what it teaches is read while an
+   * outgoing request is being decorated on the dispatcher. Handing the
+   * work to the dispatcher instead would mean holding a pointer to one
+   * that shutdown is free to delete, so the lock is the simpler of the
+   * two correct answers.
    */
   void rememberDesignations(
       const std::string& tool,
       const std::vector<protocol::modern::DesignatedParam>& params) {
+    std::lock_guard<std::mutex> lock(designations_mutex_);
     designations_[tool] = params;
   }
 
@@ -183,16 +189,38 @@ class StreamableHttpClientSession {
    *
    * @return The tools worth offering.
    *
-   * Dispatcher thread only. Whoever reads a listing off the wire has to
-   * bring it here rather than take it apart where it landed.
+   * Safe from any thread, which is what a listing arriving on whichever
+   * one read it off the wire requires.
    */
   std::vector<Tool> acceptListing(const std::vector<Tool>& tools);
 
-  /** What a tool was last seen to designate. */
-  const std::vector<protocol::modern::DesignatedParam>* designationsFor(
-      const std::string& tool) const {
+  /** Forget what a tool designated, for one this client will not call. */
+  void forgetDesignations(const std::string& tool) {
+    std::lock_guard<std::mutex> lock(designations_mutex_);
+    designations_.erase(tool);
+  }
+
+  /**
+   * What a tool was last seen to designate.
+   *
+   * Copied out rather than pointed at: the caller reads it after the
+   * lock is gone, and a pointer into a map another thread may be
+   * rewriting is exactly what the lock is there to prevent.
+   *
+   * @return False when nothing has been learned about this tool.
+   */
+  bool designationsFor(
+      const std::string& tool,
+      std::vector<protocol::modern::DesignatedParam>* out) const {
+    std::lock_guard<std::mutex> lock(designations_mutex_);
     auto it = designations_.find(tool);
-    return it == designations_.end() ? nullptr : &it->second;
+    if (it == designations_.end()) {
+      return false;
+    }
+    if (out != nullptr) {
+      *out = it->second;
+    }
+    return true;
   }
 
   // ===== Who said it =====
@@ -254,6 +282,7 @@ class StreamableHttpClientSession {
   // expected to re-read them rather than remember forever.
   std::map<std::string, std::vector<protocol::modern::DesignatedParam>>
       designations_;
+  mutable std::mutex designations_mutex_;
   std::string protocol_version_;
   bool established_{false};
   std::deque<optional<RequestId>> in_flight_;

@@ -554,11 +554,11 @@ TEST(ModernDecoration, AToolThatCannotBeCalledIsNotOffered) {
 
   // And what survived is remembered, so a call to it mirrors what it
   // said it would.
-  const auto* designated = session.designationsFor("execute_sql");
-  ASSERT_NE(designated, nullptr);
-  ASSERT_EQ(designated->size(), 1u);
-  EXPECT_EQ((*designated)[0].header_name, "Region");
-  EXPECT_EQ(session.designationsFor("broken"), nullptr)
+  std::vector<protocol::modern::DesignatedParam> designated;
+  ASSERT_TRUE(session.designationsFor("execute_sql", &designated));
+  ASSERT_EQ(designated.size(), 1u);
+  EXPECT_EQ(designated[0].header_name, "Region");
+  EXPECT_FALSE(session.designationsFor("broken", &designated))
       << "a tool that was dropped is still remembered as callable";
 }
 

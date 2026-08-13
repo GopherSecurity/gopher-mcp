@@ -50,8 +50,8 @@ void StreamableHttpClientSession::decorate(
       !params.contains("name") || !params["name"].isString()) {
     return;
   }
-  const auto* designated = designationsFor(params["name"].getString());
-  if (designated == nullptr) {
+  std::vector<protocol::modern::DesignatedParam> designated;
+  if (!designationsFor(params["name"].getString(), &designated)) {
     return;
   }
 
@@ -60,7 +60,7 @@ void StreamableHttpClientSession::decorate(
     arguments = params["arguments"];
   }
 
-  for (const auto& param : *designated) {
+  for (const auto& param : designated) {
     json::JsonValue value;
     if (!protocol::modern::valueAtPath(arguments, param.path, &value)) {
       // An argument this call does not carry gets no header, and a
@@ -146,10 +146,10 @@ std::vector<Tool> StreamableHttpClientSession::acceptListing(
     if (!holds_alternative<std::nullptr_t>(readable)) {
       GOPHER_LOG_WARN("not offering tool '{}': {}", tool.name,
                       get<Error>(readable).message);
-      designations_.erase(tool.name);
+      forgetDesignations(tool.name);
       continue;
     }
-    designations_[tool.name] = std::move(designated);
+    rememberDesignations(tool.name, designated);
     usable.push_back(tool);
   }
 
