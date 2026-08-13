@@ -865,7 +865,8 @@ TEST_F(StreamableHttpFilterTest, AnUnservedRevisionIsRefusedWithTheList) {
   const std::string body =
       std::string("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\",") +
       "\"params\":{\"_meta\":{\"" + protocol::modern::kMetaProtocolVersion +
-      "\":\"2030-01-01\"}}}";
+      "\":\"2030-01-01\",\"" + protocol::modern::kMetaClientCapabilities +
+      "\":{}}}}";
   feed(post("/mcp", body,
             "MCP-Protocol-Version: 2030-01-01\r\nMcp-Method: tools/list\r\n"));
 
@@ -985,10 +986,10 @@ TEST_F(StreamableHttpFilterTest, ASessionIdMeansNothingToAModernRequest) {
   buildFilter(options);
 
   const std::string body =
-      std::string("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",") +
+      std::string("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\",") +
       "\"params\":{" + modernMeta() + "}}";
   feed(post("/mcp", body,
-            modernHeaders("initialize") +
+            modernHeaders("tools/list") +
                 "Mcp-Session-Id: a-session-from-somewhere-else\r\n"));
 
   EXPECT_TRUE(sessionIdOnTheWire().empty())
@@ -1085,6 +1086,113 @@ TEST_F(StreamableHttpFilterTest, AToolWithNoDesignationsIsLeftAlone) {
   feed(post("/mcp", body, modernHeaders("tools/call", "something_else")));
 
   EXPECT_EQ(callbacks_.requests.size(), 1u) << wire_;
+}
+
+// With no introduction, a request that never says what its caller can do
+// has not answered a question this era asks of every one — and a server
+// deciding whether it may ask that caller for anything has nothing else
+// to read. Absent is not the same as empty: empty declares nothing, which
+// is a perfectly good answer.
+TEST_F(StreamableHttpFilterTest, AModernRequestSaysWhatItsCallerCanDo) {
+  serveModernEra();
+
+  const std::string body =
+      std::string("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\",") +
+      "\"params\":{\"_meta\":{\"" + protocol::modern::kMetaProtocolVersion +
+      "\":\"" + protocol::kProtocolVersion20260728 + "\"}}}";
+  feed(post("/mcp", body, modernHeaders("tools/list")));
+
+  EXPECT_TRUE(callbacks_.requests.empty())
+      << "a request that never said what its caller can do was served";
+  EXPECT_EQ(wire_.find("HTTP/1.1 400 "), 0u) << wire_;
+  EXPECT_NE(wire_.find(std::to_string(protocol::modern::kHeaderMismatch)),
+            std::string::npos)
+      << wire_;
+
+  // Declaring nothing is declaring something.
+  wire_.clear();
+  const std::string empty =
+      std::string("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\",") +
+      "\"params\":{\"_meta\":{\"" + protocol::modern::kMetaProtocolVersion +
+      "\":\"" + protocol::kProtocolVersion20260728 + "\",\"" +
+      protocol::modern::kMetaClientCapabilities + "\":{}}}}";
+  feed(post("/mcp", empty, modernHeaders("tools/list")));
+  EXPECT_EQ(callbacks_.requests.size(), 1u)
+      << "a caller that declared nothing was refused: " << wire_;
+}
+
+// A notification is held to none of it, because this revision declines to
+// say what a notification's headers should be. Refusing traffic no
+// specification asks us to refuse would be inventing a rule.
+TEST_F(StreamableHttpFilterTest, ANotificationIsHeldToNoneOfIt) {
+  serveModernEra();
+
+  feed(post("/mcp",
+            "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}",
+            std::string(protocol::modern::kProtocolVersionHeader) + ": " +
+                protocol::kProtocolVersion20260728 + "\r\n"));
+
+  EXPECT_EQ(wire_.find("HTTP/1.1 202 "), 0u)
+      << "a notification was held to rules this revision does not state: "
+      << wire_;
+}
+
+// The era with no introduction has no initialize, so a client sending one
+// under this version is sending a method this server does not have — and
+// hears exactly that, which is what tells it the server is there.
+TEST_F(StreamableHttpFilterTest, TheNewestRevisionHasNoIntroduction) {
+  serveModernEra();
+
+  const std::string body =
+      std::string("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",") +
+      "\"params\":{" + modernMeta() + "}}";
+  feed(post("/mcp", body, modernHeaders("initialize")));
+
+  EXPECT_TRUE(callbacks_.requests.empty())
+      << "an introduction was served by a revision that has none";
+  EXPECT_EQ(wire_.find("HTTP/1.1 404 "), 0u) << wire_;
+  EXPECT_NE(wire_.find(std::to_string(protocol::modern::kMethodNotFound)),
+            std::string::npos)
+      << wire_;
+}
+
+// While a classic client on the same server still introduces itself.
+TEST_F(StreamableHttpFilterTest, AClassicIntroductionIsUntouched) {
+  serveModernEra();
+
+  feed(post("/mcp", kRequestBody,
+            std::string("MCP-Protocol-Version: ") +
+                protocol::kProtocolVersion20250618 + "\r\n"));
+
+  EXPECT_EQ(callbacks_.requests.size(), 1u) << wire_;
+  // An ordinary answer is written unframed here and framed downstream,
+  // so what this sees is the body.
+  EXPECT_NE(wire_.find("\"result\""), std::string::npos) << wire_;
+}
+
+// Asking a server what it is is the question a client asks before it has
+// anything at all. Refusing it for want of a session would make discovery
+// reachable only after the handshake it exists to inform.
+TEST_F(StreamableHttpFilterTest, DiscoveryNeedsNoSession) {
+  keepSessions();
+
+  feed(post("/mcp",
+            "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"server/discover\"}"));
+
+  EXPECT_EQ(callbacks_.requests.size(), 1u)
+      << "discovery was refused for want of a session: " << wire_;
+  EXPECT_EQ(wire_.find("HTTP/1.1 400 "), std::string::npos) << wire_;
+}
+
+// And everything else on a sessionful endpoint still needs one.
+TEST_F(StreamableHttpFilterTest, EverythingElseStillNeedsASession) {
+  keepSessions();
+
+  feed(
+      post("/mcp", "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}"));
+
+  EXPECT_TRUE(callbacks_.requests.empty()) << wire_;
+  EXPECT_EQ(wire_.find("HTTP/1.1 400 "), 0u) << wire_;
 }
 
 // A server that needs something from the client mid-request asks on the

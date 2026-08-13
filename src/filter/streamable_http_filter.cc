@@ -603,16 +603,19 @@ void StreamableHttpFilter::finishRequest() {
   // it. Reading it is not accepting it: what the two say is compared next.
   readModernContext(message);
 
+  if (!settleProtocolVersion(method_name)) {
+    abandonRequest();
+    return;
+  }
+
+  // After the version, because a peer asking for a revision this server
+  // does not serve should hear that rather than be held to the rules of
+  // one it is not going to use.
   if (exchange_->clientContext().era == transport::ProtocolEra::Modern) {
     if (!validateModernRequest(message, method_name)) {
       abandonRequest();
       return;
     }
-  }
-
-  if (!settleProtocolVersion(method_name)) {
-    abandonRequest();
-    return;
   }
 
   // After the version, because a request for a revision this server does
@@ -680,6 +683,22 @@ bool StreamableHttpFilter::validateModernRequest(
     return refuse(std::string(protocol::modern::kProtocolVersionHeader) +
                   " says " + client.protocol_version + " and the body says " +
                   body_protocol_version_);
+  }
+
+  if (!client.client_capabilities.has_value()) {
+    // Required on every request, because with no introduction there is
+    // nowhere else it could have been said — and a server deciding
+    // whether it may ask this caller for anything has nothing else to
+    // read. Absent is not the same as empty: empty declares nothing and
+    // is a perfectly good answer, while absent is a request that never
+    // answered the question.
+    //
+    // Refused with the code this era refuses malformed requests with,
+    // not with the missing-capability one: that is a server saying it
+    // needs something specific, and it carries what it needs.
+    return refuse(std::string("every request declares what its caller can "
+                              "do, in params._meta[\"") +
+                  protocol::modern::kMetaClientCapabilities + "\"]");
   }
 
   const std::string method_header =
@@ -777,17 +796,28 @@ bool StreamableHttpFilter::settleProtocolVersion(
 
   auto& client = exchange_->clientContext();
 
-  if (method_name == kInitializeMethod) {
+  if (method_name == kInitializeMethod &&
+      client.era != transport::ProtocolEra::Modern) {
     // Which revision the two ends will speak is what initialize is for.
     // Judging its header would be refusing the conversation that decides
     // the answer.
+    //
+    // Classic only. The newest revision has no introduction at all, so
+    // this exemption there would wave through a method the era does not
+    // have — and it is refused as the unknown method it is, a little
+    // further on.
     return true;
   }
 
-  if (client.protocol_version.empty()) {
+  if (client.protocol_version.empty() &&
+      client.era != transport::ProtocolEra::Modern) {
     // The header only became mandatory after this revision, so a request
     // without one is from a peer speaking that revision rather than from
     // a peer that forgot.
+    //
+    // Never for a modern request: its body said which revision it speaks,
+    // and inventing an older one for it would refuse it a moment later
+    // for a mismatch this invented.
     client.protocol_version = protocol::kLegacyAssumedVersion;
     return true;
   }
@@ -797,8 +827,16 @@ bool StreamableHttpFilter::settleProtocolVersion(
     return true;
   }
 
-  if (protocol::isSupportedVersion(client.protocol_version,
-                                   options_.protocol_versions)) {
+  // The body is where a modern request declares its version; the header
+  // only mirrors it. Judging the header here would refuse a request for
+  // a served revision because the mirror was missing — which is a
+  // different fault, reported a moment later by whoever checks mirrors.
+  const std::string& asked_for = client.era == transport::ProtocolEra::Modern &&
+                                         !body_protocol_version_.empty()
+                                     ? body_protocol_version_
+                                     : client.protocol_version;
+
+  if (protocol::isSupportedVersion(asked_for, options_.protocol_versions)) {
     return true;
   }
 
@@ -814,7 +852,7 @@ bool StreamableHttpFilter::settleProtocolVersion(
   GOPHER_LOG_DEBUG(
       "MCP endpoint asked for protocol revision {}, which it "
       "does not serve",
-      client.protocol_version);
+      asked_for);
 
   if (client.era == transport::ProtocolEra::Modern) {
     // The same refusal, in the shape its own era reads: a code of its
@@ -827,7 +865,7 @@ bool StreamableHttpFilter::settleProtocolVersion(
     json::JsonValue data = json::JsonValue::object();
     data.set(protocol::modern::kSupportedVersionsField, supported);
     data.set(protocol::modern::kRequestedVersionField,
-             json::JsonValue(client.protocol_version));
+             json::JsonValue(asked_for));
     respondWithError(static_cast<int>(http::HttpStatusCode::BadRequest),
                      protocol::modern::kUnsupportedProtocolVersion,
                      "Unsupported protocol version", data);
@@ -916,6 +954,21 @@ bool StreamableHttpFilter::modernMethodExists(const std::string& method_name) {
   if (!exchange_ || method_name.empty()) {
     return true;
   }
+
+  if (method_name == kInitializeMethod) {
+    // There is no introduction in this era. A client sending one is
+    // speaking an older revision's method under this one's version, and
+    // it is not a method this server has — which is the answer any
+    // unknown method gets, and the answer that tells such a client the
+    // server is there and the method is not.
+    GOPHER_LOG_DEBUG(
+        "MCP endpoint asked to initialize under a revision that has no "
+        "introduction");
+    respondWithError(static_cast<int>(http::HttpStatusCode::NotFound),
+                     protocol::modern::kMethodNotFound,
+                     "Method not found: this revision has no initialize");
+    return false;
+  }
   if (mcp_callbacks_.knowsMethod(method_name)) {
     return true;
   }
@@ -994,7 +1047,13 @@ void StreamableHttpFilter::refuseSession(SessionVerdict verdict) {
 
 void StreamableHttpFilter::validateThenDispatch(
     const std::string& method_name) {
-  const bool exempt = method_name == kInitializeMethod;
+  // Introducing yourself needs no session because it is what creates one,
+  // and asking a server what it is needs none because that is the
+  // question a client asks before it has anything at all — refusing it
+  // for want of a session would make discovery reachable only after the
+  // handshake it is meant to inform.
+  const bool exempt = method_name == kInitializeMethod ||
+                      method_name == protocol::modern::kMethodServerDiscover;
 
   if (sessions_ != nullptr && exempt && !session_id_.empty() &&
       !sessions_->known(session_id_)) {
