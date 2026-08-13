@@ -50,13 +50,23 @@ bool declares(const json::JsonValue& capabilities, const std::string& name) {
     return false;
   }
   const auto& declared = capabilities[name];
-  if (declared.isNull()) {
-    return false;
+
+  // A capability is announced by an object saying how it is supported.
+  // `true` is taken as the same thing said without detail, which is what
+  // clients that carry no options for it write.
+  if (declared.isObject()) {
+    return true;
   }
   if (declared.isBoolean()) {
     return declared.getBool();
   }
-  return true;
+
+  // Anything else says nothing this can act on — a string, a number, a
+  // list. Reading it as support because it is merely there would let
+  // "no" declare yes, and the wrong way to be wrong here is the
+  // permissive one: what follows is asking a client for something it
+  // may have no way to answer.
+  return false;
 }
 
 }  // namespace

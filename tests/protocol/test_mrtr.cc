@@ -133,6 +133,15 @@ TEST(Mrtr, SayingNoIsNotSayingYes) {
       << "a client that said it cannot do this was going to be asked";
   EXPECT_FALSE(
       capabilitiesMissingFor(asking, R"({"elicitation":null})").empty());
+
+  // And nothing else is a declaration either. Something merely being
+  // there under the name is not a client saying it can do it — read
+  // that way, the word "no" would declare yes.
+  for (const char* odd : {R"({"elicitation":"no"})", R"({"elicitation":17})",
+                          R"({"elicitation":[]})", R"({"elicitation":""})"}) {
+    EXPECT_FALSE(capabilitiesMissingFor(asking, odd).empty())
+        << odd << " was read as a client declaring it can be elicited from";
+  }
 }
 
 // Something this revision does not define has no capability to check it
