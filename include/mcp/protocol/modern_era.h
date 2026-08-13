@@ -71,6 +71,90 @@ constexpr const char* kMethodPromptsGet = "prompts/get";
 constexpr const char* kMethodServerDiscover = "server/discover";
 
 /**
+ * The method by which a client opens a long-lived notification stream.
+ *
+ * It replaces both the standalone GET stream and the older
+ * resources/subscribe: a subscription is a request whose answer never
+ * arrives, and everything the client asked to hear arrives on it instead.
+ */
+constexpr const char* kMethodSubscriptionsListen = "subscriptions/listen";
+
+/** What the server says first on such a stream, before anything else. */
+constexpr const char* kNotificationSubscriptionsAcknowledged =
+    "notifications/subscriptions/acknowledged";
+
+/**
+ * Which subscription a message belongs to, carried on every message a
+ * subscription stream delivers.
+ *
+ * The value is the JSON-RPC id of the request that opened the stream. On
+ * a transport where every subscription shares one channel this is the
+ * only way to tell them apart — and a client may hold several.
+ */
+constexpr const char* kMetaSubscriptionId =
+    "io.modelcontextprotocol/subscriptionId";
+
+/** The filter a listen request carries, and the acknowledgement echoes. */
+constexpr const char* kFilterField = "notifications";
+constexpr const char* kFilterToolsListChanged = "toolsListChanged";
+constexpr const char* kFilterPromptsListChanged = "promptsListChanged";
+constexpr const char* kFilterResourcesListChanged = "resourcesListChanged";
+constexpr const char* kFilterResourceSubscriptions = "resourceSubscriptions";
+
+/** The change notifications a subscription can ask for. */
+constexpr const char* kNotificationToolsListChanged =
+    "notifications/tools/list_changed";
+constexpr const char* kNotificationPromptsListChanged =
+    "notifications/prompts/list_changed";
+constexpr const char* kNotificationResourcesListChanged =
+    "notifications/resources/list_changed";
+constexpr const char* kNotificationResourcesUpdated =
+    "notifications/resources/updated";
+
+/**
+ * What a request carries when it is a retry of one the server could not
+ * finish, and what the answer that asked for more carries.
+ */
+constexpr const char* kInputRequestsField = "inputRequests";
+constexpr const char* kInputResponsesField = "inputResponses";
+constexpr const char* kRequestStateField = "requestState";
+
+/**
+ * The three things a server may ask a client for, and the capability
+ * each one needs. A server must never ask for something the caller did
+ * not declare, so the mapping has to be known rather than assumed.
+ */
+constexpr const char* kMethodSampling = "sampling/createMessage";
+constexpr const char* kMethodElicitation = "elicitation/create";
+constexpr const char* kMethodListRoots = "roots/list";
+
+/** The capability a request of that kind requires, or empty. */
+inline const char* capabilityFor(const std::string& method) {
+  if (method == kMethodSampling) {
+    return "sampling";
+  }
+  if (method == kMethodElicitation) {
+    return "elicitation";
+  }
+  if (method == kMethodListRoots) {
+    return "roots";
+  }
+  return "";
+}
+
+/**
+ * Whether this method may be answered by asking for more input.
+ *
+ * Only these three. A server that answered anything else that way would
+ * be asking a client to retry a request the client has no reason to
+ * think is retriable.
+ */
+inline bool mayAskForInput(const std::string& method) {
+  return method == kMethodToolsCall || method == kMethodResourcesRead ||
+         method == kMethodPromptsGet;
+}
+
+/**
  * Which body field holds the name this method mirrors into `Mcp-Name`.
  * Empty for a method that mirrors none, which is most of them.
  */
