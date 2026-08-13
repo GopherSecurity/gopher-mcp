@@ -2024,7 +2024,8 @@ std::future<ListToolsResult> McpClient::listTools(
 
   // Step 2: Use std::thread to wait for response on a worker thread (not
   // dispatcher!)
-  std::thread([result_promise, request_future_ptr]() {
+  auto session = streamable_session_;
+  std::thread([result_promise, request_future_ptr, session]() {
     try {
       // Wait for the request to be sent
       while (!request_future_ptr->valid()) {
@@ -2047,6 +2048,18 @@ std::future<ListToolsResult> McpClient::listTools(
                        response.result.value())) {
           // Backward compatibility: if it's a vector of tools directly
           result.tools = get<std::vector<Tool>>(response.result.value());
+        }
+        // Read as a listing rather than taken on trust: a tool whose
+        // designations this client cannot resolve is one it would call
+        // wrongly every time, and it is dropped here with the reason
+        // logged rather than offered.
+        //
+        // Inert until nested JSON survives being parsed here — an
+        // inputSchema arrives flattened, so nothing is designated and
+        // every tool passes. Wired now so the behaviour appears with the
+        // parser rather than having to be remembered.
+        if (session) {
+          result.tools = session->acceptListing(result.tools);
         }
         GOPHER_LOG_FLOW_DEBUG("MCP invoke: tools/list -> {} tools",
                               result.tools.size());
