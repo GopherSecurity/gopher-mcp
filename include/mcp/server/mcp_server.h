@@ -46,6 +46,7 @@
 #include "mcp/mcp_connection_manager.h"
 #include "mcp/network/filter.h"
 #include "mcp/protocol/designated_params.h"
+#include "mcp/protocol/mrtr.h"
 #include "mcp/transport/streamable_http_config.h"
 #include "mcp/types.h"
 
@@ -1168,6 +1169,30 @@ class McpServer : public application::ApplicationBase,
    */
   void dropSessionStream(const std::string& session_id,
                          std::function<void(bool dropped)> done = nullptr);
+
+  /**
+   * Answer a request by saying what is still needed to finish it.
+   *
+   * The newest revision has servers initiate nothing, so this is how a
+   * handler asks: the client is told what to go and get, makes the whole
+   * request again with the answers attached, and the handler runs a
+   * second time with them in hand. Nothing is remembered between the
+   * two — whatever has to survive goes in `request_state`, which comes
+   * back through the client and must therefore be treated as something
+   * an attacker could have written.
+   *
+   * Refuses rather than asks when the caller declared it cannot do what
+   * is being asked of it: such a question would sit unanswerable, and
+   * the caller has no way to say so. The refusal names what it would
+   * have had to declare.
+   *
+   * @return An error when the request is not one that may be answered
+   *         this way, or when there is nothing to answer on.
+   */
+  VoidResult answerWithInput(const ResponseStreamPtr& stream,
+                             const jsonrpc::Request& request,
+                             SessionContext& session,
+                             const protocol::modern::NeedsInput& needed);
 
   /**
    * Ask the client something on the way to answering it.

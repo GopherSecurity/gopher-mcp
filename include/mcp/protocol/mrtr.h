@@ -99,6 +99,17 @@ json::JsonValue renderInputRequired(const NeedsInput& needed);
 std::vector<std::string> capabilitiesMissingFor(const InputRequests& requests,
                                                 const std::string& declared);
 
+/**
+ * The capabilities a request declared, out of the metadata it declared
+ * them in.
+ *
+ * The metadata arrives serialized, because nested JSON does on the way
+ * in. Empty when the request said nothing — which is a request that
+ * cannot be asked for anything, not one that can be asked for
+ * everything.
+ */
+std::string declaredCapabilitiesIn(const std::string& raw_meta);
+
 /** The data a refusal for missing capabilities carries. */
 json::JsonValue requiredCapabilitiesData(
     const std::vector<std::string>& missing);

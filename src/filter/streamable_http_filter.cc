@@ -244,6 +244,42 @@ VoidResult StreamableHttpFilter::ResponseStreamImpl::sendRequest(
                    Error(jsonrpc::INTERNAL_ERROR, "question not written"));
 }
 
+VoidResult StreamableHttpFilter::ResponseStreamImpl::sendRefusal(
+    int http_status, const Error& error, const json::JsonValue& data) {
+  if (!exchange_) {
+    Error err;
+    err.code = jsonrpc::INTERNAL_ERROR;
+    err.message = "refusal dropped: this request has no answer open";
+    return makeVoidError(err);
+  }
+  if (exchange_->mode() == transport::RequestExchange::Mode::Stream) {
+    // The answer has already begun as a stream, and its status went out
+    // with the first byte. Nothing can change it now, so the refusal
+    // goes down the stream as an ordinary error rather than pretending
+    // to a status it cannot have.
+    jsonrpc::Response response;
+    response.jsonrpc = "2.0";
+    response.error = mcp::make_optional(error);
+    return sendResponse(response);
+  }
+
+  exchange_->setPhase(transport::RequestExchange::Phase::RespondingError);
+  exchange_->setStatus(http_status);
+
+  json::JsonValue body = json::JsonValue::object();
+  body.set("jsonrpc", json::JsonValue("2.0"));
+  body.set("id", json::JsonValue());
+  json::JsonValue rendered = json::JsonValue::object();
+  rendered.set("code", json::JsonValue(static_cast<int64_t>(error.code)));
+  rendered.set("message", json::JsonValue(error.message));
+  if (data.isObject()) {
+    rendered.set("data", data);
+  }
+  body.set("error", rendered);
+
+  return exchange_->respondUnary("application/json", body.toString());
+}
+
 VoidResult StreamableHttpFilter::ResponseStreamImpl::sendResponse(
     const jsonrpc::Response& response) {
   if (!exchange_) {

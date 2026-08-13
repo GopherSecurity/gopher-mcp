@@ -72,6 +72,22 @@ std::vector<std::string> capabilitiesMissingFor(const InputRequests& requests,
   return missing;
 }
 
+std::string declaredCapabilitiesIn(const std::string& raw_meta) {
+  if (raw_meta.empty()) {
+    return std::string();
+  }
+  try {
+    auto meta = json::JsonValue::parse(raw_meta);
+    if (meta.isObject() && meta.contains(kMetaClientCapabilities)) {
+      return meta[kMetaClientCapabilities].toString();
+    }
+  } catch (const std::exception&) {
+    // Unreadable metadata declares nothing, which is the same answer as
+    // saying nothing — and the safe one.
+  }
+  return std::string();
+}
+
 json::JsonValue requiredCapabilitiesData(
     const std::vector<std::string>& missing) {
   // Shaped as a capabilities object rather than a list of names: it is

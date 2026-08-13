@@ -29,6 +29,7 @@ add_executable(test_ask_client server/test_ask_client.cc)
 add_executable(test_deferred_handler server/test_deferred_handler.cc)
 add_executable(test_drop_session_stream server/test_drop_session_stream.cc)
 add_executable(test_prompt_arguments server/test_prompt_arguments.cc)
+add_executable(test_answer_with_input server/test_answer_with_input.cc)
 # CORS tests
 # Event tests
 add_executable(test_event_loop event/test_event_loop.cc)
@@ -1498,6 +1499,16 @@ add_test(NAME AskClientTest COMMAND test_ask_client)
 add_test(NAME DeferredHandlerTest COMMAND test_deferred_handler)
 add_test(NAME DropSessionStreamTest COMMAND test_drop_session_stream)
 add_test(NAME PromptArgumentsTest COMMAND test_prompt_arguments)
+
+target_link_libraries(test_answer_with_input
+    gopher-mcp
+    gopher-mcp-logging
+    gtest
+    gtest_main
+    Threads::Threads
+    fmt::fmt
+)
+add_test(NAME AnswerWithInputTest COMMAND test_answer_with_input)
 add_test(NAME EventLoopTest COMMAND test_event_loop)
 add_test(NAME TimerLifetimeTest COMMAND test_timer_lifetime)
 add_test(NAME DeferredDeleteOrderingTest COMMAND test_deferred_delete_ordering)

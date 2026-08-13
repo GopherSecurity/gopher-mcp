@@ -4,6 +4,7 @@
 #include <string>
 
 #include "mcp/core/result.h"
+#include "mcp/json/json_bridge.h"
 #include "mcp/types.h"
 
 namespace mcp {
@@ -54,6 +55,28 @@ class ResponseStream {
     err.code = jsonrpc::INTERNAL_ERROR;
     err.message = "this response cannot carry a question to the client";
     return makeVoidError(err);
+  }
+
+  /**
+   * Refuse the request with a status of its own.
+   *
+   * Some refusals are about the request rather than about what it asked
+   * for, and the revision that defines them says which HTTP status each
+   * carries — a transport that answered them all 200 would leave a
+   * client reading a success that contains a failure.
+   *
+   * Falls back to an ordinary error response where a transport has no
+   * status to set, which is every transport that is not HTTP.
+   */
+  virtual VoidResult sendRefusal(int http_status,
+                                 const Error& error,
+                                 const json::JsonValue& data) {
+    (void)http_status;
+    (void)data;
+    jsonrpc::Response response;
+    response.jsonrpc = "2.0";
+    response.error = mcp::make_optional(error);
+    return sendResponse(response);
   }
 
   /** Emit the response and end the stream. */

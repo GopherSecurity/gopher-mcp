@@ -1058,6 +1058,61 @@ void McpServer::dropSessionStream(const std::string& session_id,
       [report, dropped](bool found) { report(found && *dropped); });
 }
 
+VoidResult McpServer::answerWithInput(
+    const ResponseStreamPtr& stream,
+    const jsonrpc::Request& request,
+    SessionContext& session,
+    const protocol::modern::NeedsInput& needed) {
+  if (!stream) {
+    return makeVoidError(
+        Error(jsonrpc::INTERNAL_ERROR,
+              "nothing to answer on: a handler that needs more input still "
+              "has to have somewhere to say so"));
+  }
+  if (needed.empty()) {
+    return makeVoidError(
+        Error(jsonrpc::INTERNAL_ERROR,
+              "asked for nothing and carried nothing, which tells the caller "
+              "to come back with no reason and nothing to come back with"));
+  }
+  if (!protocol::modern::mayAskForInput(request.method)) {
+    // Answering anything else this way would ask a client to retry a
+    // request it has no reason to think is retriable.
+    return makeVoidError(Error(
+        jsonrpc::INTERNAL_ERROR,
+        "'" + request.method + "' cannot be answered by asking for input"));
+  }
+
+  const std::string declared = protocol::modern::declaredCapabilitiesIn(
+      session.getRequestMeta().has_value() ? session.getRequestMeta().value()
+                                           : std::string());
+  const auto missing =
+      protocol::modern::capabilitiesMissingFor(needed.requests, declared);
+  if (!missing.empty()) {
+    std::string named;
+    for (const auto& capability : missing) {
+      if (!named.empty()) {
+        named += ", ";
+      }
+      named += capability;
+    }
+    GOPHER_LOG_DEBUG(
+        "refusing to ask a caller for something it did not declare it can "
+        "do: {}",
+        named);
+    return stream->sendRefusal(
+        static_cast<int>(http::HttpStatusCode::BadRequest),
+        Error(protocol::modern::kMissingRequiredClientCapability,
+              "This request needs a client that can " + named),
+        protocol::modern::requiredCapabilitiesData(missing));
+  }
+
+  jsonrpc::Response response = jsonrpc::Response::success(
+      request.id,
+      jsonrpc::ResponseResult(protocol::modern::renderInputRequired(needed)));
+  return stream->sendResponse(response);
+}
+
 VoidResult McpServer::askClient(
     const ResponseStreamPtr& stream,
     const jsonrpc::Request& request,
@@ -1386,6 +1441,24 @@ void McpServer::onRequestWithContext(const jsonrpc::Request& request,
   }
 
   session->updateActivity();
+
+  // What the request said about itself, for every method rather than for
+  // tool calls alone: in the era with no introduction this is where a
+  // caller declares what it can do, and a handler deciding whether it may
+  // ask for anything has nowhere else to read it. Cleared when absent, so
+  // one request's metadata never stands in for another's.
+  if (request.params.has_value()) {
+    const auto& params = request.params.value();
+    auto meta = params.find("_meta");
+    if (meta != params.end() && holds_alternative<std::string>(meta->second)) {
+      session->setRequestMeta(
+          mcp::make_optional(get<std::string>(meta->second)));
+    } else {
+      session->setRequestMeta(nullopt);
+    }
+  } else {
+    session->setRequestMeta(nullopt);
+  }
 
   // A handler registered as streaming gets somewhere to report progress on
   // its way to an answer. Attached to the session only for the length of
