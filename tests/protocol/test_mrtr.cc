@@ -117,17 +117,39 @@ TEST(Mrtr, ACapabilityIsNamedOnce) {
       << "the refusal did not say what the caller would have to declare";
 }
 
-// Something this revision does not know about is not refused on a guess:
-// refusing an unrecognized name would refuse whatever the next revision
-// adds.
-TEST(Mrtr, AnUnrecognisedRequestIsNotRefusedOnAGuess) {
+// Present is not declared. A client that said it cannot elicit said so
+// with the key there, and reading the key alone would ask it anyway.
+TEST(Mrtr, SayingNoIsNotSayingYes) {
+  InputRequests asking;
+  asking["form"] = elicit("Your name");
+
+  EXPECT_TRUE(capabilitiesMissingFor(asking, R"({"elicitation":{}})").empty());
+  EXPECT_TRUE(
+      capabilitiesMissingFor(asking, R"({"elicitation":true})").empty());
+
+  EXPECT_FALSE(
+      capabilitiesMissingFor(asking, R"({"elicitation":false})").empty())
+      << "a client that said it cannot do this was going to be asked";
+  EXPECT_FALSE(
+      capabilitiesMissingFor(asking, R"({"elicitation":null})").empty());
+}
+
+// Something this revision does not define has no capability to check it
+// against, and a request that cannot be checked cannot be shown to be
+// supported. Sending it anyway would ask a client for something it never
+// said it can do — which is the one thing this exists to prevent.
+TEST(Mrtr, ARequestThatCannotBeCheckedIsNotSent) {
   InputRequests odd;
   InputRequest future;
   future.method = "something/newer";
   future.params = json::JsonValue::object();
   odd["x"] = future;
 
-  EXPECT_TRUE(capabilitiesMissingFor(odd, "{}").empty());
+  const auto missing = capabilitiesMissingFor(odd, R"({"sampling":{}})");
+  ASSERT_FALSE(missing.empty())
+      << "a request nothing could vouch for was going to be sent";
+  EXPECT_NE(missing[0].find("something/newer"), std::string::npos)
+      << "the refusal did not say what could not be checked: " << missing[0];
 }
 
 // What a retry brought back, read out of the body it travelled in.

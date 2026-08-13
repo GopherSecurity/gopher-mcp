@@ -35,6 +35,32 @@ json::JsonValue renderInputRequired(const NeedsInput& needed) {
   return result;
 }
 
+namespace {
+
+/**
+ * Whether a capabilities object actually declares this one.
+ *
+ * Present is not the same as declared: a capability is announced by an
+ * object saying how it is supported, and `false` or `null` under the
+ * same key is a client saying it does not. Reading the key alone would
+ * let a client that said no be asked anyway.
+ */
+bool declares(const json::JsonValue& capabilities, const std::string& name) {
+  if (!capabilities.isObject() || !capabilities.contains(name)) {
+    return false;
+  }
+  const auto& declared = capabilities[name];
+  if (declared.isNull()) {
+    return false;
+  }
+  if (declared.isBoolean()) {
+    return declared.getBool();
+  }
+  return true;
+}
+
+}  // namespace
+
 std::vector<std::string> capabilitiesMissingFor(const InputRequests& requests,
                                                 const std::string& declared) {
   std::vector<std::string> missing;
@@ -56,12 +82,19 @@ std::vector<std::string> capabilitiesMissingFor(const InputRequests& requests,
   for (const auto& entry : requests) {
     const std::string needed = capabilityFor(entry.second.method);
     if (needed.empty()) {
-      // Not one of the three a client declares support for. Nothing to
-      // check, and refusing on a name we do not recognize would refuse
-      // whatever the next revision adds.
+      // Not one of the three this revision defines, so there is no
+      // capability to check it against — and a request that cannot be
+      // checked cannot be shown to be supported. Named here rather than
+      // waved through: whether it is a typo or something newer, sending
+      // it would be asking a client for something it never said it can
+      // do, which is the one thing this exists to prevent.
+      const std::string unknown = "(" + entry.second.method + ")";
+      if (std::find(missing.begin(), missing.end(), unknown) == missing.end()) {
+        missing.push_back(unknown);
+      }
       continue;
     }
-    if (capabilities.contains(needed)) {
+    if (declares(capabilities, needed)) {
       continue;
     }
     if (std::find(missing.begin(), missing.end(), needed) == missing.end()) {
