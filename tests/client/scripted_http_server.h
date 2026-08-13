@@ -18,6 +18,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <csignal>
 #include <cstdint>
 #include <functional>
 #include <map>
@@ -385,6 +386,7 @@ class ScriptedServer {
       auto accepted_conn = listener_->accept();
       if (accepted_conn.ok() && *accepted_conn) {
         (*accepted_conn)->setBlocking(false);
+        ignoreBrokenPipes();
         conns_.push_back(std::move(*accepted_conn));
         buffers_.emplace_back();
       }
@@ -444,6 +446,30 @@ class ScriptedServer {
       did = true;
     }
     return did;
+  }
+
+  /**
+   * Do not die of writing to a client that has gone.
+   *
+   * This peer keeps writing whatever its script says while a test tears
+   * the client down, so a write landing on a closed socket is ordinary
+   * here rather than exceptional. The default for that is a signal that
+   * kills the process, which turns an ordinary race into a test that
+   * fails at random; asked for as an error instead, the write below
+   * simply reports it and the script moves on.
+   *
+   * Process-wide because the sockets are accepted rather than made, so
+   * there is no one place to set it per socket, and because nothing in
+   * a test binary wants the killing default.
+   */
+  static void ignoreBrokenPipes() {
+#ifndef _WIN32
+    static const bool once = []() {
+      std::signal(SIGPIPE, SIG_IGN);
+      return true;
+    }();
+    (void)once;
+#endif
   }
 
   void writeAll(network::IoHandle& conn, const std::string& bytes) {
