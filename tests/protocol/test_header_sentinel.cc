@@ -151,6 +151,17 @@ TEST(HeaderSentinel, ANumberWrittenTwoWaysIsOneNumber) {
       headerMatchesValue("43", json::JsonValue(static_cast<int64_t>(42))));
   EXPECT_FALSE(headerMatchesValue("forty-two",
                                   json::JsonValue(static_cast<int64_t>(42))));
+
+  // Two integers a double cannot tell apart are still two integers.
+  // Comparing them as one would let a header carry a value the server
+  // never read out of the body, which is the split the mirroring exists
+  // to prevent.
+  const int64_t big = 9007199254740992LL;
+  EXPECT_TRUE(headerMatchesValue("9007199254740992", json::JsonValue(big)));
+  EXPECT_FALSE(headerMatchesValue("9007199254740993", json::JsonValue(big)))
+      << "two different integers were treated as one";
+  EXPECT_FALSE(
+      headerMatchesValue("9007199254740992", json::JsonValue(big + 1)));
 }
 
 TEST(HeaderSentinel, AHeaderIsDecodedBeforeItIsCompared) {

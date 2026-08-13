@@ -201,7 +201,9 @@ bool headerTextForScalar(const json::JsonValue& value, std::string* text) {
     return true;
   }
   if (value.isInteger()) {
-    *text = std::to_string(value.getInt());
+    // 64 bits: a header carrying a large integer must carry the one the
+    // body holds, and getInt would truncate it to 32.
+    *text = std::to_string(value.getInt64());
     return true;
   }
   return false;
@@ -217,13 +219,30 @@ bool headerMatchesValue(const std::string& header,
   // A number written two ways is one number. A body carrying 42.0 and a
   // header carrying 42 agree, and comparing their text would say they do
   // not.
-  if (value.isInteger() || value.isFloat()) {
+  if (value.isInteger()) {
+    // Compared as integers, not through a double. Two integers a double
+    // cannot tell apart are still two integers, and treating them as one
+    // would let a header say something the server never read.
     try {
-      const double from_header = std::stod(decoded);
-      const double from_body = value.isInteger()
-                                   ? static_cast<double>(value.getInt())
-                                   : value.getFloat();
-      return from_header == from_body;
+      size_t consumed = 0;
+      const long long from_header = std::stoll(decoded, &consumed);
+      if (consumed != decoded.size()) {
+        // Trailing anything: "42.0" against an integer body is the one
+        // case worth allowing, and it goes through the wider comparison
+        // rather than being read as 42 and the rest ignored.
+        const double as_real = std::stod(decoded);
+        return as_real == static_cast<double>(value.getInt64());
+      }
+      // getInt64 rather than getInt, which is 32 bits wide and would
+      // truncate the very values this comparison exists to tell apart.
+      return from_header == static_cast<long long>(value.getInt64());
+    } catch (const std::exception&) {
+      return false;
+    }
+  }
+  if (value.isFloat()) {
+    try {
+      return std::stod(decoded) == value.getFloat();
     } catch (const std::exception&) {
       return false;
     }

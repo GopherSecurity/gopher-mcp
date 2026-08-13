@@ -69,12 +69,12 @@ void StreamableHttpClientSession::decorate(
       continue;
     }
     if (value.isInteger() &&
-        !protocol::modern::isExactlyCarryableInteger(value.getInt())) {
+        !protocol::modern::isExactlyCarryableInteger(value.getInt64())) {
       GOPHER_LOG_WARN(
           "not mirroring {} into a header: {} cannot be carried exactly, and "
           "a value the two ends round differently is a value they disagree "
           "about",
-          param.headerName(), value.getInt());
+          param.headerName(), value.getInt64());
       continue;
     }
     std::string text;
