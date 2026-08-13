@@ -14,6 +14,7 @@
  */
 
 #include <chrono>
+#include <cstring>
 #include <string>
 
 #include <gtest/gtest.h>
@@ -48,6 +49,21 @@ class EraRecordingCallbacks : public McpProtocolCallbacks {
                             MessageDispatchContext& context) override {
     requests.push_back(request);
 
+    if (hold_the_stream) {
+      // A handler with work still to do: it takes a stream, says
+      // something on it — which is what opens one — and keeps it.
+      auto stream = context.beginResponseStream();
+      if (stream) {
+        held.push_back(stream);
+        jsonrpc::Notification progress;
+        progress.jsonrpc = "2.0";
+        progress.method = "notifications/progress";
+        stream->sendNotification(progress);
+        watching = stream->onCancelled([this]() { ++cancellations; });
+        return;
+      }
+    }
+
     jsonrpc::Response response;
     response.jsonrpc = "2.0";
     response.id = request.id;
@@ -72,6 +88,13 @@ class EraRecordingCallbacks : public McpProtocolCallbacks {
 
   std::vector<jsonrpc::Request> requests;
   std::vector<jsonrpc::Notification> notifications;
+
+  /** Answer by taking a stream and keeping it, rather than by answering. */
+  bool hold_the_stream{false};
+  std::vector<ResponseStreamPtr> held;
+  /** Whether the transport had any way to report a cancellation at all. */
+  bool watching{false};
+  int cancellations{0};
 };
 
 class ModernEraHeadersTest : public test::RealIoTestBase {
@@ -186,6 +209,36 @@ class ModernEraHeadersTest : public test::RealIoTestBase {
            "\r\n\r\n" + body;
   }
 
+  /** Shake hands as a client of the older era, and take the session id. */
+  std::string classicSession() {
+    const std::string body =
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\","
+        "\"params\":{\"protocolVersion\":\"2025-06-18\"}}";
+    send(
+        "POST /mcp HTTP/1.1\r\nHost: localhost\r\n"
+        "Content-Type: application/json\r\n"
+        "Accept: application/json, text/event-stream\r\n"
+        "Content-Length: " +
+        std::to_string(body.size()) + "\r\n\r\n" + body);
+
+    const std::string wire = readResponse(500ms);
+    const size_t named = wire.find("Mcp-Session-Id: ");
+    if (named == std::string::npos) {
+      return std::string();
+    }
+    const size_t from = named + std::strlen("Mcp-Session-Id: ");
+    return wire.substr(from, wire.find("\r\n", from) - from);
+  }
+
+  /** What a client aborting looks like from the other end. */
+  void closePeer() {
+    executeInDispatcher([&]() {
+      if (peer_) {
+        peer_->close();
+      }
+    });
+  }
+
   EraRecordingCallbacks callbacks_;
   std::shared_ptr<HttpSseFilterChainFactory> factory_;
   std::unique_ptr<network::ServerConnection> conn_;
@@ -285,6 +338,65 @@ TEST_F(ModernEraHeadersTest, TheRevisionIsRefusedWhileItIsSwitchedOff) {
       << wire;
   EXPECT_NE(wire.find("\"supported\""), std::string::npos)
       << "the refusal did not say what is served: " << wire;
+}
+
+// There is no message for cancelling a request in this revision, so
+// closing the stream is the whole of it. A handler still working has to
+// be told, because nothing else will ever tell it: this client cannot
+// come back to the stream it dropped — there is no id to hold a place
+// with and no session to look one up under — so its work has no reader
+// and no way to acquire one.
+TEST_F(ModernEraHeadersTest, AModernClientClosingItsStreamCancelsTheWork) {
+  callbacks_.hold_the_stream = true;
+  startServer();
+  send(modernPost("tools/list"));
+
+  const std::string wire = readResponse(500ms);
+  ASSERT_NE(wire.find("text/event-stream"), std::string::npos)
+      << "the handler never got a stream to be cancelled on: " << wire;
+  ASSERT_TRUE(callbacks_.watching)
+      << "the transport offered no way to hear about a cancellation";
+  ASSERT_EQ(callbacks_.cancellations, 0) << "cancelled while still connected";
+
+  closePeer();
+  EXPECT_TRUE(waitFor([&]() { return callbacks_.cancellations > 0; }, 2000ms))
+      << "a client went away and the work behind its request carried on "
+         "with nobody able to read it";
+}
+
+// The same close, on the era where a client can come back: the stream is
+// kept rather than cancelled, and the work goes on producing into it. The
+// two policies are opposite on purpose, so this is the one that proves
+// the modern rule did not become everyone's.
+TEST_F(ModernEraHeadersTest, AClassicClientClosingItsStreamCancelsNothing) {
+  startServer();
+  // The handshake this era has and the other does not, and the session it
+  // hands back. Held open from here on.
+  const std::string session = classicSession();
+  ASSERT_FALSE(session.empty());
+
+  callbacks_.hold_the_stream = true;
+  const std::string body =
+      "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\","
+      "\"params\":{}}";
+  send(
+      "POST /mcp HTTP/1.1\r\nHost: localhost\r\n"
+      "Content-Type: application/json\r\n"
+      "Accept: application/json, text/event-stream\r\n"
+      "MCP-Protocol-Version: 2025-06-18\r\n"
+      "Mcp-Session-Id: " +
+      session + "\r\nContent-Length: " + std::to_string(body.size()) +
+      "\r\n\r\n" + body);
+
+  const std::string wire = readResponse(500ms);
+  ASSERT_NE(wire.find("text/event-stream"), std::string::npos)
+      << "the handler never got a stream: " << wire;
+
+  closePeer();
+  // Given the same chance the modern case needed, and it must not have
+  // taken it.
+  EXPECT_FALSE(waitFor([&]() { return callbacks_.cancellations > 0; }, 500ms))
+      << "work a client could have come back for was thrown away";
 }
 
 }  // namespace

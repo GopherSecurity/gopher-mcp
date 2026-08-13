@@ -1,5 +1,6 @@
 #pragma once
 
+#include <functional>
 #include <memory>
 #include <string>
 
@@ -91,6 +92,30 @@ class ResponseStream {
    * for anything the client would have to send.
    */
   virtual bool alive() const = 0;
+
+  /**
+   * Be told, once, when the work behind this request is no longer wanted.
+   *
+   * The distinction from `alive` is the whole point. A client that goes
+   * away has sometimes only gone away, and a stream it can come back to
+   * keeps producing for it. Cancellation is the other case: nobody is
+   * coming back, so a handler still working may stop.
+   *
+   * On the newest revision the two coincide, because a client there has no
+   * way to rejoin a stream — closing it is how it cancels, and there is no
+   * other way to ask.
+   *
+   * Fires immediately when cancellation has already happened, since one an
+   * observer never hears about is worse than one heard late.
+   *
+   * @return False where the transport has no way to notice, in which case
+   *         the observer will never run and the caller should not wait for
+   *         it.
+   */
+  virtual bool onCancelled(std::function<void()> observer) {
+    (void)observer;
+    return false;
+  }
 };
 
 using ResponseStreamPtr = std::shared_ptr<ResponseStream>;

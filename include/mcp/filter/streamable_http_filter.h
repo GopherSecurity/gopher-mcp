@@ -290,6 +290,7 @@ class StreamableHttpFilter : public HttpCodecFilter::MessageCallbacks,
                            const json::JsonValue& data) override;
     VoidResult sendResponse(const jsonrpc::Response& response) override;
     bool alive() const override;
+    bool onCancelled(std::function<void()> observer) override;
 
     /** Open the stream now, before anything else is written. */
     bool open();

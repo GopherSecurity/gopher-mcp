@@ -161,7 +161,18 @@ bool StreamableHttpFilter::ResponseStreamImpl::open() {
   // A streamed answer is worth keeping when its client goes away: the work
   // behind it carries on, and a client that comes back can be given what
   // it missed. A single response has nothing to come back for.
-  exchange_->setRetainOnDisconnect(true);
+  //
+  // Except where nobody can come back. A client of the newest revision has
+  // no way to rejoin a stream it lost — there are no event ids to hold a
+  // place with and no session to look one up under — so keeping the work
+  // would be producing output with no reader and no way to acquire one.
+  // Closing the stream is how such a client cancels, which is what makes
+  // this the whole of the cancellation path: the exchange gives up instead
+  // of detaching, and giving up fires the cancellation its handlers are
+  // watching.
+  const bool can_come_back =
+      exchange_->clientContext().era != transport::ProtocolEra::Modern;
+  exchange_->setRetainOnDisconnect(can_come_back);
   if (!exchange_->beginStream()) {
     return false;
   }
@@ -315,6 +326,18 @@ VoidResult StreamableHttpFilter::ResponseStreamImpl::sendResponse(
 bool StreamableHttpFilter::ResponseStreamImpl::alive() const {
   return exchange_ && !exchange_->detached() &&
          exchange_->mode() != transport::RequestExchange::Mode::Complete;
+}
+
+bool StreamableHttpFilter::ResponseStreamImpl::onCancelled(
+    std::function<void()> observer) {
+  if (!exchange_ || !observer) {
+    return false;
+  }
+  // Held by the exchange, which outlives both this stream and the
+  // connection under it — the one place an answer that is still being
+  // produced can be told it is no longer wanted.
+  exchange_->cancellation().addObserver(std::move(observer));
+  return true;
 }
 
 // ===== DispatchContext =====
