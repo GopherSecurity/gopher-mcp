@@ -1297,8 +1297,180 @@ void McpClient::handleResponse(const Response& response) {
   if (request->completed) {
     return;
   }
-  request->completed = true;
 
+  // An answer that turns out to be a question is not this request's
+  // answer. Either it goes out again carrying what was asked for — in
+  // which case there is nothing to complete here, the same caller now
+  // waiting on a request with a different id — or it could not, and the
+  // failure is the answer.
+  Error unanswerable(0, std::string());
+  if (answerIsAQuestion(response)) {
+    if (askAndSendAgain(request, response, &unanswerable)) {
+      return;
+    }
+    request->completed = true;
+    completeRequest(request, Response::make_error(response.id, unanswerable));
+    return;
+  }
+
+  request->completed = true;
+  completeRequest(request, response);
+}
+
+bool McpClient::answerIsAQuestion(const Response& response) const {
+  if (!streamable_session_ || !protocol::modern::isModernVersion(
+                                  streamable_session_->protocolVersion())) {
+    // No older revision can ask, so no older revision's answer is ever
+    // read as a question.
+    return false;
+  }
+  if (response.error.has_value() || !response.result.has_value()) {
+    return false;
+  }
+  json::JsonValue result;
+  if (!resultAsJson(response, &result)) {
+    return false;
+  }
+  return protocol::modern::askedForIn(result).asked;
+}
+
+bool McpClient::resultAsJson(const Response& response,
+                             json::JsonValue* out) const {
+  if (!response.result.has_value()) {
+    return false;
+  }
+  if (holds_alternative<json::JsonValue>(response.result.value())) {
+    *out = get<json::JsonValue>(response.result.value());
+    return true;
+  }
+  if (holds_alternative<Metadata>(response.result.value())) {
+    *out = json::metadataToJson(get<Metadata>(response.result.value()));
+    return true;
+  }
+  return false;
+}
+
+bool McpClient::askAndSendAgain(const std::shared_ptr<RequestContext>& request,
+                                const Response& response,
+                                Error* why_not) {
+  json::JsonValue result;
+  if (!resultAsJson(response, &result)) {
+    return false;
+  }
+  const auto asked = protocol::modern::askedForIn(result);
+
+  if (request->input_rounds >= config_.streamable_http.mrtr_max_rounds) {
+    // A server that answers every round by asking for something else
+    // would otherwise keep one request going forever.
+    *why_not = Error(::mcp::jsonrpc::INTERNAL_ERROR,
+                     "the server asked for something " +
+                         std::to_string(request->input_rounds) +
+                         " times running and never answered");
+    return false;
+  }
+
+  // Handed back byte for byte or not at all. What carries a request's
+  // params here reads a string that looks like JSON as the JSON it looks
+  // like, so a state that would come out the other side as an object is
+  // one this client cannot echo — and sending something that merely
+  // meant the same would break the only rule the state has.
+  if (asked.request_state.has_value()) {
+    const std::string& state = asked.request_state.value();
+    if (!state.empty() && ((state.front() == '{' && state.back() == '}') ||
+                           (state.front() == '[' && state.back() == ']'))) {
+      *why_not = Error(::mcp::jsonrpc::INTERNAL_ERROR,
+                       "the state this server asked to have handed back "
+                       "cannot be handed back unchanged by this client");
+      return false;
+    }
+  }
+
+  // Every question gets an entry, including the ones nothing could
+  // answer: a server that asked two and gets one key back cannot tell
+  // which of the two went unanswered.
+  std::map<std::string, json::JsonValue> answers;
+  for (const auto& entry : asked.requests) {
+    answers[entry.first] = askOurselves(entry.second);
+  }
+
+  Metadata params =
+      request->params.has_value() ? request->params.value() : Metadata();
+  if (!answers.empty()) {
+    params[protocol::modern::kInputResponsesField] = MetadataValue(
+        protocol::modern::renderInputResponses(answers).toString());
+  }
+  if (asked.request_state.has_value()) {
+    params[protocol::modern::kRequestStateField] =
+        MetadataValue(asked.request_state.value());
+  }
+
+  // A new request, not a retry of this one. The revision is explicit
+  // that the second round carries an id of its own — the two rounds are
+  // independent requests, and a server must never be able to read a
+  // repeated id as one conversation it is expected to remember.
+  RequestId fresh = static_cast<int64_t>(next_request_id_++);
+  auto again = std::make_shared<RequestContext>(fresh, request->method);
+  again->params = mcp::make_optional(params);
+  again->http_headers = request->http_headers;
+  again->start_time = request->start_time;
+  again->input_rounds = request->input_rounds + 1;
+  // The caller is waiting on the first request's future and knows
+  // nothing of this one, so what it waits on has to move across.
+  again->promise = std::move(request->promise);
+  again->on_response = request->on_response;
+
+  request->completed = true;
+  request_tracker_->removeRequest(request->id);
+  request_tracker_->trackRequest(again);
+
+  GOPHER_LOG_DEBUG("{} is being sent again with what was asked for (round {})",
+                   request->method, again->input_rounds);
+  sendRequestInternal(again);
+  return true;
+}
+
+json::JsonValue McpClient::askOurselves(
+    const protocol::modern::InputRequest& asked) {
+  std::function<jsonrpc::ResponseResult(const jsonrpc::Request&)> handler;
+  {
+    std::lock_guard<std::mutex> lock(request_handlers_mutex_);
+    auto it = request_handlers_.find(asked.method);
+    if (it != request_handlers_.end()) {
+      handler = it->second;
+    }
+  }
+  if (!handler) {
+    GOPHER_LOG_WARN("asked for {}, which this client has no handler for",
+                    asked.method);
+    return json::JsonValue();
+  }
+
+  // The same handlers that answer a server which asks by sending a
+  // request. What is being asked has not changed with the era; only how
+  // the asking travels has.
+  jsonrpc::Request question;
+  question.jsonrpc = "2.0";
+  question.id = static_cast<int64_t>(next_request_id_++);
+  question.method = asked.method;
+  question.params = mcp::make_optional(json::jsonToMetadata(asked.params));
+
+  try {
+    jsonrpc::Response answered;
+    answered.jsonrpc = "2.0";
+    answered.id = question.id;
+    answered.result = mcp::make_optional(handler(question));
+    const auto as_json = json::to_json(answered);
+    return as_json.contains("result") ? as_json["result"] : json::JsonValue();
+  } catch (const std::exception& e) {
+    // Nothing for this one, and the server is told which one by its name
+    // being there with nothing under it.
+    GOPHER_LOG_WARN("could not answer {}: {}", asked.method, e.what());
+    return json::JsonValue();
+  }
+}
+
+void McpClient::completeRequest(const std::shared_ptr<RequestContext>& request,
+                                const Response& response) {
   // If the stream was carrying this answer, it has carried it, and is a
   // plain stream again.
   if (stream_recovering_.has_value() &&
@@ -1376,8 +1548,38 @@ void McpClient::handleRequest(const Request& request) {
 void McpClient::registerRequestHandler(
     const std::string& method,
     std::function<jsonrpc::ResponseResult(const jsonrpc::Request&)> handler) {
+  {
+    std::lock_guard<std::mutex> lock(request_handlers_mutex_);
+    request_handlers_[method] = std::move(handler);
+  }
+
+  // What this client says it can do follows from what it can actually
+  // answer, so the two cannot drift apart. It matters in the newest
+  // revision, where every request declares it and a server refuses to
+  // ask for anything not declared — a client with a handler and no
+  // declaration would be refused the very question it could answer.
+  if (streamable_session_) {
+    streamable_session_->setClientCapabilities(declaredCapabilities());
+  }
+}
+
+json::JsonValue McpClient::declaredCapabilities() const {
+  json::JsonValue declared = json::to_json(config_.capabilities);
+  if (!declared.isObject()) {
+    declared = json::JsonValue::object();
+  }
+
   std::lock_guard<std::mutex> lock(request_handlers_mutex_);
-  request_handlers_[method] = std::move(handler);
+  for (const auto& entry : request_handlers_) {
+    const std::string capability = protocol::modern::capabilityFor(entry.first);
+    if (capability.empty() || declared.contains(capability)) {
+      continue;
+    }
+    // An empty object is a declaration: it says this can be done and
+    // nothing further about how.
+    declared.set(capability, json::JsonValue::object());
+  }
+  return declared;
 }
 
 // Register an application-level notification handler for a given method.
@@ -1570,8 +1772,7 @@ void McpClient::runTransportLadder(const std::string& uri) {
         streamable_session_->setProtocolVersion(settled);
         streamable_session_->setClientIdentity(config_.client_name,
                                                config_.client_version);
-        streamable_session_->setClientCapabilities(
-            json::to_json(config_.capabilities));
+        streamable_session_->setClientCapabilities(declaredCapabilities());
         startTransport(TransportType::StreamableHttp);
         return;
       }

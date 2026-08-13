@@ -41,6 +41,7 @@
 #include "mcp/mcp_connection_manager.h"
 #include "mcp/network/filter.h"
 #include "mcp/protocol/mcp_protocol_state_machine.h"
+#include "mcp/protocol/mrtr.h"
 #include "mcp/transport/streamable_http_config.h"
 #include "mcp/types.h"
 
@@ -164,6 +165,11 @@ struct RequestContext {
   // from, so a server that has forgotten how to remember cannot make
   // one request bounce between it and the client forever.
   bool session_retried{false};
+
+  // How many rounds of the server asking for something have already
+  // happened for this request. Bounded, so a server that answers every
+  // round with another question cannot keep one request going forever.
+  size_t input_rounds{0};
 
   // How many times the answer to this request has been asked for again
   // after arriving as a stream that was cut off. Bounded, so a server
@@ -790,7 +796,7 @@ class McpClient : public application::ApplicationBase {
   std::map<std::string,
            std::function<jsonrpc::ResponseResult(const jsonrpc::Request&)>>
       request_handlers_;
-  std::mutex request_handlers_mutex_;
+  mutable std::mutex request_handlers_mutex_;
 
   // Protocol state
   bool initialized_{false};
@@ -881,6 +887,61 @@ class McpClient : public application::ApplicationBase {
   std::mutex connect_promise_mutex_;
 
   // Protocol state coordination
+  /**
+   * Whether what came back is a question rather than this request's
+   * answer.
+   *
+   * Only ever true in the newest revision. No older one can ask, so no
+   * older one's answer is read this way.
+   */
+  bool answerIsAQuestion(const jsonrpc::Response& response) const;
+
+  /**
+   * What this client can do, as the newest revision has every request
+   * declare it.
+   *
+   * Follows from what it can actually answer rather than from what it
+   * was configured to claim: a server refuses to ask for anything not
+   * declared, so a client with a handler and no declaration would be
+   * refused the one question it could have answered.
+   */
+  json::JsonValue declaredCapabilities() const;
+
+  /** A response's result as JSON, however it happens to be held. */
+  bool resultAsJson(const jsonrpc::Response& response,
+                    json::JsonValue* out) const;
+
+  /**
+   * Answer what the server asked and send the whole request again.
+   *
+   * Under an id of its own: the two rounds are independent requests, and
+   * the caller's wait moves to the new one, so nothing needs to be told
+   * that its request now has a different name.
+   *
+   * @param why_not Filled when this could not be done, in which case the
+   *                request is failed with it rather than handed a result
+   *                that is not an answer.
+   * @return True when the request has gone out again, so there is
+   *         nothing left to complete.
+   */
+  bool askAndSendAgain(const std::shared_ptr<RequestContext>& request,
+                       const jsonrpc::Response& response,
+                       Error* why_not);
+
+  /**
+   * Put one of the server's questions to this client's own handlers.
+   *
+   * The same ones that answer a server which asks by sending a request:
+   * what is being asked has not changed with the era, only how the
+   * asking travels. Null when nothing could answer it, which the server
+   * reads as the question by that name going unanswered.
+   */
+  json::JsonValue askOurselves(const protocol::modern::InputRequest& asked);
+
+  /** Deliver an answer to whoever is waiting for it, and account for it. */
+  void completeRequest(const std::shared_ptr<RequestContext>& request,
+                       const jsonrpc::Response& response);
+
   static InitializeResult parseInitializeResponse(
       const jsonrpc::Response& response, const std::string& protocol_version);
 
