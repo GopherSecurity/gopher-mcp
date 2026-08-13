@@ -70,12 +70,16 @@ void StreamableHttpClientSession::decorate(
     }
     if (value.isInteger() &&
         !protocol::modern::isExactlyCarryableInteger(value.getInt64())) {
+      // Outside the range a schema is supposed to designate — but the
+      // header still goes, because leaving it out is worse than sending
+      // it. A server that finds the value in the body and no header
+      // beside it refuses the call, so suppressing the header here would
+      // make such an argument impossible to send at all. Sent, the two
+      // ends compare it exactly and agree.
       GOPHER_LOG_WARN(
-          "not mirroring {} into a header: {} cannot be carried exactly, and "
-          "a value the two ends round differently is a value they disagree "
-          "about",
+          "{} carries {}, which is outside the range a designated integer is "
+          "meant to hold; a peer that rounds it will disagree about it",
           param.headerName(), value.getInt64());
-      continue;
     }
     std::string text;
     if (!protocol::modern::headerTextForScalar(value, &text)) {

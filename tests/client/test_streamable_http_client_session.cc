@@ -441,6 +441,22 @@ TEST(ModernDecoration, ADesignatedArgumentTravelsWhenTheCallCarriesIt) {
                R"({"name":"execute_sql","arguments":{"query":"SELECT 1"}})"));
   EXPECT_EQ(headers.count("Mcp-Param-Region"), 0u);
 
+  // An integer too large for the range a schema is supposed to designate
+  // is sent anyway: a server that finds it in the body and no header
+  // beside it refuses the call, so leaving the header out would make the
+  // argument impossible to send at all.
+  protocol::modern::DesignatedParam count;
+  count.header_name = "Count";
+  count.path = {"count"};
+  session.rememberDesignations("big_numbers", {count});
+
+  headers.clear();
+  session.decorate(headers, outgoing("tools/call",
+                                     R"({"name":"big_numbers","arguments":{
+                                "count":9007199254740993}})"));
+  EXPECT_EQ(headers["Mcp-Param-Count"], "9007199254740993")
+      << "an argument was made unsendable by being large";
+
   // And a tool nothing was learned about mirrors nothing.
   headers.clear();
   session.decorate(headers, outgoing("tools/call",
