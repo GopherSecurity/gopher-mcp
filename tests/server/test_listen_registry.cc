@@ -24,6 +24,7 @@
 #include "mcp/message_dispatch_context.h"
 #include "mcp/protocol/modern_era.h"
 #include "mcp/server/listen_registry.h"
+#include "mcp/server/mcp_server.h"
 
 namespace mcp {
 namespace server {
@@ -267,6 +268,40 @@ TEST(ListenRegistry, AskingForNothingHearsNothing) {
             0u);
   EXPECT_EQ(stream->notifications.size(), 1u)
       << "only the acknowledgement should have arrived";
+}
+
+// The method has to be reachable, or the whole of the above is
+// machinery nobody can get to. A modern request for it must not be a
+// 404, and a server has to answer it rather than hand it to a handler
+// that does not exist.
+TEST(ListenRegistry, TheMethodIsOneThisServerHas) {
+  McpServerConfig config;
+  config.server_name = "listen-reachability-test";
+  config.server_version = "0.0.1";
+  McpServer server(config);
+
+  EXPECT_TRUE(server.knowsMethod(modern::kMethodSubscriptionsListen))
+      << "a request to listen would be answered 404";
+  EXPECT_TRUE(server.knowsMethod("tools/call"));
+  EXPECT_FALSE(server.knowsMethod("tools/invent"));
+}
+
+// And it is answered by a handler that answers later — a subscription's
+// response arrives when it ends, which for most of them is never.
+TEST(ListenRegistry, ListeningIsAnsweredOnAStream) {
+  McpServerConfig config;
+  config.server_name = "listen-dispatch-test";
+  config.server_version = "0.0.1";
+  McpServer server(config);
+
+  jsonrpc::Request request;
+  request.jsonrpc = "2.0";
+  request.id = make_request_id(1);
+  request.method = modern::kMethodSubscriptionsListen;
+
+  EXPECT_EQ(server.streamingFor(request), StreamingMode::Required)
+      << "a subscription that is not a stream is a request that never "
+         "answers";
 }
 
 }  // namespace

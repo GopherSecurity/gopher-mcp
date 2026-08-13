@@ -47,6 +47,7 @@
 #include "mcp/network/filter.h"
 #include "mcp/protocol/designated_params.h"
 #include "mcp/protocol/mrtr.h"
+#include "mcp/server/listen_registry.h"
 #include "mcp/transport/streamable_http_config.h"
 #include "mcp/types.h"
 
@@ -1092,6 +1093,16 @@ class McpServer : public application::ApplicationBase,
    */
   bool knowsMethod(const std::string& method) const;
 
+  /**
+   * Everything a client asked to be told about, and told on.
+   *
+   * In the newest revision a change notification has nowhere else to go:
+   * there is no standalone stream, so a client hears about one only on a
+   * subscription it opened. Held here because the subscriptions are this
+   * server's, and reached from the dispatcher thread alone.
+   */
+  ListenRegistry& subscriptions() { return subscriptions_; }
+
   void registerNotificationHandler(
       const std::string& method,
       std::function<void(const jsonrpc::Notification&, SessionContext&)>
@@ -1533,6 +1544,10 @@ class McpServer : public application::ApplicationBase,
     McpServer& server_;
   };
   ToolDesignations tool_designations_{*this};
+
+  // The subscriptions this server is holding open. Dispatcher-confined,
+  // like the streams inside it.
+  ListenRegistry subscriptions_;
 
   // Resource, tool, and prompt management
   std::unique_ptr<ResourceManager> resource_manager_;

@@ -648,6 +648,11 @@ void McpServer::shutdown() {
   // Close all connections in dispatcher context
   if (main_dispatcher_) {
     main_dispatcher_->post([this]() {
+      // Every subscription is told it is ending rather than left to find
+      // out from a connection that stopped answering. Before the
+      // listeners go, while there is still something to say it on.
+      subscriptions_.closeAll();
+
       // Stop listeners first so no new connections slip in while we drain.
       for (auto& listener : tcp_listeners_) {
         listener->disable();
@@ -906,6 +911,14 @@ void McpServer::notifyResourceUpdate(const std::string& uri) {
   Metadata params;
   params["uri"] = uri;
   jsonrpc::Notification notification("notifications/resources/updated", params);
+
+  // Every subscription that named this resource. In the newest revision
+  // this is the only channel such a notice has — there is no standalone
+  // stream for it to arrive on.
+  json::JsonValue update = json::JsonValue::object();
+  update.set("uri", json::JsonValue(uri));
+  subscriptions_.publish(protocol::modern::kNotificationResourcesUpdated,
+                         update, uri);
 
   for (const auto& session_id : resource_manager_->getSubscribers(uri)) {
     auto session = session_manager_->getSession(session_id);
@@ -1838,8 +1851,38 @@ void McpServer::onError(const Error& error) {
 
 // Built-in request handlers
 void McpServer::registerBuiltinHandlers() {
-  // Built-in handlers are handled directly in onRequest
-  // This method can be used to register them explicitly if needed
+  // Most built-ins are answered directly in onRequestWithContext. This
+  // one cannot be: its answer is a stream that stays open, and the
+  // response its request is waiting for arrives only when the
+  // subscription ends. So it is registered as a handler that answers
+  // later and, ordinarily, never.
+  registerAsyncRequestHandler(
+      protocol::modern::kMethodSubscriptionsListen,
+      [this](const jsonrpc::Request& request, SessionContext& session,
+             const ResponseStreamPtr& stream) {
+        (void)session;
+        if (!stream) {
+          return;
+        }
+
+        // The filter arrives through the flat map its params are held
+        // in, so nested JSON comes back stringified; this rebuilds it.
+        json::JsonValue params = json::JsonValue::object();
+        if (request.params.has_value()) {
+          params = json::metadataToJson(request.params.value());
+        }
+
+        const auto filter = NotificationFilter::parse(params);
+        if (!subscriptions_.open(request.id, stream, filter)) {
+          stream->sendResponse(jsonrpc::Response::make_error(
+              request.id, Error(jsonrpc::INVALID_REQUEST,
+                                "this subscription could not be opened")));
+        }
+      },
+      // A subscription is a stream. A client that cannot read one cannot
+      // have a subscription, and is better told so than given a request
+      // that never answers.
+      StreamingMode::Required);
 }
 
 jsonrpc::Response McpServer::handleInitialize(const jsonrpc::Request& request,
