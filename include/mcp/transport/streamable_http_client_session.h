@@ -159,6 +159,9 @@ class StreamableHttpClientSession {
    * would send headers the server never expects. A tool whose
    * designations cannot be resolved is remembered as designating
    * nothing, since it is one this client will not be calling.
+   *
+   * Dispatcher thread only, like everything else here: what this records
+   * is read while an outgoing request is being decorated.
    */
   void rememberDesignations(
       const std::string& tool,
@@ -179,6 +182,9 @@ class StreamableHttpClientSession {
    * cost the rest.
    *
    * @return The tools worth offering.
+   *
+   * Dispatcher thread only. Whoever reads a listing off the wire has to
+   * bring it here rather than take it apart where it landed.
    */
   std::vector<Tool> acceptListing(const std::vector<Tool>& tools);
 

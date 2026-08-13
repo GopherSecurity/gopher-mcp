@@ -2024,8 +2024,13 @@ std::future<ListToolsResult> McpClient::listTools(
 
   // Step 2: Use std::thread to wait for response on a worker thread (not
   // dispatcher!)
+  // Read on the thread that owns it, not on the one that happened to
+  // receive the answer: what a listing teaches is written into state
+  // every outgoing request reads, and two threads touching it at once is
+  // undefined however unlikely the timing looks.
   auto session = streamable_session_;
-  std::thread([result_promise, request_future_ptr, session]() {
+  auto* dispatcher = main_dispatcher_;
+  std::thread([result_promise, request_future_ptr, session, dispatcher]() {
     try {
       // Wait for the request to be sent
       while (!request_future_ptr->valid()) {
@@ -2054,12 +2059,18 @@ std::future<ListToolsResult> McpClient::listTools(
         // wrongly every time, and it is dropped here with the reason
         // logged rather than offered.
         //
-        // Inert until nested JSON survives being parsed here — an
-        // inputSchema arrives flattened, so nothing is designated and
-        // every tool passes. Wired now so the behaviour appears with the
-        // parser rather than having to be remembered.
-        if (session) {
-          result.tools = session->acceptListing(result.tools);
+        // On the dispatcher, because what it learns is read by every
+        // outgoing request from there — and the caller is answered only
+        // once it has, so a call made on the strength of this listing
+        // cannot race the designations the listing taught.
+        if (session && dispatcher != nullptr) {
+          dispatcher->post([session, result, result_promise]() mutable {
+            result.tools = session->acceptListing(result.tools);
+            GOPHER_LOG_FLOW_DEBUG("MCP invoke: tools/list -> {} tools",
+                                  result.tools.size());
+            result_promise->set_value(result);
+          });
+          return;
         }
         GOPHER_LOG_FLOW_DEBUG("MCP invoke: tools/list -> {} tools",
                               result.tools.size());
