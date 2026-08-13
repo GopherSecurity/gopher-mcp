@@ -2452,25 +2452,33 @@ std::future<CallToolResult> McpClient::callTool(
         result_promise->set_exception(std::make_exception_ptr(
             std::runtime_error(response.error->message)));
       } else if (response.result.has_value()) {
-        // Extract CallToolResult from response
-        // Server returns Metadata with "content" (string) and "isError" (bool)
+        // Read as the shape it is rather than picked apart by hand. What
+        // a tool answers with is a list of content blocks, and reading
+        // only a string out of it handed the caller the JSON that list
+        // travelled in as though the tool had said it.
         CallToolResult result;
-        if (holds_alternative<Metadata>(response.result.value())) {
-          auto metadata = get<Metadata>(response.result.value());
-          // Extract content string and convert to TextContent
-          auto content_it = metadata.find("content");
-          if (content_it != metadata.end() &&
-              holds_alternative<std::string>(content_it->second)) {
-            result.content.push_back(ExtendedContentBlock(
-                TextContent(get<std::string>(content_it->second))));
-          }
-          // Extract isError flag
-          auto error_it = metadata.find("isError");
-          if (error_it != metadata.end() &&
-              holds_alternative<bool>(error_it->second)) {
-            result.isError = get<bool>(error_it->second);
+        json::JsonValue body;
+        if (holds_alternative<json::JsonValue>(response.result.value())) {
+          body = get<json::JsonValue>(response.result.value());
+        } else if (holds_alternative<Metadata>(response.result.value())) {
+          // Nested JSON arrives through the flat map stringified; this
+          // is what puts it back.
+          body = json::metadataToJson(get<Metadata>(response.result.value()));
+        }
+
+        if (body.isObject() && body.contains("content") &&
+            body["content"].isArray()) {
+          result = json::impl::deserialize_CallToolResult(body);
+        } else if (body.isObject() && body.contains("content") &&
+                   body["content"].isString()) {
+          // A server that answered with one string rather than a list.
+          result.content.push_back(
+              ExtendedContentBlock(TextContent(body["content"].getString())));
+          if (body.contains("isError") && body["isError"].isBoolean()) {
+            result.isError = body["isError"].getBool();
           }
         }
+
         GOPHER_LOG_FLOW_DEBUG("MCP invoke: tools/call name={} ok (isError={})",
                               name, result.isError ? "true" : "false");
         result_promise->set_value(result);

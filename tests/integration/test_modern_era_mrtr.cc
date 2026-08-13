@@ -295,6 +295,42 @@ TEST_F(ModernEraMrtrTest, AQuestionIsAnsweredAndTheRequestComesBackAgain) {
       << rounds_.answers[1];
 }
 
+// The answer has to survive the trip up to the caller. A server of this
+// era answers with JSON rather than the flat map an older one is read
+// into, and a result that arrives in a shape the caller's path does not
+// read is a successful call with its content silently gone.
+TEST_F(ModernEraMrtrTest, WhatAToolAnsweredReachesTheCaller) {
+  server_->registerAsyncRequestHandler(
+      modern::kMethodToolsCall,
+      [](const jsonrpc::Request& request, server::SessionContext&,
+         const ResponseStreamPtr& stream) {
+        json::JsonValue text = json::JsonValue::object();
+        text.set("type", json::JsonValue("text"));
+        text.set("text", json::JsonValue("the tool said this"));
+        json::JsonValue content = json::JsonValue::array();
+        content.push_back(text);
+        json::JsonValue done = json::JsonValue::object();
+        done.set("content", content);
+        stream->sendResponse(jsonrpc::Response::success(
+            request.id, jsonrpc::ResponseResult(done)));
+      },
+      StreamingMode::Optional);
+  startServing();
+  startClient();
+
+  auto called = client_->callTool("confirm", optional<Metadata>());
+  ASSERT_EQ(called.wait_for(10s), std::future_status::ready);
+
+  CallToolResult result;
+  ASSERT_NO_THROW(result = called.get());
+  ASSERT_EQ(result.content.size(), 1u)
+      << "the call succeeded with everything the tool said thrown away";
+  ASSERT_TRUE(holds_alternative<TextContent>(result.content[0]));
+  EXPECT_EQ(get<TextContent>(result.content[0]).text, "the tool said this")
+      << "what reached the caller was the shape the answer travelled in "
+         "rather than what it said";
+}
+
 // A server that answers every round by asking for something else must
 // not be able to keep one request going forever.
 TEST_F(ModernEraMrtrTest, AServerThatOnlyEverAsksIsGivenUpOn) {
