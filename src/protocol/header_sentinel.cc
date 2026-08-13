@@ -6,6 +6,7 @@
 
 #include <cmath>
 #include <cstdint>
+#include <stdexcept>
 #include <string>
 
 namespace mcp {
@@ -125,6 +126,61 @@ bool fromBase64(const std::string& text, std::string* bytes) {
   return true;
 }
 
+/**
+ * The exact integer a header names, if it names one.
+ *
+ * Accepts "42", "-7", and an integer written with a fractional part that
+ * is all zeros — "42.0" is the same integer as 42, and a body carrying
+ * one may be mirrored as the other. Rejects everything else: trailing
+ * text, a non-zero fraction, an exponent, or a magnitude that will not
+ * fit. Nothing here goes through a double, because the whole point is to
+ * tell apart values a double cannot.
+ */
+bool exactIntegerFrom(const std::string& text, int64_t* out) {
+  if (text.empty()) {
+    return false;
+  }
+
+  size_t at = 0;
+  if (text[at] == '+' || text[at] == '-') {
+    ++at;
+  }
+  const size_t digits_begin = at;
+  while (at < text.size() && text[at] >= '0' && text[at] <= '9') {
+    ++at;
+  }
+  if (at == digits_begin) {
+    return false;
+  }
+  const std::string whole = text.substr(0, at);
+
+  if (at < text.size()) {
+    // Only a fractional part, and only one that changes nothing.
+    if (text[at] != '.') {
+      return false;
+    }
+    ++at;
+    for (; at < text.size(); ++at) {
+      if (text[at] != '0') {
+        return false;
+      }
+    }
+  }
+
+  try {
+    size_t consumed = 0;
+    const long long parsed = std::stoll(whole, &consumed);
+    if (consumed != whole.size()) {
+      return false;
+    }
+    *out = static_cast<int64_t>(parsed);
+    return true;
+  } catch (const std::exception&) {
+    // Out of range, which is not this integer whatever else it is.
+    return false;
+  }
+}
+
 bool wearsSentinel(const std::string& value) {
   const std::string prefix(kSentinelPrefix);
   const std::string suffix(kSentinelSuffix);
@@ -220,29 +276,26 @@ bool headerMatchesValue(const std::string& header,
   // header carrying 42 agree, and comparing their text would say they do
   // not.
   if (value.isInteger()) {
-    // Compared as integers, not through a double. Two integers a double
+    // Read exactly, and never through a double: two integers a double
     // cannot tell apart are still two integers, and treating them as one
-    // would let a header say something the server never read.
-    try {
-      size_t consumed = 0;
-      const long long from_header = std::stoll(decoded, &consumed);
-      if (consumed != decoded.size()) {
-        // Trailing anything: "42.0" against an integer body is the one
-        // case worth allowing, and it goes through the wider comparison
-        // rather than being read as 42 and the rest ignored.
-        const double as_real = std::stod(decoded);
-        return as_real == static_cast<double>(value.getInt64());
-      }
-      // getInt64 rather than getInt, which is 32 bits wide and would
-      // truncate the very values this comparison exists to tell apart.
-      return from_header == static_cast<long long>(value.getInt64());
-    } catch (const std::exception&) {
+    // would let a header say something the server never read. Anything
+    // that is not exactly this integer — trailing text, a fraction that
+    // changes it, a magnitude that will not fit — is not a match.
+    int64_t from_header = 0;
+    if (!exactIntegerFrom(decoded, &from_header)) {
       return false;
     }
+    // getInt64 rather than getInt, which is 32 bits wide and would
+    // truncate the very values this comparison exists to tell apart.
+    return from_header == value.getInt64();
   }
   if (value.isFloat()) {
     try {
-      return std::stod(decoded) == value.getFloat();
+      size_t consumed = 0;
+      const double from_header = std::stod(decoded, &consumed);
+      // All of it, or none of it: "1.5junk" is not 1.5 with something
+      // ignored, it is a header that does not say 1.5.
+      return consumed == decoded.size() && from_header == value.getFloat();
     } catch (const std::exception&) {
       return false;
     }

@@ -162,6 +162,36 @@ TEST(HeaderSentinel, ANumberWrittenTwoWaysIsOneNumber) {
       << "two different integers were treated as one";
   EXPECT_FALSE(
       headerMatchesValue("9007199254740992", json::JsonValue(big + 1)));
+
+  // An integer written with a fraction that changes nothing is the same
+  // integer, and one written with a fraction that changes it is not.
+  EXPECT_TRUE(
+      headerMatchesValue("42.000", json::JsonValue(static_cast<int64_t>(42))));
+  EXPECT_FALSE(
+      headerMatchesValue("42.5", json::JsonValue(static_cast<int64_t>(42))));
+
+  // And nothing gets through by being ignored. A header that is a number
+  // followed by anything is a header that does not say that number —
+  // reading it as one would leave a router acting on a value the server
+  // never saw, which is the whole thing this is for.
+  EXPECT_FALSE(
+      headerMatchesValue("42junk", json::JsonValue(static_cast<int64_t>(42))));
+  EXPECT_FALSE(
+      headerMatchesValue("42 ", json::JsonValue(static_cast<int64_t>(42))));
+  EXPECT_FALSE(
+      headerMatchesValue("0x2a", json::JsonValue(static_cast<int64_t>(42))));
+  EXPECT_FALSE(
+      headerMatchesValue("4e1", json::JsonValue(static_cast<int64_t>(40))))
+      << "an exponent is not a form this comparison accepts";
+
+  // Nor by being rounded on the way in: a decimal a double would fold
+  // onto the body value is still a different number.
+  EXPECT_FALSE(headerMatchesValue("9007199254740993.0", json::JsonValue(big)))
+      << "a decimal that a double cannot tell from the body was matched";
+
+  // A float body is held to the same standard.
+  EXPECT_TRUE(headerMatchesValue("1.5", json::JsonValue(1.5)));
+  EXPECT_FALSE(headerMatchesValue("1.5junk", json::JsonValue(1.5)));
 }
 
 TEST(HeaderSentinel, AHeaderIsDecodedBeforeItIsCompared) {
