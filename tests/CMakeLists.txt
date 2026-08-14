@@ -2060,6 +2060,18 @@ target_link_libraries(test_modern_era_mrtr
 )
 add_test(NAME ModernEraMrtrTest COMMAND test_modern_era_mrtr)
 
+add_executable(test_modern_era_subscriptions
+    integration/test_modern_era_subscriptions.cc)
+target_link_libraries(test_modern_era_subscriptions
+    gopher-mcp
+    gopher-mcp-logging
+    gtest
+    gtest_main
+    Threads::Threads
+    fmt::fmt
+)
+add_test(NAME ModernEraSubscriptionsTest COMMAND test_modern_era_subscriptions)
+
 # The standalone event stream and where an unsolicited message goes
 add_executable(test_streamable_http_get_stream integration/test_streamable_http_get_stream.cc)
 target_link_libraries(test_streamable_http_get_stream

@@ -1563,6 +1563,152 @@ void McpClient::registerRequestHandler(
   }
 }
 
+void McpClient::runOnDispatcher(const std::function<void()>& work) {
+  if (!main_dispatcher_ || main_dispatcher_->isThreadSafe()) {
+    work();
+    return;
+  }
+  // Waited for rather than fired and forgotten: what these do is decide
+  // whether a subscription exists, and a caller told "yes" before that
+  // was settled would be told something not yet true.
+  std::promise<void> done;
+  auto waiting = done.get_future();
+  main_dispatcher_->post([&work, &done]() {
+    work();
+    done.set_value();
+  });
+  waiting.wait();
+}
+
+int64_t McpClient::listen(
+    const protocol::modern::NotificationFilter& what,
+    std::function<void(const jsonrpc::Notification&)> on_notification) {
+  if (!connection_manager_ || !streamable_session_ ||
+      !protocol::modern::isModernVersion(
+          streamable_session_->protocolVersion())) {
+    // Every earlier revision reaches its client by other means, and this
+    // is not one of them.
+    GOPHER_LOG_WARN(
+        "subscriptions belong to a revision this conversation "
+        "is not in");
+    return 0;
+  }
+  if (what.empty()) {
+    // A subscription that asked for nothing would hear nothing, which is
+    // a connection held open for no reason.
+    GOPHER_LOG_WARN("a subscription that asks for nothing was not opened");
+    return 0;
+  }
+
+  const int64_t id = static_cast<int64_t>(next_request_id_++);
+
+  json::JsonValue params = json::JsonValue::object();
+  params.set(protocol::modern::kFilterField, what.render());
+
+  json::JsonValue message = json::JsonValue::object();
+  message.set("jsonrpc", json::JsonValue("2.0"));
+  message.set("id", json::JsonValue(id));
+  message.set("method",
+              json::JsonValue(protocol::modern::kMethodSubscriptionsListen));
+  message.set("params", params);
+
+  {
+    std::lock_guard<std::mutex> lock(subscriptions_mutex_);
+    subscriptions_[id] = std::move(on_notification);
+  }
+
+  // Tracked like any other request, because that is what it is: its
+  // answer arrives when the subscription ends, and until then nothing
+  // completes it. Whoever wants to know when that happens waits on this.
+  auto context = std::make_shared<RequestContext>(
+      RequestId(id), std::string(protocol::modern::kMethodSubscriptionsListen));
+  context->start_time = std::chrono::steady_clock::now();
+  request_tracker_->trackRequest(context);
+
+  const RequestIdKey key = requestIdKey(RequestId(id));
+  bool opened = false;
+  runOnDispatcher(
+      [&]() { opened = connection_manager_->openSubscription(key, message); });
+
+  if (!opened) {
+    {
+      std::lock_guard<std::mutex> lock(subscriptions_mutex_);
+      subscriptions_.erase(id);
+    }
+    request_tracker_->removeRequest(RequestId(id));
+    return 0;
+  }
+
+  GOPHER_LOG_DEBUG("listening under {}", id);
+  return id;
+}
+
+void McpClient::stopListening(int64_t subscription) {
+  {
+    std::lock_guard<std::mutex> lock(subscriptions_mutex_);
+    if (subscriptions_.erase(subscription) == 0) {
+      return;
+    }
+  }
+  if (!connection_manager_) {
+    return;
+  }
+  const RequestIdKey key = requestIdKey(RequestId(subscription));
+  runOnDispatcher([&]() { connection_manager_->closeSubscription(key); });
+  request_tracker_->removeRequest(RequestId(subscription));
+}
+
+size_t McpClient::subscriptionsHeld() const {
+  std::lock_guard<std::mutex> lock(subscriptions_mutex_);
+  return subscriptions_.size();
+}
+
+bool McpClient::routeToSubscription(const jsonrpc::Notification& notification) {
+  if (!notification.params.has_value()) {
+    return false;
+  }
+  const auto& params = notification.params.value();
+  auto meta = params.find("_meta");
+  if (meta == params.end() || !holds_alternative<std::string>(meta->second)) {
+    return false;
+  }
+
+  int64_t id = 0;
+  try {
+    auto parsed = json::JsonValue::parse(get<std::string>(meta->second));
+    if (!parsed.isObject() ||
+        !parsed.contains(protocol::modern::kMetaSubscriptionId) ||
+        !parsed[protocol::modern::kMetaSubscriptionId].isInteger()) {
+      return false;
+    }
+    id = parsed[protocol::modern::kMetaSubscriptionId].getInt64();
+  } catch (const std::exception&) {
+    return false;
+  }
+
+  std::function<void(const jsonrpc::Notification&)> wanted;
+  {
+    std::lock_guard<std::mutex> lock(subscriptions_mutex_);
+    auto it = subscriptions_.find(id);
+    if (it == subscriptions_.end()) {
+      // Named a subscription this client is not holding. Not routed and
+      // not handed on either: it was addressed to something, and that
+      // something is not the application's notification handlers.
+      GOPHER_LOG_DEBUG(
+          "a message arrived for subscription {}, which is not "
+          "one this client holds",
+          id);
+      return true;
+    }
+    wanted = it->second;
+  }
+
+  if (wanted) {
+    wanted(notification);
+  }
+  return true;
+}
+
 json::JsonValue McpClient::declaredCapabilities() const {
   json::JsonValue declared = json::to_json(config_.capabilities);
   if (!declared.isObject()) {
@@ -1600,6 +1746,13 @@ void McpClient::registerNotificationHandler(
 // notification methods are ignored (per JSON-RPC, notifications are never
 // answered), matching the server-side onNotification behaviour.
 void McpClient::handleNotification(const Notification& notification) {
+  // A message carrying a subscription's id belongs to that subscription
+  // and to nothing else: on a transport where several share one client,
+  // that id is the only thing telling them apart.
+  if (routeToSubscription(notification)) {
+    return;
+  }
+
   std::function<void(const jsonrpc::Notification&)> handler;
   {
     std::lock_guard<std::mutex> lock(notification_handlers_mutex_);

@@ -42,6 +42,7 @@
 #include "mcp/network/filter.h"
 #include "mcp/protocol/mcp_protocol_state_machine.h"
 #include "mcp/protocol/mrtr.h"
+#include "mcp/protocol/subscriptions.h"
 #include "mcp/transport/streamable_http_config.h"
 #include "mcp/types.h"
 
@@ -552,6 +553,42 @@ class McpClient : public application::ApplicationBase {
       const std::string& method,
       std::function<jsonrpc::ResponseResult(const jsonrpc::Request&)> handler);
 
+  /**
+   * Hold a subscription open, and be told what it asked to hear.
+   *
+   * The newest revision has no standalone stream and no
+   * `resources/subscribe`: a client says what it wants to hear and the
+   * answer to that request never comes until the subscription ends. So
+   * this looks like a request whose answer takes as long as the
+   * subscription does, because that is what it is.
+   *
+   * Several may be held at once, each with its own filter and its own
+   * id, each on a connection of its own — a subscription sharing the
+   * request connection would queue every other request behind it.
+   *
+   * @param what On_notification is called for everything this
+   *        subscription asked for, on the dispatcher thread, and for the
+   *        acknowledgement that says which of it will actually arrive.
+   * @return The subscription's id, which every message on it carries,
+   *         and which ends it. Zero when none could be opened — no
+   *         connection, or not this revision.
+   */
+  int64_t listen(
+      const protocol::modern::NotificationFilter& what,
+      std::function<void(const jsonrpc::Notification&)> on_notification);
+
+  /**
+   * End one.
+   *
+   * By letting go of its connection, there being no message that ends a
+   * subscription in this revision — a client that stops reading has
+   * ended it, and that is the whole of the asking.
+   */
+  void stopListening(int64_t subscription);
+
+  /** How many subscriptions this client is holding. */
+  size_t subscriptionsHeld() const;
+
   // Progress tracking - register callback for progress updates
   void trackProgress(const ProgressToken& token,
                      std::function<void(double)> callback);
@@ -798,6 +835,11 @@ class McpClient : public application::ApplicationBase {
       request_handlers_;
   mutable std::mutex request_handlers_mutex_;
 
+  /** What each subscription this client holds wants to be told. */
+  std::map<int64_t, std::function<void(const jsonrpc::Notification&)>>
+      subscriptions_;
+  mutable std::mutex subscriptions_mutex_;
+
   // Protocol state
   bool initialized_{false};
   ServerCapabilities server_capabilities_;
@@ -937,6 +979,24 @@ class McpClient : public application::ApplicationBase {
    * reads as the question by that name going unanswered.
    */
   json::JsonValue askOurselves(const protocol::modern::InputRequest& asked);
+
+  /**
+   * Run something on the dispatcher and wait for it, or run it here when
+   * this already is the dispatcher.
+   */
+  void runOnDispatcher(const std::function<void()>& work);
+
+  /**
+   * Hand a notification to the subscription it belongs to, if any.
+   *
+   * Every message on a subscription carries its id, because on a
+   * transport where several share one client there is nothing else to
+   * tell them apart by.
+   *
+   * @return True when it belonged to one, and so is not the
+   *         application's to route by method.
+   */
+  bool routeToSubscription(const jsonrpc::Notification& notification);
 
   /** Deliver an answer to whoever is waiting for it, and account for it. */
   void completeRequest(const std::shared_ptr<RequestContext>& request,
