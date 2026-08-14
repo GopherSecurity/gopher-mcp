@@ -329,6 +329,44 @@ TEST_F(ModernEraSubscriptionsTest, LettingGoEndsThatSubscriptionAlone) {
       << "a subscription that had been let go was still being fed";
 }
 
+// Letting go of a subscription cuts its stream, and a stream being cut
+// names the request whose answer was still arriving. Named from what the
+// session recorded, that is somebody else's request — which is then
+// asked for again though nothing had happened to it.
+TEST_F(ModernEraSubscriptionsTest, EndingOneDoesNotSeverAnotherRequest) {
+  Heard heard;
+  const int64_t id = client_->listen(
+      about("file:///watched"),
+      [&heard](const jsonrpc::Notification& n) { heard.take(n); });
+  ASSERT_NE(id, 0);
+  ASSERT_TRUE(waitUntil([&heard]() { return heard.count() >= 1; }));
+
+  auto pinged = client_->sendRequest("ping");
+  client_->stopListening(id);
+
+  ASSERT_EQ(pinged.wait_for(5s), std::future_status::ready)
+      << "a request was left outstanding by a subscription being let go of";
+  EXPECT_FALSE(pinged.get().error.has_value())
+      << "a request was treated as cut off because a subscription ended";
+}
+
+// A client on its way out has no dispatcher to open one on, and waiting
+// for a loop that is being told to stop is a wait with no end. Refused
+// outright instead, and nothing is left recorded for it.
+TEST_F(ModernEraSubscriptionsTest, ListeningIsRefusedWhileShuttingDown) {
+  client_->shutdown();
+
+  Heard heard;
+  const int64_t id = client_->listen(
+      about("file:///watched"),
+      [&heard](const jsonrpc::Notification& n) { heard.take(n); });
+  EXPECT_EQ(id, 0) << "a subscription was opened on a client that is going";
+  EXPECT_EQ(client_->subscriptionsHeld(), 0u)
+      << "a subscription that never opened is being held";
+
+  client_.reset();
+}
+
 // A server may end a subscription itself, and its answer is what says
 // so. Nothing else would notice: the request completes like any other,
 // leaving this client holding a callback nothing will call and a
@@ -372,6 +410,18 @@ TEST_F(ModernEraSubscriptionsTest, ARequestIsNotToldAboutASubscription) {
   EXPECT_FALSE(pinged.get().error.has_value())
       << "a request was failed for something that happened to a "
          "subscription";
+}
+
+bool waitUntilTrue(const std::function<bool()>& done,
+                   std::chrono::milliseconds budget) {
+  const auto deadline = std::chrono::steady_clock::now() + budget;
+  while (std::chrono::steady_clock::now() < deadline) {
+    if (done()) {
+      return true;
+    }
+    std::this_thread::sleep_for(10ms);
+  }
+  return done();
 }
 
 /**
@@ -449,6 +499,13 @@ TEST_F(RefusedSubscriptionTest, ARefusedSubscriptionFailsNoOtherRequest) {
   what.tools_list_changed = true;
   client_->listen(what, [](const jsonrpc::Notification&) {});
 
+  // Nothing is left behind by a subscription that was refused: the
+  // request ends, and a subscription's request ending is the whole of
+  // what says the subscription is over, however it ended.
+  EXPECT_TRUE(waitUntilTrue(
+      [this]() { return client_->subscriptionsHeld() == 0; }, 3000ms))
+      << "a refused subscription was still being held";
+
   // Long enough for the refusal to have arrived and been attributed.
   const bool settled = pinged.wait_for(1500ms) == std::future_status::ready;
   std::string how;
@@ -461,6 +518,75 @@ TEST_F(RefusedSubscriptionTest, ARefusedSubscriptionFailsNoOtherRequest) {
       << "a request nobody had answered was completed by a refusal that "
          "belonged to a subscription: "
       << how;
+}
+
+// Letting go of a subscription cuts its stream, and a stream cut short
+// names the request whose answer was still arriving. Named from what the
+// session recorded going out, that is whichever request went out first —
+// which is then asked for again though nothing happened to it.
+TEST_F(RefusedSubscriptionTest, EndingOneSeversNoOtherRequest) {
+  const uint16_t port =
+      server_.start([](const test::Seen& seen) -> test::Reply {
+        if (seen.rpc_method == modern::kMethodServerDiscover) {
+          return test::Reply::write(test::withBody(
+              200, "OK", "application/json",
+              "{\"jsonrpc\":\"2.0\",\"id\":\"d\",\"result\":{\"resultType\":"
+              "\"complete\",\"supportedVersions\":[\"2026-07-28\"],"
+              "\"capabilities\":{}}}",
+              std::string()));
+        }
+        if (seen.rpc_method == modern::kMethodSubscriptionsListen) {
+          // A stream that stays open, which is what a subscription is.
+          return test::Reply::stream(test::streamPrelude());
+        }
+        if (seen.rpc_method == "ping") {
+          // Outstanding, so that severing has somewhere wrong to land.
+          test::Reply held = test::Reply::nothing();
+          held.keep_open = false;
+          return held;
+        }
+        return test::Reply::write(test::accepted());
+      });
+
+  client::McpClientConfig config;
+  config.client_name = "severed-subscription-client";
+  config.client_version = "0.0.1";
+  config.num_workers = 1;
+  config.request_timeout = 5000ms;
+  config.protocol_connection_timeout = 5000ms;
+  config.streamable_http.fallback_probe_timeout = 700ms;
+  client_ = client::createMcpClient(config);
+  ASSERT_NE(client_, nullptr);
+  ASSERT_TRUE(holds_alternative<std::nullptr_t>(
+      client_->connect("http://127.0.0.1:" + std::to_string(port) + "/mcp")));
+
+  auto pinged = client_->sendRequest("ping");
+  modern::NotificationFilter what;
+  what.tools_list_changed = true;
+  const int64_t id = client_->listen(what, [](const jsonrpc::Notification&) {});
+  ASSERT_NE(id, 0);
+  // Not merely asked for: the peer has to have answered, and the answer
+  // has to have been read as the stream it is. Closing before that is
+  // closing a connection with no interrupted answer on it, which proves
+  // nothing.
+  ASSERT_TRUE(server_.waitForRpc(modern::kMethodSubscriptionsListen, 1))
+      << "the peer never saw the subscription";
+  ASSERT_TRUE(server_.waitForRpc("ping", 1)) << "the peer never saw the ping";
+  std::this_thread::sleep_for(300ms);
+
+  // A request believed to have been cut off is picked up again, which
+  // is a stream asked for on its behalf. So what says this happened is
+  // the peer being asked for one.
+  const size_t streams_before = server_.countOfMethod("GET");
+  client_->stopListening(id);
+  std::this_thread::sleep_for(1500ms);
+
+  EXPECT_EQ(server_.countOfMethod("GET"), streams_before)
+      << "a request nobody had answered was picked up again because a "
+         "subscription's stream ended";
+  EXPECT_EQ(pinged.wait_for(0s), std::future_status::timeout)
+      << "a request nobody had answered was completed by a subscription "
+         "ending";
 }
 
 }  // namespace
