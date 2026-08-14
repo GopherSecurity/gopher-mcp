@@ -814,10 +814,23 @@ void McpClient::completeRequestWithError(
   if (!context || context->completed) {
     return;
   }
+  releaseIfSubscription(*context);
   context->completed = true;
   context->promise.set_value(Response::make_error(context->id, error));
   request_tracker_->removeRequest(context->id);
   client_stats_.requests_failed++;
+}
+
+void McpClient::releaseIfSubscription(const RequestContext& request) {
+  // A subscription is over however its request ends. Refused, failed or
+  // answered, what is left behind is the same — a callback nothing will
+  // call and a connection nobody reads — so every way out goes through
+  // here rather than only the one that succeeds.
+  if (request.method != protocol::modern::kMethodSubscriptionsListen ||
+      !holds_alternative<int64_t>(request.id)) {
+    return;
+  }
+  releaseSubscription(get<int64_t>(request.id));
 }
 
 void McpClient::startReinitialize() {
@@ -1473,12 +1486,8 @@ void McpClient::completeRequest(const std::shared_ptr<RequestContext>& request,
                                 const Response& response) {
   // A subscription's answer is what says it has ended, and a server may
   // end one itself. Nothing else here would notice: the request is
-  // completed like any other, leaving this client holding a callback
-  // nothing will call and a connection nobody reads.
-  if (request->method == protocol::modern::kMethodSubscriptionsListen &&
-      holds_alternative<int64_t>(request->id)) {
-    releaseSubscription(get<int64_t>(request->id));
-  }
+  // completed like any other.
+  releaseIfSubscription(*request);
 
   // If the stream was carrying this answer, it has carried it, and is a
   // plain stream again.
@@ -1572,7 +1581,7 @@ void McpClient::registerRequestHandler(
   }
 }
 
-bool McpClient::runOnDispatcher(const std::function<void()>& work) {
+bool McpClient::runOnDispatcher(std::function<void()> work) {
   if (!main_dispatcher_) {
     return false;
   }
@@ -1599,6 +1608,12 @@ bool McpClient::runOnDispatcher(const std::function<void()>& work) {
   auto done = std::make_shared<std::promise<void>>();
   auto waiting = done->get_future();
   auto ran = std::make_shared<std::atomic<bool>>(false);
+
+  // Everything the posted work touches is held by the post itself. A
+  // caller that stops waiting returns and its locals go, so work
+  // reaching the dispatcher afterwards must not be reading any of them —
+  // which is why this takes the work by value and callers hand it
+  // nothing by reference.
   main_dispatcher_->post([work, done, ran]() {
     work();
     ran->store(true);
@@ -1606,6 +1621,9 @@ bool McpClient::runOnDispatcher(const std::function<void()>& work) {
   });
 
   if (waiting.wait_for(std::chrono::seconds(5)) != std::future_status::ready) {
+    // It may still run. What is promised here is only that this call did
+    // not see it happen, and a caller told so has to undo anything it
+    // would have done — this cannot, having no idea what the work was.
     GOPHER_LOG_WARN(
         "the dispatcher did not run subscription work within its window; "
         "treating it as not done");
@@ -1664,18 +1682,25 @@ int64_t McpClient::listen(
   context->start_time = std::chrono::steady_clock::now();
   request_tracker_->trackRequest(context);
 
-  bool opened = false;
-  if (!runOnDispatcher([&]() {
-        opened = connection_manager_->openSubscription(RequestId(id), message);
-      })) {
-    opened = false;
-  }
-
-  if (!opened) {
-    {
-      std::lock_guard<std::mutex> lock(subscriptions_mutex_);
-      subscriptions_.erase(id);
+  // Held by the work rather than by this frame: if the wait below gives
+  // up, this frame goes and the post may still run.
+  auto opened = std::make_shared<std::atomic<bool>>(false);
+  std::weak_ptr<bool> alive = alive_;
+  const bool ran = runOnDispatcher([this, alive, opened, id, message]() {
+    if (alive.expired() || !connection_manager_) {
+      return;
     }
+    opened->store(
+        connection_manager_->openSubscription(RequestId(id), message));
+  });
+
+  if (!ran || !opened->load()) {
+    // Through the same path an ending takes, because this is one: it
+    // forgets what was wanted and lets go of the connection, and a
+    // subscription that opened after this call gave up on it is exactly
+    // what that last part is for — an orphan nobody was told about is a
+    // connection held open for a subscription no caller can end.
+    releaseSubscription(id);
     request_tracker_->removeRequest(RequestId(id));
     return 0;
   }

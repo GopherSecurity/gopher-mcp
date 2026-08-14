@@ -990,15 +990,30 @@ class McpClient : public application::ApplicationBase {
   bool releaseSubscription(int64_t subscription);
 
   /**
+   * The same, for a request that has just ended however it ended.
+   *
+   * Every way out of a subscription's request goes through here, because
+   * what is left behind is the same whether it was answered, failed or
+   * refused.
+   */
+  void releaseIfSubscription(const RequestContext& request);
+
+  /**
    * Run something on the dispatcher and wait for it, or run it here when
    * this already is the dispatcher.
+   *
+   * Taken by value and held by the post, so work reaching the dispatcher
+   * after a caller has stopped waiting is not reading that caller's
+   * locals. Nothing may be captured by reference.
    *
    * @return False when it did not run — there is no dispatcher, this
    *         client is shutting down, or the wait ran out. Bounded on
    *         purpose: a loop being told to stop may never reach what was
-   *         posted to it, and waiting forever for that is a hang.
+   *         posted to it, and waiting forever for that is a hang. False
+   *         does not promise it will never run: a caller has to be able
+   *         to undo what it would have done.
    */
-  bool runOnDispatcher(const std::function<void()>& work);
+  bool runOnDispatcher(std::function<void()> work);
 
   /**
    * Hand a notification to the subscription it belongs to, if any.
