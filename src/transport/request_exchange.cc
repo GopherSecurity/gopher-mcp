@@ -514,6 +514,20 @@ bool RequestExchange::onConnectionGone() {
   if (mode_ == Mode::Complete || !retain_on_disconnect_) {
     // Nothing worth carrying on for. Tell whoever is still producing that
     // the work is no longer wanted.
+    //
+    // The connection is let go of first, and not only for tidiness: this
+    // exchange may outlive the connection — anything still holding a
+    // stream on it does that — and a sink that went on pointing at a
+    // destroyed connection would turn a later write from a refusal into
+    // a crash. Released rather than replaced, so a write now fails and
+    // says so instead of being buffered for a reader who is not coming.
+    if (auto* connected = dynamic_cast<ConnectionExchangeSink*>(sink_.get())) {
+      connected->detach();
+    }
+    stream_observer_ = nullptr;
+    if (stream_writer_) {
+      stream_writer_->setObserver(nullptr);
+    }
     cancellation_.cancel();
     return false;
   }

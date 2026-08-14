@@ -71,7 +71,33 @@ class DeferredAnswer : public ResponseStream {
     return sent;
   }
 
+  VoidResult sendRefusal(int http_status,
+                         const Error& error,
+                         const json::JsonValue& data) override {
+    // Forwarded rather than inherited: the base turns a refusal into an
+    // ordinary error response, which is the right thing where a
+    // transport has no status to set and the wrong thing here, where the
+    // one underneath does — a client reading a 200 for a refusal reads a
+    // success containing a failure.
+    auto sent =
+        stream_ ? stream_->sendRefusal(http_status, error, data) : noStream();
+    if (on_answered_) {
+      auto finished = std::move(on_answered_);
+      on_answered_ = nullptr;
+      finished();
+    }
+    return sent;
+  }
+
   bool alive() const override { return stream_ && stream_->alive(); }
+
+  bool onCancelled(std::function<void()> observer) override {
+    // Likewise: the base says this transport cannot report a
+    // cancellation, which of a wrapper is never the answer — what it
+    // wraps decides that. Left unforwarded, a handler holding this asked
+    // to be told and was silently never going to be.
+    return stream_ ? stream_->onCancelled(std::move(observer)) : false;
+  }
 
  private:
   static VoidResult noStream() {
