@@ -1487,11 +1487,19 @@ class HttpSseJsonRpcProtocolFilter
         // refused, so the request it belongs to is still outstanding —
         // the queue was never popped for it, which is why the front of
         // the queue is the request to name.
+        //
+        // Unless this connection carries one request, in which case the
+        // queue names somebody else's: a subscription being let go of
+        // would otherwise be reported as an ordinary request's answer
+        // being cut off, and that request asked for again though nothing
+        // had happened to it.
         GOPHER_LOG_DEBUG("Answer stream cut off at {}",
                          last_event_id_.empty() ? "<nowhere>" : last_event_id_);
-        mcp_callbacks_.onClientStreamEvent(ClientStreamEvent::AnswerSevered,
-                                           client_session_->peekAnswered(),
-                                           last_event_id_);
+        mcp_callbacks_.onClientStreamEvent(
+            ClientStreamEvent::AnswerSevered,
+            sole_request_.has_value() ? sole_request_
+                                      : client_session_->peekAnswered(),
+            last_event_id_);
       }
     }
     // Reaching here promptly is the reason the gate never disables socket
