@@ -981,10 +981,24 @@ class McpClient : public application::ApplicationBase {
   json::JsonValue askOurselves(const protocol::modern::InputRequest& asked);
 
   /**
+   * Let go of one subscription: forget what it wanted, and let go of the
+   * connection it was held on.
+   *
+   * @return False when this client was not holding it, which a second
+   *         ending or an unrelated request completing both look like.
+   */
+  bool releaseSubscription(int64_t subscription);
+
+  /**
    * Run something on the dispatcher and wait for it, or run it here when
    * this already is the dispatcher.
+   *
+   * @return False when it did not run — there is no dispatcher, this
+   *         client is shutting down, or the wait ran out. Bounded on
+   *         purpose: a loop being told to stop may never reach what was
+   *         posted to it, and waiting forever for that is a hang.
    */
-  void runOnDispatcher(const std::function<void()>& work);
+  bool runOnDispatcher(const std::function<void()>& work);
 
   /**
    * Hand a notification to the subscription it belongs to, if any.

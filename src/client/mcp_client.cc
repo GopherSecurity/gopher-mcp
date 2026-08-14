@@ -1471,6 +1471,15 @@ json::JsonValue McpClient::askOurselves(
 
 void McpClient::completeRequest(const std::shared_ptr<RequestContext>& request,
                                 const Response& response) {
+  // A subscription's answer is what says it has ended, and a server may
+  // end one itself. Nothing else here would notice: the request is
+  // completed like any other, leaving this client holding a callback
+  // nothing will call and a connection nobody reads.
+  if (request->method == protocol::modern::kMethodSubscriptionsListen &&
+      holds_alternative<int64_t>(request->id)) {
+    releaseSubscription(get<int64_t>(request->id));
+  }
+
   // If the stream was carrying this answer, it has carried it, and is a
   // plain stream again.
   if (stream_recovering_.has_value() &&
@@ -1563,26 +1572,56 @@ void McpClient::registerRequestHandler(
   }
 }
 
-void McpClient::runOnDispatcher(const std::function<void()>& work) {
-  if (!main_dispatcher_ || main_dispatcher_->isThreadSafe()) {
-    work();
-    return;
+bool McpClient::runOnDispatcher(const std::function<void()>& work) {
+  if (!main_dispatcher_) {
+    return false;
   }
+  if (main_dispatcher_->isThreadSafe()) {
+    work();
+    return true;
+  }
+  if (shutting_down_) {
+    // The loop this would be posted to is being told to stop, and a
+    // callback queued behind that may never run. Refused rather than
+    // waited for: a caller that cannot be served is better told so than
+    // held until the process ends.
+    return false;
+  }
+
   // Waited for rather than fired and forgotten: what these do is decide
   // whether a subscription exists, and a caller told "yes" before that
   // was settled would be told something not yet true.
-  std::promise<void> done;
-  auto waiting = done.get_future();
-  main_dispatcher_->post([&work, &done]() {
+  //
+  // Bounded, because "the dispatcher will get to it" stops being true
+  // exactly when this matters — a shutdown that began after the check
+  // above still leaves the post unrun, and an unbounded wait for it is
+  // a hang with no way out.
+  auto done = std::make_shared<std::promise<void>>();
+  auto waiting = done->get_future();
+  auto ran = std::make_shared<std::atomic<bool>>(false);
+  main_dispatcher_->post([work, done, ran]() {
     work();
-    done.set_value();
+    ran->store(true);
+    done->set_value();
   });
-  waiting.wait();
+
+  if (waiting.wait_for(std::chrono::seconds(5)) != std::future_status::ready) {
+    GOPHER_LOG_WARN(
+        "the dispatcher did not run subscription work within its window; "
+        "treating it as not done");
+    return false;
+  }
+  return ran->load();
 }
 
 int64_t McpClient::listen(
     const protocol::modern::NotificationFilter& what,
     std::function<void(const jsonrpc::Notification&)> on_notification) {
+  if (shutting_down_) {
+    // Opening one now would be holding a connection this client is in
+    // the middle of letting go of.
+    return 0;
+  }
   if (!connection_manager_ || !streamable_session_ ||
       !protocol::modern::isModernVersion(
           streamable_session_->protocolVersion())) {
@@ -1625,10 +1664,12 @@ int64_t McpClient::listen(
   context->start_time = std::chrono::steady_clock::now();
   request_tracker_->trackRequest(context);
 
-  const RequestIdKey key = requestIdKey(RequestId(id));
   bool opened = false;
-  runOnDispatcher(
-      [&]() { opened = connection_manager_->openSubscription(key, message); });
+  if (!runOnDispatcher([&]() {
+        opened = connection_manager_->openSubscription(RequestId(id), message);
+      })) {
+    opened = false;
+  }
 
   if (!opened) {
     {
@@ -1644,18 +1685,42 @@ int64_t McpClient::listen(
 }
 
 void McpClient::stopListening(int64_t subscription) {
+  if (releaseSubscription(subscription)) {
+    request_tracker_->removeRequest(RequestId(subscription));
+  }
+}
+
+bool McpClient::releaseSubscription(int64_t subscription) {
   {
     std::lock_guard<std::mutex> lock(subscriptions_mutex_);
     if (subscriptions_.erase(subscription) == 0) {
-      return;
+      return false;
     }
   }
-  if (!connection_manager_) {
-    return;
+  if (!connection_manager_ || !main_dispatcher_) {
+    return true;
   }
-  const RequestIdKey key = requestIdKey(RequestId(subscription));
-  runOnDispatcher([&]() { connection_manager_->closeSubscription(key); });
-  request_tracker_->removeRequest(RequestId(subscription));
+
+  // The connection exists for this subscription and nothing else, so it
+  // goes when the subscription does — whether this client ended it or
+  // the server did.
+  //
+  // Handed to the dispatcher rather than done here, and that matters
+  // most in the case that looks like it needs it least: a server ending
+  // a subscription is discovered while its own connection's bytes are
+  // being parsed, and closing it there tears down the buffer the parse
+  // is still walking. Posted, it happens once that has finished.
+  //
+  // Dropped unrun if the loop stops first, which is safe: shutdown lets
+  // go of every subscription connection on its way out.
+  std::weak_ptr<bool> alive = alive_;
+  main_dispatcher_->post([this, alive, subscription]() {
+    if (alive.expired() || !connection_manager_) {
+      return;
+    }
+    connection_manager_->closeSubscription(RequestId(subscription));
+  });
+  return true;
 }
 
 size_t McpClient::subscriptionsHeld() const {

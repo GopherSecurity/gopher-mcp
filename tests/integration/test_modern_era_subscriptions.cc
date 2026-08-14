@@ -37,6 +37,8 @@
 #include "mcp/server/mcp_server.h"
 #include "mcp/types.h"
 
+#include "../client/scripted_http_server.h"
+
 namespace mcp {
 namespace {
 
@@ -325,6 +327,140 @@ TEST_F(ModernEraSubscriptionsTest, LettingGoEndsThatSubscriptionAlone) {
   std::this_thread::sleep_for(200ms);
   EXPECT_EQ(going.count(), before)
       << "a subscription that had been let go was still being fed";
+}
+
+// A server may end a subscription itself, and its answer is what says
+// so. Nothing else would notice: the request completes like any other,
+// leaving this client holding a callback nothing will call and a
+// connection nobody reads.
+TEST_F(ModernEraSubscriptionsTest, AServerEndingOneReleasesItHere) {
+  Heard heard;
+  const int64_t id = client_->listen(
+      about("file:///watched"),
+      [&heard](const jsonrpc::Notification& n) { heard.take(n); });
+  ASSERT_NE(id, 0);
+  ASSERT_TRUE(waitUntil([&heard]() { return heard.count() >= 1; }));
+  ASSERT_EQ(client_->subscriptionsHeld(), 1u);
+
+  // The server lets go of every subscription it holds, saying so on each.
+  server_->endAllSubscriptions();
+
+  ASSERT_TRUE(waitUntil([this]() { return client_->subscriptionsHeld() == 0; }))
+      << "the server ended a subscription and this client went on holding "
+         "it";
+}
+
+// A request sent alongside a subscription must not be told about the
+// subscription's status. They finish in their own time, and attributing
+// one connection's answer to another's request retries or fails a
+// request nothing happened to.
+TEST_F(ModernEraSubscriptionsTest, ARequestIsNotToldAboutASubscription) {
+  Heard heard;
+  const int64_t id = client_->listen(
+      about("file:///watched"),
+      [&heard](const jsonrpc::Notification& n) { heard.take(n); });
+  ASSERT_NE(id, 0);
+  ASSERT_TRUE(waitUntil([&heard]() { return heard.count() >= 1; }));
+
+  // Ended while an ordinary request is outstanding, so the status its
+  // connection reports has somewhere wrong to land.
+  auto pinged = client_->sendRequest("ping");
+  client_->stopListening(id);
+
+  ASSERT_EQ(pinged.wait_for(5s), std::future_status::ready)
+      << "a request was left outstanding by a subscription ending";
+  EXPECT_FALSE(pinged.get().error.has_value())
+      << "a request was failed for something that happened to a "
+         "subscription";
+}
+
+/**
+ * The same client, against a peer that refuses one thing and serves
+ * another — which a whole server of ours will not do, since it serves
+ * both.
+ */
+class RefusedSubscriptionTest : public ::testing::Test {
+ protected:
+  void TearDown() override {
+    if (client_) {
+      client_->shutdown();
+      client_.reset();
+    }
+    server_.stop();
+  }
+
+  test::ScriptedServer server_;
+  std::unique_ptr<client::McpClient> client_;
+};
+
+// A status belongs to the request whose connection carried it. Taken in
+// turn off what the session recorded going out, a subscription's refusal
+// lands on whatever went out first elsewhere — and that request is
+// retried or failed for something that never happened to it.
+TEST_F(RefusedSubscriptionTest, ARefusedSubscriptionFailsNoOtherRequest) {
+  const uint16_t port =
+      server_.start([](const test::Seen& seen) -> test::Reply {
+        if (seen.rpc_method == modern::kMethodServerDiscover) {
+          return test::Reply::write(test::withBody(
+              200, "OK", "application/json",
+              "{\"jsonrpc\":\"2.0\",\"id\":\"d\",\"result\":{\"resultType\":"
+              "\"complete\",\"supportedVersions\":[\"2026-07-28\"],"
+              "\"capabilities\":{}}}",
+              std::string()));
+        }
+        if (seen.rpc_method == modern::kMethodSubscriptionsListen) {
+          // The refusal carries no id — that is the whole difficulty, and
+          // why the status has to be attributed by something other than the
+          // body.
+          return test::Reply::write(test::withBody(
+              404, "Not Found", "application/json",
+              "{\"jsonrpc\":\"2.0\",\"id\":null,\"error\":{\"code\":-32601,"
+              "\"message\":\"Method not found\"}}",
+              std::string()));
+        }
+        if (seen.rpc_method == "ping") {
+          // Left unanswered, and its connection kept: a request that has
+          // already been answered is not one another connection's status
+          // can be blamed on, so the fault only shows while it is still
+          // outstanding.
+          test::Reply held = test::Reply::nothing();
+          held.keep_open = true;
+          return held;
+        }
+        return test::Reply::write(test::accepted());
+      });
+
+  client::McpClientConfig config;
+  config.client_name = "refused-subscription-client";
+  config.client_version = "0.0.1";
+  config.num_workers = 1;
+  config.request_timeout = 5000ms;
+  config.protocol_connection_timeout = 5000ms;
+  config.streamable_http.fallback_probe_timeout = 700ms;
+  client_ = client::createMcpClient(config);
+  ASSERT_NE(client_, nullptr);
+  ASSERT_TRUE(holds_alternative<std::nullptr_t>(
+      client_->connect("http://127.0.0.1:" + std::to_string(port) + "/mcp")));
+
+  // Outstanding while the subscription is refused, so its refusal has
+  // somewhere wrong to land.
+  auto pinged = client_->sendRequest("ping");
+  modern::NotificationFilter what;
+  what.tools_list_changed = true;
+  client_->listen(what, [](const jsonrpc::Notification&) {});
+
+  // Long enough for the refusal to have arrived and been attributed.
+  const bool settled = pinged.wait_for(1500ms) == std::future_status::ready;
+  std::string how;
+  if (settled) {
+    const auto answered = pinged.get();
+    how = answered.error.has_value() ? answered.error->message
+                                     : std::string("without an error");
+  }
+  EXPECT_FALSE(settled)
+      << "a request nobody had answered was completed by a refusal that "
+         "belonged to a subscription: "
+      << how;
 }
 
 }  // namespace
