@@ -73,7 +73,8 @@ class TransportAutodetectTest : public ::testing::Test {
    */
   VoidResult connectClient(uint16_t port,
                            TransportType preferred = TransportType::Stdio,
-                           const std::string& path = "/mcp") {
+                           const std::string& path = "/mcp",
+                           bool modern_era = true) {
     client::McpClientConfig config;
     config.client_name = "ladder-test-client";
     config.client_version = "0.0.1";
@@ -85,6 +86,7 @@ class TransportAutodetectTest : public ::testing::Test {
     // Short, so that a test which proves the client gives up does not
     // also have to prove it is patient.
     config.streamable_http.fallback_probe_timeout = 700ms;
+    config.streamable_http.enable_modern_era = modern_era;
 
     client_ = client::createMcpClient(config);
     EXPECT_NE(client_, nullptr);
@@ -193,7 +195,9 @@ TEST_F(TransportAutodetectTest,
 }
 
 // And a server that answers the discovery outright is just as modern,
-// without having refused anything.
+// without having refused anything — and this client speaks that era, so
+// it is talked to rather than reported unreachable. What makes it modern
+// is what it did not need: no introduction, and no stream asked for.
 TEST_F(TransportAutodetectTest, AServerThatAnswersTheDiscoveryIsModern) {
   const uint16_t port = server_.start([](const Seen& seen) -> Reply {
     if (seen.rpc_method == "server/discover") {
@@ -211,11 +215,51 @@ TEST_F(TransportAutodetectTest, AServerThatAnswersTheDiscoveryIsModern) {
   });
 
   auto connected = connectClient(port);
-  ASSERT_FALSE(holds_alternative<std::nullptr_t>(connected));
+  ASSERT_TRUE(holds_alternative<std::nullptr_t>(connected))
+      << "a server serving a revision this client speaks was not reached";
 
   std::this_thread::sleep_for(300ms);
-  EXPECT_EQ(server_.countOf("initialize"), 0u);
-  EXPECT_EQ(server_.countOfMethod("GET"), 0u);
+  EXPECT_EQ(server_.countOf("initialize"), 0u)
+      << "introduced itself to a server that has no introduction";
+  EXPECT_EQ(server_.countOfMethod("GET"), 0u)
+      << "asked for a stream in an era that has none";
+}
+
+// A server of the newest era may serve older revisions beside it, and a
+// client that cannot enter that era should meet it on one of those
+// rather than be told there is nothing to talk about. This is what keeps
+// a server turning the era on from cutting off every client that has not.
+TEST_F(TransportAutodetectTest, AClientThatCannotEnterTheEraMeetsTheServer) {
+  const uint16_t port = server_.start([](const Seen& seen) -> Reply {
+    if (seen.rpc_method == "server/discover") {
+      return Reply::write(
+          withBody(200, "OK", "application/json",
+                   "{\"jsonrpc\":\"2.0\",\"id\":\"discover-1\",\"result\":{"
+                   "\"resultType\":\"complete\",\"supportedVersions\":"
+                   "[\"2026-07-28\",\"2025-06-18\"],\"capabilities\":{}}}",
+                   std::string()));
+    }
+    if (seen.rpc_method == "initialize") {
+      return Reply::write(withBody(
+          200, "OK", "application/json",
+          "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"protocolVersion\":"
+          "\"2025-06-18\",\"capabilities\":{},\"serverInfo\":{\"name\":\"old\","
+          "\"version\":\"1\"}}}",
+          std::string()));
+    }
+    return Reply::write(accepted());
+  });
+
+  auto connected = connectClient(port, TransportType::Stdio, "/mcp",
+                                 /*modern_era=*/false);
+  ASSERT_TRUE(holds_alternative<std::nullptr_t>(connected))
+      << "a client that declined the newest era was cut off from a server "
+         "that also serves one it speaks";
+
+  std::this_thread::sleep_for(300ms);
+  EXPECT_GT(server_.countOf("initialize"), 0u)
+      << "it neither entered the era nor introduced itself to the era "
+         "below, so it reached nothing";
 }
 
 // Every server answers the discovery, including one that has never heard

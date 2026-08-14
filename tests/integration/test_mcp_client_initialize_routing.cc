@@ -57,6 +57,7 @@
 #include "mcp/client/mcp_client.h"
 #include "mcp/network/address.h"
 #include "mcp/network/socket_interface.h"
+#include "mcp/protocol/protocol_versions.h"
 #include "mcp/server/mcp_server.h"
 #include "mcp/types.h"
 
@@ -258,7 +259,11 @@ TEST_F(McpClientInitializeRoutingTest, ReturnsCapabilitiesAndUnblocksFollowUp) {
   // initialize result with nested JSON objects. Bridging that
   // deserialization gap is out of scope for this test, which covers
   // the dispatcher-routing contract, not the response-parsing schema.
-  EXPECT_EQ(result.protocolVersion, client_config.protocol_version);
+  // Both ends serve the newest revision unless told otherwise, so this
+  // is what they settled on — and it is not the configured version,
+  // which is what an introduction would have offered. That era has none,
+  // so there was nothing to offer and nothing to negotiate.
+  EXPECT_EQ(result.protocolVersion, protocol::kProtocolVersion20260728);
 
   // A follow-up request rides on the same connection and the same
   // protocol state machine that initializeProtocol just advanced. If
@@ -277,6 +282,39 @@ TEST_F(McpClientInitializeRoutingTest, ReturnsCapabilitiesAndUnblocksFollowUp) {
   EXPECT_FALSE(ping_response.error.has_value())
       << "ping returned error: "
       << (ping_response.error.has_value() ? ping_response.error->message : "");
+}
+
+// The same conversation with the newest era switched off at the client:
+// it introduces itself as before and settles on what it offered. Which
+// is the point of the switch — one end declining the era is enough, and
+// nothing about the older path changes when it does.
+TEST_F(McpClientInitializeRoutingTest, AClientMayDeclineTheNewestEra) {
+  client::McpClientConfig client_config;
+  client_config.client_name = "init-routing-test-client";
+  client_config.client_version = "0.0.1";
+  client_config.num_workers = 1;
+  client_config.request_timeout = 5000ms;
+  client_config.protocol_initialization_timeout = 5000ms;
+  client_config.protocol_connection_timeout = 5000ms;
+  client_config.streamable_http.enable_modern_era = false;
+
+  client_ = client::createMcpClient(client_config);
+  ASSERT_NE(client_, nullptr);
+
+  const std::string uri = "http://127.0.0.1:" + std::to_string(port_) + "/rpc";
+  ASSERT_TRUE(holds_alternative<std::nullptr_t>(client_->connect(uri)));
+
+  auto init_future = client_->initializeProtocol();
+  ASSERT_EQ(init_future.wait_for(5s), std::future_status::ready);
+
+  InitializeResult result;
+  ASSERT_NO_THROW(result = init_future.get());
+  EXPECT_EQ(result.protocolVersion, client_config.protocol_version)
+      << "a client that declined the newest era was taken into it anyway";
+
+  auto ping_future = client_->sendRequest("ping");
+  ASSERT_EQ(ping_future.wait_for(5s), std::future_status::ready);
+  EXPECT_FALSE(ping_future.get().error.has_value());
 }
 
 }  // namespace

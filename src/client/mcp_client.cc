@@ -1930,13 +1930,39 @@ void McpClient::runTransportLadder(const std::string& uri) {
         return;
       }
 
+      // Speaking that era is not the same as being one of its servers
+      // only. Such a server may serve older revisions beside it, and a
+      // client that cannot enter the era — or was told not to — should
+      // meet it on one of those rather than be told there is nothing to
+      // talk about. Falling through is how it finds out: the rung below
+      // asks, and answers this question by being answered.
+      bool older_in_common = false;
       std::string served;
       for (const auto& version : result.supported_versions) {
         if (!served.empty()) {
           served += ", ";
         }
         served += version;
+        if (protocol::modern::isModernVersion(version)) {
+          continue;
+        }
+        for (const auto& wanted : config_.streamable_http.protocol_versions) {
+          if (wanted == version) {
+            older_in_common = true;
+            break;
+          }
+        }
       }
+
+      if (older_in_common) {
+        GOPHER_LOG_INFO(
+            "{} speaks a revision this client does not; falling back to one "
+            "both know",
+            uri);
+        runClassicRung(uri);
+        return;
+      }
+
       failDetection(
           "this server speaks the modern protocol, which this client cannot" +
           (served.empty() ? std::string()
