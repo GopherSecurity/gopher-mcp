@@ -422,6 +422,49 @@ TEST(ListenRegistry, ACallerOfAnOlderEraHasNoSuchMethod) {
   EXPECT_FALSE(server.isModernRequest(listenRequest(false)));
 }
 
+/** A dispatch context that keeps the one answer sent through it. */
+class AnswerSpy : public MessageDispatchContext {
+ public:
+  network::Connection* originConnection() const override { return nullptr; }
+  const std::string& transportSessionId() const override {
+    static const std::string none;
+    return none;
+  }
+  VoidResult sendResponse(const jsonrpc::Response& response) override {
+    answered.push_back(response);
+    return makeVoidSuccess();
+  }
+
+  std::vector<jsonrpc::Response> answered;
+};
+
+// And the answer it gets has to be that one, not a description of how a
+// method it cannot call would have been answered. This is the whole of
+// what "not found" means here: found-and-refused says the method exists.
+TEST(ListenRegistry, AnOlderCallerIsToldTheMethodIsNotFound) {
+  McpServerConfig config;
+  config.server_name = "listen-era-answer-test";
+  config.server_version = "0.0.1";
+  // Dispatch is the server's own doorway rather than a public one, so
+  // this asks the way the transport does.
+  class Doorway : public McpServer {
+   public:
+    explicit Doorway(const McpServerConfig& config) : McpServer(config) {}
+    using McpServer::onRequestWithContext;
+  };
+  Doorway server(config);
+
+  AnswerSpy context;
+  server.onRequestWithContext(listenRequest(/*modern_era=*/false), context);
+
+  ASSERT_EQ(context.answered.size(), 1u) << "a classic caller got no answer";
+  ASSERT_TRUE(context.answered[0].error.has_value());
+  EXPECT_EQ(context.answered[0].error->code, jsonrpc::METHOD_NOT_FOUND)
+      << "a classic caller was answered for a handler it cannot reach, "
+         "which says the method exists: "
+      << context.answered[0].error->message;
+}
+
 }  // namespace
 }  // namespace server
 }  // namespace mcp

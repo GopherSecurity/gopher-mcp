@@ -1537,8 +1537,14 @@ void McpServer::onRequestWithContext(const jsonrpc::Request& request,
   // A handler that answers later takes the request off this thread's
   // hands entirely: nothing is sent on its behalf here, and the dispatch
   // ends with the client still waiting on a stream somebody else holds.
+  // A method of another era is not found rather than found and refused.
+  // Skipping the lookup is what makes that true: anything else here
+  // answers for a handler this caller has no business reaching, and the
+  // nearest such answer — that this transport cannot hold an answer open
+  // — describes the wrong thing entirely.
   AsyncRequestHandler async_handler;
-  {
+  if (!protocol::modern::isEraOnlyMethod(request.method) ||
+      isModernRequest(request)) {
     std::lock_guard<std::mutex> lock(handlers_mutex_);
     auto it = async_request_handlers_.find(request.method);
     if (it != async_request_handlers_.end()) {
@@ -1912,16 +1918,6 @@ void McpServer::registerBuiltinHandlers() {
       [this](const jsonrpc::Request& request, SessionContext& session,
              const ResponseStreamPtr& stream) {
         if (!stream) {
-          return;
-        }
-
-        if (!isModernRequest(request)) {
-          // This method belongs to one era, and a caller of another is
-          // owed the same answer it would get for anything else this
-          // server does not have.
-          stream->sendResponse(jsonrpc::Response::make_error(
-              request.id, Error(jsonrpc::METHOD_NOT_FOUND,
-                                "Method not found: " + request.method)));
           return;
         }
 
