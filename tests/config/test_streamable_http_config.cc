@@ -98,15 +98,23 @@ TEST_F(StreamableHttpConfigTest, VersionConstants) {
   EXPECT_STREQ(kLegacyAssumedVersion, "2025-03-26");
 }
 
-// The newest revision is not served until the pipeline that serves it
-// exists. Advertising it earlier would offer clients a version this
-// server would then have to refuse every request in.
-TEST_F(StreamableHttpConfigTest, TheNewestRevisionIsOffUntilItIsOn) {
+// What is advertised follows the flag, both ways. A server must never
+// name a revision it would then refuse every request in — and, now that
+// the pipeline exists, must not hide one it can serve either.
+TEST_F(StreamableHttpConfigTest, WhatIsServedFollowsTheFlagBothWays) {
   StreamableHttpConfig config;
-  ASSERT_FALSE(config.enable_modern_era) << "it must be opt-in";
+  ASSERT_TRUE(config.enable_modern_era)
+      << "the pipeline is here, so it is served unless switched off";
 
   auto served = servedProtocolVersions(config);
-  EXPECT_FALSE(isSupportedVersion(kProtocolVersion20260728, served));
+  EXPECT_TRUE(isSupportedVersion(kProtocolVersion20260728, served));
+
+  // Switched off, it disappears — and the older revisions are untouched
+  // by either setting.
+  config.enable_modern_era = false;
+  served = servedProtocolVersions(config);
+  EXPECT_FALSE(isSupportedVersion(kProtocolVersion20260728, served))
+      << "a revision this server was told not to serve was advertised";
   EXPECT_TRUE(isSupportedVersion(kProtocolVersion20251125, served));
 
   config.enable_modern_era = true;
@@ -123,6 +131,7 @@ TEST_F(StreamableHttpConfigTest, TheNewestRevisionIsOffUntilItIsOn) {
 // the code behind it is there.
 TEST_F(StreamableHttpConfigTest, NamingTheNewestRevisionDoesNotEnableIt) {
   StreamableHttpConfig config;
+  config.enable_modern_era = false;
   config.protocol_versions.insert(config.protocol_versions.begin(),
                                   kProtocolVersion20260728);
 
@@ -219,11 +228,15 @@ TEST_F(StreamableHttpConfigTest, TheNewestEraIsSpokenOnlyWhenBothEndsAgree) {
   const std::vector<std::string> served = {kProtocolVersion20260728,
                                            "2025-11-25"};
 
-  EXPECT_EQ(modernVersionInCommon(client, served), "")
-      << "a client that was never switched on for this era entered it";
-
-  client.enable_modern_era = true;
+  ASSERT_TRUE(client.enable_modern_era);
   EXPECT_EQ(modernVersionInCommon(client, served), kProtocolVersion20260728);
+
+  // Switched off, this client speaks none of that era however many
+  // revisions of it a server serves.
+  client.enable_modern_era = false;
+  EXPECT_EQ(modernVersionInCommon(client, served), "")
+      << "a client told not to enter this era entered it";
+  client.enable_modern_era = true;
 
   // A server serving nothing of this era leaves nothing to speak, which
   // is not a failure — it is a server of an older era.
@@ -236,7 +249,6 @@ TEST_F(StreamableHttpConfigTest, TheNewestEraIsSpokenOnlyWhenBothEndsAgree) {
 // accept has listed something they cannot talk in.
 TEST_F(StreamableHttpConfigTest, TheClientsOrderDecidesWhatIsSpoken) {
   StreamableHttpClientConfig client;
-  client.enable_modern_era = true;
   client.modern_protocol_versions = {"2027-01-01", kProtocolVersion20260728};
 
   EXPECT_EQ(

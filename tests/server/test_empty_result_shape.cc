@@ -148,9 +148,11 @@ TEST(ServerDiscover, AServerSaysWhatItIsAndWhatItSpeaks) {
   EXPECT_NE(wire.find("how to use this"), std::string::npos) << wire;
 }
 
-// And it never claims a revision whose pipeline is switched off.
+// And it never claims a revision this server was told not to serve.
 TEST(ServerDiscover, ItNamesOnlyWhatIsActuallyServed) {
-  DispatchTestServer server(testConfig());
+  auto config = testConfig();
+  config.streamable_http.enable_modern_era = false;
+  DispatchTestServer server(config);
   CapturingContext context;
 
   jsonrpc::Request request;
@@ -161,7 +163,8 @@ TEST(ServerDiscover, ItNamesOnlyWhatIsActuallyServed) {
 
   ASSERT_TRUE(context.captured.has_value());
   EXPECT_EQ(context.wire().find("2026-07-28"), std::string::npos)
-      << "a revision with nothing behind it was advertised: " << context.wire();
+      << "a revision this server was told not to serve was advertised: "
+      << context.wire();
 }
 
 // A tool whose designations both ends cannot resolve identically is
