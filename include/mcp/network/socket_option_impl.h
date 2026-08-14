@@ -40,12 +40,21 @@ class SocketOptionImpl : public SocketOption {
 class BoolSocketOption : public SocketOptionImpl {
  public:
   BoolSocketOption(const SocketOptionName& optname, bool value)
-      : SocketOptionImpl(optname, &value, sizeof(int)) {
-    // Convert bool to int for setsockopt
-    int int_value = value ? 1 : 0;
-    value_.assign(reinterpret_cast<const uint8_t*>(&int_value),
-                  reinterpret_cast<const uint8_t*>(&int_value) + sizeof(int));
-  }
+      : BoolSocketOption(optname, value ? 1 : 0) {}
+
+ private:
+  /**
+   * What setsockopt actually takes, which is an int rather than a bool.
+   *
+   * Through here rather than directly, because the base copies as many
+   * bytes as the option is wide and a bool is not that wide: handed one,
+   * it read three bytes past the end of it. The bytes were then thrown
+   * away and replaced with the right ones, so the read was pointless as
+   * well as out of bounds — but reading off the end of an object is not
+   * excused by discarding what was read.
+   */
+  BoolSocketOption(const SocketOptionName& optname, int value)
+      : SocketOptionImpl(optname, &value, sizeof(int)) {}
 };
 
 /**
