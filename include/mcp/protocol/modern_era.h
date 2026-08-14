@@ -141,6 +141,19 @@ inline bool isEraOnlyMethod(const std::string& method) {
   return method == kMethodSubscriptionsListen;
 }
 
+/**
+ * Whether a method the older eras have was replaced in this one.
+ *
+ * The other direction of the same rule. A caller of this era asking for
+ * one is asking for something its revision does not have, and a server
+ * answering anyway would leave two ways to do one thing — one of which
+ * this era says is gone, and which nothing here would then keep in step
+ * with the one that replaced it.
+ */
+inline bool isReplacedInModernEra(const std::string& method) {
+  return method == "resources/subscribe" || method == "resources/unsubscribe";
+}
+
 inline const char* capabilityFor(const std::string& method) {
   if (method == kMethodSampling) {
     return "sampling";

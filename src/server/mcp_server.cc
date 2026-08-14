@@ -948,6 +948,19 @@ VoidResult McpServer::sendNotificationToSession(
 }
 
 // Push notifications/resources/updated to every subscriber of the URI
+void McpServer::endAllSubscriptions() {
+  if (!main_dispatcher_) {
+    return;
+  }
+  // The registry and the streams it writes to belong to the dispatcher
+  // thread, so hop if an application called this from one of its own.
+  if (!main_dispatcher_->isThreadSafe()) {
+    main_dispatcher_->post([this]() { endAllSubscriptions(); });
+    return;
+  }
+  subscriptions_.closeAll();
+}
+
 void McpServer::notifyResourceUpdate(const std::string& uri) {
   if (!main_dispatcher_) {
     return;
@@ -1631,6 +1644,16 @@ void McpServer::onRequestWithContext(const jsonrpc::Request& request,
         response = handleListResources(request, *session);
       } else if (request.method == "resources/read") {
         response = handleReadResource(request, *session);
+      } else if (protocol::modern::isReplacedInModernEra(request.method) &&
+                 isModernRequest(request)) {
+        // Replaced in this era by a subscription, which is a request
+        // whose answer never comes. Served here as well, a caller would
+        // have two ways to ask for one thing, and this server would be
+        // keeping two sets of subscribers that know nothing of each
+        // other.
+        response = jsonrpc::Response::make_error(
+            request.id, Error(jsonrpc::METHOD_NOT_FOUND,
+                              "Method not found: " + request.method));
       } else if (request.method == "resources/subscribe") {
         response = handleSubscribe(request, *session);
       } else if (request.method == "resources/unsubscribe") {

@@ -422,6 +422,23 @@ TEST(ListenRegistry, ACallerOfAnOlderEraHasNoSuchMethod) {
   EXPECT_FALSE(server.isModernRequest(listenRequest(false)));
 }
 
+/** A request for a named method, declaring the era it belongs to. */
+jsonrpc::Request requestOf(const std::string& method, bool modern_era) {
+  jsonrpc::Request request;
+  request.jsonrpc = "2.0";
+  request.id = make_request_id(2);
+  request.method = method;
+  Metadata params;
+  params["uri"] = MetadataValue(std::string("file:///watched"));
+  if (modern_era) {
+    params["_meta"] =
+        MetadataValue(std::string("{\"") + modern::kMetaProtocolVersion +
+                      "\":\"" + protocol::kProtocolVersion20260728 + "\"}");
+  }
+  request.params = mcp::make_optional(params);
+  return request;
+}
+
 /** A dispatch context that keeps the one answer sent through it. */
 class AnswerSpy : public MessageDispatchContext {
  public:
@@ -463,6 +480,46 @@ TEST(ListenRegistry, AnOlderCallerIsToldTheMethodIsNotFound) {
       << "a classic caller was answered for a handler it cannot reach, "
          "which says the method exists: "
       << context.answered[0].error->message;
+}
+
+// The other direction of the same rule: a subscription replaces the
+// older way of asking for one. Served to a caller of this era as well,
+// there would be two ways to ask for one thing — and this server would
+// keep two sets of subscribers that know nothing of each other.
+TEST(ListenRegistry, TheReplacedMethodsAreGoneForACallerOfThisEra) {
+  McpServerConfig config;
+  config.server_name = "listen-replaced-test";
+  config.server_version = "0.0.1";
+  class Doorway : public McpServer {
+   public:
+    explicit Doorway(const McpServerConfig& config) : McpServer(config) {}
+    using McpServer::onRequestWithContext;
+  };
+  Doorway server(config);
+
+  for (const char* method : {"resources/subscribe", "resources/unsubscribe"}) {
+    AnswerSpy modern_caller;
+    server.onRequestWithContext(requestOf(method, /*modern_era=*/true),
+                                modern_caller);
+    ASSERT_EQ(modern_caller.answered.size(), 1u) << method;
+    ASSERT_TRUE(modern_caller.answered[0].error.has_value())
+        << method << " was served to a caller whose era replaced it";
+    EXPECT_EQ(modern_caller.answered[0].error->code, jsonrpc::METHOD_NOT_FOUND)
+        << method;
+
+    // And a caller of an older era still has it, which is the whole
+    // difficulty: one server, two eras, one method that exists in only
+    // one of them.
+    AnswerSpy classic_caller;
+    server.onRequestWithContext(requestOf(method, /*modern_era=*/false),
+                                classic_caller);
+    ASSERT_EQ(classic_caller.answered.size(), 1u) << method;
+    if (classic_caller.answered[0].error.has_value()) {
+      EXPECT_NE(classic_caller.answered[0].error->code,
+                jsonrpc::METHOD_NOT_FOUND)
+          << method << " was taken away from a caller whose era has it";
+    }
+  }
 }
 
 }  // namespace

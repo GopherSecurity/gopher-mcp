@@ -1140,6 +1140,18 @@ class McpServer : public application::ApplicationBase,
   // stdio manager).
   void notifyResourceUpdate(const std::string& uri);
 
+  /**
+   * End every subscription this server holds, gracefully.
+   *
+   * Each gets the response its listen request never had, which is what
+   * tells a client the subscription ended rather than its connection
+   * dropping. For a server withdrawing them without going away; shutdown
+   * does the same on its way out.
+   *
+   * Safe from any thread.
+   */
+  void endAllSubscriptions();
+
   // Tool management
   /**
    * @return False when the definition cannot be served and was refused,
