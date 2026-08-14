@@ -28,46 +28,19 @@
 #include "mcp/core/request_id_key.h"
 #include "mcp/json/json_bridge.h"
 #include "mcp/message_dispatch_context.h"
+#include "mcp/protocol/subscriptions.h"
 #include "mcp/types.h"
 
 namespace mcp {
 namespace server {
 
 /**
- * What one subscription asked to hear.
+ * The same filter both ends speak, named where this side reads it.
  *
- * A server must send nothing a client did not ask for, so a filter that
- * asks for nothing hears nothing — never everything.
+ * Parsing and rendering it are two ends of one wire shape, so they live
+ * with the rest of the vocabulary rather than with either end.
  */
-struct NotificationFilter {
-  bool tools_list_changed{false};
-  bool prompts_list_changed{false};
-  bool resources_list_changed{false};
-  /** The resources whose updates this subscription wants, by URI. */
-  std::vector<std::string> resource_uris;
-
-  /** Read out of a listen request's params. */
-  static NotificationFilter parse(const json::JsonValue& params);
-
-  /**
-   * What the acknowledgement echoes: the subset actually honoured, so a
-   * client can see what it will not be getting rather than wait for
-   * something that was never coming.
-   */
-  json::JsonValue render() const;
-
-  /**
-   * Whether this subscription asked for this notification. The URI
-   * matters only for a resource update — a subscription names the
-   * resources it cares about rather than asking for all of them.
-   */
-  bool wants(const std::string& method, const std::string& uri) const;
-
-  bool empty() const {
-    return !tools_list_changed && !prompts_list_changed &&
-           !resources_list_changed && resource_uris.empty();
-  }
-};
+using NotificationFilter = protocol::modern::NotificationFilter;
 
 /**
  * What tells one subscription from another, server-wide.

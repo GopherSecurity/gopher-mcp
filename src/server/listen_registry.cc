@@ -29,11 +29,6 @@ json::JsonValue idAsJson(const RequestId& id) {
   return json::JsonValue(static_cast<int64_t>(get<int64_t>(id)));
 }
 
-bool asBool(const json::JsonValue& object, const char* key) {
-  return object.isObject() && object.contains(key) && object[key].isBoolean() &&
-         object[key].getBool();
-}
-
 /**
  * The metadata every message on a subscription stream carries, as the
  * flat map a notification's params are held in.
@@ -48,77 +43,6 @@ void tagWithSubscription(Metadata& params, const RequestId& id) {
 }
 
 }  // namespace
-
-NotificationFilter NotificationFilter::parse(const json::JsonValue& params) {
-  NotificationFilter filter;
-  if (!params.isObject() || !params.contains(modern::kFilterField) ||
-      !params[modern::kFilterField].isObject()) {
-    return filter;
-  }
-  const auto& asked = params[modern::kFilterField];
-
-  filter.tools_list_changed = asBool(asked, modern::kFilterToolsListChanged);
-  filter.prompts_list_changed =
-      asBool(asked, modern::kFilterPromptsListChanged);
-  filter.resources_list_changed =
-      asBool(asked, modern::kFilterResourcesListChanged);
-
-  if (asked.contains(modern::kFilterResourceSubscriptions) &&
-      asked[modern::kFilterResourceSubscriptions].isArray()) {
-    const auto& uris = asked[modern::kFilterResourceSubscriptions];
-    for (size_t i = 0; i < uris.size(); ++i) {
-      if (uris[i].isString()) {
-        filter.resource_uris.push_back(uris[i].getString());
-      }
-    }
-  }
-  return filter;
-}
-
-json::JsonValue NotificationFilter::render() const {
-  // Only what is actually honoured. A type left out is one the client
-  // now knows not to wait for, which is the point of echoing at all.
-  json::JsonValue asked = json::JsonValue::object();
-  if (tools_list_changed) {
-    asked.set(modern::kFilterToolsListChanged, json::JsonValue(true));
-  }
-  if (prompts_list_changed) {
-    asked.set(modern::kFilterPromptsListChanged, json::JsonValue(true));
-  }
-  if (resources_list_changed) {
-    asked.set(modern::kFilterResourcesListChanged, json::JsonValue(true));
-  }
-  if (!resource_uris.empty()) {
-    json::JsonValue uris = json::JsonValue::array();
-    for (const auto& uri : resource_uris) {
-      uris.push_back(json::JsonValue(uri));
-    }
-    asked.set(modern::kFilterResourceSubscriptions, uris);
-  }
-  return asked;
-}
-
-bool NotificationFilter::wants(const std::string& method,
-                               const std::string& uri) const {
-  if (method == modern::kNotificationToolsListChanged) {
-    return tools_list_changed;
-  }
-  if (method == modern::kNotificationPromptsListChanged) {
-    return prompts_list_changed;
-  }
-  if (method == modern::kNotificationResourcesListChanged) {
-    return resources_list_changed;
-  }
-  if (method == modern::kNotificationResourcesUpdated) {
-    // Named resources only. A subscription that asked about one file has
-    // not asked about every file.
-    return std::find(resource_uris.begin(), resource_uris.end(), uri) !=
-           resource_uris.end();
-  }
-  // Anything else — progress, logging — belongs to the request it
-  // relates to and never to a subscription.
-  return false;
-}
 
 bool ListenRegistry::open(const std::string& caller,
                           const RequestId& id,
