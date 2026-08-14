@@ -112,11 +112,15 @@ struct StreamableHttpConfig {
   // own version, caller and capabilities, no sessions, no standalone
   // stream, nothing resumable.
   //
-  // Off by default, and it is this flag rather than the list above that
-  // decides whether the revision is advertised — a version named in the
-  // list while the pipeline behind it is off would be offered to clients
-  // this server cannot then serve.
-  bool enable_modern_era = false;
+  // It is this flag rather than the list above that decides whether the
+  // revision is advertised — a version named in the list while the
+  // pipeline behind it is off would be offered to clients this server
+  // cannot then serve.
+  //
+  // On: an older client is unaffected, since it never asks for a
+  // revision it does not know and this one is settled per request rather
+  // than negotiated. Set it false to serve the older eras alone.
+  bool enable_modern_era = true;
 };
 
 /**
@@ -206,14 +210,16 @@ struct StreamableHttpClientConfig {
   std::chrono::milliseconds fallback_probe_timeout{5000};
 
   // Speak the revision that has no handshake, when a server turns out to
-  // serve one. Off by default, matching the server's own switch: until
-  // both are on, such a server is reported as one this client cannot
-  // talk to rather than talked to badly.
+  // serve one.
   //
   // Deliberately not part of the list above. That list is what this
   // client offers when it introduces itself, and this era has no
   // introduction to offer anything in.
-  bool enable_modern_era = false;
+  //
+  // On: a server of an older era is unaffected, since what settles this
+  // is what that server says it serves. Set it false to keep to the
+  // older eras even where a server offers this one.
+  bool enable_modern_era = true;
 
   // Revisions of that era this client accepts, newest first. What is
   // spoken is the newest entry here the server also serves.

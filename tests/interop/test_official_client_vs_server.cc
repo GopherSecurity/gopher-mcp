@@ -15,6 +15,21 @@
  * `make test-interop` runs it, and it skips rather than fails where those
  * are not present, so that not having Node is not the same as being
  * broken.
+ *
+ * Every scenario here is of the older era, and not by choice: the SDK
+ * pinned in the driver (1.30.0, the newest published) tops out at
+ * 2025-11-25, so there is no implementation of the 2026-07-28 revision on
+ * the other side to disagree with us. This server serves that revision by
+ * default and the scenarios below go on passing, which is the evidence
+ * available today — that turning it on changed nothing for a client of an
+ * older era, checked against one nobody here wrote.
+ *
+ * What would unblock the rest: an SDK release whose SUPPORTED_PROTOCOL_
+ * VERSIONS includes 2026-07-28. Until then the two ends of that era are
+ * exercised against each other in tests/integration/test_modern_era_*.cc,
+ * which is weaker in exactly the way this file exists to fix — both ends
+ * share a reading of the specification, and a shared misreading looks
+ * like agreement.
  */
 
 #include <chrono>
