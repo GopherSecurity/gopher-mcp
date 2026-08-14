@@ -5,6 +5,7 @@
 #include <map>
 #include <memory>
 
+#include "mcp/core/request_id_key.h"
 #include "mcp/core/result.h"
 #include "mcp/event/event_loop.h"
 #include "mcp/json/json_bridge.h"
@@ -316,6 +317,39 @@ class McpConnectionManager : public McpProtocolCallbacks,
   bool hasServerStream() const { return server_stream_connection_ != nullptr; }
 
   /**
+   * Streamable HTTP client: open one subscription, on a connection of
+   * its own.
+   *
+   * A subscription's answer never arrives until it ends, so its response
+   * holds the connection it went out on for as long as the subscription
+   * lasts. Sharing one would queue every other request behind it — and
+   * several subscriptions at once, which this revision expects, would
+   * queue behind each other.
+   *
+   * The request goes out exactly as one on the shared connection would:
+   * it declares itself, and its headers mirror its body. What differs is
+   * only where it goes and how long the answer takes.
+   *
+   * @return false when there is nowhere to open one.
+   *         Dispatcher thread.
+   */
+  bool openSubscription(const RequestIdKey& key,
+                        const json::JsonValue& message);
+
+  /**
+   * End one by letting go of its connection.
+   *
+   * Which is how a client ends a subscription at all in this revision:
+   * there is no message for it, so closing the stream is the whole of
+   * the asking. Safe when there is no such subscription. Dispatcher
+   * thread.
+   */
+  void closeSubscription(const RequestIdKey& key);
+
+  /** How many subscription connections are being held. */
+  size_t subscriptionCount() const { return subscriptions_.size(); }
+
+  /**
    * How long a stream may say nothing at all before it is treated as
    * gone. Zero, the default, never treats silence as anything.
    */
@@ -497,6 +531,13 @@ class McpConnectionManager : public McpProtocolCallbacks,
   std::unique_ptr<network::ClientConnection> server_stream_connection_;
   std::unique_ptr<network::ConnectionCallbacks> stream_opener_;
   std::unique_ptr<network::ConnectionCallbacks> retired_opener_;
+
+  /** One connection per subscription, held for as long as it lasts. */
+  struct HeldSubscription {
+    std::unique_ptr<network::ClientConnection> connection;
+    std::unique_ptr<network::ConnectionCallbacks> opener;
+  };
+  std::map<RequestIdKey, HeldSubscription> subscriptions_;
   // What the stream was asked to carry on from, which is where it still
   // is if it never said otherwise.
   std::string stream_cursor_;

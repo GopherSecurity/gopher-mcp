@@ -647,6 +647,133 @@ bool McpConnectionManager::openServerStream(const std::string& last_event_id) {
   return true;
 }
 
+bool McpConnectionManager::openSubscription(const RequestIdKey& key,
+                                            const json::JsonValue& message) {
+  assert(dispatcher_.isThreadSafe() && "openSubscription off dispatcher");
+
+  if (!config_.streamable_client_session ||
+      config_.transport_type != TransportType::StreamableHttp) {
+    return false;
+  }
+  if (subscriptions_.count(key) != 0) {
+    GOPHER_LOG_WARN("a subscription already answers to {}",
+                    requestIdKeyToString(key));
+    return false;
+  }
+
+  // Ordinary request filters, deliberately: unlike the standalone stream,
+  // a subscription's own response is the answer to a request this client
+  // sent, and everything arriving before it is an ordinary notification.
+  // Nothing about this connection is special except that it is its own.
+  auto factory = createFilterChainFactory();
+  auto* http_factory =
+      dynamic_cast<filter::HttpSseFilterChainFactory*>(factory.get());
+  if (!http_factory) {
+    return false;
+  }
+  http_factory->setClientRole(filter::ClientConnectionRole::Requests);
+
+  std::string failure;
+  auto connection = createHttpClientConnection(factory, failure);
+  if (!connection) {
+    GOPHER_LOG_WARN("Could not open a subscription: {}", failure);
+    return false;
+  }
+
+  // Declared and mirrored exactly as it would be on the shared
+  // connection: which connection a request goes out on says nothing
+  // about what it has to carry.
+  const json::JsonValue outgoing =
+      config_.streamable_client_session->declareSelf(message);
+  auto headers = config_.http_headers;
+  config_.streamable_client_session->decorate(headers, outgoing);
+  headers[":method"] = "POST";
+  headers[":accept"] = "application/json, text/event-stream";
+
+  class SubscriptionOpener : public network::ConnectionCallbacks {
+   public:
+    SubscriptionOpener(McpConnectionManager& manager,
+                       network::Connection& connection,
+                       std::map<std::string, std::string> headers,
+                       std::string body)
+        : manager_(manager),
+          connection_(connection),
+          headers_(std::move(headers)),
+          body_(std::move(body)) {}
+
+    void onEvent(network::ConnectionEvent event) override {
+      if (event != network::ConnectionEvent::Connected) {
+        return;
+      }
+      // Swapped in around the write and put back after: the codec reads
+      // the header map when the bytes reach it, and that happens inside
+      // this call rather than later, so no other request can see them.
+      if (manager_.config_.current_http_headers) {
+        *manager_.config_.current_http_headers = headers_;
+      }
+      OwnedBuffer out;
+      out.add(body_);
+      connection_.write(out, false);
+      if (manager_.config_.current_http_headers) {
+        *manager_.config_.current_http_headers = manager_.config_.http_headers;
+      }
+    }
+
+    void onAboveWriteBufferHighWatermark() override {}
+    void onBelowWriteBufferLowWatermark() override {}
+
+   private:
+    McpConnectionManager& manager_;
+    network::Connection& connection_;
+    std::map<std::string, std::string> headers_;
+    std::string body_;
+  };
+
+  network::ClientConnection* client_conn = connection.get();
+  HeldSubscription held;
+  held.connection = std::move(connection);
+  held.opener.reset(new SubscriptionOpener(
+      *this, *client_conn, std::move(headers), outgoing.toString()));
+  client_conn->addConnectionCallbacks(*held.opener);
+  subscriptions_[key] = std::move(held);
+  client_conn->connect();
+
+  GOPHER_LOG_DEBUG("Opening subscription {}", requestIdKeyToString(key));
+  return true;
+}
+
+void McpConnectionManager::closeSubscription(const RequestIdKey& key) {
+  auto it = subscriptions_.find(key);
+  if (it == subscriptions_.end()) {
+    return;
+  }
+
+  // Taken out of the map before it is closed, for the same reason the
+  // standalone stream is: what tells a close we asked for from one we
+  // did not is whether this is still a subscription by the time the
+  // event arrives.
+  auto going = std::move(it->second);
+  subscriptions_.erase(it);
+
+  if (going.connection) {
+    // Unhooked before anything else. The connection outlives what is
+    // holding it here — it is handed to the dispatcher to delete once
+    // the frame this may have been called from has unwound — and an
+    // event reaching a listener that has already gone is a call into
+    // the space where one used to be.
+    if (going.opener) {
+      going.connection->removeConnectionCallbacks(*going.opener);
+    }
+    going.connection->close(network::ConnectionCloseType::NoFlush);
+    if (dispatcher_.isThreadSafe()) {
+      dispatcher_.deferredDelete(std::move(going.connection));
+    } else {
+      going.connection.reset();
+    }
+  }
+  GOPHER_LOG_DEBUG("Subscription {} let go", requestIdKeyToString(key));
+}
+
 void McpConnectionManager::closeServerStream() {
   stream_idle_timer_.reset();
   if (!server_stream_connection_) {
@@ -715,6 +842,17 @@ void McpConnectionManager::close() {
   // and leaving it open would have the client still reachable after it
   // has stopped listening.
   closeServerStream();
+
+  // And every subscription, for the same reason and by the same means:
+  // letting go of the connection is what ends one.
+  std::vector<RequestIdKey> held;
+  held.reserve(subscriptions_.size());
+  for (const auto& entry : subscriptions_) {
+    held.push_back(entry.first);
+  }
+  for (const auto& key : held) {
+    closeSubscription(key);
+  }
 
   // Close POST connection first (it may reference resources from main
   // connection)
