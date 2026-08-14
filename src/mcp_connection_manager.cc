@@ -647,9 +647,10 @@ bool McpConnectionManager::openServerStream(const std::string& last_event_id) {
   return true;
 }
 
-bool McpConnectionManager::openSubscription(const RequestIdKey& key,
+bool McpConnectionManager::openSubscription(const RequestId& id,
                                             const json::JsonValue& message) {
   assert(dispatcher_.isThreadSafe() && "openSubscription off dispatcher");
+  const RequestIdKey key = requestIdKey(id);
 
   if (!config_.streamable_client_session ||
       config_.transport_type != TransportType::StreamableHttp) {
@@ -672,6 +673,11 @@ bool McpConnectionManager::openSubscription(const RequestIdKey& key,
     return false;
   }
   http_factory->setClientRole(filter::ClientConnectionRole::Requests);
+  // One request, on a connection that exists for it. What the session
+  // records going out is a queue read in turn, which this connection is
+  // not part of and could not be: it finishes when its own subscription
+  // does, which may be long after everything else.
+  http_factory->setSoleRequest(mcp::make_optional(id));
 
   std::string failure;
   auto connection = createHttpClientConnection(factory, failure);
@@ -731,6 +737,7 @@ bool McpConnectionManager::openSubscription(const RequestIdKey& key,
 
   network::ClientConnection* client_conn = connection.get();
   HeldSubscription held;
+  held.id = id;
   held.connection = std::move(connection);
   held.opener.reset(new SubscriptionOpener(
       *this, *client_conn, std::move(headers), outgoing.toString()));
@@ -742,7 +749,8 @@ bool McpConnectionManager::openSubscription(const RequestIdKey& key,
   return true;
 }
 
-void McpConnectionManager::closeSubscription(const RequestIdKey& key) {
+void McpConnectionManager::closeSubscription(const RequestId& id) {
+  const RequestIdKey key = requestIdKey(id);
   auto it = subscriptions_.find(key);
   if (it == subscriptions_.end()) {
     return;
@@ -845,13 +853,13 @@ void McpConnectionManager::close() {
 
   // And every subscription, for the same reason and by the same means:
   // letting go of the connection is what ends one.
-  std::vector<RequestIdKey> held;
+  std::vector<RequestId> held;
   held.reserve(subscriptions_.size());
   for (const auto& entry : subscriptions_) {
-    held.push_back(entry.first);
+    held.push_back(entry.second.id);
   }
-  for (const auto& key : held) {
-    closeSubscription(key);
+  for (const auto& id : held) {
+    closeSubscription(id);
   }
 
   // Close POST connection first (it may reference resources from main

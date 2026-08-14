@@ -333,8 +333,7 @@ class McpConnectionManager : public McpProtocolCallbacks,
    * @return false when there is nowhere to open one.
    *         Dispatcher thread.
    */
-  bool openSubscription(const RequestIdKey& key,
-                        const json::JsonValue& message);
+  bool openSubscription(const RequestId& id, const json::JsonValue& message);
 
   /**
    * End one by letting go of its connection.
@@ -344,7 +343,7 @@ class McpConnectionManager : public McpProtocolCallbacks,
    * the asking. Safe when there is no such subscription. Dispatcher
    * thread.
    */
-  void closeSubscription(const RequestIdKey& key);
+  void closeSubscription(const RequestId& id);
 
   /** How many subscription connections are being held. */
   size_t subscriptionCount() const { return subscriptions_.size(); }
@@ -534,6 +533,7 @@ class McpConnectionManager : public McpProtocolCallbacks,
 
   /** One connection per subscription, held for as long as it lasts. */
   struct HeldSubscription {
+    RequestId id;
     std::unique_ptr<network::ClientConnection> connection;
     std::unique_ptr<network::ConnectionCallbacks> opener;
   };

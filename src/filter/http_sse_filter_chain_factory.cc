@@ -151,7 +151,8 @@ class HttpSseJsonRpcProtocolFilter
       ClientConnectionRole client_role = ClientConnectionRole::Requests,
       const std::shared_ptr<std::atomic<uint64_t>>& stream_activity = nullptr,
       std::chrono::milliseconds negotiation_timeout =
-          std::chrono::milliseconds(30000))
+          std::chrono::milliseconds(30000),
+      const optional<RequestId>& sole_request = optional<RequestId>())
       : dispatcher_(dispatcher),
         mcp_callbacks_(mcp_callbacks),
         is_server_(is_server),
@@ -169,6 +170,7 @@ class HttpSseJsonRpcProtocolFilter
         streamable_options_(streamable_options),
         client_session_(client_session),
         role_(client_role),
+        sole_request_(sole_request),
         stream_activity_(stream_activity),
         route_registration_callback_(route_callback) {
     // Following production pattern: all operations for this filter
@@ -1053,6 +1055,13 @@ class HttpSseJsonRpcProtocolFilter
           mcp_callbacks_.onClientStreamEvent(ClientStreamEvent::Refused,
                                              optional<RequestId>(), detail);
         }
+      } else if (sole_request_.has_value()) {
+        // This connection carries one request and answers for it alone.
+        // Taking from what the session recorded would attribute this
+        // status to whatever went out first elsewhere — and have that
+        // request retried or failed for something that never happened
+        // to it.
+        mcp_callbacks_.onTransportStatus(status, sole_request_, detail);
       } else {
         mcp_callbacks_.onTransportStatus(
             status, client_session_->takeAnswered(), detail);
@@ -1953,6 +1962,7 @@ class HttpSseJsonRpcProtocolFilter
   // nobody's answers, so it must not take places in the queue that says
   // whose they are.
   ClientConnectionRole role_{ClientConnectionRole::Requests};
+  optional<RequestId> sole_request_;
 
   // Client mode, stream connection only: bumped once per read, so that
   // whoever watches for a stream gone quiet can tell silence from a
@@ -2165,7 +2175,8 @@ bool HttpSseFilterChainFactory::createFilterChain(
       external_url_, client_headers_, client_header_source_,
       sse_registry_.get(), stream_gate_policy_, gated_input_limit_,
       &retainedExchanges(), security_options_, streamableOptions(),
-      client_session_, client_role_, stream_activity_, negotiation_timeout_);
+      client_session_, client_role_, stream_activity_, negotiation_timeout_,
+      sole_request_);
 
   // Add as both read and write filter. The FilterManager owns the filter
   // for the connection's lifetime (per-connection filter ownership): when

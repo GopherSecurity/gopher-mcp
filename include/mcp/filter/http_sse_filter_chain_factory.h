@@ -376,6 +376,20 @@ class HttpSseFilterChainFactory : public network::FilterChainFactory {
   void setClientRole(ClientConnectionRole role) { client_role_ = role; }
 
   /**
+   * Say that every response on this connection answers one request.
+   *
+   * Ordinarily a client attributes a response's status by taking the
+   * next entry off what the session recorded going out, which is right
+   * only while one connection carries everything in order. A connection
+   * of its own breaks both halves of that: it records nothing there, and
+   * it finishes whenever its own request does rather than in turn. Told
+   * which request it carries, it needs neither.
+   */
+  void setSoleRequest(const optional<RequestId>& request_id) {
+    sole_request_ = request_id;
+  }
+
+  /**
    * Client mode: bumped once per read on a stream connection, so that
    * whoever is watching for a stream that has gone quiet can tell
    * silence from a keep-alive. Counted rather than reported, because a
@@ -449,6 +463,7 @@ class HttpSseFilterChainFactory : public network::FilterChainFactory {
   // the server side.
   transport::StreamableHttpClientSessionPtr client_session_;
   ClientConnectionRole client_role_{ClientConnectionRole::Requests};
+  optional<RequestId> sole_request_;
   std::shared_ptr<std::atomic<uint64_t>> stream_activity_;
   std::chrono::milliseconds negotiation_timeout_{30000};
   bool use_sse_;          // True for SSE mode, false for Streamable HTTP
