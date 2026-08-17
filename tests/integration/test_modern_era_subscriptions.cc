@@ -589,5 +589,64 @@ TEST_F(RefusedSubscriptionTest, EndingOneSeversNoOtherRequest) {
          "ending";
 }
 
+// The drop that comes from the far end rather than from here. Its
+// request is still outstanding when the stream goes — which is what the
+// local case never exercises, since ending one takes its request away
+// before the connection closes.
+//
+// A stream cut short in this era is the end of what it was carrying:
+// there are no event ids to carry on from and no standalone stream to
+// carry on over, so asking for one asks for a method this server refuses
+// — and reading that refusal as a fact about streams rather than about
+// this request leaves the request outstanding for good.
+TEST_F(RefusedSubscriptionTest, ADroppedSubscriptionIsEndedNotResumed) {
+  const uint16_t port =
+      server_.start([](const test::Seen& seen) -> test::Reply {
+        if (seen.rpc_method == modern::kMethodServerDiscover) {
+          return test::Reply::write(test::withBody(
+              200, "OK", "application/json",
+              "{\"jsonrpc\":\"2.0\",\"id\":\"d\",\"result\":{\"resultType\":"
+              "\"complete\",\"supportedVersions\":[\"2026-07-28\"],"
+              "\"capabilities\":{}}}",
+              std::string()));
+        }
+        if (seen.rpc_method == modern::kMethodSubscriptionsListen) {
+          return test::Reply::stream(test::streamPrelude());
+        }
+        return test::Reply::write(test::accepted());
+      });
+
+  client::McpClientConfig config;
+  config.client_name = "dropped-subscription-client";
+  config.client_version = "0.0.1";
+  config.num_workers = 1;
+  config.request_timeout = 5000ms;
+  config.protocol_connection_timeout = 5000ms;
+  config.streamable_http.fallback_probe_timeout = 700ms;
+  client_ = client::createMcpClient(config);
+  ASSERT_NE(client_, nullptr);
+  ASSERT_TRUE(holds_alternative<std::nullptr_t>(
+      client_->connect("http://127.0.0.1:" + std::to_string(port) + "/mcp")));
+
+  modern::NotificationFilter what;
+  what.tools_list_changed = true;
+  const int64_t id = client_->listen(what, [](const jsonrpc::Notification&) {});
+  ASSERT_NE(id, 0);
+  ASSERT_TRUE(server_.waitForRpc(modern::kMethodSubscriptionsListen, 1));
+  ASSERT_TRUE(waitUntilTrue(
+      [this]() { return client_->subscriptionsHeld() == 1; }, 3000ms));
+  std::this_thread::sleep_for(300ms);
+
+  const size_t streams_before = server_.countOfMethod("GET");
+  server_.cutStream();
+
+  EXPECT_TRUE(waitUntilTrue(
+      [this]() { return client_->subscriptionsHeld() == 0; }, 3000ms))
+      << "a subscription whose stream was dropped is still being held";
+  EXPECT_EQ(server_.countOfMethod("GET"), streams_before)
+      << "a dropped subscription was asked for again over a stream, in a "
+         "revision that serves none";
+}
+
 }  // namespace
 }  // namespace mcp
