@@ -1010,6 +1010,28 @@ void McpClient::handleClientStreamEvent(ClientStreamEvent event,
 
 void McpClient::resumeAnswer(const std::shared_ptr<RequestContext>& context,
                              const std::string& last_event_id) {
+  if (streamable_session_ && protocol::modern::isModernVersion(
+                                 streamable_session_->protocolVersion())) {
+    // Nothing to pick it up with. This era numbers no events, so there
+    // is no place to carry on from, and it serves no standalone stream
+    // to carry on over — asking for one would be asking for a method
+    // this server refuses, and reading that refusal as a fact about
+    // streams rather than about this request would leave the request
+    // outstanding forever.
+    //
+    // So a stream cut short is the end of what it was carrying. Said
+    // rather than waited on, and said through the ordinary failure path,
+    // which is also what lets go of a subscription.
+    GOPHER_LOG_DEBUG("The stream carrying {} was cut and cannot be resumed",
+                     context->method);
+    stream_recovering_.reset();
+    completeRequestWithError(
+        context, Error(::mcp::jsonrpc::INTERNAL_ERROR,
+                       "The stream carrying this answer was cut off, and this "
+                       "revision has no way to pick one up again"));
+    return;
+  }
+
   if (context->resume_attempts >= config_.streamable_http.resume_attempts) {
     GOPHER_LOG_WARN("Giving up on the answer to {} after {} attempts",
                     context->method, context->resume_attempts);
