@@ -40,6 +40,7 @@ namespace {
 
 using namespace std::chrono_literals;
 using test::Child;
+using test::nodeTypeScriptFlags;
 using test::pickFreePort;
 using test::waitUntilAccepting;
 
@@ -81,6 +82,13 @@ bool referenceServerAvailable(std::string& why_not) {
         dir;
     return false;
   }
+  // Asked here rather than left to fail later: a node that cannot run
+  // TypeScript exits the moment it is handed some, which looks from the
+  // outside like a server that started and never listened.
+  std::vector<std::string> unused;
+  if (!nodeTypeScriptFlags(&unused, &why_not)) {
+    return false;
+  }
   return true;
 }
 
@@ -88,20 +96,52 @@ bool referenceServerAvailable(std::string& why_not) {
 class ReferenceServer {
  public:
   /** Start it, and wait until something is accepting on its port. */
-  bool start(const std::vector<std::string>& flags = {}) {
-    port_ = pickFreePort();
+  ::testing::AssertionResult start(const std::vector<std::string>& flags = {}) {
+    std::string why_not;
+    port_ = pickFreePort(&why_not);
     if (port_ == 0) {
-      return false;
+      return ::testing::AssertionFailure()
+             << "no port for the reference server: " << why_not;
     }
-    std::vector<std::string> argv{"node", "server.ts", "--port",
-                                  std::to_string(port_)};
+
+    std::vector<std::string> argv{"node"};
+    if (!nodeTypeScriptFlags(&argv, &why_not)) {
+      return ::testing::AssertionFailure()
+             << "the reference server cannot be run: " << why_not;
+    }
+    argv.push_back("server.ts");
+    argv.push_back("--port");
+    argv.push_back(std::to_string(port_));
     for (const auto& flag : flags) {
       argv.push_back(flag);
     }
-    if (!process_.start(referenceServerDir(), argv)) {
-      return false;
+
+    // Kept, unlike before. What it wrote is the only account of why it
+    // did not come up, and discarding it left a ten-second silence and a
+    // bare false — which is not something anyone can act on without
+    // reproducing the whole thing by hand.
+    if (!process_.start(referenceServerDir(), argv, /*capture=*/true)) {
+      return ::testing::AssertionFailure()
+             << "the reference server could not be started in "
+             << referenceServerDir();
     }
-    return waitUntilAccepting(port_, 10s);
+    if (waitUntilAccepting(port_, 10s)) {
+      return ::testing::AssertionSuccess();
+    }
+
+    // Either it is still running and not listening, or it is gone. Both
+    // are worth telling apart, and both are explained by what it wrote.
+    const bool still_running = process_.running();
+    const int code = process_.wait(1s);
+    const std::string said = process_.output();
+    return ::testing::AssertionFailure()
+           << "the reference server did not accept on port " << port_
+           << " within 10s; it "
+           << (still_running && code < 0
+                   ? "was still running"
+                   : "had exited with code " + std::to_string(code))
+           << (said.empty() ? std::string(" and wrote nothing")
+                            : std::string(" and wrote:\n") + said);
   }
 
   void stop() { process_.stop(); }
