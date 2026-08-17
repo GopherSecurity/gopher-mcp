@@ -13,12 +13,14 @@
 
 #pragma once
 
+#include <cerrno>
 #include <chrono>
 #include <cstdio>
 #include <signal.h>
 #include <string>
 #include <thread>
 #include <unistd.h>
+#include <utility>
 #include <vector>
 
 #include <sys/wait.h>
@@ -30,17 +32,43 @@ namespace mcp {
 namespace test {
 
 /** A loopback port the kernel believes is free. */
-inline uint16_t pickFreePort() {
+inline uint16_t pickFreePort(std::string* why_not = nullptr) {
+  auto say = [why_not](const std::string& reason) {
+    if (why_not != nullptr) {
+      *why_not = reason;
+    }
+  };
+
   auto& iface = network::socketInterface();
   auto fd =
       iface.socket(network::SocketType::Stream, network::Address::Type::Ip,
                    network::Address::IpVersion::v4);
   if (!fd.ok()) {
+    say("no socket could be made to find a free port with");
     return 0;
   }
   auto handle = iface.ioHandleForFd(*fd, false);
-  handle->bind(network::Address::parseInternetAddress("127.0.0.1", 0));
-  handle->listen(1);
+
+  // Checked, unlike before. A bind or listen that fails leaves the port
+  // at zero and the caller with nothing to go on — and on a machine
+  // where this is what is wrong, that is the whole of what it needs to
+  // be told.
+  auto bound =
+      handle->bind(network::Address::parseInternetAddress("127.0.0.1", 0));
+  if (!bound.ok()) {
+    say("binding a loopback port failed (errno " + std::to_string(errno) +
+        "); the loopback interface may be down or restricted");
+    handle->close();
+    return 0;
+  }
+  auto listening = handle->listen(1);
+  if (!listening.ok()) {
+    say("listening on a loopback port failed (errno " + std::to_string(errno) +
+        ")");
+    handle->close();
+    return 0;
+  }
+
   auto local = handle->localAddress();
   uint16_t port = 0;
   if (local.ok()) {
@@ -49,8 +77,67 @@ inline uint16_t pickFreePort() {
       port = ip->port();
     }
   }
+  if (port == 0) {
+    say("a loopback port was bound but the kernel did not name it");
+  }
   handle->close();
   return port;
+}
+
+/** What `node --version` says, as major and minor. Zeroes when unknown. */
+inline std::pair<int, int> nodeVersion() {
+  FILE* pipe = popen("node --version 2>/dev/null", "r");
+  if (pipe == nullptr) {
+    return std::make_pair(0, 0);
+  }
+  char buffer[64] = {0};
+  const char* got = fgets(buffer, sizeof(buffer), pipe);
+  pclose(pipe);
+  if (got == nullptr) {
+    return std::make_pair(0, 0);
+  }
+  std::string text(buffer);
+  if (!text.empty() && text[0] == 'v') {
+    text.erase(0, 1);
+  }
+  int major = 0;
+  int minor = 0;
+  if (std::sscanf(text.c_str(), "%d.%d", &major, &minor) != 2) {
+    return std::make_pair(0, 0);
+  }
+  return std::make_pair(major, minor);
+}
+
+/**
+ * What this node needs in order to run a TypeScript file directly.
+ *
+ * Both interop programs are `.ts` run straight by node, which is only
+ * something node can do at all from 22.6, and only without being asked
+ * from 23.6. In between it has to be asked — and a node that is not
+ * asked fails immediately with a syntax error, which from the outside
+ * looks exactly like a server that started and never listened.
+ *
+ * @return False when this node cannot run them however it is asked.
+ */
+inline bool nodeTypeScriptFlags(std::vector<std::string>* flags,
+                                std::string* why_not) {
+  const auto version = nodeVersion();
+  if (version.first == 0) {
+    *why_not = "node is installed but did not say what version it is";
+    return false;
+  }
+  if (version.first < 22 || (version.first == 22 && version.second < 6)) {
+    *why_not = "node " + std::to_string(version.first) + "." +
+               std::to_string(version.second) +
+               " cannot run TypeScript directly; these programs need 22.6 "
+               "or newer";
+    return false;
+  }
+  if (version.first < 23 || (version.first == 23 && version.second < 6)) {
+    // Able, but only when asked.
+    flags->push_back("--experimental-strip-types");
+  }
+  return true;
 }
 
 /** True once something is accepting on the port, or the budget is spent. */
