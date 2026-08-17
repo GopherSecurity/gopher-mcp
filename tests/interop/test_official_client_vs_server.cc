@@ -47,6 +47,7 @@ namespace {
 
 using namespace std::chrono_literals;
 using test::Child;
+using test::nodeTypeScriptFlags;
 using test::pickFreePort;
 using test::waitUntilAccepting;
 
@@ -121,17 +122,23 @@ struct DriverRun {
 DriverRun driveServer(const std::vector<std::string>& modes) {
   DriverRun run;
 
-  const uint16_t port = pickFreePort();
+  std::string why_not;
+  const uint16_t port = pickFreePort(&why_not);
   if (port == 0) {
-    run.output = "no free port";
+    run.output = "no free port for the interop run: " + why_not;
     return run;
   }
 
   std::vector<std::string> server_argv{serverBinary(), "--port",
                                        std::to_string(port)};
-  std::vector<std::string> driver_argv{
-      "node", "client.ts", "--url",
-      "http://127.0.0.1:" + std::to_string(port) + "/mcp"};
+  std::vector<std::string> driver_argv{"node"};
+  if (!nodeTypeScriptFlags(&driver_argv, &why_not)) {
+    run.output = "the driver cannot be run: " + why_not;
+    return run;
+  }
+  driver_argv.push_back("client.ts");
+  driver_argv.push_back("--url");
+  driver_argv.push_back("http://127.0.0.1:" + std::to_string(port) + "/mcp");
   for (const auto& mode : modes) {
     server_argv.push_back(mode);
     // --no-resume changes what the server keeps, not what the client may
@@ -142,12 +149,22 @@ DriverRun driveServer(const std::vector<std::string>& modes) {
   }
 
   Child server;
-  if (!server.start(std::string(), server_argv)) {
+  if (!server.start(std::string(), server_argv, /*capture=*/true)) {
     run.output = "could not start " + serverBinary();
     return run;
   }
   if (!waitUntilAccepting(port, 10s)) {
-    run.output = "the server never accepted a connection";
+    // Whatever it wrote on its way to not listening, which is the only
+    // account of why there is nothing to talk to.
+    const bool still_running = server.running();
+    const int code = server.wait(1s);
+    run.output = serverBinary() + " never accepted on port " +
+                 std::to_string(port) + "; it " +
+                 (still_running && code < 0
+                      ? "was still running"
+                      : "had exited with code " + std::to_string(code)) +
+                 (server.output().empty() ? " and wrote nothing"
+                                          : " and wrote:\n" + server.output());
     return run;
   }
 
