@@ -16,6 +16,7 @@
 #include <cerrno>
 #include <chrono>
 #include <cstdio>
+#include <poll.h>
 #include <signal.h>
 #include <string>
 #include <thread>
@@ -237,44 +238,54 @@ class Child {
   /**
    * Wait for it to finish, keeping whatever it wrote.
    *
-   * The pipe is drained to EOF first: reaping a child whose output has not
-   * been read is how a test ends up reporting a failure with nothing to
-   * say about it.
+   * Both at once, and neither before the other. Draining to EOF first
+   * looked like the tidy order — read everything, then reap — but EOF on
+   * a child's pipe means every write end has closed, which for a child
+   * that is still running is a thing that has not happened yet. Waiting
+   * for it there is waiting for the child to exit, without a deadline,
+   * inside the call whose whole purpose is to have one. A caller asking
+   * why a peer that is still running has not started would have hung on
+   * the question.
    *
-   * @return Its exit status, or -1 if it did not finish in time.
+   * So the pipe is read for whatever is there, the child is reaped if it
+   * has gone, and the budget is checked — round and round until one of
+   * the last two settles it.
+   *
+   * @return Its exit status, or -1 if it did not finish in time. What it
+   *         wrote up to that point is kept either way.
    */
   int wait(std::chrono::milliseconds budget) {
     if (pid_ <= 0) {
       return -1;
     }
-    if (read_fd_ >= 0) {
-      char buffer[4096];
-      ssize_t got = 0;
-      while ((got = read(read_fd_, buffer, sizeof(buffer))) > 0) {
-        output_.append(buffer, static_cast<size_t>(got));
-      }
-      close(read_fd_);
-      read_fd_ = -1;
-    }
 
     const auto deadline = std::chrono::steady_clock::now() + budget;
     int status = 0;
-    while (std::chrono::steady_clock::now() < deadline) {
+    for (;;) {
+      drainWhatIsThere();
+
       const pid_t done = waitpid(pid_, &status, WNOHANG);
       if (done == pid_) {
+        // Gone, so its pipe is at EOF and the rest of what it wrote is
+        // there to be had.
+        drainWhatIsThere();
+        closeRead();
         pid_ = -1;
         return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
       }
+
+      if (std::chrono::steady_clock::now() >= deadline) {
+        return -1;
+      }
       std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
-    return -1;
   }
 
   void stop() {
-    if (read_fd_ >= 0) {
-      close(read_fd_);
-      read_fd_ = -1;
-    }
+    // Whatever it managed to say before being told to go, since a child
+    // that has to be killed is one somebody will want an account of.
+    drainWhatIsThere();
+    closeRead();
     if (pid_ <= 0) {
       return;
     }
@@ -294,6 +305,43 @@ class Child {
 
   bool running() const { return pid_ > 0; }
 
+ private:
+  /** Take what has been written so far, and never wait for more. */
+  void drainWhatIsThere() {
+    if (read_fd_ < 0) {
+      return;
+    }
+    for (;;) {
+      struct pollfd waiting;
+      waiting.fd = read_fd_;
+      waiting.events = POLLIN;
+      waiting.revents = 0;
+      // No timeout at all: this asks what is there, never what is
+      // coming.
+      const int ready = poll(&waiting, 1, 0);
+      if (ready <= 0) {
+        return;
+      }
+      char buffer[4096];
+      const ssize_t got = read(read_fd_, buffer, sizeof(buffer));
+      if (got > 0) {
+        output_.append(buffer, static_cast<size_t>(got));
+        continue;
+      }
+      // Zero is EOF and negative is nothing more to be had now; either
+      // way there is nothing further to read in this pass.
+      return;
+    }
+  }
+
+  void closeRead() {
+    if (read_fd_ >= 0) {
+      close(read_fd_);
+      read_fd_ = -1;
+    }
+  }
+
+ public:
   /** Everything it wrote, once wait() has read it. */
   const std::string& output() const { return output_; }
 
