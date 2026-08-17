@@ -98,6 +98,14 @@ bool driverAvailable(std::string& why_not) {
         "the driver's dependencies are not installed; run `npm ci` in " + dir;
     return false;
   }
+  // Asked here, with everything else this needs before it can run at
+  // all. Left to the run itself, a node too old to read the driver is
+  // four failures that all mean "this machine cannot host the test" —
+  // which is what skipping says, and says once.
+  std::vector<std::string> unused;
+  if (!nodeTypeScriptFlags(&unused, &why_not)) {
+    return false;
+  }
   if (!fileExists(serverBinary())) {
     why_not = "the interop server is not at " + serverBinary() +
               "; build the gopher_interop_server target";
@@ -231,6 +239,55 @@ TEST_F(OfficialClientVsServer, AServerServingNoStreamRefusesOneProperly) {
 TEST_F(OfficialClientVsServer, AServerRetainingNothingIsStillServed) {
   const DriverRun run = driveServer({"--no-resume"});
   expectClean(run);
+}
+
+// ===== The harness itself =====
+//
+// Not about either implementation: about the thing both directions use
+// to run one. It needs no node, so it runs wherever the suite is built.
+
+// Asking a still-running child how it is going has to come back. Its
+// pipe is only at EOF once every write end has closed, which for a child
+// that is still running has not happened — so draining to EOF first is
+// waiting for it to exit, inside the call whose whole purpose is not to
+// wait longer than it was told.
+//
+// This is the case the diagnostics reach for by design: they ask exactly
+// when a peer is still running and has not started serving.
+TEST(InteropHarness, AskingAStillRunningChildComesBack) {
+  test::Child child;
+  // Says something, so there is output to drain, then stays — with its
+  // pipe open, which is what makes the difference.
+  ASSERT_TRUE(child.start(std::string(),
+                          {"/bin/sh", "-c", "echo listening; sleep 30"},
+                          /*capture=*/true));
+
+  const auto began = std::chrono::steady_clock::now();
+  const int code = child.wait(500ms);
+  const auto took = std::chrono::steady_clock::now() - began;
+
+  EXPECT_EQ(code, -1) << "a child that is still running was reported as done";
+  EXPECT_LT(took, 5s)
+      << "asking about a still-running child waited for it to exit instead "
+         "of for the time it was given";
+
+  // And what it said before it settled is still to be had, which is the
+  // whole reason for draining at all.
+  EXPECT_NE(child.output().find("listening"), std::string::npos)
+      << "what the child wrote was lost: '" << child.output() << "'";
+
+  child.stop();
+}
+
+// A child that ends is still reaped and read to the end.
+TEST(InteropHarness, AChildThatEndsIsReadToTheEnd) {
+  test::Child child;
+  ASSERT_TRUE(child.start(std::string(), {"/bin/sh", "-c", "echo done; exit 3"},
+                          /*capture=*/true));
+
+  EXPECT_EQ(child.wait(5s), 3);
+  EXPECT_NE(child.output().find("done"), std::string::npos)
+      << "what the child wrote was lost: '" << child.output() << "'";
 }
 
 }  // namespace
