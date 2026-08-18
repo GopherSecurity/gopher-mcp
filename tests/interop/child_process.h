@@ -16,6 +16,7 @@
 #include <cerrno>
 #include <chrono>
 #include <cstdio>
+#include <cstring>
 #include <poll.h>
 #include <signal.h>
 #include <string>
@@ -236,6 +237,41 @@ class Child {
   }
 
   /**
+   * How a child ended, for a caller that has to say.
+   *
+   * Three outcomes and not two: a child that was killed is not one that
+   * exited with a code, and neither is one that is still going. Told
+   * apart because the caller that asks is explaining why something did
+   * not start, and "it crashed" is the answer it is most often looking
+   * for.
+   */
+  struct Ending {
+    enum class How { StillRunning, Exited, Signalled };
+
+    How how{How::StillRunning};
+    /** The exit status when it exited, the signal number when it was
+     *  killed, and nothing meaningful while it is still going. */
+    int code{-1};
+
+    bool exitedWith(int expected) const {
+      return how == How::Exited && code == expected;
+    }
+
+    std::string describe() const {
+      if (how == How::Exited) {
+        return "exited with code " + std::to_string(code);
+      }
+      if (how == How::Signalled) {
+        const char* named = strsignal(code);
+        return "was killed by signal " + std::to_string(code) +
+               (named != nullptr ? std::string(" (") + named + ")"
+                                 : std::string());
+      }
+      return "was still running";
+    }
+  };
+
+  /**
    * Wait for it to finish, keeping whatever it wrote.
    *
    * Both at once, and neither before the other. Draining to EOF first
@@ -251,12 +287,14 @@ class Child {
    * has gone, and the budget is checked — round and round until one of
    * the last two settles it.
    *
-   * @return Its exit status, or -1 if it did not finish in time. What it
-   *         wrote up to that point is kept either way.
+   * @return How it ended, and with what. What it wrote up to that point
+   *         is kept whichever way that is — including when it is still
+   *         running, which is what a caller under a deadline gets.
    */
-  int wait(std::chrono::milliseconds budget) {
+  Ending wait(std::chrono::milliseconds budget) {
+    Ending ending;
     if (pid_ <= 0) {
-      return -1;
+      return ending;
     }
 
     const auto deadline = std::chrono::steady_clock::now() + budget;
@@ -271,11 +309,18 @@ class Child {
         drainWhatIsThere();
         closeRead();
         pid_ = -1;
-        return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+        if (WIFEXITED(status)) {
+          ending.how = Ending::How::Exited;
+          ending.code = WEXITSTATUS(status);
+        } else if (WIFSIGNALED(status)) {
+          ending.how = Ending::How::Signalled;
+          ending.code = WTERMSIG(status);
+        }
+        return ending;
       }
 
       if (std::chrono::steady_clock::now() >= deadline) {
-        return -1;
+        return ending;
       }
       std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }

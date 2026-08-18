@@ -129,17 +129,19 @@ class ReferenceServer {
       return ::testing::AssertionSuccess();
     }
 
-    // Either it is still running and not listening, or it is gone. Both
-    // are worth telling apart, and both are explained by what it wrote.
-    const bool still_running = process_.running();
-    const int code = process_.wait(1s);
+    // Still running and not listening, exited, or killed. All three are
+    // worth telling apart — a crash on startup is the likeliest of them,
+    // and the one a caller most wants named — and all three are
+    // explained by what it wrote.
+    //
+    // Asked of the reaping rather than looked at before it: a child that
+    // has already died is still running as far as anything that has not
+    // reaped it is concerned.
+    const Child::Ending ending = process_.wait(1s);
     const std::string said = process_.output();
     return ::testing::AssertionFailure()
            << "the reference server did not accept on port " << port_
-           << " within 10s; it "
-           << (still_running && code < 0
-                   ? "was still running"
-                   : "had exited with code " + std::to_string(code))
+           << " within 10s; it " << ending.describe()
            << (said.empty() ? std::string(" and wrote nothing")
                             : std::string(" and wrote:\n") + said);
   }

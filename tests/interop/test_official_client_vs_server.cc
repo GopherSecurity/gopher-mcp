@@ -124,6 +124,8 @@ bool driverAvailable(std::string& why_not) {
  */
 struct DriverRun {
   int status{-1};
+  /** How the driver ended, in words, so a crash reads as one. */
+  std::string ending{"never ran"};
   std::string output;
 };
 
@@ -163,14 +165,13 @@ DriverRun driveServer(const std::vector<std::string>& modes) {
   }
   if (!waitUntilAccepting(port, 10s)) {
     // Whatever it wrote on its way to not listening, which is the only
-    // account of why there is nothing to talk to.
-    const bool still_running = server.running();
-    const int code = server.wait(1s);
+    // account of why there is nothing to talk to — and how it ended,
+    // taken from the reaping rather than from a look before it, since a
+    // child that has already died is still running as far as anything
+    // that has not reaped it is concerned.
+    const Child::Ending ending = server.wait(1s);
     run.output = serverBinary() + " never accepted on port " +
-                 std::to_string(port) + "; it " +
-                 (still_running && code < 0
-                      ? "was still running"
-                      : "had exited with code " + std::to_string(code)) +
+                 std::to_string(port) + "; it " + ending.describe() +
                  (server.output().empty() ? " and wrote nothing"
                                           : " and wrote:\n" + server.output());
     return run;
@@ -182,14 +183,17 @@ DriverRun driveServer(const std::vector<std::string>& modes) {
     return run;
   }
 
-  run.status = driver.wait(120s);
+  const Child::Ending ending = driver.wait(120s);
+  run.status = ending.how == Child::Ending::How::Exited ? ending.code : -1;
+  run.ending = ending.describe();
   run.output = driver.output();
   return run;
 }
 
 /** Fails with the driver's own report rather than a status code. */
 void expectClean(const DriverRun& run) {
-  EXPECT_EQ(run.status, 0) << "the driver reported a failure:\n" << run.output;
+  EXPECT_EQ(run.status, 0) << "the driver " << run.ending << ":\n"
+                           << run.output;
   if (run.status != 0) {
     return;
   }
@@ -263,10 +267,12 @@ TEST(InteropHarness, AskingAStillRunningChildComesBack) {
                           /*capture=*/true));
 
   const auto began = std::chrono::steady_clock::now();
-  const int code = child.wait(500ms);
+  const Child::Ending ending = child.wait(500ms);
   const auto took = std::chrono::steady_clock::now() - began;
 
-  EXPECT_EQ(code, -1) << "a child that is still running was reported as done";
+  EXPECT_EQ(ending.how, Child::Ending::How::StillRunning)
+      << "a child that is still running was reported as done: "
+      << ending.describe();
   EXPECT_LT(took, 5s)
       << "asking about a still-running child waited for it to exit instead "
          "of for the time it was given";
@@ -285,9 +291,34 @@ TEST(InteropHarness, AChildThatEndsIsReadToTheEnd) {
   ASSERT_TRUE(child.start(std::string(), {"/bin/sh", "-c", "echo done; exit 3"},
                           /*capture=*/true));
 
-  EXPECT_EQ(child.wait(5s), 3);
+  const Child::Ending ending = child.wait(5s);
+  EXPECT_TRUE(ending.exitedWith(3)) << "it " << ending.describe();
   EXPECT_NE(child.output().find("done"), std::string::npos)
       << "what the child wrote was lost: '" << child.output() << "'";
+}
+
+// A peer that crashed on startup is the case the diagnostics exist for,
+// and the one most easily got wrong: it is still running as far as
+// anything that has not reaped it is concerned, so an answer taken
+// before the reaping says "still running" about a child that is long
+// dead — and says it exactly when a crash is what happened.
+TEST(InteropHarness, AChildKilledBySignalIsNotReportedAsRunning) {
+  test::Child child;
+  ASSERT_TRUE(child.start(std::string(),
+                          {"/bin/sh", "-c", "echo starting; kill -SEGV $$"},
+                          /*capture=*/true));
+
+  const Child::Ending ending = child.wait(5s);
+  EXPECT_EQ(ending.how, Child::Ending::How::Signalled)
+      << "a child that was killed was reported as having " << ending.describe();
+  EXPECT_EQ(ending.code, SIGSEGV);
+  EXPECT_NE(ending.describe().find("killed by signal"), std::string::npos)
+      << ending.describe();
+
+  // And what it managed to say first is still to be had.
+  EXPECT_NE(child.output().find("starting"), std::string::npos)
+      << "what the child wrote before it died was lost: '" << child.output()
+      << "'";
 }
 
 }  // namespace
