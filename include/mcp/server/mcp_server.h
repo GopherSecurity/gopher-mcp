@@ -21,6 +21,7 @@
 #include <atomic>
 #include <chrono>
 #include <functional>
+#include <future>
 #include <list>
 #include <map>
 #include <memory>
@@ -1179,6 +1180,12 @@ class McpServer : public application::ApplicationBase,
   VoidResult sendNotification(const std::string& session_id,
                               const jsonrpc::Notification& notification);
 
+  // Send a server-initiated request to a specific session and resolve the
+  // returned future when that client sends the matching JSON-RPC response.
+  // HTTP/SSE sessions require an active SSE stream for server push.
+  std::future<jsonrpc::Response> sendRequest(const std::string& session_id,
+                                             const jsonrpc::Request& request);
+
   // Broadcast notification to all sessions
   void broadcastNotification(const jsonrpc::Notification& notification);
 
@@ -1347,6 +1354,9 @@ class McpServer : public application::ApplicationBase,
   VoidResult sendNotificationToSession(
       const SessionManager::SessionPtr& session,
       const jsonrpc::Notification& notification);
+
+  VoidResult sendRequestToSession(const SessionManager::SessionPtr& session,
+                                  const jsonrpc::Request& request);
 
   // Internal method to perform actual listening (called from dispatcher thread)
   void performListen();

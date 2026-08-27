@@ -51,6 +51,12 @@ class SseSessionRegistry {
   // filter's destructor does this.
   std::string registerSession(network::Connection* connection);
 
+  // Record an SSE stream connection under a caller-provided stable session ID.
+  // Used by Streamable HTTP, where the client repeats Mcp-Session-Id on the
+  // GET event stream and POST request connections.
+  std::string registerSession(const std::string& session_id,
+                              network::Connection* connection);
+
   // Drop a session. Safe to call with an unknown ID (no-op).
   void removeSession(const std::string& session_id);
 
