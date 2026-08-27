@@ -29,6 +29,22 @@
 
 namespace mcp {
 namespace server {
+namespace {
+
+std::string requestIdToString(const RequestId& id) {
+  return holds_alternative<std::string>(id) ? get<std::string>(id)
+                                            : std::to_string(get<int64_t>(id));
+}
+
+std::future<jsonrpc::Response> makeReadyResponseFuture(
+    const RequestId& id, int code, const std::string& message) {
+  std::promise<jsonrpc::Response> promise;
+  auto future = promise.get_future();
+  promise.set_value(jsonrpc::Response::make_error(id, Error(code, message)));
+  return future;
+}
+
+}  // namespace
 
 namespace {
 
@@ -945,6 +961,82 @@ VoidResult McpServer::sendNotificationToSession(
   }
   return makeVoidError(
       Error(jsonrpc::INTERNAL_ERROR, "No active connection for session"));
+}
+
+VoidResult McpServer::sendRequestToSession(
+    const SessionManager::SessionPtr& session,
+    const jsonrpc::Request& request) {
+  assert(main_dispatcher_ && main_dispatcher_->isThreadSafe() &&
+         "sendRequestToSession off dispatcher");
+
+  if (!session) {
+    return makeVoidError(Error(jsonrpc::INTERNAL_ERROR,
+                               "Cannot send request to missing session"));
+  }
+
+  auto json_val = json::to_json(request);
+  const std::string json_str = json_val.toString();
+
+  if (!session->getTransportSessionId().empty()) {
+    if (!http_sse_factory_) {
+      return makeVoidError(
+          Error(jsonrpc::INTERNAL_ERROR,
+                "No server-initiated request channel on this listener "
+                "(server push requires the built-in HTTP+SSE listener)"));
+    }
+    if (http_sse_factory_->sseRegistry().sendResponse(
+            session->getTransportSessionId(), json_str)) {
+      return makeVoidSuccess();
+    }
+    return makeVoidError(
+        Error(jsonrpc::INTERNAL_ERROR,
+              "SSE stream gone for session " + session->getId()));
+  }
+
+  if (session->getConnection()) {
+    for (auto& conn_manager : connection_managers_) {
+      if (conn_manager->isConnected() &&
+          conn_manager->ownsConnection(session->getConnection())) {
+        return conn_manager->sendRequest(request);
+      }
+    }
+    return makeVoidError(Error(jsonrpc::INTERNAL_ERROR,
+                               "Session " + session->getId() +
+                                   " has no server-initiated request channel"));
+  }
+
+  return makeVoidError(
+      Error(jsonrpc::INTERNAL_ERROR, "No active connection for session"));
+}
+
+std::future<jsonrpc::Response> McpServer::sendRequest(
+    const std::string& session_id, const jsonrpc::Request& request) {
+  if (!main_dispatcher_ || !main_dispatcher_->isThreadSafe()) {
+    return makeReadyResponseFuture(
+        request.id, jsonrpc::INTERNAL_ERROR,
+        "Server-initiated requests must be sent on the MCP dispatcher thread");
+  }
+
+  auto session = session_manager_->getSession(session_id);
+  if (!session) {
+    return makeReadyResponseFuture(request.id, jsonrpc::INVALID_PARAMS,
+                                   "Session not found");
+  }
+
+  auto promise = std::make_shared<std::promise<jsonrpc::Response>>();
+  auto future = promise->get_future();
+  client_requests_.expect(request.id, [promise](const jsonrpc::Response& r) {
+    promise->set_value(r);
+  });
+
+  auto sent = sendRequestToSession(session, request);
+  if (holds_alternative<Error>(sent)) {
+    client_requests_.forget(request.id);
+    promise->set_value(
+        jsonrpc::Response::make_error(request.id, get<Error>(sent)));
+  }
+
+  return future;
 }
 
 // Push notifications/resources/updated to every subscriber of the URI

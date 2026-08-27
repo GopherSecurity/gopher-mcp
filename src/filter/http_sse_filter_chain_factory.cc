@@ -52,6 +52,7 @@
 
 #include "mcp/filter/http_sse_filter_chain_factory.h"
 
+#include <atomic>
 #include <cassert>
 #include <cstdint>
 #include <ctime>
@@ -114,6 +115,11 @@ static std::string requestIdToString(const RequestId& id) {
     return std::to_string(get<int64_t>(id));
   }
   return "<unknown>";
+}
+
+static std::string nextStreamableHttpSessionId() {
+  static std::atomic<uint64_t> next_id{1};
+  return "streamable_" + std::to_string(next_id.fetch_add(1));
 }
 
 class HttpSseJsonRpcProtocolFilter
@@ -673,7 +679,12 @@ class HttpSseJsonRpcProtocolFilter
     GOPHER_LOG_DEBUG(
         "HttpSseJsonRpcProtocolFilter::onWrite - calling http_filter");
     // HTTP filter adds headers/framing for normal HTTP responses
-    return http_filter_->onWrite(data, end_stream);
+    status = http_filter_->onWrite(data, end_stream);
+    if (status != network::FilterStatus::StopIteration && is_server_ &&
+        !streamable_http_session_id_.empty() && data.length() > 0) {
+      addStreamableHttpSessionHeader(data);
+    }
+    return status;
   }
 
   void initializeReadFilterCallbacks(
@@ -747,6 +758,55 @@ class HttpSseJsonRpcProtocolFilter
       size_t qpos = path.find('?');
       if (qpos != std::string::npos) {
         path = path.substr(0, qpos);
+      }
+
+      auto accept_it = headers.find("accept");
+      const bool accepts_sse =
+          accept_it != headers.end() &&
+          accept_it->second.find("text/event-stream") != std::string::npos;
+
+      // ── GET {configured_rpc_path_} + Accept: text/event-stream →
+      // open a Streamable HTTP event stream for an existing Mcp-Session-Id.
+      //
+      // Streamable HTTP clients such as Postman keep server-initiated
+      // requests on this event stream while sending client requests and
+      // responses as POSTs to the same /mcp endpoint with Mcp-Session-Id.
+      if (method == "GET" && path == configured_rpc_path_ && accepts_sse &&
+          sse_registry_ && write_callbacks_) {
+        if (server_mode_) {
+          server_mode_->handleEvent(ServerConnEvent::SseGetDetected);
+        }
+        client_accepts_sse_ = true;
+
+        auto session_it = headers.find("mcp-session-id");
+        sse_session_id_ =
+            session_it != headers.end() && !session_it->second.empty()
+                ? session_it->second
+                : nextStreamableHttpSessionId();
+        sse_registry_->registerSession(sse_session_id_,
+                                       &write_callbacks_->connection());
+
+        std::ostringstream sse_response;
+        sse_response << "HTTP/1.1 200 OK\r\n";
+        sse_response << "Content-Type: text/event-stream\r\n";
+        sse_response << "Cache-Control: no-cache\r\n";
+        sse_response << "Connection: keep-alive\r\n";
+        sse_response << "Mcp-Session-Id: " << sse_session_id_ << "\r\n";
+        sse_response << "Access-Control-Allow-Origin: *\r\n";
+        sse_response << "\r\n";
+
+        const std::string response_str = sse_response.str();
+        OwnedBuffer response_buffer;
+        response_buffer.add(response_str.c_str(), response_str.length());
+        {
+          HandshakeWriteGuard guard(*server_mode_);
+          write_callbacks_->connection().write(response_buffer, false);
+        }
+        server_mode_->handleEvent(ServerConnEvent::SseHeadersWritten);
+
+        GOPHER_LOG_INFO("Streamable HTTP event stream opened: session={}",
+                        sse_session_id_);
+        return;
       }
 
       // ── GET {configured_sse_path_} → open an SSE stream.
@@ -884,7 +944,6 @@ class HttpSseJsonRpcProtocolFilter
       if (session_it != headers.end()) {
         streamable_http_session_id_ = session_it->second;
       }
-
       // The protocol version header only became required after a certain
       // revision, so a request without one identifies a peer speaking the
       // revision before it.
@@ -892,9 +951,11 @@ class HttpSseJsonRpcProtocolFilter
       request_protocol_version_ = version_it != headers.end()
                                       ? version_it->second
                                       : protocol::kLegacyAssumedVersion;
-      auto accept = headers.find("accept");
-      if (accept != headers.end() &&
-          accept->second.find("text/event-stream") != std::string::npos) {
+      if (streamable_http_session_id_.empty() && method == "POST" &&
+          path == configured_rpc_path_) {
+        streamable_http_session_id_ = nextStreamableHttpSessionId();
+      }
+      if (accepts_sse) {
         client_accepts_sse_ = true;
         GOPHER_LOG_DEBUG("HttpSseJsonRpcProtocolFilter: client accepts SSE");
       }
@@ -1806,6 +1867,29 @@ class HttpSseJsonRpcProtocolFilter
     if (route_registration_callback_) {
       route_registration_callback_(routing_filter_.get());
     }
+  }
+
+  void addStreamableHttpSessionHeader(Buffer& data) {
+    const size_t len = data.length();
+    std::string http_response(static_cast<const char*>(data.linearize(len)),
+                              len);
+    if (http_response.compare(0, 5, "HTTP/") != 0 ||
+        http_response.find("\r\nMcp-Session-Id:") != std::string::npos ||
+        http_response.find("\r\nmcp-session-id:") != std::string::npos) {
+      return;
+    }
+
+    const std::string marker = "\r\n\r\n";
+    const auto header_end = http_response.find(marker);
+    if (header_end == std::string::npos) {
+      return;
+    }
+
+    const std::string header =
+        "\r\nMcp-Session-Id: " + streamable_http_session_id_;
+    http_response.insert(header_end, header);
+    data.drain(len);
+    data.add(http_response.c_str(), http_response.length());
   }
 
   /**

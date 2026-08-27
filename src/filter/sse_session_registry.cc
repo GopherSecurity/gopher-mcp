@@ -16,6 +16,13 @@ std::string SseSessionRegistry::registerSession(
   assert(dispatcher_.isThreadSafe() &&
          "SseSessionRegistry::registerSession off-dispatcher-thread");
   std::string session_id = "client_" + std::to_string(next_id_++);
+  return registerSession(session_id, connection);
+}
+
+std::string SseSessionRegistry::registerSession(
+    const std::string& session_id, network::Connection* connection) {
+  assert(dispatcher_.isThreadSafe() &&
+         "SseSessionRegistry::registerSession off-dispatcher-thread");
   sessions_[session_id] = connection;
   GOPHER_LOG_INFO("SSE session registered: {} (total={})", session_id,
                   sessions_.size());
