@@ -760,6 +760,11 @@ class HttpSseJsonRpcProtocolFilter
         path = path.substr(0, qpos);
       }
 
+      if (server_mode_ && !server_mode_->isSseStream() &&
+          server_mode_->currentMode() != ServerConnMode::Undetermined) {
+        server_mode_->resetForNextRequest();
+      }
+
       auto accept_it = headers.find("accept");
       const bool accepts_sse =
           accept_it != headers.end() &&
@@ -783,8 +788,11 @@ class HttpSseJsonRpcProtocolFilter
             session_it != headers.end() && !session_it->second.empty()
                 ? session_it->second
                 : nextStreamableHttpSessionId();
-        sse_registry_->registerSession(sse_session_id_,
-                                       &write_callbacks_->connection());
+        sse_registry_->registerSession(
+            sse_session_id_, &write_callbacks_->connection(),
+            [this](const std::string& json_data) {
+              return writeSseEventToOpenStream(json_data);
+            });
 
         std::ostringstream sse_response;
         sse_response << "HTTP/1.1 200 OK\r\n";
@@ -793,7 +801,9 @@ class HttpSseJsonRpcProtocolFilter
         sse_response << "Connection: keep-alive\r\n";
         sse_response << "Mcp-Session-Id: " << sse_session_id_ << "\r\n";
         sse_response << "Access-Control-Allow-Origin: *\r\n";
+        sse_response << "X-Accel-Buffering: no\r\n";
         sse_response << "\r\n";
+        sse_response << ": stream open\n\n";
 
         const std::string response_str = sse_response.str();
         OwnedBuffer response_buffer;
@@ -817,8 +827,11 @@ class HttpSseJsonRpcProtocolFilter
           server_mode_->handleEvent(ServerConnEvent::SseGetDetected);
         }
         client_accepts_sse_ = true;
-        sse_session_id_ =
-            sse_registry_->registerSession(&write_callbacks_->connection());
+        sse_session_id_ = sse_registry_->registerSession(
+            &write_callbacks_->connection(),
+            [this](const std::string& json_data) {
+              return writeSseEventToOpenStream(json_data);
+            });
 
         // Build the callback URL the client will POST future requests
         // to. If an external URL is configured (reverse-proxy case) we
@@ -1144,6 +1157,10 @@ class HttpSseJsonRpcProtocolFilter
     // The stream this response was, if it was one, is over. Read after
     // the flush above, which asks whether it was.
     reading_event_stream_ = false;
+
+    if (server_mode_ && !server_mode_->isSseStream()) {
+      server_mode_->resetForNextRequest();
+    }
   }
 
   void onError(const std::string& error) override {
@@ -1652,6 +1669,49 @@ class HttpSseJsonRpcProtocolFilter
     pending_messages_.clear();
     GOPHER_LOG_DEBUG(
         "HttpSseJsonRpcProtocolFilter: Finished processing pending messages");
+  }
+
+  bool writeSseEventToOpenStream(const std::string& json_data) {
+    if (!write_callbacks_) {
+      GOPHER_LOG_WARN(
+          "SSE stream write rejected: no write callbacks (session={})",
+          sse_session_id_);
+      return false;
+    }
+    if (!server_mode_) {
+      GOPHER_LOG_WARN("SSE stream write rejected: no server mode (session={})",
+                      sse_session_id_);
+      return false;
+    }
+    if (!server_mode_->isSseStream()) {
+      GOPHER_LOG_WARN(
+          "SSE stream write rejected: mode={} session={}",
+          ServerConnectionMode::getModeName(server_mode_->currentMode()),
+          sse_session_id_);
+      return false;
+    }
+    if (write_callbacks_->connection().state() !=
+        network::ConnectionState::Open) {
+      GOPHER_LOG_WARN(
+          "SSE stream write rejected: connection state={} session={}",
+          static_cast<int>(write_callbacks_->connection().state()),
+          sse_session_id_);
+      return false;
+    }
+
+    std::string event;
+    event.reserve(json_data.size() + 8);
+    event.append("data: ");
+    event.append(json_data);
+    event.append("\n\n");
+
+    OwnedBuffer buffer;
+    buffer.add(event.c_str(), event.length());
+    {
+      HandshakeWriteGuard guard(*server_mode_);
+      write_callbacks_->connection().write(buffer, /*end_stream=*/false);
+    }
+    return true;
   }
 
   /**

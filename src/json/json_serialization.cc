@@ -1757,6 +1757,25 @@ JsonValue serialize_ClientCapabilities(const ClientCapabilities& caps) {
     builder.add("roots", to_json(caps.roots.value()));
   }
 
+  if (caps.elicitation.has_value()) {
+    builder.add("elicitation", to_json(caps.elicitation.value()));
+  }
+
+  return builder.build();
+}
+
+JsonValue serialize_ElicitationCapability(
+    const ElicitationCapability& capability) {
+  JsonObjectBuilder builder;
+
+  if (capability.form.has_value()) {
+    builder.add("form", JsonValue::object());
+  }
+
+  if (capability.url.has_value()) {
+    builder.add("url", JsonValue::object());
+  }
+
   return builder.build();
 }
 
@@ -2739,7 +2758,33 @@ ClientCapabilities deserialize_ClientCapabilities(const JsonValue& json) {
     caps.roots = from_json<RootsCapability>(json["roots"]);
   }
 
+  if (json.contains("elicitation")) {
+    caps.elicitation = from_json<ElicitationCapability>(json["elicitation"]);
+  }
+
   return caps;
+}
+
+ElicitationCapability deserialize_ElicitationCapability(const JsonValue& json) {
+  ElicitationCapability capability;
+
+  if (!json.isObject()) {
+    return capability;
+  }
+
+  if (json.contains("form")) {
+    capability.form = EmptyCapability();
+  }
+
+  if (json.contains("url")) {
+    capability.url = EmptyCapability();
+  }
+
+  if (!capability.form.has_value() && !capability.url.has_value()) {
+    capability.form = EmptyCapability();
+  }
+
+  return capability;
 }
 
 RootsCapability deserialize_RootsCapability(const JsonValue& json) {

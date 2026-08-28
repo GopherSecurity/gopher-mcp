@@ -20,10 +20,26 @@ std::string SseSessionRegistry::registerSession(
 }
 
 std::string SseSessionRegistry::registerSession(
-    const std::string& session_id, network::Connection* connection) {
+    network::Connection* connection,
+    StreamWriter writer) {
   assert(dispatcher_.isThreadSafe() &&
          "SseSessionRegistry::registerSession off-dispatcher-thread");
-  sessions_[session_id] = connection;
+  std::string session_id = "client_" + std::to_string(next_id_++);
+  return registerSession(session_id, connection, std::move(writer));
+}
+
+std::string SseSessionRegistry::registerSession(
+    const std::string& session_id, network::Connection* connection) {
+  return registerSession(session_id, connection, nullptr);
+}
+
+std::string SseSessionRegistry::registerSession(
+    const std::string& session_id,
+    network::Connection* connection,
+    StreamWriter writer) {
+  assert(dispatcher_.isThreadSafe() &&
+         "SseSessionRegistry::registerSession off-dispatcher-thread");
+  sessions_[session_id] = SessionEntry{connection, std::move(writer)};
   GOPHER_LOG_INFO("SSE session registered: {} (total={})", session_id,
                   sessions_.size());
   return session_id;
@@ -50,7 +66,7 @@ void SseSessionRegistry::removeConnection(network::Connection* connection) {
     return;
   }
   for (auto it = sessions_.begin(); it != sessions_.end();) {
-    if (it->second == connection) {
+    if (it->second.connection == connection) {
       const std::string session_id = it->first;
       it = sessions_.erase(it);
       GOPHER_LOG_INFO("SSE session removed on connection close: {} (total={})",
@@ -78,7 +94,8 @@ bool SseSessionRegistry::sendResponse(
                     session_id);
     return false;
   }
-  if (writing_connection != nullptr && it->second == writing_connection) {
+  if (writing_connection != nullptr &&
+      it->second.connection == writing_connection) {
     // Re-entering write() on the connection we are already writing would
     // clobber the buffer that write is holding.
     GOPHER_LOG_WARN(
@@ -87,9 +104,21 @@ bool SseSessionRegistry::sendResponse(
         session_id);
     return false;
   }
+  if (it->second.writer) {
+    const bool written = it->second.writer(json_data);
+    if (!written) {
+      GOPHER_LOG_WARN("SSE session writer rejected response routing: {}",
+                      session_id);
+    }
+    return written;
+  }
+  if (!it->second.connection) {
+    GOPHER_LOG_WARN("SSE session has no response route: {}", session_id);
+    return false;
+  }
   OwnedBuffer buffer;
   buffer.add(json_data.c_str(), json_data.length());
-  it->second->write(buffer, /*end_stream=*/false);
+  it->second.connection->write(buffer, /*end_stream=*/false);
   GOPHER_LOG_DEBUG("SSE response routed to session {} ({} bytes)", session_id,
                    json_data.size());
   return true;

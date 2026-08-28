@@ -244,6 +244,29 @@ class ClientCapabilitiesBuilder
     return *this;
   }
 
+  ClientCapabilitiesBuilder& elicitation(bool enabled) {
+    if (enabled) {
+      ElicitationCapability capability;
+      capability.form = mcp::make_optional(EmptyCapability());
+      value_.elicitation = mcp::make_optional(capability);
+    } else {
+      value_.elicitation = nullopt;
+    }
+    return *this;
+  }
+
+  ClientCapabilitiesBuilder& elicitationUrl(bool enabled) {
+    if (enabled) {
+      if (!value_.elicitation) {
+        value_.elicitation = mcp::make_optional(ElicitationCapability());
+      }
+      value_.elicitation->url = mcp::make_optional(EmptyCapability());
+    } else if (value_.elicitation) {
+      value_.elicitation->url = nullopt;
+    }
+    return *this;
+  }
+
   ClientCapabilitiesBuilder& resources(bool enabled) {
     if (!value_.experimental) {
       value_.experimental = mcp::make_optional(Metadata());

@@ -168,6 +168,23 @@ std::chrono::milliseconds ServerConnectionMode::getTimeInCurrentMode() const {
       now - mode_entry_time_);
 }
 
+void ServerConnectionMode::resetForNextRequest() {
+  assertInDispatcherThread();
+
+  if (current_mode_ == ServerConnMode::SseStream ||
+      current_mode_ == ServerConnMode::Undetermined ||
+      current_mode_ == ServerConnMode::Closed) {
+    return;
+  }
+
+  GOPHER_LOG_DEBUG("ServerConnectionMode: resetting {} for next request",
+                   getModeName(current_mode_));
+  current_mode_ = ServerConnMode::Undetermined;
+  mode_entry_time_ = std::chrono::steady_clock::now();
+  sse_headers_written_ = false;
+  transition_in_progress_ = false;
+}
+
 // ===== Utility =====
 
 std::string ServerConnectionMode::getModeName(ServerConnMode mode) {

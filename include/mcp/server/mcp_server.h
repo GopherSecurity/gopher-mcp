@@ -77,6 +77,7 @@ class ResourceManager;
 class ToolRegistry;
 class PromptRegistry;
 class SessionManager;
+class SessionContext;
 
 /**
  * Server configuration
@@ -87,6 +88,8 @@ struct McpServerConfig : public application::ApplicationBase::Config {
   std::string server_name = "mcp-cpp-server";
   std::string server_version = "1.0.0";
   std::string instructions;  // Optional server instructions
+  std::function<std::string(const jsonrpc::Request&, SessionContext&)>
+      instructions_provider;
 
   // Transport configuration
   std::vector<TransportType> supported_transports = {TransportType::Stdio,
@@ -311,6 +314,20 @@ class SessionContext {
 
   const std::string& getProtocolVersion() const { return protocol_version_; }
 
+  void setNegotiatedProtocolVersion(const std::string& protocol_version) {
+    setProtocolVersion(protocol_version);
+  }
+  const std::string& getNegotiatedProtocolVersion() const {
+    return getProtocolVersion();
+  }
+
+  void setClientCapabilities(const ClientCapabilities& capabilities) {
+    client_capabilities_ = capabilities;
+  }
+  const ClientCapabilities& getClientCapabilities() const {
+    return client_capabilities_;
+  }
+
   // Request-scoped metadata: the in-flight request's params._meta, carried as
   // its stringified-JSON form (consistent with how nested arguments are
   // represented in Metadata). Set immediately before each tool handler is
@@ -354,6 +371,7 @@ class SessionContext {
   std::chrono::steady_clock::time_point last_activity_;
   optional<Implementation> client_info_;
   std::string protocol_version_;        // negotiated at initialize
+  ClientCapabilities client_capabilities_;
   optional<std::string> request_meta_;  // params._meta of the in-flight request
 
   mutable std::mutex mutex_;
@@ -1118,6 +1136,10 @@ class McpServer : public application::ApplicationBase,
       std::function<void(const jsonrpc::Notification&, SessionContext&)>
           handler);
 
+  // Update initialize instructions returned to future clients. Useful for
+  // gateways that discover backend instructions after server construction.
+  void setInstructions(const std::string& instructions);
+
   // Resource management — register with a read handler for resources/read
   void registerResource(
       const Resource& resource,
@@ -1185,6 +1207,9 @@ class McpServer : public application::ApplicationBase,
   // HTTP/SSE sessions require an active SSE stream for server push.
   std::future<jsonrpc::Response> sendRequest(const std::string& session_id,
                                              const jsonrpc::Request& request);
+
+  bool sessionSupportsElicitation(const std::string& session_id,
+                                  const std::string& mode) const;
 
   // Broadcast notification to all sessions
   void broadcastNotification(const jsonrpc::Notification& notification);
@@ -1488,6 +1513,7 @@ class McpServer : public application::ApplicationBase,
   };
 
   McpServerConfig config_;
+  mutable std::mutex config_mutex_;
   McpServerStats server_stats_;
   std::unique_ptr<ServerProtocolCallbacks> protocol_callbacks_;
   std::shared_ptr<filter::MetricsFilter> metrics_filter_;

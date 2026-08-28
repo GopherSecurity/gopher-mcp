@@ -761,8 +761,19 @@ TEST_F(MCPSerializationTest, ClientCapabilities) {
   // Add roots capability
   caps.roots = mcp::make_optional(RootsCapability());
   caps.roots->listChanged = mcp::make_optional(EmptyCapability());
+  caps.elicitation = mcp::make_optional(ElicitationCapability());
+  caps.elicitation->url = mcp::make_optional(EmptyCapability());
 
   testRoundTrip(caps);
+
+  JsonValue json = to_json(caps);
+  ASSERT_TRUE(json.contains("elicitation"));
+  EXPECT_TRUE(json["elicitation"].isObject());
+  EXPECT_TRUE(json["elicitation"].contains("url"));
+
+  ClientCapabilities decoded = from_json<ClientCapabilities>(json);
+  EXPECT_TRUE(decoded.elicitation.has_value());
+  EXPECT_TRUE(decoded.elicitation->url.has_value());
 }
 
 TEST_F(MCPSerializationTest, ServerCapabilities) {

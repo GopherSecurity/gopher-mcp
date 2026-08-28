@@ -4,6 +4,7 @@
 #include <functional>
 #include <map>
 #include <string>
+#include <utility>
 
 #include "mcp/event/event_loop.h"
 #include "mcp/network/connection.h"
@@ -57,6 +58,20 @@ class SseSessionRegistry {
   std::string registerSession(const std::string& session_id,
                               network::Connection* connection);
 
+  using StreamWriter = std::function<bool(const std::string&)>;
+
+  // Record an SSE stream connection with a generated session ID and explicit
+  // event-stream writer.
+  std::string registerSession(network::Connection* connection,
+                              StreamWriter writer);
+
+  // Record an SSE stream connection with an explicit writer that emits bytes
+  // already framed for the event stream. This avoids re-entering the generic
+  // HTTP response path for server-initiated messages.
+  std::string registerSession(const std::string& session_id,
+                              network::Connection* connection,
+                              StreamWriter writer);
+
   // Drop a session. Safe to call with an unknown ID (no-op).
   void removeSession(const std::string& session_id);
 
@@ -106,8 +121,13 @@ class SseSessionRegistry {
   bool hasSession(const std::string& session_id) const;
 
  private:
+  struct SessionEntry {
+    network::Connection* connection{nullptr};
+    StreamWriter writer;
+  };
+
   event::Dispatcher& dispatcher_;
-  std::map<std::string, network::Connection*> sessions_;
+  std::map<std::string, SessionEntry> sessions_;
   uint64_t next_id_{1};
   SessionClosedCallback session_closed_callback_;
 };

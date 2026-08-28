@@ -34,7 +34,9 @@ TEST_F(McpServerResponseTest, InitializeResponseFormat) {
   result_json["serverInfo"] = std::move(server_info);
 
   JsonValue capabilities = JsonValue::object();
-  capabilities["tools"] = JsonValue::object();
+  JsonValue tools_capability = JsonValue::object();
+  tools_capability["listChanged"] = false;
+  capabilities["tools"] = std::move(tools_capability);
   capabilities["prompts"] = JsonValue::object();
   result_json["capabilities"] = std::move(capabilities);
 
@@ -53,8 +55,9 @@ TEST_F(McpServerResponseTest, InitializeResponseFormat) {
       << "serverInfo should be nested object, got: " << json_str;
   EXPECT_TRUE(json_str.find("\"capabilities\":{") != std::string::npos)
       << "capabilities should be nested object";
-  EXPECT_TRUE(json_str.find("\"tools\":{}") != std::string::npos)
-      << "tools should be empty object";
+  EXPECT_TRUE(json_str.find("\"tools\":{\"listChanged\":false}") !=
+              std::string::npos)
+      << "tools should advertise listChanged support shape";
   EXPECT_TRUE(json_str.find("\"prompts\":{}") != std::string::npos)
       << "prompts should be empty object";
 

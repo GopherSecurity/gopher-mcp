@@ -15,6 +15,7 @@
 #include "mcp/filter/http_sse_filter_chain_factory.h"
 #include "mcp/filter/json_rpc_filter_factory.h"
 #include "mcp/filter/json_rpc_protocol_filter.h"
+#include "mcp/json/json_serialization.h"
 #include "mcp/filter/sse_session_registry.h"
 #include "mcp/logging/log_macros.h"
 #include "mcp/protocol/modern_era.h"
@@ -31,9 +32,53 @@ namespace mcp {
 namespace server {
 namespace {
 
-std::string requestIdToString(const RequestId& id) {
-  return holds_alternative<std::string>(id) ? get<std::string>(id)
-                                            : std::to_string(get<int64_t>(id));
+constexpr const char* kMcpProtocolVersion2025_03_26 = "2025-03-26";
+constexpr const char* kMcpProtocolVersion2025_11_25 = "2025-11-25";
+
+std::string stringMetadataValue(const Metadata& metadata,
+                                const std::string& key) {
+  auto it = metadata.find(key);
+  if (it == metadata.end() || !holds_alternative<std::string>(it->second)) {
+    return "";
+  }
+  return get<std::string>(it->second);
+}
+
+std::string negotiateProtocolVersion(const std::string& requested,
+                                     const std::string& newest_supported) {
+  if (requested.empty()) {
+    return newest_supported;
+  }
+  if (requested > newest_supported) {
+    return newest_supported;
+  }
+  return requested;
+}
+
+ClientCapabilities clientCapabilitiesFromInitializeParams(
+    const Metadata& params) {
+  ClientCapabilities capabilities;
+  const std::string raw_capabilities =
+      stringMetadataValue(params, "capabilities");
+  if (raw_capabilities.empty()) {
+    return capabilities;
+  }
+  try {
+    const json::JsonValue json = json::JsonValue::parse(raw_capabilities);
+    if (json.isObject()) {
+      capabilities = json::from_json<ClientCapabilities>(json);
+    }
+  } catch (const std::exception&) {
+  }
+  return capabilities;
+}
+
+bool protocolSupportsElicitationMode(const std::string& protocol_version,
+                                     const std::string& mode) {
+  if (mode == "url") {
+    return protocol_version >= kMcpProtocolVersion2025_11_25;
+  }
+  return protocol_version >= kMcpProtocolVersion2025_03_26;
 }
 
 std::future<jsonrpc::Response> makeReadyResponseFuture(
@@ -872,6 +917,11 @@ void McpServer::registerNotificationHandler(
   notification_handlers_[method] = handler;
 }
 
+void McpServer::setInstructions(const std::string& instructions) {
+  std::lock_guard<std::mutex> lock(config_mutex_);
+  config_.instructions = instructions;
+}
+
 // Deliver a notification to one session's client. Dispatcher thread only —
 // every route below writes to a connection owned by that thread.
 VoidResult McpServer::sendNotificationToSession(
@@ -921,7 +971,8 @@ VoidResult McpServer::sendNotificationToSession(
     // delivery.
     return makeVoidError(
         Error(jsonrpc::INTERNAL_ERROR,
-              "SSE stream gone for session " + session->getId()));
+              "SSE stream gone for session " + session->getId() +
+                  " (transport " + session->getTransportSessionId() + ")"));
   }
 
   // Connection-keyed session. Since the dispatch context supplies the
@@ -990,7 +1041,8 @@ VoidResult McpServer::sendRequestToSession(
     }
     return makeVoidError(
         Error(jsonrpc::INTERNAL_ERROR,
-              "SSE stream gone for session " + session->getId()));
+              "SSE stream gone for session " + session->getId() +
+                  " (transport " + session->getTransportSessionId() + ")"));
   }
 
   if (session->getConnection()) {
@@ -1037,6 +1089,25 @@ std::future<jsonrpc::Response> McpServer::sendRequest(
   }
 
   return future;
+}
+
+bool McpServer::sessionSupportsElicitation(
+    const std::string& session_id, const std::string& mode) const {
+  auto session = session_manager_->getSession(session_id);
+  if (!session) {
+    return false;
+  }
+  const auto& elicitation =
+      session->getClientCapabilities().elicitation;
+  if (!elicitation.has_value() ||
+      !protocolSupportsElicitationMode(session->getNegotiatedProtocolVersion(),
+                                       mode)) {
+    return false;
+  }
+  if (mode == "url") {
+    return elicitation->url.has_value();
+  }
+  return elicitation->form.has_value();
 }
 
 // Push notifications/resources/updated to every subscriber of the URI
@@ -2061,19 +2132,40 @@ void McpServer::registerBuiltinHandlers() {
 
 jsonrpc::Response McpServer::handleInitialize(const jsonrpc::Request& request,
                                               SessionContext& session) {
-  // Parse initialize request
-  // TODO: Deserialize InitializeRequest from request.params
-  // TODO: Extract client info and store in session via session.setClientInfo()
+  std::string instructions;
+  std::string protocol_version;
+  std::string server_name;
+  std::string server_version;
+  ServerCapabilities server_capabilities;
+  std::function<std::string(const jsonrpc::Request&, SessionContext&)>
+      instructions_provider;
+  {
+    std::lock_guard<std::mutex> lock(config_mutex_);
+    instructions = config_.instructions;
+    protocol_version = config_.protocol_version;
+    server_name = config_.server_name;
+    server_version = config_.server_version;
+    server_capabilities = config_.capabilities;
+    instructions_provider = config_.instructions_provider;
+  }
 
   // Read the revision the client asked for. Anything missing or of the
   // wrong type leaves this empty, which negotiates to our newest.
   std::string requested_version;
   if (request.params.has_value()) {
-    const auto& params = request.params.value();
-    auto version_it = params.find("protocolVersion");
-    if (version_it != params.end() &&
-        holds_alternative<std::string>(version_it->second)) {
-      requested_version = get<std::string>(version_it->second);
+    auto params = request.params.value();
+    requested_version = stringMetadataValue(params, "protocolVersion");
+    session.setClientCapabilities(clientCapabilitiesFromInitializeParams(params));
+    const std::string raw_client_info = stringMetadataValue(params, "clientInfo");
+    if (!raw_client_info.empty()) {
+      try {
+        const json::JsonValue json = json::JsonValue::parse(raw_client_info);
+        if (json.isObject()) {
+          session.setClientInfo(
+              mcp::make_optional(json::from_json<Implementation>(json)));
+        }
+      } catch (const std::exception&) {
+      }
     }
   }
 
@@ -2088,7 +2180,8 @@ jsonrpc::Response McpServer::handleInitialize(const jsonrpc::Request& request,
   std::vector<std::string> supported = transport::handshakeProtocolVersions(
       transport::servedProtocolVersions(config_.streamable_http));
   if (supported.empty()) {
-    supported.push_back(config_.protocol_version);
+    supported.push_back(protocol_version.empty() ? protocol::kDefaultProtocolVersion
+                                                 : protocol_version);
   }
 
   const std::string negotiated =
@@ -2099,6 +2192,13 @@ jsonrpc::Response McpServer::handleInitialize(const jsonrpc::Request& request,
   // re-deriving it from a header.
   session.setProtocolVersion(negotiated);
 
+  if (instructions_provider) {
+    std::string provided_instructions = instructions_provider(request, session);
+    if (!provided_instructions.empty()) {
+      instructions = std::move(provided_instructions);
+    }
+  }
+
   // Build initialize result as proper nested JSON structure
   // MCP protocol requires nested objects, not flattened dot notation
   json::JsonValue result_json;
@@ -2106,15 +2206,15 @@ jsonrpc::Response McpServer::handleInitialize(const jsonrpc::Request& request,
 
   // Add serverInfo as nested object
   json::JsonValue server_info;
-  server_info["name"] = config_.server_name;
-  server_info["version"] = config_.server_version;
+  server_info["name"] = server_name;
+  server_info["version"] = server_version;
   result_json["serverInfo"] = std::move(server_info);
 
   // Add capabilities as nested object with empty objects for enabled caps
   json::JsonValue capabilities = json::JsonValue::object();
-  if (config_.capabilities.resources.has_value()) {
-    if (holds_alternative<bool>(config_.capabilities.resources.value())) {
-      if (get<bool>(config_.capabilities.resources.value())) {
+  if (server_capabilities.resources.has_value()) {
+    if (holds_alternative<bool>(server_capabilities.resources.value())) {
+      if (get<bool>(server_capabilities.resources.value())) {
         capabilities["resources"] = json::JsonValue::object();
       }
     } else {
@@ -2124,23 +2224,25 @@ jsonrpc::Response McpServer::handleInitialize(const jsonrpc::Request& request,
       capabilities["resources"] = std::move(resources_cap);
     }
   }
-  if (config_.capabilities.tools.has_value() &&
-      config_.capabilities.tools.value()) {
-    capabilities["tools"] = json::JsonValue::object();
+  if (server_capabilities.tools.has_value() &&
+      server_capabilities.tools.value()) {
+    json::JsonValue tools_cap = json::JsonValue::object();
+    tools_cap["listChanged"] = false;
+    capabilities["tools"] = std::move(tools_cap);
   }
-  if (config_.capabilities.prompts.has_value() &&
-      config_.capabilities.prompts.value()) {
+  if (server_capabilities.prompts.has_value() &&
+      server_capabilities.prompts.value()) {
     capabilities["prompts"] = json::JsonValue::object();
   }
-  if (config_.capabilities.logging.has_value() &&
-      config_.capabilities.logging.value()) {
+  if (server_capabilities.logging.has_value() &&
+      server_capabilities.logging.value()) {
     capabilities["logging"] = json::JsonValue::object();
   }
   result_json["capabilities"] = std::move(capabilities);
 
   // Add instructions if present
-  if (!config_.instructions.empty()) {
-    result_json["instructions"] = config_.instructions;
+  if (!instructions.empty()) {
+    result_json["instructions"] = instructions;
   }
 
   // Return response with JSON result directly
