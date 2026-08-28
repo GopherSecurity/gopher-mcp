@@ -91,6 +91,10 @@ ServerCapabilities deserialize_ServerCapabilities(const JsonValue& json);
 JsonValue serialize_ClientCapabilities(const ClientCapabilities& value);
 ClientCapabilities deserialize_ClientCapabilities(const JsonValue& json);
 
+JsonValue serialize_ElicitationCapability(
+    const ElicitationCapability& value);
+ElicitationCapability deserialize_ElicitationCapability(const JsonValue& json);
+
 JsonValue serialize_RootsCapability(const RootsCapability& value);
 RootsCapability deserialize_RootsCapability(const JsonValue& json);
 
@@ -363,6 +367,8 @@ SERIALIZE_TRAIT(ServerCapabilities)
 DESERIALIZE_TRAIT(ServerCapabilities)
 SERIALIZE_TRAIT(ClientCapabilities)
 DESERIALIZE_TRAIT(ClientCapabilities)
+SERIALIZE_TRAIT(ElicitationCapability)
+DESERIALIZE_TRAIT(ElicitationCapability)
 SERIALIZE_TRAIT(RootsCapability)
 DESERIALIZE_TRAIT(RootsCapability)
 SERIALIZE_TRAIT(ResourcesCapability)

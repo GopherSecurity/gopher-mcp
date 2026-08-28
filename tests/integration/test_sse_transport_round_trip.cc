@@ -48,6 +48,7 @@
 
 #include "mcp/buffer.h"
 #include "mcp/filter/http_sse_filter_chain_factory.h"
+#include "mcp/filter/sse_session_registry.h"
 #include "mcp/mcp_connection_manager.h"
 #include "mcp/network/connection_impl.h"
 #include "mcp/network/socket_impl.h"
@@ -337,6 +338,127 @@ TEST_F(SseTransportRoundTripTest, ConfiguredSsePathIsHonored) {
       << "configured SSE path /events did not return 200, got: " << wire;
   EXPECT_NE(wire.find("event: endpoint"), std::string::npos)
       << "no endpoint event on configured /events path, got: " << wire;
+
+  closeOnDispatcher(std::move(conn), std::move(factory));
+}
+
+TEST_F(SseTransportRoundTripTest,
+       StreamableHttpPushUsesSseEventNotNestedHttpResponse) {
+  RecordingCallbacks callbacks;
+
+  std::unique_ptr<network::ServerConnection> conn;
+  network::IoHandlePtr peer;
+  std::shared_ptr<filter::HttpSseFilterChainFactory> factory;
+  const std::string session_id = "streamable_postman";
+
+  executeInDispatcher([&]() {
+    auto h = makeHarness(callbacks);
+    conn = std::move(h.conn);
+    peer = std::move(h.peer);
+    factory = std::move(h.factory);
+
+    std::string req;
+    req += "GET /mcp HTTP/1.1\r\n";
+    req += "Host: localhost\r\n";
+    req += "Accept: text/event-stream\r\n";
+    req += "Mcp-Session-Id: " + session_id + "\r\n";
+    req += "\r\n";
+    writeClientBytes(*peer, req);
+  });
+
+  const std::string handshake = drainPeer(*peer);
+  EXPECT_NE(handshake.find("Content-Type: text/event-stream"),
+            std::string::npos)
+      << "streamable GET did not open an event stream: " << handshake;
+  EXPECT_NE(handshake.find(": stream open\n\n"), std::string::npos)
+      << "streamable GET did not send the initial open comment: "
+      << handshake;
+  EXPECT_EQ(handshake.find("event: endpoint"), std::string::npos)
+      << "streamable GET must not use legacy endpoint negotiation: "
+      << handshake;
+
+  executeInDispatcher([&]() {
+    const std::string payload =
+        R"({"jsonrpc":"2.0","id":"elicit-1","method":"elicitation/create","params":{"mode":"url","url":"https://auth.example/authorize"}})";
+    ASSERT_TRUE(factory->sseRegistry().sendResponse(session_id, payload));
+  });
+
+  const std::string pushed = drainPeer(*peer);
+  EXPECT_NE(pushed.find("data: {\"jsonrpc\":\"2.0\""), std::string::npos)
+      << "server push was not framed as an SSE event: " << pushed;
+  EXPECT_NE(pushed.find("\"method\":\"elicitation/create\""), std::string::npos)
+      << "server push did not contain elicitation request: " << pushed;
+  EXPECT_EQ(pushed.find("HTTP/1.1"), std::string::npos)
+      << "server push was nested as an HTTP response inside SSE body: "
+      << pushed;
+
+  closeOnDispatcher(std::move(conn), std::move(factory));
+}
+
+TEST_F(SseTransportRoundTripTest,
+       StreamableHttpGetCanFollowPlainHttpKeepAliveRequest) {
+  RecordingCallbacks callbacks;
+
+  std::unique_ptr<network::ServerConnection> conn;
+  network::IoHandlePtr peer;
+  std::shared_ptr<filter::HttpSseFilterChainFactory> factory;
+  const std::string session_id = "streamable_after_post";
+
+  executeInDispatcher([&]() {
+    auto h = makeHarness(callbacks);
+    conn = std::move(h.conn);
+    peer = std::move(h.peer);
+    factory = std::move(h.factory);
+
+    const std::string body =
+        R"({"jsonrpc":"2.0","method":"notifications/initialized"})";
+    std::string post;
+    post += "POST /mcp HTTP/1.1\r\n";
+    post += "Host: localhost\r\n";
+    post += "Content-Type: application/json\r\n";
+    post += "Connection: keep-alive\r\n";
+    post += "Content-Length: " + std::to_string(body.size()) + "\r\n";
+    post += "\r\n";
+    post += body;
+    writeClientBytes(*peer, post);
+  });
+
+  const std::string accepted = drainPeer(*peer);
+  EXPECT_NE(accepted.find("HTTP/1.1 202"), std::string::npos)
+      << "plain HTTP notification did not complete on keep-alive socket: "
+      << accepted;
+
+  executeInDispatcher([&]() {
+    std::string get;
+    get += "GET /mcp HTTP/1.1\r\n";
+    get += "Host: localhost\r\n";
+    get += "Accept: text/event-stream\r\n";
+    get += "Mcp-Session-Id: " + session_id + "\r\n";
+    get += "\r\n";
+    writeClientBytes(*peer, get);
+  });
+
+  const std::string handshake = drainPeer(*peer);
+  EXPECT_NE(handshake.find("Content-Type: text/event-stream"),
+            std::string::npos)
+      << "streamable GET after keep-alive POST did not open an event stream: "
+      << handshake;
+  EXPECT_NE(handshake.find(": stream open\n\n"), std::string::npos)
+      << "streamable GET after keep-alive POST did not send open comment: "
+      << handshake;
+
+  executeInDispatcher([&]() {
+    const std::string payload =
+        R"({"jsonrpc":"2.0","id":"elicit-1","method":"elicitation/create","params":{"mode":"url","url":"https://auth.example/authorize"}})";
+    ASSERT_TRUE(factory->sseRegistry().sendResponse(session_id, payload));
+  });
+
+  const std::string pushed = drainPeer(*peer);
+  EXPECT_NE(pushed.find("data: {\"jsonrpc\":\"2.0\""), std::string::npos)
+      << "server push after keep-alive POST was not routed to SSE: " << pushed;
+  EXPECT_NE(pushed.find("\"method\":\"elicitation/create\""), std::string::npos)
+      << "server push after keep-alive POST lost elicitation payload: "
+      << pushed;
 
   closeOnDispatcher(std::move(conn), std::move(factory));
 }

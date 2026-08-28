@@ -2,16 +2,18 @@
  * @file server_connection_mode.h
  * @brief Server-side connection mode state machine
  *
- * Manages the per-connection mode determination for MCP server filters.
- * Each accepted connection is classified into exactly one mode during
- * HTTP header parsing, and the mode is immutable for the connection's
- * lifetime. This replaces the ad-hoc boolean flags (sse_server_mode_,
+ * Manages server-side mode determination for MCP server filters. Each HTTP
+ * request is classified into exactly one mode during header parsing. Plain
+ * HTTP and callback-proxy requests reset after message completion so a
+ * keep-alive connection can later become a Streamable HTTP event stream; an
+ * SSE stream owns the connection until close. This replaces the ad-hoc boolean
+ * flags (sse_server_mode_,
  * sse_writing_handshake_, sse_headers_written_) with a validated state
  * machine that provides transition history and observable callbacks.
  *
  * Design principles:
  * - Thread-confined to dispatcher thread (lock-free, no mutex)
- * - Mode determined once (Undetermined -> PlainHttp|SseStream|CallbackProxy)
+ * - Mode determined once per HTTP request
  * - RAII HandshakeWriteGuard for the reentrancy guard pattern
  * - Observable via callbacks for debugging and logging
  * - Per-connection instance owned by the filter via unique_ptr
@@ -218,6 +220,11 @@ class ServerConnectionMode {
 
   std::chrono::milliseconds getTimeInCurrentMode() const;
   uint64_t getTotalTransitions() const { return total_transitions_; }
+
+  // Reset request-scoped modes after HTTP message completion so keep-alive
+  // sockets can carry a later request with a different mode. No-op for
+  // SseStream because an event stream owns the connection until close.
+  void resetForNextRequest();
 
   // ===== Utility =====
 

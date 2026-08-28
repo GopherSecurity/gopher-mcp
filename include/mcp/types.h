@@ -820,11 +820,17 @@ struct RootsCapability {
   optional<EmptyCapability> listChanged;
 };
 
+struct ElicitationCapability {
+  optional<EmptyCapability> form;
+  optional<EmptyCapability> url;
+};
+
 // Capability types
 struct ClientCapabilities {
   optional<Metadata> experimental;
   optional<SamplingParams> sampling;
   optional<RootsCapability> roots;
+  optional<ElicitationCapability> elicitation;
 
   ClientCapabilities() = default;
 };

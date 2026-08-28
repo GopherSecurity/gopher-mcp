@@ -1112,6 +1112,7 @@ void StreamableHttpFilter::validateThenDispatch(
   // for want of a session would make discovery reachable only after the
   // handshake it is meant to inform.
   const bool exempt = method_name == kInitializeMethod ||
+                      method_name == "notifications/initialized" ||
                       method_name == protocol::modern::kMethodServerDiscover;
 
   if (sessions_ != nullptr && exempt && !session_id_.empty() &&
