@@ -370,7 +370,7 @@ class SessionContext {
   std::chrono::steady_clock::time_point created_time_;
   std::chrono::steady_clock::time_point last_activity_;
   optional<Implementation> client_info_;
-  std::string protocol_version_;        // negotiated at initialize
+  std::string protocol_version_;  // negotiated at initialize
   ClientCapabilities client_capabilities_;
   optional<std::string> request_meta_;  // params._meta of the in-flight request
 

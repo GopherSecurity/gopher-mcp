@@ -15,8 +15,8 @@
 #include "mcp/filter/http_sse_filter_chain_factory.h"
 #include "mcp/filter/json_rpc_filter_factory.h"
 #include "mcp/filter/json_rpc_protocol_filter.h"
-#include "mcp/json/json_serialization.h"
 #include "mcp/filter/sse_session_registry.h"
+#include "mcp/json/json_serialization.h"
 #include "mcp/logging/log_macros.h"
 #include "mcp/protocol/modern_era.h"
 #include "mcp/protocol/protocol_versions.h"
@@ -969,10 +969,10 @@ VoidResult McpServer::sendNotificationToSession(
     // Registry exists but the stream is gone (client disconnected between
     // lookup and send) — report failure so the caller doesn't assume
     // delivery.
-    return makeVoidError(
-        Error(jsonrpc::INTERNAL_ERROR,
-              "SSE stream gone for session " + session->getId() +
-                  " (transport " + session->getTransportSessionId() + ")"));
+    return makeVoidError(Error(jsonrpc::INTERNAL_ERROR,
+                               "SSE stream gone for session " +
+                                   session->getId() + " (transport " +
+                                   session->getTransportSessionId() + ")"));
   }
 
   // Connection-keyed session. Since the dispatch context supplies the
@@ -1039,10 +1039,10 @@ VoidResult McpServer::sendRequestToSession(
             session->getTransportSessionId(), json_str)) {
       return makeVoidSuccess();
     }
-    return makeVoidError(
-        Error(jsonrpc::INTERNAL_ERROR,
-              "SSE stream gone for session " + session->getId() +
-                  " (transport " + session->getTransportSessionId() + ")"));
+    return makeVoidError(Error(jsonrpc::INTERNAL_ERROR,
+                               "SSE stream gone for session " +
+                                   session->getId() + " (transport " +
+                                   session->getTransportSessionId() + ")"));
   }
 
   if (session->getConnection()) {
@@ -1091,14 +1091,13 @@ std::future<jsonrpc::Response> McpServer::sendRequest(
   return future;
 }
 
-bool McpServer::sessionSupportsElicitation(
-    const std::string& session_id, const std::string& mode) const {
+bool McpServer::sessionSupportsElicitation(const std::string& session_id,
+                                           const std::string& mode) const {
   auto session = session_manager_->getSession(session_id);
   if (!session) {
     return false;
   }
-  const auto& elicitation =
-      session->getClientCapabilities().elicitation;
+  const auto& elicitation = session->getClientCapabilities().elicitation;
   if (!elicitation.has_value() ||
       !protocolSupportsElicitationMode(session->getNegotiatedProtocolVersion(),
                                        mode)) {
@@ -2155,8 +2154,10 @@ jsonrpc::Response McpServer::handleInitialize(const jsonrpc::Request& request,
   if (request.params.has_value()) {
     auto params = request.params.value();
     requested_version = stringMetadataValue(params, "protocolVersion");
-    session.setClientCapabilities(clientCapabilitiesFromInitializeParams(params));
-    const std::string raw_client_info = stringMetadataValue(params, "clientInfo");
+    session.setClientCapabilities(
+        clientCapabilitiesFromInitializeParams(params));
+    const std::string raw_client_info =
+        stringMetadataValue(params, "clientInfo");
     if (!raw_client_info.empty()) {
       try {
         const json::JsonValue json = json::JsonValue::parse(raw_client_info);
@@ -2180,8 +2181,9 @@ jsonrpc::Response McpServer::handleInitialize(const jsonrpc::Request& request,
   std::vector<std::string> supported = transport::handshakeProtocolVersions(
       transport::servedProtocolVersions(config_.streamable_http));
   if (supported.empty()) {
-    supported.push_back(protocol_version.empty() ? protocol::kDefaultProtocolVersion
-                                                 : protocol_version);
+    supported.push_back(protocol_version.empty()
+                            ? protocol::kDefaultProtocolVersion
+                            : protocol_version);
   }
 
   const std::string negotiated =
