@@ -371,8 +371,7 @@ TEST_F(SseTransportRoundTripTest,
             std::string::npos)
       << "streamable GET did not open an event stream: " << handshake;
   EXPECT_NE(handshake.find(": stream open\n\n"), std::string::npos)
-      << "streamable GET did not send the initial open comment: "
-      << handshake;
+      << "streamable GET did not send the initial open comment: " << handshake;
   EXPECT_EQ(handshake.find("event: endpoint"), std::string::npos)
       << "streamable GET must not use legacy endpoint negotiation: "
       << handshake;

@@ -19,9 +19,8 @@ std::string SseSessionRegistry::registerSession(
   return registerSession(session_id, connection);
 }
 
-std::string SseSessionRegistry::registerSession(
-    network::Connection* connection,
-    StreamWriter writer) {
+std::string SseSessionRegistry::registerSession(network::Connection* connection,
+                                                StreamWriter writer) {
   assert(dispatcher_.isThreadSafe() &&
          "SseSessionRegistry::registerSession off-dispatcher-thread");
   std::string session_id = "client_" + std::to_string(next_id_++);
@@ -33,10 +32,9 @@ std::string SseSessionRegistry::registerSession(
   return registerSession(session_id, connection, nullptr);
 }
 
-std::string SseSessionRegistry::registerSession(
-    const std::string& session_id,
-    network::Connection* connection,
-    StreamWriter writer) {
+std::string SseSessionRegistry::registerSession(const std::string& session_id,
+                                                network::Connection* connection,
+                                                StreamWriter writer) {
   assert(dispatcher_.isThreadSafe() &&
          "SseSessionRegistry::registerSession off-dispatcher-thread");
   sessions_[session_id] = SessionEntry{connection, std::move(writer)};
