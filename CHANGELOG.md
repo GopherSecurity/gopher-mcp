@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+### Changed
+
+### Fixed
+
+
+## [0.1.16] - 2026-08-30
+
+### Added
+
 - `McpServer::askClient` sends a request to a client mid-request and delivers
   its answer to a callback, bounded by a deadline. `ResponseStream::sendRequest`
   carries the question down the stream the answer will arrive on.
