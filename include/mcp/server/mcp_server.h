@@ -1207,11 +1207,10 @@ class McpServer : public application::ApplicationBase,
   // or with an error response when the deadline passes first. Waiting on the
   // returned future from the dispatcher thread will deadlock the response path.
   // HTTP/SSE sessions require an active SSE stream for server push.
-  std::future<jsonrpc::Response> sendRequest(const std::string& session_id,
-                                             const jsonrpc::Request& request,
-                                             std::chrono::milliseconds timeout =
-                                                 std::chrono::milliseconds(
-                                                     30000));
+  std::future<jsonrpc::Response> sendRequest(
+      const std::string& session_id,
+      const jsonrpc::Request& request,
+      std::chrono::milliseconds timeout = std::chrono::milliseconds(30000));
 
   bool sessionSupportsElicitation(const std::string& session_id,
                                   const std::string& mode) const;
