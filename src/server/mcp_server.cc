@@ -1483,6 +1483,18 @@ VoidResult McpServer::askClient(
   return makeVoidSuccess();
 }
 
+bool McpServer::postToDispatcher(std::function<void()> callback) {
+  if (!callback || !main_dispatcher_) {
+    return false;
+  }
+  if (main_dispatcher_->isThreadSafe()) {
+    callback();
+    return true;
+  }
+  main_dispatcher_->post(std::move(callback));
+  return true;
+}
+
 // ApplicationBase overrides
 void McpServer::initializeWorker(application::WorkerContext& worker) {
   // Initialize worker-specific resources
