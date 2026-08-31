@@ -595,8 +595,9 @@ TEST_F(ServerNotificationDeliveryTest, SendRequestReachesStreamableHttpClient) {
   auto server_answer_future = server_answer.get_future();
   server_->registerRequestHandler(
       "test/capture",
-      [this, &server_answer](const jsonrpc::Request& request,
-                             server::SessionContext& session) -> jsonrpc::Response {
+      [this, &server_answer](
+          const jsonrpc::Request& request,
+          server::SessionContext& session) -> jsonrpc::Response {
         jsonrpc::Request question;
         question.jsonrpc = "2.0";
         question.id = std::string("server-question-1");
