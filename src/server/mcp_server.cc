@@ -2282,6 +2282,11 @@ jsonrpc::Response McpServer::handleInitialize(const jsonrpc::Request& request,
 jsonrpc::Response McpServer::handleDiscover(const jsonrpc::Request& request,
                                             SessionContext& session) {
   (void)session;
+  std::string instructions;
+  {
+    std::lock_guard<std::mutex> lock(config_mutex_);
+    instructions = config_.instructions;
+  }
 
   // What a client would otherwise have learned from an introduction. In
   // the era that has none this is the only way to ask, which is why it is
@@ -2301,8 +2306,8 @@ jsonrpc::Response McpServer::handleDiscover(const jsonrpc::Request& request,
 
   result.set("capabilities", json::to_json(config_.capabilities));
 
-  if (!config_.instructions.empty()) {
-    result.set("instructions", json::JsonValue(config_.instructions));
+  if (!instructions.empty()) {
+    result.set("instructions", json::JsonValue(instructions));
   }
 
   // Named under the metadata key rather than as a field of its own: with
