@@ -770,58 +770,9 @@ class HttpSseJsonRpcProtocolFilter
           accept_it != headers.end() &&
           accept_it->second.find("text/event-stream") != std::string::npos;
 
-      // ── GET {configured_rpc_path_} + Accept: text/event-stream →
-      // open a Streamable HTTP event stream for an existing Mcp-Session-Id.
-      //
-      // Streamable HTTP clients such as Postman keep server-initiated
-      // requests on this event stream while sending client requests and
-      // responses as POSTs to the same /mcp endpoint with Mcp-Session-Id.
-      if (method == "GET" && path == configured_rpc_path_ && accepts_sse &&
-          sse_registry_ && write_callbacks_) {
-        if (server_mode_) {
-          server_mode_->handleEvent(ServerConnEvent::SseGetDetected);
-        }
-        client_accepts_sse_ = true;
-
-        auto session_it = headers.find("mcp-session-id");
-        sse_session_id_ =
-            session_it != headers.end() && !session_it->second.empty()
-                ? session_it->second
-                : nextStreamableHttpSessionId();
-        sse_registry_->registerSession(
-            sse_session_id_, &write_callbacks_->connection(),
-            [this](const std::string& json_data) {
-              return writeSseEventToOpenStream(json_data);
-            });
-
-        std::ostringstream sse_response;
-        sse_response << "HTTP/1.1 200 OK\r\n";
-        sse_response << "Content-Type: text/event-stream\r\n";
-        sse_response << "Cache-Control: no-cache\r\n";
-        sse_response << "Connection: keep-alive\r\n";
-        sse_response << "Mcp-Session-Id: " << sse_session_id_ << "\r\n";
-        sse_response << "Access-Control-Allow-Origin: *\r\n";
-        sse_response << "X-Accel-Buffering: no\r\n";
-        sse_response << "\r\n";
-        sse_response << ": stream open\n\n";
-
-        const std::string response_str = sse_response.str();
-        OwnedBuffer response_buffer;
-        response_buffer.add(response_str.c_str(), response_str.length());
-        {
-          HandshakeWriteGuard guard(*server_mode_);
-          write_callbacks_->connection().write(response_buffer, false);
-        }
-        server_mode_->handleEvent(ServerConnEvent::SseHeadersWritten);
-
-        GOPHER_LOG_INFO("Streamable HTTP event stream opened: session={}",
-                        sse_session_id_);
-        return;
-      }
-
       // ── GET {configured_sse_path_} → open an SSE stream.
-      if (method == "GET" && path == configured_sse_path_ && sse_registry_ &&
-          write_callbacks_) {
+      if (method == "GET" && path == configured_sse_path_ &&
+          path != configured_rpc_path_ && sse_registry_ && write_callbacks_) {
         // Determine connection mode as SSE stream.
         if (server_mode_) {
           server_mode_->handleEvent(ServerConnEvent::SseGetDetected);

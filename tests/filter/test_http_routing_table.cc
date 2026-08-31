@@ -40,8 +40,13 @@ class RoutingCallbacks : public McpProtocolCallbacks {
     requests_.push_back(req);
   }
   void onRequestWithContext(const jsonrpc::Request& req,
-                            MessageDispatchContext&) override {
+                            MessageDispatchContext& context) override {
     requests_.push_back(req);
+    jsonrpc::Response response;
+    response.jsonrpc = "2.0";
+    response.id = req.id;
+    response.result = mcp::make_optional(jsonrpc::ResponseResult(Metadata()));
+    context.sendResponse(response);
   }
   void onNotification(const jsonrpc::Notification&) override {}
   void onResponse(const jsonrpc::Response&) override {}
@@ -140,13 +145,15 @@ class HttpRoutingTableTest : public test::RealIoTestBase {
   static std::string request(const std::string& method,
                              const std::string& path,
                              const std::string& body = "",
-                             const std::string& origin = "") {
+                             const std::string& origin = "",
+                             const std::string& extra_headers = "") {
     std::string out = method + " " + path +
                       " HTTP/1.1\r\n"
                       "Host: localhost\r\n";
     if (!origin.empty()) {
       out += "Origin: " + origin + "\r\n";
     }
+    out += extra_headers;
     if (!body.empty()) {
       out += "Content-Type: application/json\r\n";
       out += "Content-Length: " + std::to_string(body.size()) + "\r\n";
@@ -160,6 +167,28 @@ class HttpRoutingTableTest : public test::RealIoTestBase {
     return R"({"jsonrpc":"2.0","method":"initialize","id":1,"params":{)"
            R"("protocolVersion":"2025-06-18","capabilities":{},)"
            R"("clientInfo":{"name":"test","version":"1.0"}}})";
+  }
+
+  static std::string sessionIdOnTheWire(const std::string& wire) {
+    const std::string name = "\r\nMcp-Session-Id: ";
+    const size_t at = wire.find(name);
+    if (at == std::string::npos) {
+      return std::string();
+    }
+    const size_t start = at + name.size();
+    const size_t end = wire.find("\r\n", start);
+    return wire.substr(start, end - start);
+  }
+
+  static size_t countOccurrences(const std::string& haystack,
+                                 const std::string& needle) {
+    size_t count = 0;
+    size_t pos = 0;
+    while ((pos = haystack.find(needle, pos)) != std::string::npos) {
+      ++count;
+      pos += needle.size();
+    }
+    return count;
   }
 
   HttpRoutingFilter* router_{nullptr};
@@ -402,6 +431,41 @@ TEST_F(HttpRoutingTableTest, LegacyEventStreamStillOpens) {
       << "Expected the SSE stream to open, got: " << wire;
   EXPECT_NE(wire.find("text/event-stream"), std::string::npos)
       << "Expected an SSE content type, got: " << wire;
+
+  closeOnDispatcher(std::move(conn), std::move(factory));
+}
+
+TEST_F(HttpRoutingTableTest, StreamableGetRpcIsAnsweredOnlyOnce) {
+  RoutingCallbacks callbacks;
+  std::unique_ptr<network::ServerConnection> conn;
+  network::IoHandlePtr peer;
+  std::shared_ptr<HttpSseFilterChainFactory> factory;
+
+  executeInDispatcher([&]() {
+    auto h = makeServerHarness(callbacks);
+    conn = std::move(h.conn);
+    peer = std::move(h.peer);
+    factory = std::move(h.factory);
+    writeClientBytes(*peer, request("POST", "/mcp", initializeBody()));
+  });
+
+  const std::string init = drainPeer(*peer, 2000ms);
+  const std::string session_id = sessionIdOnTheWire(init);
+  ASSERT_FALSE(session_id.empty()) << init;
+
+  executeInDispatcher([&]() {
+    writeClientBytes(
+        *peer, request("GET", "/mcp", /*body=*/"", /*origin=*/"",
+                       "Accept: text/event-stream\r\n"
+                       "Mcp-Session-Id: " +
+                           session_id + "\r\n"));
+  });
+
+  const std::string wire = drainPeer(*peer, 2000ms);
+  EXPECT_EQ(countOccurrences(wire, "HTTP/1.1 200 OK\r\n"), 1u) << wire;
+  EXPECT_NE(wire.find("Content-Type: text/event-stream"), std::string::npos)
+      << wire;
+  EXPECT_EQ(wire.find("event: endpoint"), std::string::npos) << wire;
 
   closeOnDispatcher(std::move(conn), std::move(factory));
 }
