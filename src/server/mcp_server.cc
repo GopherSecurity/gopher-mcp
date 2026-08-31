@@ -1075,10 +1075,33 @@ std::future<jsonrpc::Response> McpServer::sendRequest(
     const std::string& session_id,
     const jsonrpc::Request& request,
     std::chrono::milliseconds timeout) {
-  if (!main_dispatcher_ || !main_dispatcher_->isThreadSafe()) {
+  if (!main_dispatcher_) {
     return makeReadyResponseFuture(
-        request.id, jsonrpc::INTERNAL_ERROR,
-        "Server-initiated requests must be sent on the MCP dispatcher thread");
+        request.id, jsonrpc::INTERNAL_ERROR, "Server not running");
+  }
+
+  if (!main_dispatcher_->isThreadSafe()) {
+    auto promise = std::make_shared<std::promise<jsonrpc::Response>>();
+    auto future = promise->get_future();
+    main_dispatcher_->post(
+        [this, session_id, request, timeout, promise]() mutable {
+          auto response_future = sendRequest(session_id, request, timeout);
+          std::thread([response_future = std::move(response_future), promise,
+                       request]() mutable {
+            try {
+              promise->set_value(response_future.get());
+            } catch (const std::exception& e) {
+              promise->set_value(jsonrpc::Response::make_error(
+                  request.id, Error(jsonrpc::INTERNAL_ERROR, e.what())));
+            } catch (...) {
+              promise->set_value(jsonrpc::Response::make_error(
+                  request.id,
+                  Error(jsonrpc::INTERNAL_ERROR,
+                        "Unknown server-initiated request failure")));
+            }
+          }).detach();
+        });
+    return future;
   }
 
   auto session = session_manager_->getSession(session_id);

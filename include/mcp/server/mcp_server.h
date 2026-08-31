@@ -1204,9 +1204,11 @@ class McpServer : public application::ApplicationBase,
 
   // Send a server-initiated request to a specific session and resolve the
   // returned future when that client sends the matching JSON-RPC response,
-  // or with an error response when the deadline passes first. Waiting on the
-  // returned future from the dispatcher thread will deadlock the response path.
-  // HTTP/SSE sessions require an active SSE stream for server push.
+  // or with an error response when the deadline passes first. Off-dispatcher
+  // callers are posted onto the MCP dispatcher before sending; callers must not
+  // wait on the returned future from the dispatcher thread, because the client
+  // response path runs there too. HTTP/SSE sessions require an active SSE
+  // stream for server push.
   std::future<jsonrpc::Response> sendRequest(
       const std::string& session_id,
       const jsonrpc::Request& request,
