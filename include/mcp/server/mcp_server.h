@@ -1296,6 +1296,11 @@ class McpServer : public application::ApplicationBase,
       std::function<void(const jsonrpc::Response&)> on_answer,
       std::chrono::milliseconds timeout = std::chrono::milliseconds(30000));
 
+  // Run work on the MCP dispatcher. Deferred request handlers that finish from
+  // worker threads use this to write their retained response stream on the
+  // stream's owning thread.
+  bool postToDispatcher(std::function<void()> callback);
+
  protected:
   // ApplicationBase overrides
   void initializeWorker(application::WorkerContext& worker) override;
