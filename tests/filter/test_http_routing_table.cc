@@ -42,6 +42,7 @@ class RoutingCallbacks : public McpProtocolCallbacks {
   void onRequestWithContext(const jsonrpc::Request& req,
                             MessageDispatchContext& context) override {
     requests_.push_back(req);
+    transport_sessions_.push_back(context.transportSessionId());
     jsonrpc::Response response;
     response.jsonrpc = "2.0";
     response.id = req.id;
@@ -56,6 +57,7 @@ class RoutingCallbacks : public McpProtocolCallbacks {
   bool sendHttpPost(const std::string&) override { return true; }
 
   std::vector<jsonrpc::Request> requests_;
+  std::vector<std::string> transport_sessions_;
 };
 
 class HttpRoutingTableTest : public test::RealIoTestBase {
@@ -466,6 +468,42 @@ TEST_F(HttpRoutingTableTest, StreamableGetRpcIsAnsweredOnlyOnce) {
   EXPECT_NE(wire.find("Content-Type: text/event-stream"), std::string::npos)
       << wire;
   EXPECT_EQ(wire.find("event: endpoint"), std::string::npos) << wire;
+
+  closeOnDispatcher(std::move(conn), std::move(factory));
+}
+
+TEST_F(HttpRoutingTableTest, CallbackSessionDoesNotLeakToNextRequest) {
+  RoutingCallbacks callbacks;
+  std::unique_ptr<network::ServerConnection> conn;
+  network::IoHandlePtr peer;
+  std::shared_ptr<HttpSseFilterChainFactory> factory;
+
+  executeInDispatcher([&]() {
+    auto h = makeServerHarness(callbacks);
+    conn = std::move(h.conn);
+    peer = std::move(h.peer);
+    factory = std::move(h.factory);
+    writeClientBytes(*peer,
+                     request("POST", "/callback/client_1", initializeBody()));
+  });
+
+  std::string callback_ack = drainPeer(*peer, 2000ms);
+  EXPECT_NE(callback_ack.find("HTTP/1.1 202 Accepted"), std::string::npos)
+      << callback_ack;
+  ASSERT_EQ(callbacks.transport_sessions_.size(), 1u);
+  EXPECT_EQ(callbacks.transport_sessions_[0], "client_1");
+
+  executeInDispatcher([&]() {
+    writeClientBytes(*peer, request("POST", "/rpc", initializeBody()));
+  });
+
+  std::string plain_response = drainPeer(*peer, 2000ms);
+  EXPECT_NE(plain_response.find("HTTP/1.1 200 OK"), std::string::npos)
+      << plain_response;
+  ASSERT_EQ(callbacks.transport_sessions_.size(), 2u);
+  EXPECT_TRUE(callbacks.transport_sessions_[1].empty())
+      << "plain keep-alive request reused callback session "
+      << callbacks.transport_sessions_[1];
 
   closeOnDispatcher(std::move(conn), std::move(factory));
 }
