@@ -16,7 +16,10 @@ std::string SseSessionRegistry::registerSession(
   assert(dispatcher_.isThreadSafe() &&
          "SseSessionRegistry::registerSession off-dispatcher-thread");
   std::string session_id = "client_" + std::to_string(next_id_++);
-  return registerSession(session_id, connection);
+  sessions_[session_id] = SessionEntry{connection, nullptr};
+  GOPHER_LOG_INFO("SSE session registered: {} (total={})", session_id,
+                  sessions_.size());
+  return session_id;
 }
 
 std::string SseSessionRegistry::registerSession(network::Connection* connection,
@@ -24,19 +27,6 @@ std::string SseSessionRegistry::registerSession(network::Connection* connection,
   assert(dispatcher_.isThreadSafe() &&
          "SseSessionRegistry::registerSession off-dispatcher-thread");
   std::string session_id = "client_" + std::to_string(next_id_++);
-  return registerSession(session_id, connection, std::move(writer));
-}
-
-std::string SseSessionRegistry::registerSession(
-    const std::string& session_id, network::Connection* connection) {
-  return registerSession(session_id, connection, nullptr);
-}
-
-std::string SseSessionRegistry::registerSession(const std::string& session_id,
-                                                network::Connection* connection,
-                                                StreamWriter writer) {
-  assert(dispatcher_.isThreadSafe() &&
-         "SseSessionRegistry::registerSession off-dispatcher-thread");
   sessions_[session_id] = SessionEntry{connection, std::move(writer)};
   GOPHER_LOG_INFO("SSE session registered: {} (total={})", session_id,
                   sessions_.size());
