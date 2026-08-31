@@ -1062,7 +1062,9 @@ VoidResult McpServer::sendRequestToSession(
 }
 
 std::future<jsonrpc::Response> McpServer::sendRequest(
-    const std::string& session_id, const jsonrpc::Request& request) {
+    const std::string& session_id,
+    const jsonrpc::Request& request,
+    std::chrono::milliseconds timeout) {
   if (!main_dispatcher_ || !main_dispatcher_->isThreadSafe()) {
     return makeReadyResponseFuture(
         request.id, jsonrpc::INTERNAL_ERROR,
@@ -1077,15 +1079,40 @@ std::future<jsonrpc::Response> McpServer::sendRequest(
 
   auto promise = std::make_shared<std::promise<jsonrpc::Response>>();
   auto future = promise->get_future();
-  client_requests_.expect(request.id, [promise](const jsonrpc::Response& r) {
-    promise->set_value(r);
-  });
+  const RequestIdKey key = requestIdKey(request.id);
+  client_requests_.expect(
+      request.id, [this, key, promise](const jsonrpc::Response& r) {
+        client_request_deadlines_.erase(key);
+        promise->set_value(r);
+      });
 
   auto sent = sendRequestToSession(session, request);
   if (holds_alternative<Error>(sent)) {
     client_requests_.forget(request.id);
     promise->set_value(
         jsonrpc::Response::make_error(request.id, get<Error>(sent)));
+    return future;
+  }
+  ++server_stats_.requests_to_clients;
+
+  if (timeout.count() > 0) {
+    auto timer = main_dispatcher_->createTimer([this, key, request, promise]() {
+      if (!client_requests_.forget(request.id)) {
+        return;
+      }
+
+      ++server_stats_.client_requests_timed_out;
+      GOPHER_LOG_WARN("No answer from the client to {} in time",
+                      requestIdKeyToString(key));
+      promise->set_value(jsonrpc::Response::make_error(
+          request.id,
+          Error(jsonrpc::INTERNAL_ERROR, "the client did not answer in time")));
+
+      main_dispatcher_->post(
+          [this, key]() { client_request_deadlines_.erase(key); });
+    });
+    timer->enableTimer(timeout);
+    client_request_deadlines_[key] = std::move(timer);
   }
 
   return future;

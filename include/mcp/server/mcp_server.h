@@ -1203,10 +1203,15 @@ class McpServer : public application::ApplicationBase,
                               const jsonrpc::Notification& notification);
 
   // Send a server-initiated request to a specific session and resolve the
-  // returned future when that client sends the matching JSON-RPC response.
+  // returned future when that client sends the matching JSON-RPC response,
+  // or with an error response when the deadline passes first. Waiting on the
+  // returned future from the dispatcher thread will deadlock the response path.
   // HTTP/SSE sessions require an active SSE stream for server push.
   std::future<jsonrpc::Response> sendRequest(const std::string& session_id,
-                                             const jsonrpc::Request& request);
+                                             const jsonrpc::Request& request,
+                                             std::chrono::milliseconds timeout =
+                                                 std::chrono::milliseconds(
+                                                     30000));
 
   bool sessionSupportsElicitation(const std::string& session_id,
                                   const std::string& mode) const;
