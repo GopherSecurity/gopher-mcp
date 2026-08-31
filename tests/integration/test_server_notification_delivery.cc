@@ -209,6 +209,47 @@ class ServerNotificationDeliveryTest : public ::testing::Test {
     return clients_.back().get();
   }
 
+  client::McpClient* makeConnectedStreamableClient(const std::string& name) {
+    client::McpClientConfig client_config;
+    client_config.client_name = name;
+    client_config.client_version = "0.0.1";
+    client_config.num_workers = 1;
+    client_config.preferred_transport = TransportType::StreamableHttp;
+    client_config.request_timeout = 5000ms;
+    client_config.protocol_initialization_timeout = 5000ms;
+    client_config.protocol_connection_timeout = 5000ms;
+    client_config.streamable_http.open_server_stream = true;
+
+    auto client = client::createMcpClient(client_config);
+    if (!client) {
+      ADD_FAILURE() << "createMcpClient returned null";
+      return nullptr;
+    }
+
+    const std::string uri =
+        "http://127.0.0.1:" + std::to_string(port_) + "/mcp";
+    auto connect_result = client->connect(uri);
+    if (!holds_alternative<std::nullptr_t>(connect_result)) {
+      ADD_FAILURE() << "McpClient::connect failed against Streamable HTTP";
+      return nullptr;
+    }
+
+    auto init_future = client->initializeProtocol();
+    if (init_future.wait_for(5s) != std::future_status::ready) {
+      ADD_FAILURE() << "initialize never round-tripped over Streamable HTTP";
+      return nullptr;
+    }
+    try {
+      init_future.get();
+    } catch (const std::exception& e) {
+      ADD_FAILURE() << "initialize failed: " << e.what();
+      return nullptr;
+    }
+
+    clients_.push_back(std::move(client));
+    return clients_.back().get();
+  }
+
   // Subscribe a client to a resource and require the ack round trip.
   static bool subscribeAndWait(client::McpClient& client,
                                const std::string& uri) {
@@ -547,6 +588,55 @@ TEST_F(ServerNotificationDeliveryTest, SendNotificationOffThreadDelivers) {
   ASSERT_EQ(delivered_future.wait_for(5s), std::future_status::ready)
       << "off-thread sendNotification never reached the client";
   EXPECT_EQ(delivered_future.get(), "offthread");
+}
+
+TEST_F(ServerNotificationDeliveryTest, SendRequestReachesStreamableHttpClient) {
+  std::promise<std::future<jsonrpc::Response>> server_answer;
+  auto server_answer_future = server_answer.get_future();
+  server_->registerRequestHandler(
+      "test/capture",
+      [this, &server_answer](const jsonrpc::Request& request,
+                             server::SessionContext& session) -> jsonrpc::Response {
+        jsonrpc::Request question;
+        question.jsonrpc = "2.0";
+        question.id = std::string("server-question-1");
+        question.method = "test/server-question";
+
+        server_answer.set_value(
+            server_->sendRequest(session.getId(), question, 5000ms));
+        return jsonrpc::Response::success(
+            request.id, jsonrpc::ResponseResult(make<Metadata>().build()));
+      });
+
+  auto* client = makeConnectedStreamableClient("server-request-client");
+  ASSERT_NE(client, nullptr);
+  client->registerRequestHandler(
+      "test/server-question",
+      [](const jsonrpc::Request&) -> jsonrpc::ResponseResult {
+        Metadata result;
+        result["answer"] = std::string("pong");
+        return result;
+      });
+
+  auto trigger = client->sendRequest("test/capture");
+  ASSERT_EQ(trigger.wait_for(5s), std::future_status::ready)
+      << "trigger request never completed";
+  ASSERT_NO_THROW(trigger.get());
+
+  ASSERT_EQ(server_answer_future.wait_for(5s), std::future_status::ready)
+      << "server handler never attempted sendRequest";
+  auto response_future = server_answer_future.get();
+  ASSERT_EQ(response_future.wait_for(5s), std::future_status::ready)
+      << "server-initiated request never received a client answer";
+
+  const jsonrpc::Response response = response_future.get();
+  ASSERT_TRUE(response.result.has_value()) << "client returned an error";
+  ASSERT_TRUE(holds_alternative<Metadata>(*response.result));
+  const auto& result = get<Metadata>(*response.result);
+  auto answer = result.find("answer");
+  ASSERT_NE(answer, result.end());
+  ASSERT_TRUE(holds_alternative<std::string>(answer->second));
+  EXPECT_EQ(get<std::string>(answer->second), "pong");
 }
 }  // namespace
 }  // namespace mcp

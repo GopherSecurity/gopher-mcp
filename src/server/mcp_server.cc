@@ -1035,6 +1035,16 @@ VoidResult McpServer::sendRequestToSession(
                 "No server-initiated request channel on this listener "
                 "(server push requires the built-in HTTP+SSE listener)"));
     }
+    // Streamable HTTP first: its sessions are owned by the session manager, not
+    // the SSE registry used for legacy HTTP+SSE streams.
+    if (auto* sessions = http_sse_factory_->sessionManager()) {
+      const std::string& transport_id = session->getTransportSessionId();
+      if (auto* streamable = sessions->find(transport_id)) {
+        sessions->routeUnsolicited(*streamable, json_str);
+        return makeVoidSuccess();
+      }
+    }
+
     if (http_sse_factory_->sseRegistry().sendResponse(
             session->getTransportSessionId(), json_str)) {
       return makeVoidSuccess();
