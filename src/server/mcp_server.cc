@@ -1080,11 +1080,11 @@ std::future<jsonrpc::Response> McpServer::sendRequest(
   auto promise = std::make_shared<std::promise<jsonrpc::Response>>();
   auto future = promise->get_future();
   const RequestIdKey key = requestIdKey(request.id);
-  client_requests_.expect(
-      request.id, [this, key, promise](const jsonrpc::Response& r) {
-        client_request_deadlines_.erase(key);
-        promise->set_value(r);
-      });
+  client_requests_.expect(request.id,
+                          [this, key, promise](const jsonrpc::Response& r) {
+                            client_request_deadlines_.erase(key);
+                            promise->set_value(r);
+                          });
 
   auto sent = sendRequestToSession(session, request);
   if (holds_alternative<Error>(sent)) {

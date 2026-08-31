@@ -456,11 +456,10 @@ TEST_F(HttpRoutingTableTest, StreamableGetRpcIsAnsweredOnlyOnce) {
   ASSERT_FALSE(session_id.empty()) << init;
 
   executeInDispatcher([&]() {
-    writeClientBytes(
-        *peer, request("GET", "/mcp", /*body=*/"", /*origin=*/"",
-                       "Accept: text/event-stream\r\n"
-                       "Mcp-Session-Id: " +
-                           session_id + "\r\n"));
+    writeClientBytes(*peer, request("GET", "/mcp", /*body=*/"", /*origin=*/"",
+                                    "Accept: text/event-stream\r\n"
+                                    "Mcp-Session-Id: " +
+                                        session_id + "\r\n"));
   });
 
   const std::string wire = drainPeer(*peer, 2000ms);
