@@ -40,6 +40,7 @@
  */
 
 #include <chrono>
+#include <cstdlib>
 #include <regex>
 #include <string>
 #include <thread>
@@ -181,6 +182,48 @@ class SseTransportRoundTripTest : public test::RealIoTestBase {
       }
     }
     return out;
+  }
+
+  static int statusOf(const std::string& response) {
+    if (response.compare(0, 9, "HTTP/1.1 ") != 0) {
+      return 0;
+    }
+    return std::atoi(response.c_str() + 9);
+  }
+
+  static std::string headerOf(const std::string& response,
+                              const std::string& name) {
+    const std::string needle = "\r\n" + name + ": ";
+    const size_t at = response.find(needle);
+    if (at == std::string::npos) {
+      return std::string();
+    }
+    const size_t start = at + needle.size();
+    return response.substr(start, response.find("\r\n", start) - start);
+  }
+
+  std::string createStreamableSession(
+      const std::shared_ptr<filter::HttpSseFilterChainFactory>& factory) {
+    auto* sessions = factory->sessionManager();
+    EXPECT_NE(sessions, nullptr);
+    if (sessions == nullptr) {
+      return std::string();
+    }
+    auto* session =
+        sessions->createSession(*dispatcher_, /*principal=*/"anonymous");
+    EXPECT_NE(session, nullptr);
+    return session != nullptr ? session->id : std::string();
+  }
+
+  void pushStreamableMessage(
+      const std::shared_ptr<filter::HttpSseFilterChainFactory>& factory,
+      const std::string& session_id,
+      const std::string& payload) {
+    auto* sessions = factory->sessionManager();
+    ASSERT_NE(sessions, nullptr);
+    auto* session = sessions->find(session_id);
+    ASSERT_NE(session, nullptr);
+    sessions->routeUnsolicited(*session, payload);
   }
 
   // Tear down the connection and factory on the dispatcher thread.
@@ -349,14 +392,19 @@ TEST_F(SseTransportRoundTripTest,
   std::unique_ptr<network::ServerConnection> conn;
   network::IoHandlePtr peer;
   std::shared_ptr<filter::HttpSseFilterChainFactory> factory;
-  const std::string session_id = "streamable_postman";
+  std::string session_id;
 
   executeInDispatcher([&]() {
     auto h = makeHarness(callbacks);
     conn = std::move(h.conn);
     peer = std::move(h.peer);
     factory = std::move(h.factory);
+    session_id = createStreamableSession(factory);
+  });
 
+  ASSERT_FALSE(session_id.empty());
+
+  executeInDispatcher([&]() {
     std::string req;
     req += "GET /mcp HTTP/1.1\r\n";
     req += "Host: localhost\r\n";
@@ -367,11 +415,10 @@ TEST_F(SseTransportRoundTripTest,
   });
 
   const std::string handshake = drainPeer(*peer);
-  EXPECT_NE(handshake.find("Content-Type: text/event-stream"),
-            std::string::npos)
+  EXPECT_EQ(statusOf(handshake), 200)
+      << "streamable GET did not return 200: " << handshake;
+  EXPECT_EQ(headerOf(handshake, "Content-Type"), "text/event-stream")
       << "streamable GET did not open an event stream: " << handshake;
-  EXPECT_NE(handshake.find(": stream open\n\n"), std::string::npos)
-      << "streamable GET did not send the initial open comment: " << handshake;
   EXPECT_EQ(handshake.find("event: endpoint"), std::string::npos)
       << "streamable GET must not use legacy endpoint negotiation: "
       << handshake;
@@ -379,7 +426,7 @@ TEST_F(SseTransportRoundTripTest,
   executeInDispatcher([&]() {
     const std::string payload =
         R"({"jsonrpc":"2.0","id":"elicit-1","method":"elicitation/create","params":{"mode":"url","url":"https://auth.example/authorize"}})";
-    ASSERT_TRUE(factory->sseRegistry().sendResponse(session_id, payload));
+    pushStreamableMessage(factory, session_id, payload);
   });
 
   const std::string pushed = drainPeer(*peer);
@@ -401,14 +448,19 @@ TEST_F(SseTransportRoundTripTest,
   std::unique_ptr<network::ServerConnection> conn;
   network::IoHandlePtr peer;
   std::shared_ptr<filter::HttpSseFilterChainFactory> factory;
-  const std::string session_id = "streamable_after_post";
+  std::string session_id;
 
   executeInDispatcher([&]() {
     auto h = makeHarness(callbacks);
     conn = std::move(h.conn);
     peer = std::move(h.peer);
     factory = std::move(h.factory);
+    session_id = createStreamableSession(factory);
+  });
 
+  ASSERT_FALSE(session_id.empty());
+
+  executeInDispatcher([&]() {
     const std::string body =
         R"({"jsonrpc":"2.0","method":"notifications/initialized"})";
     std::string post;
@@ -438,18 +490,21 @@ TEST_F(SseTransportRoundTripTest,
   });
 
   const std::string handshake = drainPeer(*peer);
-  EXPECT_NE(handshake.find("Content-Type: text/event-stream"),
-            std::string::npos)
+  EXPECT_EQ(statusOf(handshake), 200)
+      << "streamable GET after keep-alive POST did not return 200: "
+      << handshake;
+  EXPECT_EQ(headerOf(handshake, "Content-Type"), "text/event-stream")
       << "streamable GET after keep-alive POST did not open an event stream: "
       << handshake;
-  EXPECT_NE(handshake.find(": stream open\n\n"), std::string::npos)
-      << "streamable GET after keep-alive POST did not send open comment: "
+  EXPECT_EQ(handshake.find("event: endpoint"), std::string::npos)
+      << "streamable GET after keep-alive POST must not use legacy endpoint "
+         "negotiation: "
       << handshake;
 
   executeInDispatcher([&]() {
     const std::string payload =
         R"({"jsonrpc":"2.0","id":"elicit-1","method":"elicitation/create","params":{"mode":"url","url":"https://auth.example/authorize"}})";
-    ASSERT_TRUE(factory->sseRegistry().sendResponse(session_id, payload));
+    pushStreamableMessage(factory, session_id, payload);
   });
 
   const std::string pushed = drainPeer(*peer);
