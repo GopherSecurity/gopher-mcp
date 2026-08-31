@@ -763,6 +763,7 @@ class HttpSseJsonRpcProtocolFilter
       if (server_mode_ && !server_mode_->isSseStream() &&
           server_mode_->currentMode() != ServerConnMode::Undetermined) {
         server_mode_->resetForNextRequest();
+        clearPerRequestSessionIds();
       }
 
       auto accept_it = headers.find("accept");
@@ -873,6 +874,7 @@ class HttpSseJsonRpcProtocolFilter
         if (server_mode_) {
           server_mode_->handleEvent(ServerConnEvent::CallbackPostDetected);
         }
+        streamable_http_session_id_.clear();
         sse_callback_session_id_ = path.substr(cb_pos + callback_prefix.size());
         GOPHER_LOG_DEBUG("SSE callback POST: session={}",
                          sse_callback_session_id_);
@@ -903,6 +905,7 @@ class HttpSseJsonRpcProtocolFilter
           server_mode_->currentMode() == ServerConnMode::Undetermined) {
         server_mode_->handleEvent(ServerConnEvent::PlainHttpDetected);
       }
+      sse_callback_session_id_.clear();
       streamable_http_session_id_.clear();
       auto session_it = headers.find("mcp-session-id");
       if (session_it != headers.end()) {
@@ -1111,6 +1114,7 @@ class HttpSseJsonRpcProtocolFilter
 
     if (server_mode_ && !server_mode_->isSseStream()) {
       server_mode_->resetForNextRequest();
+      clearPerRequestSessionIds();
     }
   }
 
@@ -1236,7 +1240,8 @@ class HttpSseJsonRpcProtocolFilter
     }
 
     const std::string& transportSessionId() const override {
-      if (!parent_.sse_callback_session_id_.empty()) {
+      if (parent_.server_mode_ && parent_.server_mode_->isCallbackProxy() &&
+          !parent_.sse_callback_session_id_.empty()) {
         return parent_.sse_callback_session_id_;
       }
       return parent_.streamable_http_session_id_;
@@ -1974,6 +1979,11 @@ class HttpSseJsonRpcProtocolFilter
   // durable request-session identity for POST /mcp clients that do not use the
   // SSE callback path.
   std::string streamable_http_session_id_;
+
+  void clearPerRequestSessionIds() {
+    sse_callback_session_id_.clear();
+    streamable_http_session_id_.clear();
+  }
 
   // Messages queued during SSE endpoint negotiation (client mode only).
   // Drained once the state machine reaches EndpointReceived.
