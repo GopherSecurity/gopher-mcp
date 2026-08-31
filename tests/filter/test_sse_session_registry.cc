@@ -114,19 +114,6 @@ TEST_F(SseSessionRegistryTest, RegisterReturnsUniqueIds) {
   });
 }
 
-TEST_F(SseSessionRegistryTest, RegisterUsesProvidedSessionId) {
-  executeInDispatcher([this]() {
-    SseSessionRegistry registry(*dispatcher_);
-
-    const std::string id =
-        registry.registerSession("streamable-session", nullptr);
-
-    EXPECT_EQ(id, "streamable-session");
-    EXPECT_EQ(registry.sessionCount(), 1u);
-    EXPECT_TRUE(registry.hasSession("streamable-session"));
-  });
-}
-
 TEST_F(SseSessionRegistryTest, RemoveSessionClearsLookup) {
   executeInDispatcher([this]() {
     SseSessionRegistry registry(*dispatcher_);

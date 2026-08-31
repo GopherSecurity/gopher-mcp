@@ -52,24 +52,11 @@ class SseSessionRegistry {
   // filter's destructor does this.
   std::string registerSession(network::Connection* connection);
 
-  // Record an SSE stream connection under a caller-provided stable session ID.
-  // Used by Streamable HTTP, where the client repeats Mcp-Session-Id on the
-  // GET event stream and POST request connections.
-  std::string registerSession(const std::string& session_id,
-                              network::Connection* connection);
-
   using StreamWriter = std::function<bool(const std::string&)>;
 
   // Record an SSE stream connection with a generated session ID and explicit
   // event-stream writer.
   std::string registerSession(network::Connection* connection,
-                              StreamWriter writer);
-
-  // Record an SSE stream connection with an explicit writer that emits bytes
-  // already framed for the event stream. This avoids re-entering the generic
-  // HTTP response path for server-initiated messages.
-  std::string registerSession(const std::string& session_id,
-                              network::Connection* connection,
                               StreamWriter writer);
 
   // Drop a session. Safe to call with an unknown ID (no-op).
