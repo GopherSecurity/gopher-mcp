@@ -98,8 +98,9 @@ class ServerRequestCompletion {
 
   ~ServerRequestCompletion() {
     resolve(jsonrpc::Response::make_error(
-        id_, Error(jsonrpc::INTERNAL_ERROR,
-                   "server dispatcher stopped before the request could be sent")));
+        id_,
+        Error(jsonrpc::INTERNAL_ERROR,
+              "server dispatcher stopped before the request could be sent")));
   }
 
   std::future<jsonrpc::Response> getFuture() { return promise_.get_future(); }
@@ -135,9 +136,9 @@ class ServerRequestCompletion {
 class DispatcherHandoffGuard {
  public:
   explicit DispatcherHandoffGuard(
-      std::shared_ptr<ServerRequestCompletion> completion,
-      RequestId request_id)
-      : completion_(std::move(completion)), request_id_(std::move(request_id)) {}
+      std::shared_ptr<ServerRequestCompletion> completion, RequestId request_id)
+      : completion_(std::move(completion)),
+        request_id_(std::move(request_id)) {}
 
   ~DispatcherHandoffGuard() {
     if (!started_) {
@@ -1149,8 +1150,7 @@ std::future<jsonrpc::Response> McpServer::sendRequest(
   }
 
   if (!main_dispatcher_->isThreadSafe()) {
-    auto completion =
-        std::make_shared<ServerRequestCompletion>(request.id);
+    auto completion = std::make_shared<ServerRequestCompletion>(request.id);
     auto future = completion->getFuture();
     auto handoff =
         std::make_shared<DispatcherHandoffGuard>(completion, request.id);
@@ -1163,8 +1163,8 @@ std::future<jsonrpc::Response> McpServer::sendRequest(
           return;
         }
         completion->resolve(jsonrpc::Response::make_error(
-            request.id,
-            Error(jsonrpc::INTERNAL_ERROR, "the client did not answer in time")));
+            request.id, Error(jsonrpc::INTERNAL_ERROR,
+                              "the client did not answer in time")));
       }).detach();
     }
 
