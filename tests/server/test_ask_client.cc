@@ -206,6 +206,23 @@ TEST(AskClient, AClientThatNeverAnswersRunsOutOfTime) {
   loop.join();
 }
 
+TEST(AskClient, OffThreadSendRequestDeadlineDoesNotNeedDispatcherToRun) {
+  AskingServer server(testConfig());
+  ASSERT_TRUE(server.initialize());
+  ASSERT_NE(server.dispatcher(), nullptr);
+
+  auto future = server.sendRequest("missing-session", sampling(12), 60ms);
+  ASSERT_EQ(future.wait_for(5s), std::future_status::ready)
+      << "sendRequest future waited on a dispatcher post that never ran";
+
+  jsonrpc::Response response;
+  ASSERT_NO_THROW(response = future.get())
+      << "sendRequest exposed a broken promise instead of an error response";
+  ASSERT_TRUE(response.error.has_value());
+  EXPECT_NE(response.error->message.find("in time"), std::string::npos)
+      << response.error->message;
+}
+
 }  // namespace
 }  // namespace server
 }  // namespace mcp
