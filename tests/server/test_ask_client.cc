@@ -16,6 +16,7 @@
 
 #include <chrono>
 #include <future>
+#include <memory>
 #include <thread>
 #include <vector>
 
@@ -220,6 +221,25 @@ TEST(AskClient, OffThreadSendRequestDeadlineDoesNotNeedDispatcherToRun) {
       << "sendRequest exposed a broken promise instead of an error response";
   ASSERT_TRUE(response.error.has_value());
   EXPECT_NE(response.error->message.find("in time"), std::string::npos)
+      << response.error->message;
+}
+
+TEST(AskClient, OffThreadSendRequestDoesNotUseDestroyedServer) {
+  auto server = std::make_unique<AskingServer>(testConfig());
+  ASSERT_TRUE(server->initialize());
+  ASSERT_NE(server->dispatcher(), nullptr);
+
+  auto future = server->sendRequest("missing-session", sampling(13), 5s);
+  server.reset();
+
+  ASSERT_EQ(future.wait_for(5s), std::future_status::ready)
+      << "sendRequest future was abandoned when the server was destroyed";
+
+  jsonrpc::Response response;
+  ASSERT_NO_THROW(response = future.get())
+      << "sendRequest exposed a broken promise after server destruction";
+  ASSERT_TRUE(response.error.has_value());
+  EXPECT_NE(response.error->message.find("stopped"), std::string::npos)
       << response.error->message;
 }
 
