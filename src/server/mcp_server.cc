@@ -370,6 +370,7 @@ McpServer::McpServer(const McpServerConfig& config)
 
 // Destructor
 McpServer::~McpServer() {
+  alive_.reset();
   // Shutdown server gracefully
   shutdown();
 }
@@ -1153,6 +1154,8 @@ std::future<jsonrpc::Response> McpServer::sendRequest(
     auto future = completion->getFuture();
     auto handoff =
         std::make_shared<DispatcherHandoffGuard>(completion, request.id);
+    std::weak_ptr<bool> alive = alive_;
+    McpServer* server = this;
 
     if (timeout.count() > 0) {
       std::thread([completion, request, timeout]() {
@@ -1165,13 +1168,20 @@ std::future<jsonrpc::Response> McpServer::sendRequest(
       }).detach();
     }
 
-    main_dispatcher_->post([this, session_id, request, timeout,
+    main_dispatcher_->post([server, alive, session_id, request, timeout,
                             completion, handoff]() mutable {
       handoff->markStarted();
+      if (alive.expired()) {
+        completion->resolve(jsonrpc::Response::make_error(
+            request.id,
+            Error(jsonrpc::INTERNAL_ERROR,
+                  "server stopped before the request could be sent")));
+        return;
+      }
       if (completion->resolved()) {
         return;
       }
-      auto response_future = sendRequest(session_id, request, timeout);
+      auto response_future = server->sendRequest(session_id, request, timeout);
       std::thread([response_future = std::move(response_future), completion,
                    request]() mutable {
         try {

@@ -1590,6 +1590,11 @@ class McpServer : public application::ApplicationBase,
   // Answers we are waiting on from clients, for questions this server asked.
   ClientRequestCorrelator client_requests_;
 
+  // Cross-thread posts capture this as a guard token, not as ownership. Reset
+  // before teardown so queued callbacks can resolve their public futures
+  // without touching a destroyed server.
+  std::shared_ptr<bool> alive_{std::make_shared<bool>(true)};
+
   // A deadline per outstanding question. Held here because a timer that
   // goes out of scope never fires, and dropped when the question is
   // settled either way. Dispatcher thread only, like the questions.
