@@ -8,8 +8,11 @@
 
 #include <algorithm>
 #include <cassert>
+#include <condition_variable>
 #include <future>
+#include <mutex>
 #include <sstream>
+#include <utility>
 
 #include "mcp/filter/filter_chain_assembler.h"
 #include "mcp/filter/http_sse_filter_chain_factory.h"
@@ -88,6 +91,70 @@ std::future<jsonrpc::Response> makeReadyResponseFuture(
   promise.set_value(jsonrpc::Response::make_error(id, Error(code, message)));
   return future;
 }
+
+class ServerRequestCompletion {
+ public:
+  explicit ServerRequestCompletion(RequestId id) : id_(std::move(id)) {}
+
+  ~ServerRequestCompletion() {
+    resolve(jsonrpc::Response::make_error(
+        id_, Error(jsonrpc::INTERNAL_ERROR,
+                   "server dispatcher stopped before the request could be sent")));
+  }
+
+  std::future<jsonrpc::Response> getFuture() { return promise_.get_future(); }
+
+  void resolve(jsonrpc::Response response) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (resolved_) {
+      return;
+    }
+    resolved_ = true;
+    promise_.set_value(std::move(response));
+    cv_.notify_all();
+  }
+
+  bool waitUntilResolvedFor(std::chrono::milliseconds timeout) {
+    std::unique_lock<std::mutex> lock(mutex_);
+    return cv_.wait_for(lock, timeout, [this]() { return resolved_; });
+  }
+
+  bool resolved() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return resolved_;
+  }
+
+ private:
+  RequestId id_;
+  std::promise<jsonrpc::Response> promise_;
+  mutable std::mutex mutex_;
+  std::condition_variable cv_;
+  bool resolved_{false};
+};
+
+class DispatcherHandoffGuard {
+ public:
+  explicit DispatcherHandoffGuard(
+      std::shared_ptr<ServerRequestCompletion> completion,
+      RequestId request_id)
+      : completion_(std::move(completion)), request_id_(std::move(request_id)) {}
+
+  ~DispatcherHandoffGuard() {
+    if (!started_) {
+      completion_->resolve(jsonrpc::Response::make_error(
+          request_id_,
+          Error(jsonrpc::INTERNAL_ERROR,
+                "server dispatcher stopped before the request could be sent")));
+    }
+  }
+
+  void markStarted() { started_ = true; }
+
+ private:
+  std::shared_ptr<ServerRequestCompletion> completion_;
+  RequestId request_id_;
+  bool started_{false};
+};
 
 }  // namespace
 
@@ -1081,20 +1148,39 @@ std::future<jsonrpc::Response> McpServer::sendRequest(
   }
 
   if (!main_dispatcher_->isThreadSafe()) {
-    auto promise = std::make_shared<std::promise<jsonrpc::Response>>();
-    auto future = promise->get_future();
+    auto completion =
+        std::make_shared<ServerRequestCompletion>(request.id);
+    auto future = completion->getFuture();
+    auto handoff =
+        std::make_shared<DispatcherHandoffGuard>(completion, request.id);
+
+    if (timeout.count() > 0) {
+      std::thread([completion, request, timeout]() {
+        if (completion->waitUntilResolvedFor(timeout)) {
+          return;
+        }
+        completion->resolve(jsonrpc::Response::make_error(
+            request.id,
+            Error(jsonrpc::INTERNAL_ERROR, "the client did not answer in time")));
+      }).detach();
+    }
+
     main_dispatcher_->post([this, session_id, request, timeout,
-                            promise]() mutable {
+                            completion, handoff]() mutable {
+      handoff->markStarted();
+      if (completion->resolved()) {
+        return;
+      }
       auto response_future = sendRequest(session_id, request, timeout);
-      std::thread([response_future = std::move(response_future), promise,
+      std::thread([response_future = std::move(response_future), completion,
                    request]() mutable {
         try {
-          promise->set_value(response_future.get());
+          completion->resolve(response_future.get());
         } catch (const std::exception& e) {
-          promise->set_value(jsonrpc::Response::make_error(
+          completion->resolve(jsonrpc::Response::make_error(
               request.id, Error(jsonrpc::INTERNAL_ERROR, e.what())));
         } catch (...) {
-          promise->set_value(jsonrpc::Response::make_error(
+          completion->resolve(jsonrpc::Response::make_error(
               request.id, Error(jsonrpc::INTERNAL_ERROR,
                                 "Unknown server-initiated request failure")));
         }
