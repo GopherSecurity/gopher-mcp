@@ -14,6 +14,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 
+## [0.1.18] - 2026-09-02
+
+### Added
+
+- `McpServerConfig::tools_list_changed` lets servers advertise
+  `capabilities.tools.listChanged` when their tool set can change after
+  initialization.
+
+### Changed
+
+- `dump-version.sh` now preserves handwritten `Unreleased` notes, can populate
+  an empty release section from commits since the previous release, and refuses
+  to overwrite populated release notes unless run with `--force`.
+
+### Fixed
+
+- Destroy connection filter chains before the callback list they unregister
+  from, preventing a deferred connection teardown from walking freed callback
+  storage.
+- Cover configurable `tools_list_changed` advertisement through the real
+  initialize path so the default `false` and configured `true` cases cannot
+  drift.
+
 ## [0.1.17] - 2026-09-02
 
 ### Added
