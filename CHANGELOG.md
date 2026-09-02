@@ -14,6 +14,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 
+## [0.1.17] - 2026-09-02
+
+### Added
+
+- `McpServer::postToDispatcher` lets deferred handlers post response work back
+  to the MCP dispatcher.
+
+### Changed
+
+- Route Streamable HTTP server-initiated requests through session ownership.
+- Streamable HTTP request routing now goes through session ownership instead of
+  explicit SSE session registration.
+
+### Fixed
+
+- Fix client request timeout handling.
+- Avoid duplicate responses for Streamable HTTP `GET` requests.
+- Clean up callback session state between requests.
+- Guard discover instruction updates with the server configuration mutex.
+- Fix Streamable HTTP round-trip test routing for the session-based request
+  path.
+- Bound off-dispatcher client request handoffs so callers receive an error
+  instead of waiting through dispatcher shutdown.
+- Bound off-dispatcher server-initiated request completion so callers receive
+  an error response when shutdown drops the dispatcher handoff or the deadline
+  passes before the dispatcher runs it.
+- Guard off-dispatcher server request posts with a server liveness token so a
+  queued callback cannot touch a destroyed server.
+
 ## [0.1.16] - 2026-08-30
 
 ### Added
