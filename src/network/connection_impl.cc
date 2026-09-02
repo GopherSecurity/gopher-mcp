@@ -33,14 +33,16 @@ ConnectionImplBase::ConnectionImplBase(event::Dispatcher& dispatcher,
       socket_(std::move(socket)),
       transport_socket_(std::move(transport_socket)),
       stream_info_(std::make_shared<stream_info::StreamInfoImpl>()),
-      filter_manager_(*this, dispatcher),
       id_(next_connection_id_++),
       read_buffer_([this]() { return onReadBufferLowWatermark(); },
                    [this]() { return onReadBufferHighWatermark(); },
                    []() { return false; }),  // below overflow not used for read
       write_buffer_([this]() { return onWriteBufferLowWatermark(); },
                     [this]() { return onWriteBufferHighWatermark(); },
-                    [this]() { return onWriteBufferBelowLowWatermark(); }) {
+                    [this]() { return onWriteBufferBelowLowWatermark(); }),
+      // Initialised last to match its declaration order; see the comment on
+      // the member for why it must be declared last (destroyed first).
+      filter_manager_(*this, dispatcher) {
   // Initialize connection state machine
   state_machine_ = std::make_unique<ConnectionStateMachine>(dispatcher);
 

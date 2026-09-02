@@ -466,7 +466,6 @@ class ConnectionImplBase : public virtual Connection {
   SocketPtr socket_;
   TransportSocketPtr transport_socket_;
   stream_info::StreamInfoSharedPtr stream_info_;
-  FilterManagerImpl filter_manager_;
 
   // State machine for managing connection lifecycle
   std::unique_ptr<ConnectionStateMachine> state_machine_;
@@ -506,6 +505,17 @@ class ConnectionImplBase : public virtual Connection {
 
   // File events
   event::FileEventPtr file_event_;
+
+  // Declared LAST so it is destroyed FIRST. Members die in reverse
+  // declaration order, and a filter's destructor may reach back into the
+  // connection that owns it — HttpSseJsonRpcProtocolFilter's destructor
+  // calls removeConnectionCallbacks() on this connection. Declared before
+  // callbacks_, the callback list was already destroyed by the time the
+  // filters ran, so that unregister walked a freed std::list and segfaulted
+  // on the dispatcher thread during deferred connection delete. Keeping the
+  // filter manager last means every member a filter might touch on the way
+  // out is still alive when it does.
+  FilterManagerImpl filter_manager_;
 
   // Connection ID generator
   static std::atomic<uint64_t> next_connection_id_;
