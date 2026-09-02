@@ -207,6 +207,53 @@ TEST(ToolDesignations, AnUnusableDefinitionIsRefusedAndTheRestAreServed) {
       << "a refused tool was listed anyway: " << wire;
 }
 
+// A server whose tool set is fixed says so, and one that discovers tools later
+// says the opposite. Asserted through a real initialize rather than a
+// hand-built JSON blob, so that the capability stays wired to the config: an
+// aggregator that stopped advertising listChanged would leave every client
+// showing whatever existed at connect time, with nothing failing to say so.
+jsonrpc::Request initializeRequest(int64_t id) {
+  jsonrpc::Request request;
+  request.jsonrpc = "2.0";
+  request.id = make_request_id(id);
+  request.method = "initialize";
+  Metadata params;
+  params["protocolVersion"] = MetadataValue(std::string("2025-03-26"));
+  request.params = mcp::make_optional(params);
+  return request;
+}
+
+TEST(InitializeCapabilities, AFixedToolSetSaysItDoesNotChange) {
+  McpServerConfig config = testConfig();
+  config.capabilities.tools = mcp::make_optional(true);
+  DispatchTestServer server(config);
+  CapturingContext context;
+
+  server.onRequestWithContext(initializeRequest(1), context);
+
+  ASSERT_TRUE(context.captured.has_value()) << "initialize went unanswered";
+  const std::string wire = context.wire();
+  EXPECT_NE(wire.find("\"listChanged\":false"), std::string::npos)
+      << "a server that never gains tools claimed it might: " << wire;
+}
+
+TEST(InitializeCapabilities, AServerThatGainsToolsLaterSaysSo) {
+  McpServerConfig config = testConfig();
+  config.capabilities.tools = mcp::make_optional(true);
+  config.tools_list_changed = true;
+  DispatchTestServer server(config);
+  CapturingContext context;
+
+  server.onRequestWithContext(initializeRequest(1), context);
+
+  ASSERT_TRUE(context.captured.has_value()) << "initialize went unanswered";
+  const std::string wire = context.wire();
+  EXPECT_NE(wire.find("\"listChanged\":true"), std::string::npos)
+      << "a server configured to gain tools did not advertise it, so no client "
+         "will ever re-list: "
+      << wire;
+}
+
 }  // namespace
 }  // namespace server
 }  // namespace mcp

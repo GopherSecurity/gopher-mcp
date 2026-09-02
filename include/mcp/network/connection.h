@@ -508,7 +508,7 @@ class ConnectionImplBase : public virtual Connection {
 
   // Declared LAST so it is destroyed FIRST. Members die in reverse
   // declaration order, and a filter's destructor may reach back into the
-  // connection that owns it — HttpSseJsonRpcProtocolFilter's destructor
+  // connection that owns it: HttpSseJsonRpcProtocolFilter's destructor
   // calls removeConnectionCallbacks() on this connection. Declared before
   // callbacks_, the callback list was already destroyed by the time the
   // filters ran, so that unregister walked a freed std::list and segfaulted
