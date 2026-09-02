@@ -91,6 +91,16 @@ struct McpServerConfig : public application::ApplicationBase::Config {
   std::function<std::string(const jsonrpc::Request&, SessionContext&)>
       instructions_provider;
 
+  // Whether the tools capability advertises listChanged. Default false, which
+  // is what a server whose tool set is fixed at startup should say.
+  //
+  // A server that discovers tools after initialize -- an aggregator whose
+  // backends come online later, say -- must advertise true, or clients have
+  // no reason to re-list and will show whatever was available at connect
+  // time forever. Such a server is expected to actually send
+  // notifications/tools/list_changed when its set changes.
+  bool tools_list_changed = false;
+
   // Transport configuration
   std::vector<TransportType> supported_transports = {TransportType::Stdio,
                                                      TransportType::HttpSse};

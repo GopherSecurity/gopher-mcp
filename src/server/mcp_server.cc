@@ -2396,7 +2396,10 @@ jsonrpc::Response McpServer::handleInitialize(const jsonrpc::Request& request,
   if (server_capabilities.tools.has_value() &&
       server_capabilities.tools.value()) {
     json::JsonValue tools_cap = json::JsonValue::object();
-    tools_cap["listChanged"] = false;
+    // Honour what the server was configured to promise. Hardcoding false
+    // meant an aggregator that gains tools after initialize had no way to
+    // tell clients to look again.
+    tools_cap["listChanged"] = config_.tools_list_changed;
     capabilities["tools"] = std::move(tools_cap);
   }
   if (server_capabilities.prompts.has_value() &&
