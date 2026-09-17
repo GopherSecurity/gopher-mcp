@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Unit tests for MCP Stdio Filter Chain Factory
  *

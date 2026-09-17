@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * A server asking its client for something, without sending it a request.
  *

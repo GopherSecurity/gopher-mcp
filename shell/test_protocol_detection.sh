@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Copyright 2025 Gopher Security, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'

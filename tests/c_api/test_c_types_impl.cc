@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file test_c_types_impl.cc
  * @brief Comprehensive unit tests for mcp_c_types_impl.cc

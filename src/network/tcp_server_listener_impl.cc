@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file tcp_listener_impl.cc
  * @brief Simplified TCP listener implementation following production patterns

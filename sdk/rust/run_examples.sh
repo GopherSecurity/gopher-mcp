@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Copyright 2025 Gopher Security, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 # MCP Filter Rust SDK - Example Runner
 # This script provides easy commands to run different examples
 

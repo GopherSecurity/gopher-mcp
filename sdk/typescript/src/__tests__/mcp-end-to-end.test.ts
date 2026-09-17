@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file mcp-end-to-end.test.ts
  * @brief End-to-end style tests for the FilterManager using mocked FFI bindings

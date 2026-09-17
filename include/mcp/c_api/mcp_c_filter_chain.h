@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file mcp_c_filter_chain.h
  * @brief Advanced filter chain management for MCP Filter API

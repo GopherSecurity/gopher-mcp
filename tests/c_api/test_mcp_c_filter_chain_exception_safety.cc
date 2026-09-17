@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file test_mcp_c_filter_chain_exception_safety.cc
  * @brief Tests for exception safety in MCP Filter Chain C API

@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file test_ssl_error_queue.cc
  * @brief Unit tests for drainOpenSSLErrorQueue null-guard behavior.

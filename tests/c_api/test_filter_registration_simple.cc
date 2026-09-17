@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file test_filter_registration_simple.cc
  * @brief Simple test to verify all core filters are registered

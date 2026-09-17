@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file test_client_sse_state_machine.cc
  * @brief Comprehensive tests for client-side SSE connection state machine

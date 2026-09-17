@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file test_connection_race_condition_fixes.cc
  * @brief Unit tests for connection race condition fixes

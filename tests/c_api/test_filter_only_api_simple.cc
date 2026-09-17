@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file test_filter_only_api_simple.cc
  * @brief Simple unit tests for Filter-Only C API

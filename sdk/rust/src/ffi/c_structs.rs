@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 //! # C Struct Definitions
 //!
 //! This module defines Rust equivalents of the C structures used by the MCP Filter API.

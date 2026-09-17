@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Copyright 2025 Gopher Security, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 # Test script for advanced MCP echo client and server
 # Demonstrates all the advanced features:
 # - Worker threads

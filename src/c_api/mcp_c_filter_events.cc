@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file mcp_c_filter_events.cc
  * @brief C API implementation for chain-level filter events

@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Which tool arguments travel in headers. See the header for why the
  * constraints are strict.

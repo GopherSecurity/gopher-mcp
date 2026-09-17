@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 //! # Filter API
 //!
 //! This module provides the basic filter API for creating and managing filters.

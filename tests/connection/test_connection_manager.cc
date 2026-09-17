@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file test_connection_manager_section2.cc
  * @brief Unit tests for Section 2: Connection Management & Routing

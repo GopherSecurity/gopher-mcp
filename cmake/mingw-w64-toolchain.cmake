@@ -1,3 +1,6 @@
+# Copyright 2025 Gopher Security, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 # MinGW-w64 Cross-Compilation Toolchain for Cygwin
 # Usage: cmake -DCMAKE_TOOLCHAIN_FILE=../cmake/mingw-w64-toolchain.cmake ..
 

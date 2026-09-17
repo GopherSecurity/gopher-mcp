@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file ssl_transport_socket.h
  * @brief SSL/TLS transport socket wrapper following good architecture

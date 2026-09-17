@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 #include "mcp/transport/stdio_transport_socket.h"
 
 #include <errno.h>

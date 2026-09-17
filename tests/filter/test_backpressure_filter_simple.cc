@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file test_backpressure_filter_simple.cc
  * @brief Simple unit tests for Backpressure Filter (no real I/O)

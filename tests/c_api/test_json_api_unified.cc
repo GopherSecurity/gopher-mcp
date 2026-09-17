@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file test_json_api_unified.cc
  * @brief Tests for unified JSON C API - verifies no conflicts and proper

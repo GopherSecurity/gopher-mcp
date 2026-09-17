@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Copyright 2025 Gopher Security, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 echo "Starting MCP server..."
 ../build/examples/mcp/mcp_example_server --port 3001 --transport http --verbose > server.log 2>&1 &
 SERVER_PID=$!

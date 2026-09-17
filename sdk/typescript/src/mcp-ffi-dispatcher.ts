@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file mcp-ffi-dispatcher.ts
  * @brief Dispatcher class wrapper for filter chain tests

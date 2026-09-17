@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file filter-manager-demo.ts
  * @brief Demo of FilterManager processing JSONRPCMessage

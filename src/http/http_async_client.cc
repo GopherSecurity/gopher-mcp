@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 #include "mcp/http/http_async_client.h"
 
 // Override the default log component for this file

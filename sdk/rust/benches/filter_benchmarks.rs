@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 //! # Performance Benchmarks
 //!
 //! Comprehensive performance benchmarks for the MCP Filter SDK.

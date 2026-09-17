@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file test_stdio_echo_server_basic.cc
  * @brief APPLICATION LEVEL TESTS for basic echo server binary

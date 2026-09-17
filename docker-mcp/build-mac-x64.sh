@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Copyright 2025 Gopher Security, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 # Build script for libgopher-mcp on macOS x86_64
 # Target: macOS 10.14+ (Mojave and later)
 # Architecture: x86_64

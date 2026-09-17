@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Copyright 2025 Gopher Security, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 # dump-version.sh - Update CHANGELOG.md with version from CMakeLists.txt
 #
 # This script:

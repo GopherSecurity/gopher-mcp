@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file test_sse_codec_state_machine.cc
  * @brief Comprehensive tests for SSE codec state machine

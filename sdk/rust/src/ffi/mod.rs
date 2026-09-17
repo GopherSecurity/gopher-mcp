@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 //! # FFI Module
 //!
 //! This module provides Foreign Function Interface (FFI) bindings for the MCP Filter C API.

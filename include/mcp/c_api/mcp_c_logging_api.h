@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file mcp_c_logging_api.h
  * @brief FFI-safe C API for MCP Logging Framework with RAII enforcement

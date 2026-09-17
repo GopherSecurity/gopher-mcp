@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 #include <gtest/gtest.h>
 #include <mcp/types.h>  // This includes builders.h at the end
 

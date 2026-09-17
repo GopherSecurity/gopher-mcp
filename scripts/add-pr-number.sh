@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Copyright 2025 Gopher Security, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 # Script to add PR number to commit messages
 # Usage: ./scripts/add-pr-number.sh <PR_NUMBER>
 

@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 //! # Test Configuration
 //!
 //! Configuration and utilities for running tests across different environments.

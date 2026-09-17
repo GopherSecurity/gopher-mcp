@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file test_tcp_echo_server_basic.cc
  * @brief Comprehensive tests for TCP echo server implementation using MCP

@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file mcp-buffer-operations.test.ts
  * @brief Tests for zero-copy buffer operations with real C library

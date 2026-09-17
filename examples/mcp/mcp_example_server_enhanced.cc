@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file mcp_example_server_enhanced.cc
  * @brief MCP server with enhanced filter chain including enterprise features

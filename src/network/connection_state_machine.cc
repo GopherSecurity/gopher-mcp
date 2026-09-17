@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file connection_state_machine.cc
  * @brief Implementation of Connection State Machine following production

@@ -1,3 +1,6 @@
+# Copyright 2025 Gopher Security, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 # CMake configuration for Gopher MCP C API bindings
 # Updated to ensure proper symbol export for FFI usage
 cmake_minimum_required(VERSION 3.14)

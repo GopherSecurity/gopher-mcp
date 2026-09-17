@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 //! # FFI Bindings
 //!
 //! This module provides FFI bindings for the MCP Filter C API.

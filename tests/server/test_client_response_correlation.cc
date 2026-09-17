@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file test_client_response_correlation.cc
  * @brief Tests for matching client responses to server-initiated requests

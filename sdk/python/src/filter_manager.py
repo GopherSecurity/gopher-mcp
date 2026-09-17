@@ -1,3 +1,6 @@
+# Copyright 2025 Gopher Security, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 """
 High-level Filter Manager for JSON-RPC message processing.
 

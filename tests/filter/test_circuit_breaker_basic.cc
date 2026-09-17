@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file test_circuit_breaker_basic.cc
  * @brief Very basic unit tests for Circuit Breaker Filter (no request/response

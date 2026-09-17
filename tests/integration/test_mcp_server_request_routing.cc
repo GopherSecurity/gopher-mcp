@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Integration test: responses are routed by the request's own dispatch
  * context, not by ambient most-recently-accepted-connection state.

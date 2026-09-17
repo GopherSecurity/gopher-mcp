@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file server_listener_manager.h
  * @brief Server listener manager for managing server-side listeners and

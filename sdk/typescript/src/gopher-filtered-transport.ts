@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file gopher-filtered-transport.ts
  * @brief Transport wrapper adding C++ filters to MCP SDK transports

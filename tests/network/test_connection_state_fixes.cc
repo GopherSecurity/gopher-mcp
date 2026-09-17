@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file test_connection_state_fixes.cc
  * @brief Unit tests for critical SSE connection state and crash fixes

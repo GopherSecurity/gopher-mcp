@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file calculator-client-hybrid.ts
  * @brief Simple MCP Calculator Client using Standard SDK (No Filters)

@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file test_stdio_echo_client.cc
  * @brief TRANSPORT LAYER TESTS for stdio echo client functionality

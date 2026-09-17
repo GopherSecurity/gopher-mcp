@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file http_codec_state_machine.h
  * @brief HTTP/1.1 codec state machine following MCP transport patterns

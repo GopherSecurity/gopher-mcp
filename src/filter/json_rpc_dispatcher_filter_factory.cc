@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file json_rpc_dispatcher_filter_factory.cc
  * @brief Factory function for JSON-RPC dispatcher filter

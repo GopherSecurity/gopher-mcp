@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file test_use_after_free_fixes.cc
  * @brief Unit tests for use-after-free crash fixes

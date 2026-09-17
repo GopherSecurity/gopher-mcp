@@ -1,3 +1,6 @@
+# Copyright 2025 Gopher Security, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 # Makefile for MCP C++ SDK
 
 .PHONY: all build test test-interop test-verbose test-parallel test-list check check-verbose check-parallel clean release debug help format format-ts format-python format-rust format-ruby format-cs format-go format-java check-format install uninstall csharp csharp-release csharp-test csharp-clean csharp-format

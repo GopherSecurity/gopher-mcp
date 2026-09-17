@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 #ifndef MCP_TYPE_HELPERS_H
 #define MCP_TYPE_HELPERS_H
 

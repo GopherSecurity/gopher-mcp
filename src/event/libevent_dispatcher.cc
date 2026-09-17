@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 #include "mcp/event/libevent_dispatcher.h"
 
 #include <cassert>

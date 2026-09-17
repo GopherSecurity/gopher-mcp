@@ -1,5 +1,8 @@
 #!/usr/bin/env ts-node
 
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file filter-demo.ts
  * @brief Pure FilterManager demonstration without network simulation

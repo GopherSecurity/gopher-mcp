@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 // Copyright 2026 All Rights Reserved
 //
 // Unit tests for commit 8f5d77a5: Client Reconnection and Debug Logging

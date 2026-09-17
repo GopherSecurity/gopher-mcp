@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 #include "mcp/network/socket_option_impl.h"
 
 #include <cstring>

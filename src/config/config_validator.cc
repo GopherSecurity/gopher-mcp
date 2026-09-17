@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 #define GOPHER_LOG_COMPONENT "config.validate"
 
 #include <algorithm>

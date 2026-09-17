@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file transport_probe.h
  * @brief Working out which protocol era a server at a URL speaks

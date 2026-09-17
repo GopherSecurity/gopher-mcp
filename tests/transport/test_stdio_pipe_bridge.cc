@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Comprehensive test suite for the stdio pipe bridge pattern implementation.
  * Tests the StdioPipeTransport class and its integration with ConnectionImpl.

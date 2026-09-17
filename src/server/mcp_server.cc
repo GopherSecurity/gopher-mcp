@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file mcp_server.cc
  * @brief Implementation of enterprise-grade MCP server using MCP abstraction

@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 //! # CApiFilter Demo
 //!
 //! This example demonstrates how to use CApiFilter with custom Rust callbacks

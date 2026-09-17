@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 //! # Calculator Client Example
 //!
 //! This example demonstrates how to use the MCP Filter SDK to create a calculator client.

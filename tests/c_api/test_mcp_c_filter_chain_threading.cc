@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file test_mcp_c_filter_chain_threading.cc
  * @brief Thread affinity enforcement tests for MCP Filter Chain C API

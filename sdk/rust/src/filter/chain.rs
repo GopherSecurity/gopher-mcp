@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 //! # Filter Chain Management
 //!
 //! This module provides advanced functionality for managing filter chains including

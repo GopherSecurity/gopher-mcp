@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file test_c_api_json_simple.cc
  * @brief Simple unit tests for JSON functionality in MCP C API

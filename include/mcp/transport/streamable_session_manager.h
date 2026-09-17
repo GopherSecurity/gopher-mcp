@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 #ifndef MCP_TRANSPORT_STREAMABLE_SESSION_MANAGER_H
 #define MCP_TRANSPORT_STREAMABLE_SESSION_MANAGER_H
 

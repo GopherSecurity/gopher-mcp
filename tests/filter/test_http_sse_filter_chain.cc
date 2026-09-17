@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Test HTTP+SSE filter chain following production architecture
  * Uses real I/O for integration testing

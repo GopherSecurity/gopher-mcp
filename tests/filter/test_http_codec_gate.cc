@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file test_http_codec_gate.cc
  * @brief Tests for holding back request processing while a response streams

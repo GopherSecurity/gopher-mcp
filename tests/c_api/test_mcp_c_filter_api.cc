@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file test_mcp_filter_api.cc
  * @brief Comprehensive unit tests for MCP Filter C API

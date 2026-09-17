@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 //! # Example Applications
 //!
 //! This module contains example applications demonstrating the MCP Filter SDK usage.

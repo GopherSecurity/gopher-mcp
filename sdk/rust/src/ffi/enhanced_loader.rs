@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 //! # Enhanced Library Loader
 //!
 //! This module provides an enhanced library loader that can use both

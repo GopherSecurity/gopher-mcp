@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file json_conversion.h
  * @brief Conversion utilities between nlohmann::json and JsonValue

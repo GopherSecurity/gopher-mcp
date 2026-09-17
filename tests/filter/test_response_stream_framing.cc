@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file test_response_stream_framing.cc
  * @brief Wire-level tests for how a server response stream is framed

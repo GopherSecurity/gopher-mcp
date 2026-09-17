@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 //! # Filter Demo Example
 //!
 //! This example demonstrates various filter operations using the MCP Filter SDK.

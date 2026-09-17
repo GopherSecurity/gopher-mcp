@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 #include "mcp/client/mcp_client.h"
 
 // Override the default log component for this file

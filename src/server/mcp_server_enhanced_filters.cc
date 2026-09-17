@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file mcp_server_enhanced_filters.cc
  * @brief Enhanced MCP server filter chain setup using extracted filter

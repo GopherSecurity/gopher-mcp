@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file sse_codec_factory.cc
  * @brief Factory implementation for Server-Sent Events codec filter

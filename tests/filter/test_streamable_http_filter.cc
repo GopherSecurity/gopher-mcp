@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file test_streamable_http_filter.cc
  * @brief Tests for the MCP endpoint's request handling

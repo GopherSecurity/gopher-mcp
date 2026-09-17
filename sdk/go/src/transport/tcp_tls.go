@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 // Package transport provides communication transports for the MCP Filter SDK.
 package transport
 

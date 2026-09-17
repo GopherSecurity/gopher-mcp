@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file test_client_idle_timeout.cc
  * @brief Unit tests for MCP client idle timeout and activity tracking

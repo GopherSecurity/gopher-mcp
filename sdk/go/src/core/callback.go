@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 // Package core provides the core interfaces and types for the MCP Filter SDK.
 package core
 
