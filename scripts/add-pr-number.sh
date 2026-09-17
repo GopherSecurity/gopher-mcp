@@ -40,12 +40,35 @@ if [[ ! $REPLY =~ ^[Yy]$ ]]; then
     exit 1
 fi
 
-# Perform the rebase
+# Perform the rebase.
+#
+# Only the subject line is rewritten. Amending with a single -m would replace
+# the entire message, silently discarding every commit body and trailer, so the
+# body is read back and passed as a second -m. A commit that already ends in a
+# PR number is left alone, matching what the preview above reports, so re-running
+# this cannot produce "Title (#1) (#2)".
+#
+# git rebase --exec rejects a command containing newlines, so the script below
+# is assembled one clause per line and passed as a single line.
 export PR_NUMBER
-git rebase $BASE_BRANCH --exec 'git commit --amend -m "$(git log -1 --pretty=%s) (#$PR_NUMBER)"'
+
+AMEND_CMD='subject=$(git log -1 --pretty=%s); '
+AMEND_CMD+='if printf "%s" "$subject" | grep -Eq "\(#[0-9]+\)$"; then '
+AMEND_CMD+='echo "  skipped (already numbered): $subject"; '
+AMEND_CMD+='else '
+AMEND_CMD+='body=$(git log -1 --pretty=%b); '
+AMEND_CMD+='if [ -n "$body" ]; then '
+AMEND_CMD+='git commit --amend --no-verify -m "$subject (#$PR_NUMBER)" -m "$body"; '
+AMEND_CMD+='else '
+AMEND_CMD+='git commit --amend --no-verify -m "$subject (#$PR_NUMBER)"; '
+AMEND_CMD+='fi; '
+AMEND_CMD+='fi'
+
+git rebase "$BASE_BRANCH" --exec "$AMEND_CMD"
 
 echo ""
-echo "✅ Successfully added (#$PR_NUMBER) to all commits!"
+echo "✅ Done. Commits without a PR number now carry (#$PR_NUMBER);"
+echo "   any that already had one were left untouched."
 echo ""
 echo "To push these changes:"
 echo "  git push --force-with-lease"
