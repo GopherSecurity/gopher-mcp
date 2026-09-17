@@ -3,7 +3,7 @@
 
 # Makefile for MCP C++ SDK
 
-.PHONY: all build test test-interop test-verbose test-parallel test-list check check-verbose check-parallel clean release debug help format format-ts format-python format-rust format-ruby format-cs format-go format-java check-format install uninstall csharp csharp-release csharp-test csharp-clean csharp-format
+.PHONY: all build test test-interop test-verbose test-parallel test-list check check-verbose check-parallel clean release debug help format format-ts format-python format-rust format-ruby format-cs format-go format-java check-format check-license install uninstall csharp csharp-release csharp-test csharp-clean csharp-format
 
 # Configuration detection
 OS := $(shell uname -s 2>/dev/null || echo Windows_NT)
@@ -451,6 +451,12 @@ format-ruby:
 		exit 1; \
 	fi
 
+# Verify every first-party source file carries the Apache-2.0 SPDX header.
+# Same script the PR check runs, so failures can be reproduced locally.
+check-license:
+	@echo "Checking Apache-2.0 license headers..."
+	@./scripts/check-license-headers.sh
+
 # Check formatting without modifying files
 check-format:
 	@echo "Checking source file formatting..."
@@ -750,6 +756,7 @@ help:
 	@echo "│ make format-go     Format only Go files with gofmt and goimports     │"
 	@echo "│ make format-java   Format only Java files with Spotless              │"
 	@echo "│ make check-format  Check formatting without modifying files          │"
+	@echo "│ make check-license Check Apache-2.0 SPDX headers on all files        │"
 	@echo "└─────────────────────────────────────────────────────────────────────┘"
 	@echo ""
 	@echo "┌─ MAINTENANCE TARGETS ───────────────────────────────────────────────┐"

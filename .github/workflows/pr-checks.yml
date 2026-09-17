@@ -85,3 +85,30 @@ jobs:
             repo: context.repo.repo,
             body: comment
           });
+  license-header:
+    name: License Header
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+    - name: Checkout PR
+      uses: actions/checkout@v3
+      with:
+        # Need the base branch as well so the diff below can be computed.
+        fetch-depth: 0
+
+    - name: Check headers on changed files
+      run: |
+        # Only the PR's own files are checked. Existing files were covered by
+        # the initial header pass, so a full-tree scan here would just make
+        # every PR pay for unrelated history.
+        git diff --name-only --diff-filter=d \
+          origin/${{ github.base_ref }}...HEAD > changed_files.txt || true
+
+        if [ ! -s changed_files.txt ]; then
+          echo "No files changed."
+          exit 0
+        fi
+
+        xargs ./scripts/check-license-headers.sh < changed_files.txt
