@@ -12,7 +12,7 @@ Gem::Specification.new do |spec|
   spec.summary       = 'Ruby SDK for MCP Filter C API'
   spec.description   = 'Native Ruby interface to MCP Filter C API with FFI bindings, providing filter management, buffer operations, and transport layer functionality.'
   spec.homepage      = 'https://github.com/modelcontextprovider/gopher-mcp'
-  spec.license       = 'MIT'
+  spec.license       = 'Apache-2.0'
 
   spec.files         = Dir['lib/**/*.rb', 'README.md', 'LICENSE']
   spec.require_paths = ['lib']

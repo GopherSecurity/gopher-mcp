@@ -37,7 +37,7 @@
  *   txn.commit(); // Success - prevent cleanup
  *
  * @copyright Copyright (c) 2025 MCP Project
- * @license MIT License
+ * @license Apache License 2.0
  */
 
 #include <atomic>
