@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file mcp_c_api.h
  * @brief FFI-friendly C API for MCP C++ SDK with RAII enforcement

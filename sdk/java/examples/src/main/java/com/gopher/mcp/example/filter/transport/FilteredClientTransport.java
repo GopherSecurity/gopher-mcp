@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 package com.gopher.mcp.example.filter.transport;
 
 import com.fasterxml.jackson.core.type.TypeReference;

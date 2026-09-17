@@ -1,4 +1,7 @@
 #!/bin/bash
+# Copyright 2025 Gopher Security, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 #
 # Run this project's server against the client of the official MCP
 # TypeScript SDK.

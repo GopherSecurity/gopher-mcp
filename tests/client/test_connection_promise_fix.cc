@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file test_connection_promise_fix.cc
  * @brief Unit tests for connect() waiting for actual connection establishment

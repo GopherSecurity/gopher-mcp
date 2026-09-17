@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file client_sse_state_machine.h
  * @brief Client-side SSE connection lifecycle state machine

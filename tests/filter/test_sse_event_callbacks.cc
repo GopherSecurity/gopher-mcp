@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file test_sse_event_callbacks.cc
  * @brief Direct unit tests for SSE event callback functionality

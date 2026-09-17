@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file test_unified_chain_handles.cc
  * @brief Smoke test for unified filter chain handle system

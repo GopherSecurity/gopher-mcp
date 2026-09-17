@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file request_validation_filter.h
  * @brief Request validation filter for MCP protocol compliance

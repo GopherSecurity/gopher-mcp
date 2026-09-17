@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file mcp-capifilter.test.ts
  * @brief Tests for CApiFilter integration with real C library

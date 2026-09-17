@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file mcp_gopher_transport_integration_test.rs
  * @brief Integration tests for GopherTransport

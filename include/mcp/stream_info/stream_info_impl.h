@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 #ifndef MCP_STREAM_INFO_STREAM_INFO_IMPL_H
 #define MCP_STREAM_INFO_STREAM_INFO_IMPL_H
 

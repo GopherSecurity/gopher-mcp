@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file server_connection_mode.cc
  * @brief Server-side connection mode state machine implementation

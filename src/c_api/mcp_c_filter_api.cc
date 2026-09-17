@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file mcp_filter_api.cc
  * @brief Implementation of C API for MCP C++ Filter Architecture

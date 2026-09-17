@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file test_http_headers_compatibility.cc
  * @brief Unit tests for HTTP Headers Compatibility

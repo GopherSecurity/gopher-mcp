@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Copyright 2025 Gopher Security, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 # GopherMcp C# SDK Build Script
 # Builds the library, tests, and examples
 

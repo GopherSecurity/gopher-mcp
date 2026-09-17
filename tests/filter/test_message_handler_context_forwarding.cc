@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Unit tests: chainable MessageHandler filters must forward the
  * per-message dispatch context.

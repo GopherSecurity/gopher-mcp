@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file filter_chain_event_hub.h
  * @brief Event hub for chain-level observer registration and event fan-out

@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file mcp_c_memory_impl.cc
  * @brief Implementation of memory management and error handling for MCP C API

@@ -1,5 +1,8 @@
 # frozen_string_literal: true
 
+# Copyright 2025 Gopher Security, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 Gem::Specification.new do |spec|
   spec.name          = 'mcp_filter_sdk'
   spec.version       = '0.1.0'

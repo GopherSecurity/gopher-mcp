@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 //! # Dynamic Library Loader
 //!
 //! This module handles dynamic loading of the MCP Filter C library

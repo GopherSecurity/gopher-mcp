@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file test_file_source_interface.cc
  * @brief Tests for FileConfigSource interface compliance with ConfigSource

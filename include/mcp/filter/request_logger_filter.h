@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file request_logger_filter.h
  * @brief JSON-RPC request/response logging filter for Hybrid SDK

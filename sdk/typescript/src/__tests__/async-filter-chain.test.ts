@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file async-filter-chain.test.ts
  * @brief Integration tests for async filter chain processing

@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file test_full_stack_transport.cc
  * @brief Integration tests for the full transport stack: TCP → SSL → HTTP+SSE

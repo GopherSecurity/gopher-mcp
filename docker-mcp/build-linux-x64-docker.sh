@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Copyright 2025 Gopher Security, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 # Cross-compile libgopher-mcp for Linux x86_64 using Docker
 # This script can run on any platform with Docker (macOS, Linux ARM64, Windows)
 

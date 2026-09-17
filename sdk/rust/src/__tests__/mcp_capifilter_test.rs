@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 use crate::ffi::library_loader::LibraryLoader;
 /**
  * @file mcp_capifilter_test.rs

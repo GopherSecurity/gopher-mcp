@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file test_ssl_integration.cc
  * @brief Integration tests for SSL with HTTP+SSE transport

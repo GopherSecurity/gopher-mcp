@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file filter-buffer.ts
  * @brief TypeScript wrapper for MCP C Filter Buffer API (mcp_c_filter_buffer.h)

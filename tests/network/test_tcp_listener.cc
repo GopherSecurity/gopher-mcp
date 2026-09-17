@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file test_tcp_listener.cc
  * @brief Unit tests for TCP listener implementation using real IO and MCP

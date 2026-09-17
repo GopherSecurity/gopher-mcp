@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file tcp_ssl_http_example.cc
  * @brief Example demonstrating the full transport stack: TCP → SSL → HTTP+SSE

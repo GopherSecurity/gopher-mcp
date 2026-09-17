@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file test_async_filter_queue.cc
  * @brief Unit tests for MCP Async Filter Queue API

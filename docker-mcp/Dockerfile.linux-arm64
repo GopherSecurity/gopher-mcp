@@ -1,3 +1,6 @@
+# Copyright 2025 Gopher Security, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 # Dockerfile for Linux ARM64 build of libgopher-mcp
 # Uses pre-built GCC image for fast ARM64 builds
 FROM gcc:11

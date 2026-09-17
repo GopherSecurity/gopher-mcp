@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file test_https_sse_factory.cc
  * @brief Unit tests for HTTPS+SSE transport factory

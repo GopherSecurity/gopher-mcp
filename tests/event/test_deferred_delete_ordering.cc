@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 // Verifies the ordering contract of Dispatcher::deferredDelete(): an object
 // handed to the dispatcher from inside an event callback must NOT be
 // destroyed synchronously — destruction has to wait for the current callback

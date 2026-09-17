@@ -1,3 +1,6 @@
+# Copyright 2025 Gopher Security, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 # Dockerfile for cross-compiling libgopher-mcp for Windows x86_64
 # Uses MinGW-w64 for cross-compilation
 FROM ubuntu:22.04

@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file test_http_sse_transport_socket.cc
  * @brief Comprehensive tests for HTTP+SSE transport socket using real I/O

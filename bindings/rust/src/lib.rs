@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 //! Rust bindings for Gopher MCP library
 //!
 //! This crate provides safe Rust bindings for the Gopher MCP library using FFI.

@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Integration tests for FFI dispatcher and connection bindings
  * These tests require the C++ library to be built and available

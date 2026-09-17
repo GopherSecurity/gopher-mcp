@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file streamable_http_client_session.h
  * @brief What a Streamable HTTP client holds between requests

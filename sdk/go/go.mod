@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 module github.com/GopherSecurity/gopher-mcp
 
 go 1.21

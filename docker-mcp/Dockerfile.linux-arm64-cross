@@ -1,3 +1,6 @@
+# Copyright 2025 Gopher Security, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 # Dockerfile for Linux ARM64 cross-compilation of libgopher-mcp
 # Uses x64 host with aarch64-linux-gnu cross-compiler for fast builds
 # No QEMU emulation needed - runs at native x64 speed

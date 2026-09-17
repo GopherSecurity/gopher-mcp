@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 //! # Unit Tests
 //!
 //! Comprehensive unit tests for individual MCP Filter SDK components.

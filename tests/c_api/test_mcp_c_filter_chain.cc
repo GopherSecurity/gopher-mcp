@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file test_mcp_filter_chain.cc
  * @brief Comprehensive unit tests for MCP Filter Chain C API with RAII

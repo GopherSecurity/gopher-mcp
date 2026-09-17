@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 //! # Chain Type Definitions
 //!
 //! This module defines types related to filter chains and their configuration.

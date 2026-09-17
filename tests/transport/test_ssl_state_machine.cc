@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file test_ssl_state_machine.cc
  * @brief Comprehensive unit tests for SSL/TLS state machine

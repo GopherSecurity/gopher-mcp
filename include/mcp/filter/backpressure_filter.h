@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file backpressure_filter.h
  * @brief Backpressure filter for flow control in MCP connections

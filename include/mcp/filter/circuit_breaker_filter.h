@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file circuit_breaker_filter.h
  * @brief Circuit breaker filter for cascading failure protection

@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file http_sse_transport_socket.cc
  * @brief HTTP+SSE Transport Socket implementation following layered

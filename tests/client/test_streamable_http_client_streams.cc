@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * What a Streamable HTTP client does with streams: an answer that
  * arrives as one, a stream it holds for the server to reach it on, and

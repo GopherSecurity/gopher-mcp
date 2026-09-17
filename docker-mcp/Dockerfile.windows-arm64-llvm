@@ -1,3 +1,6 @@
+# Copyright 2025 Gopher Security, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 # Dockerfile for cross-compiling libgopher-mcp for Windows ARM64
 # Uses LLVM-MinGW for ARM64 Windows cross-compilation
 FROM ubuntu:22.04

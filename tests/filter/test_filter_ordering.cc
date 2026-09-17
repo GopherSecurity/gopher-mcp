@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file test_filter_ordering.cc
  * @brief Comprehensive tests for filter ordering validator

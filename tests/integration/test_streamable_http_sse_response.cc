@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file test_streamable_http_sse_response.cc
  * @brief What a client reads when a POSTed request is answered with a stream

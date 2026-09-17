@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Unit tests for FFI dispatcher and connection bindings (mocked)
  * These tests verify function definitions and signatures without requiring the C++ library

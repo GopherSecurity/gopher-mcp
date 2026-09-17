@@ -1,5 +1,8 @@
 #!/usr/bin/env node
 
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file integration-test.ts
  * @brief Integration test using the REAL shared library

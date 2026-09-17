@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 //! # Test Modules
 //!
 //! This module contains individual component tests for the MCP Filter SDK.

@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file unified_filter_chain.h
  * @brief Unified filter chain wrapper for C API implementation

@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 #ifndef MCP_CORE_REQUEST_ID_KEY_H
 #define MCP_CORE_REQUEST_ID_KEY_H
 

@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file filter-chain.ts
  * @brief TypeScript wrapper for MCP C Filter Chain API (mcp_c_filter_chain.h)

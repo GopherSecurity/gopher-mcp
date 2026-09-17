@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 //! # Filter Type Definitions
 //!
 //! This module defines types related to filters and their configuration.

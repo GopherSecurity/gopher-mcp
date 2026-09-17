@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 package com.gopher.mcp.filter.type.chain;
 
 /** Statistics for a chain pool. */

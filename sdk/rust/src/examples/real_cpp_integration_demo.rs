@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 //! # Real C++ Library Integration Demo
 //!
 //! This example demonstrates the integration with the actual C++ library,

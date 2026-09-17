@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file echo_stdio_transport_advanced.h
  * @brief Stdio transport implementation for echo client/server

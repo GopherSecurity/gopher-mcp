@@ -1,5 +1,8 @@
 # frozen_string_literal: true
 
+# Copyright 2025 Gopher Security, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 require 'ffi'
 
 module McpFilterSdk

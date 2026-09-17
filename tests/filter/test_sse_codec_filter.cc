@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file test_sse_codec_filter.cc
  * @brief Real IO integration tests for SSE codec filter

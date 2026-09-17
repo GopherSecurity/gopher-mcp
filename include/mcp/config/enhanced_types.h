@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file enhanced_types.h
  * @brief Configuration types with enhanced error diagnostics

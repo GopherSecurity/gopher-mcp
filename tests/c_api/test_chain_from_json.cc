@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file test_chain_from_json.cc
  * @brief Comprehensive tests for C API JSON-based filter chain creation

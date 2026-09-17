@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file sse_codec_filter_factory.cc
  * @brief Factory function for SSE codec filter

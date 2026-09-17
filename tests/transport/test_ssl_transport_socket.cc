@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file test_ssl_transport_socket_comprehensive.cc
  * @brief Comprehensive test suite for SSL transport socket with ALL tests

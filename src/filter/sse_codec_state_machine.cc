@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file sse_codec_state_machine.cc
  * @brief Server-Sent Events codec state machine implementation

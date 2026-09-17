@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file mcp_guard_transaction_impl.cc
  * @brief FFI-safe RAII implementation of guard and transaction functions

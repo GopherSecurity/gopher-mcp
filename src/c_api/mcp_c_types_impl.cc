@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file mcp_c_types_impl.cc
  * @brief Implementation of FFI-safe C API types for Gopher MCP library

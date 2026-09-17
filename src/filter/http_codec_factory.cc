@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file http_codec_factory.cc
  * @brief Factory implementation for HTTP codec filter

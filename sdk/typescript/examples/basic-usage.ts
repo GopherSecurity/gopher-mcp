@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file basic-usage.ts
  * @brief Basic usage example for MCP Filter SDK

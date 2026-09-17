@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file json_value_converter.h
  * @brief Internal helper for converting between C API JSON and internal

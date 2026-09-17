@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Copyright 2025 Gopher Security, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 # MCP Filter Rust SDK - Complete Test Suite
 # This script runs all tests and examples to verify the SDK is working correctly
 

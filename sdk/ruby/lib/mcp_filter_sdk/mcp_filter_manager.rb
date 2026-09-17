@@ -1,5 +1,8 @@
 # frozen_string_literal: true
 
+# Copyright 2025 Gopher Security, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 require 'mcp_filter_sdk/mcp_filter_api'
 require 'mcp_filter_sdk/mcp_filter_chain'
 require 'mcp_filter_sdk/types/index'

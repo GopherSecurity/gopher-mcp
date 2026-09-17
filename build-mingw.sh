@@ -1,4 +1,7 @@
 #!/bin/bash
+# Copyright 2025 Gopher Security, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 # Build script for GopherMCP with MinGW on Cygwin
 # Usage: ./build-mingw.sh [clean|release|debug]
 

@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Copyright 2025 Gopher Security, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 # Test MCP client with HTTP/SSE transport
 
 GREEN='\033[0;32m'

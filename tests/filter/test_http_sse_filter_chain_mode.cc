@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file test_http_sse_filter_chain_mode.cc
  * @brief Unit tests for HTTP Filter Chain Mode Selection

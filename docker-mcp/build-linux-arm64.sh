@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Copyright 2025 Gopher Security, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 # Build script for libgopher-mcp on Linux ARM64/aarch64
 # Target: Linux ARM64 (glibc-based distributions)
 # Architecture: aarch64/arm64

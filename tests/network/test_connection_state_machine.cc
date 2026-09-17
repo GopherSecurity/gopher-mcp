@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file test_connection_state_machine.cc
  * @brief Unit tests for ConnectionStateMachine using real I/O

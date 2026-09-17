@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file ssl_state_machine.h
  * @brief Async-only SSL/TLS state machine for event loop architecture

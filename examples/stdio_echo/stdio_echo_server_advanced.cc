@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file stdio_echo_server_advanced.cc
  * @brief Advanced echo server using new reusable transport-agnostic components

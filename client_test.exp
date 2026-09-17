@@ -1,4 +1,7 @@
 #!/usr/bin/expect -f
+# Copyright 2025 Gopher Security, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 set timeout 30
 spawn ./build/examples/mcp/mcp_example_client --port 3333 --verbose
 

@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file mcp_c_collections_impl.cc
  * @brief Implementation of collection types and iterators for MCP C API

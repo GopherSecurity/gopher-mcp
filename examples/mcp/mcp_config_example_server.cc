@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file mcp_config_example_server.cc
  * @brief Config-driven MCP server demonstrating filter pipeline configuration

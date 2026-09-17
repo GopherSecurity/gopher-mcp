@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file metrics_filter.h
  * @brief Enhanced metrics collection filter for MCP connections

@@ -1,3 +1,6 @@
+# Copyright 2025 Gopher Security, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 # Logging library CMake configuration
 cmake_minimum_required(VERSION 3.14)
 

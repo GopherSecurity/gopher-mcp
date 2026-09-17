@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Origin policy, CORS header generation, and the filter that applies them.
  * See the header for the contract.

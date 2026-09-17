@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file mcp_filter_buffer.cc
  * @brief Implementation of zero-copy buffer interface for MCP Filter API

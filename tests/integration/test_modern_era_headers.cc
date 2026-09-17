@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * The revision with no handshake, over a real socket, on a server that
  * still serves everyone else.

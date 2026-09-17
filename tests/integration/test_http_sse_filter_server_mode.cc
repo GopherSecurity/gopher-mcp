@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file test_http_sse_filter_server_mode.cc
  * @brief Integration tests for ServerConnectionMode wiring in the filter

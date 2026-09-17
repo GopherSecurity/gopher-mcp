@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file filter-manager.ts
  * @brief Filter Manager for processing JSONRPCMessage through C++ filters

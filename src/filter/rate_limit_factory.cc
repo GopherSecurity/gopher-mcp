@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file rate_limit_factory.cc
  * @brief Factory implementation for rate limiting filter

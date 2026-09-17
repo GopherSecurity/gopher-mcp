@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @file transport_socket_state_machine.cc
  * @brief Implementation of generic transport socket state machine

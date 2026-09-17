@@ -1,3 +1,6 @@
+// Copyright 2025 Gopher Security, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * What a Streamable HTTP client says about its session, and what it does
  * when the server says it has forgotten one.
