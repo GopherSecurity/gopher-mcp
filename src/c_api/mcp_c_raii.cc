@@ -10,7 +10,7 @@
  * management.
  *
  * @copyright Copyright (c) 2025 MCP Project
- * @license MIT License
+ * @license Apache License 2.0
  */
 
 #define MCP_RAII_IMPLEMENTATION

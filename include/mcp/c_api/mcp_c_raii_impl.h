@@ -11,7 +11,7 @@
  * without exposing C API types in the main header.
  *
  * @copyright Copyright (c) 2025 MCP Project
- * @license MIT License
+ * @license Apache License 2.0
  */
 
 // This file is intentionally minimal to avoid header conflicts
