@@ -103,8 +103,7 @@ class ListenRegistry {
    * long-lived stream a modern client opened with `subscriptions/listen`.
    */
   std::vector<ResponseStreamPtr> streamsFor(
-      const std::string& method,
-      const std::string& uri = std::string()) const;
+      const std::string& method, const std::string& uri = std::string()) const;
 
   /**
    * End one on the server's own initiative, gracefully.
