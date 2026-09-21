@@ -171,8 +171,7 @@ size_t ListenRegistry::publish(const std::string& method,
 }
 
 std::vector<ResponseStreamPtr> ListenRegistry::streamsFor(
-    const std::string& method,
-    const std::string& uri) const {
+    const std::string& method, const std::string& uri) const {
   std::vector<ResponseStreamPtr> streams;
   for (const auto& entry : subscriptions_) {
     const Subscription& subscription = entry.second;
