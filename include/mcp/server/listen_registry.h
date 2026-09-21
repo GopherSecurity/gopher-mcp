@@ -97,6 +97,16 @@ class ListenRegistry {
                  const std::string& uri = std::string());
 
   /**
+   * Return the live streams whose filters match a notification method.
+   *
+   * Callers use this when a server-initiated request should ride the same
+   * long-lived stream a modern client opened with `subscriptions/listen`.
+   */
+  std::vector<ResponseStreamPtr> streamsFor(
+      const std::string& method,
+      const std::string& uri = std::string()) const;
+
+  /**
    * End one on the server's own initiative, gracefully.
    *
    * The stream gets the response its listen request never had, which is

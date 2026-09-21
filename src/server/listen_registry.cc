@@ -170,6 +170,21 @@ size_t ListenRegistry::publish(const std::string& method,
   return delivered;
 }
 
+std::vector<ResponseStreamPtr> ListenRegistry::streamsFor(
+    const std::string& method,
+    const std::string& uri) const {
+  std::vector<ResponseStreamPtr> streams;
+  for (const auto& entry : subscriptions_) {
+    const Subscription& subscription = entry.second;
+    if (!subscription.stream || !subscription.stream->alive() ||
+        !subscription.filter.wants(method, uri)) {
+      continue;
+    }
+    streams.push_back(subscription.stream);
+  }
+  return streams;
+}
+
 bool ListenRegistry::close(const std::string& caller, const RequestId& id) {
   auto it = subscriptions_.find(SubscriptionKey{caller, requestIdKey(id)});
   if (it == subscriptions_.end()) {
