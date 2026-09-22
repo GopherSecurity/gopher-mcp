@@ -189,6 +189,7 @@ VoidResult ListenRegistry::sendRequest(
   SubscriptionKey first_for_caller;
   first_for_caller.caller = caller;
   first_for_caller.id.number = std::numeric_limits<int64_t>::min();
+  optional<Error> last_error;
 
   for (auto it = subscriptions_.lower_bound(first_for_caller);
        it != subscriptions_.end() && it->first.caller == caller; ++it) {
@@ -205,9 +206,16 @@ VoidResult ListenRegistry::sendRequest(
     }
     tagWithSubscription(params, subscription.id);
     tagged.params = mcp::make_optional(params);
-    return subscription.stream->sendRequest(tagged);
+    auto sent = subscription.stream->sendRequest(tagged);
+    if (holds_alternative<std::nullptr_t>(sent)) {
+      return sent;
+    }
+    last_error = mcp::make_optional(get<Error>(sent));
   }
 
+  if (last_error.has_value()) {
+    return makeVoidError(last_error.value());
+  }
   return makeVoidError(Error(jsonrpc::INTERNAL_ERROR,
                              "no live subscription stream for caller " +
                                  caller));
