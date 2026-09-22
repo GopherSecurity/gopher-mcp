@@ -97,13 +97,18 @@ class ListenRegistry {
                  const std::string& uri = std::string());
 
   /**
-   * Return the live streams whose filters match a notification method.
+   * Return one caller's live streams whose filters match a notification
+   * method.
    *
    * Callers use this when a server-initiated request should ride the same
    * long-lived stream a modern client opened with `subscriptions/listen`.
+   * That request belongs to a single client, so selecting streams across
+   * callers would leak prompts or authorization URLs to unrelated clients.
    */
   std::vector<ResponseStreamPtr> streamsFor(
-      const std::string& method, const std::string& uri = std::string()) const;
+      const std::string& caller,
+      const std::string& method,
+      const std::string& uri = std::string()) const;
 
   /**
    * End one on the server's own initiative, gracefully.
