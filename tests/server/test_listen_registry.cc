@@ -52,6 +52,9 @@ class StreamSpy : public ResponseStream {
     if (!alive_) {
       return makeVoidError(Error(jsonrpc::INTERNAL_ERROR, "gone"));
     }
+    if (fail_requests_) {
+      return makeVoidError(Error(jsonrpc::INTERNAL_ERROR, "send failed"));
+    }
     requests.push_back(json::to_json(request));
     return makeVoidSuccess();
   }
@@ -66,6 +69,7 @@ class StreamSpy : public ResponseStream {
   }
 
   void die() { alive_ = false; }
+  void failRequests() { fail_requests_ = true; }
 
   /** What a client closing this stream does. */
   void clientWentAway() {
@@ -106,6 +110,7 @@ class StreamSpy : public ResponseStream {
 
  private:
   bool alive_{true};
+  bool fail_requests_{false};
 };
 
 NotificationFilter filterFrom(const std::string& params_json) {
@@ -364,6 +369,27 @@ TEST(ListenRegistry, SendRequestSkipsDeadStreamsAtSendTime) {
   ASSERT_EQ(living->requests.size(), 1u)
       << "the registry reused a dead stream instead of checking liveness at "
          "send time";
+  EXPECT_EQ(living->requestSubscriptionOf(0), 2);
+}
+
+TEST(ListenRegistry, SendRequestRetriesAfterLiveStreamWriteFailure) {
+  ListenRegistry registry;
+  auto failing = std::make_shared<StreamSpy>();
+  auto living = std::make_shared<StreamSpy>();
+
+  ASSERT_TRUE(registry.open("caller-a", make_request_id(1), failing,
+                            filterFrom(R"({})")));
+  ASSERT_TRUE(registry.open("caller-a", make_request_id(2), living,
+                            filterFrom(R"({})")));
+  failing->failRequests();
+
+  auto sent = registry.sendRequest("caller-a", elicitationRequest("elicit-1"));
+
+  EXPECT_TRUE(holds_alternative<std::nullptr_t>(sent));
+  EXPECT_TRUE(failing->requests.empty())
+      << "a failed send should not be recorded as delivered";
+  ASSERT_EQ(living->requests.size(), 1u)
+      << "a later live stream should be tried after a write failure";
   EXPECT_EQ(living->requestSubscriptionOf(0), 2);
 }
 
