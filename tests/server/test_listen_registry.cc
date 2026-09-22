@@ -293,11 +293,18 @@ TEST(ListenRegistry, TwoClientsMayUseTheSameIdForDifferentSubscriptions) {
       << "ending one client's subscription ended another's";
 }
 
-TEST(ListenRegistry, SendRequestIsScopedTaggedAndSingular) {
+jsonrpc::Request elicitationRequest(const std::string& id) {
+  jsonrpc::Request request;
+  request.jsonrpc = "2.0";
+  request.id = make_request_id(id);
+  request.method = modern::kMethodElicitation;
+  return request;
+}
+
+TEST(ListenRegistry, SendRequestDoesNotCrossCallersWithMatchingSubscriptions) {
   ListenRegistry registry;
   auto first = std::make_shared<StreamSpy>();
   auto second = std::make_shared<StreamSpy>();
-  auto no_notification_filter = std::make_shared<StreamSpy>();
 
   ASSERT_TRUE(registry.open(
       "caller-a", make_request_id(1), first,
@@ -305,15 +312,8 @@ TEST(ListenRegistry, SendRequestIsScopedTaggedAndSingular) {
   ASSERT_TRUE(registry.open(
       "caller-b", make_request_id(1), second,
       filterFrom(R"({"notifications":{"toolsListChanged":true}})")));
-  ASSERT_TRUE(registry.open("caller-a", make_request_id(2),
-                            no_notification_filter, filterFrom(R"({})")));
 
-  jsonrpc::Request request;
-  request.jsonrpc = "2.0";
-  request.id = make_request_id("elicit-1");
-  request.method = modern::kMethodElicitation;
-
-  auto sent = registry.sendRequest("caller-a", request);
+  auto sent = registry.sendRequest("caller-a", elicitationRequest("elicit-1"));
 
   EXPECT_TRUE(holds_alternative<std::nullptr_t>(sent));
   ASSERT_EQ(first->requests.size(), 1u)
@@ -324,18 +324,47 @@ TEST(ListenRegistry, SendRequestIsScopedTaggedAndSingular) {
       << "the request was not tagged with the subscription it used";
   EXPECT_TRUE(second->requests.empty())
       << "a caller-scoped request crossed into another client";
-  EXPECT_TRUE(no_notification_filter->requests.empty())
-      << "one server-initiated request was routed to more than one stream";
+}
 
-  first->die();
-  request.id = make_request_id("elicit-2");
-  sent = registry.sendRequest("caller-a", request);
+TEST(ListenRegistry, SendRequestIsNotFilteredByNotificationInterest) {
+  ListenRegistry registry;
+  auto no_notification_filter = std::make_shared<StreamSpy>();
+
+  ASSERT_TRUE(registry.open("caller-a", make_request_id(2),
+                            no_notification_filter, filterFrom(R"({})")));
+
+  auto sent = registry.sendRequest("caller-a", elicitationRequest("elicit-1"));
 
   EXPECT_TRUE(holds_alternative<std::nullptr_t>(sent));
   ASSERT_EQ(no_notification_filter->requests.size(), 1u)
+      << "server-initiated request routing was tied to notification filters";
+  EXPECT_EQ(no_notification_filter->requests[0]["method"].getString(),
+            modern::kMethodElicitation);
+  EXPECT_EQ(no_notification_filter->requestSubscriptionOf(0), 2)
+      << "the request was not tagged with the subscription it used";
+}
+
+TEST(ListenRegistry, SendRequestSkipsDeadStreamsAtSendTime) {
+  ListenRegistry registry;
+  auto dead = std::make_shared<StreamSpy>();
+  auto living = std::make_shared<StreamSpy>();
+
+  ASSERT_TRUE(registry.open(
+      "caller-a", make_request_id(1), dead,
+      filterFrom(R"({"notifications":{"toolsListChanged":true}})")));
+  ASSERT_TRUE(registry.open("caller-a", make_request_id(2), living,
+                            filterFrom(R"({})")));
+  dead->die();
+
+  auto sent = registry.sendRequest("caller-a", elicitationRequest("elicit-1"));
+
+  EXPECT_TRUE(holds_alternative<std::nullptr_t>(sent));
+  EXPECT_TRUE(dead->requests.empty())
+      << "the registry sent through a stream that was already dead";
+  ASSERT_EQ(living->requests.size(), 1u)
       << "the registry reused a dead stream instead of checking liveness at "
          "send time";
-  EXPECT_EQ(no_notification_filter->requestSubscriptionOf(0), 2);
+  EXPECT_EQ(living->requestSubscriptionOf(0), 2);
 }
 
 TEST(ListenRegistry, OneClientCannotUseOneIdTwice) {
