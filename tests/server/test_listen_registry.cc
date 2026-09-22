@@ -279,7 +279,7 @@ TEST(ListenRegistry, TwoClientsMayUseTheSameIdForDifferentSubscriptions) {
       << "ending one client's subscription ended another's";
 }
 
-TEST(ListenRegistry, StreamsForIsScopedToOneCallerAndNotNotificationMethod) {
+TEST(ListenRegistry, StreamForIsScopedToOneCallerAndNotNotificationMethod) {
   ListenRegistry registry;
   auto first = std::make_shared<StreamSpy>();
   auto second = std::make_shared<StreamSpy>();
@@ -294,13 +294,12 @@ TEST(ListenRegistry, StreamsForIsScopedToOneCallerAndNotNotificationMethod) {
   ASSERT_TRUE(registry.open("caller-a", make_request_id(2),
                             no_notification_filter, filterFrom(R"({})")));
 
-  const auto streams = registry.streamsFor("caller-a");
+  const auto stream = registry.streamFor("caller-a");
 
-  ASSERT_EQ(streams.size(), 2u)
+  ASSERT_EQ(stream, first)
       << "a caller-scoped stream lookup crossed into another client";
-  EXPECT_EQ(streams[0], first);
-  EXPECT_EQ(streams[1], no_notification_filter)
-      << "server-initiated request routing was tied to notification filters";
+  EXPECT_NE(stream, no_notification_filter)
+      << "one server-initiated request was routed to more than one stream";
 }
 
 TEST(ListenRegistry, OneClientCannotUseOneIdTwice) {
