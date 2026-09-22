@@ -171,10 +171,7 @@ size_t ListenRegistry::publish(const std::string& method,
   return delivered;
 }
 
-std::vector<ResponseStreamPtr> ListenRegistry::streamsFor(
-    const std::string& caller) const {
-  std::vector<ResponseStreamPtr> streams;
-
+ResponseStreamPtr ListenRegistry::streamFor(const std::string& caller) const {
   SubscriptionKey first_for_caller;
   first_for_caller.caller = caller;
   first_for_caller.id.number = std::numeric_limits<int64_t>::min();
@@ -186,9 +183,9 @@ std::vector<ResponseStreamPtr> ListenRegistry::streamsFor(
     if (!subscription.stream || !subscription.stream->alive()) {
       continue;
     }
-    streams.push_back(subscription.stream);
+    return subscription.stream;
   }
-  return streams;
+  return nullptr;
 }
 
 bool ListenRegistry::close(const std::string& caller, const RequestId& id) {
