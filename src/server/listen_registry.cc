@@ -183,9 +183,8 @@ size_t ListenRegistry::publish(const std::string& method,
   return delivered;
 }
 
-VoidResult ListenRegistry::sendRequest(
-    const std::string& caller,
-    const jsonrpc::Request& request) const {
+VoidResult ListenRegistry::sendRequest(const std::string& caller,
+                                       const jsonrpc::Request& request) const {
   SubscriptionKey first_for_caller;
   first_for_caller.caller = caller;
   first_for_caller.id.number = std::numeric_limits<int64_t>::min();
@@ -216,9 +215,9 @@ VoidResult ListenRegistry::sendRequest(
   if (last_error.has_value()) {
     return makeVoidError(last_error.value());
   }
-  return makeVoidError(Error(jsonrpc::INTERNAL_ERROR,
-                             "no live subscription stream for caller " +
-                                 caller));
+  return makeVoidError(
+      Error(jsonrpc::INTERNAL_ERROR,
+            "no live subscription stream for caller " + caller));
 }
 
 bool ListenRegistry::close(const std::string& caller, const RequestId& id) {

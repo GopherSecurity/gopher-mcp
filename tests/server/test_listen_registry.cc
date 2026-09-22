@@ -402,9 +402,8 @@ TEST(ListenRegistry, SendRequestPreservesExistingRequestMeta) {
 
   auto request = elicitationRequest("elicit-1");
   Metadata params;
-  params["_meta"] = MetadataValue(
-      std::string("{\"trace\":\"kept\",\"") +
-      modern::kMetaSubscriptionId + "\":999}");
+  params["_meta"] = MetadataValue(std::string("{\"trace\":\"kept\",\"") +
+                                  modern::kMetaSubscriptionId + "\":999}");
   request.params = mcp::make_optional(params);
 
   auto sent = registry.sendRequest("caller-a", request);
