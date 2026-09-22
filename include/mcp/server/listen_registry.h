@@ -97,16 +97,15 @@ class ListenRegistry {
                  const std::string& uri = std::string());
 
   /**
-   * Return one caller's live listen streams.
+   * Return one caller's live listen stream for a server-initiated request.
    *
-   * Callers use this when a server-initiated request should ride a
-   * long-lived stream a modern client opened with `subscriptions/listen`.
-   * Request methods are not notification filters: deciding whether the
-   * client may be asked for sampling, elicitation, or roots belongs to
-   * capability checks at the request layer. This lookup is only the
-   * caller-scoped routing step.
+   * A caller may hold several subscriptions, but one JSON-RPC request must
+   * be sent once: sending the same id down multiple streams would make the
+   * second answer look unmatched. Request methods are not notification
+   * filters; deciding whether the client may be asked for sampling,
+   * elicitation, or roots belongs to capability checks at the request layer.
    */
-  std::vector<ResponseStreamPtr> streamsFor(const std::string& caller) const;
+  ResponseStreamPtr streamFor(const std::string& caller) const;
 
   /**
    * End one on the server's own initiative, gracefully.
