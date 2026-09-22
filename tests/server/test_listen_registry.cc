@@ -367,6 +367,31 @@ TEST(ListenRegistry, SendRequestSkipsDeadStreamsAtSendTime) {
   EXPECT_EQ(living->requestSubscriptionOf(0), 2);
 }
 
+TEST(ListenRegistry, SendRequestPreservesExistingRequestMeta) {
+  ListenRegistry registry;
+  auto stream = std::make_shared<StreamSpy>();
+
+  ASSERT_TRUE(registry.open("caller-a", make_request_id(7), stream,
+                            filterFrom(R"({})")));
+
+  auto request = elicitationRequest("elicit-1");
+  Metadata params;
+  params["_meta"] = MetadataValue(
+      std::string("{\"trace\":\"kept\",\"") +
+      modern::kMetaSubscriptionId + "\":999}");
+  request.params = mcp::make_optional(params);
+
+  auto sent = registry.sendRequest("caller-a", request);
+
+  EXPECT_TRUE(holds_alternative<std::nullptr_t>(sent));
+  ASSERT_EQ(stream->requests.size(), 1u);
+  const auto& meta = stream->requests[0]["params"]["_meta"];
+  EXPECT_EQ(meta["trace"].getString(), "kept")
+      << "request metadata was replaced instead of extended";
+  EXPECT_EQ(meta[modern::kMetaSubscriptionId].getInt64(), 7)
+      << "the registry did not stamp the subscription it used";
+}
+
 TEST(ListenRegistry, OneClientCannotUseOneIdTwice) {
   ListenRegistry registry;
   auto first = std::make_shared<StreamSpy>();

@@ -42,6 +42,18 @@ json::JsonValue idAsJson(const RequestId& id) {
  */
 void tagWithSubscription(Metadata& params, const RequestId& id) {
   json::JsonValue meta = json::JsonValue::object();
+  auto existing = params.find("_meta");
+  if (existing != params.end() &&
+      holds_alternative<std::string>(existing->second)) {
+    try {
+      json::JsonValue parsed =
+          json::JsonValue::parse(get<std::string>(existing->second));
+      if (parsed.isObject()) {
+        meta = parsed;
+      }
+    } catch (const json::JsonException&) {
+    }
+  }
   meta.set(modern::kMetaSubscriptionId, idAsJson(id));
   params["_meta"] = MetadataValue(meta.toString());
 }
