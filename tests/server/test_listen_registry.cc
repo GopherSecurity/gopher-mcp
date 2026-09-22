@@ -48,6 +48,13 @@ class StreamSpy : public ResponseStream {
     notifications.push_back(json::to_json(notification));
     return makeVoidSuccess();
   }
+  VoidResult sendRequest(const jsonrpc::Request& request) override {
+    if (!alive_) {
+      return makeVoidError(Error(jsonrpc::INTERNAL_ERROR, "gone"));
+    }
+    requests.push_back(json::to_json(request));
+    return makeVoidSuccess();
+  }
   VoidResult sendResponse(const jsonrpc::Response& response) override {
     responses.push_back(json::to_json(response));
     return makeVoidSuccess();
@@ -87,7 +94,14 @@ class StreamSpy : public ResponseStream {
         .getInt64();
   }
 
+  /** The subscription a delivered request says it belongs to. */
+  int64_t requestSubscriptionOf(size_t which) const {
+    return requests[which]["params"]["_meta"][modern::kMetaSubscriptionId]
+        .getInt64();
+  }
+
   std::vector<json::JsonValue> notifications;
+  std::vector<json::JsonValue> requests;
   std::vector<json::JsonValue> responses;
 
  private:
@@ -279,7 +293,7 @@ TEST(ListenRegistry, TwoClientsMayUseTheSameIdForDifferentSubscriptions) {
       << "ending one client's subscription ended another's";
 }
 
-TEST(ListenRegistry, StreamForIsScopedToOneCallerAndNotNotificationMethod) {
+TEST(ListenRegistry, SendRequestIsScopedTaggedAndSingular) {
   ListenRegistry registry;
   auto first = std::make_shared<StreamSpy>();
   auto second = std::make_shared<StreamSpy>();
@@ -294,12 +308,34 @@ TEST(ListenRegistry, StreamForIsScopedToOneCallerAndNotNotificationMethod) {
   ASSERT_TRUE(registry.open("caller-a", make_request_id(2),
                             no_notification_filter, filterFrom(R"({})")));
 
-  const auto stream = registry.streamFor("caller-a");
+  jsonrpc::Request request;
+  request.jsonrpc = "2.0";
+  request.id = make_request_id("elicit-1");
+  request.method = modern::kMethodElicitation;
 
-  ASSERT_EQ(stream, first)
-      << "a caller-scoped stream lookup crossed into another client";
-  EXPECT_NE(stream, no_notification_filter)
+  auto sent = registry.sendRequest("caller-a", request);
+
+  EXPECT_TRUE(holds_alternative<std::nullptr_t>(sent));
+  ASSERT_EQ(first->requests.size(), 1u)
+      << "the caller's live stream did not receive the request";
+  EXPECT_EQ(first->requests[0]["method"].getString(),
+            modern::kMethodElicitation);
+  EXPECT_EQ(first->requestSubscriptionOf(0), 1)
+      << "the request was not tagged with the subscription it used";
+  EXPECT_TRUE(second->requests.empty())
+      << "a caller-scoped request crossed into another client";
+  EXPECT_TRUE(no_notification_filter->requests.empty())
       << "one server-initiated request was routed to more than one stream";
+
+  first->die();
+  request.id = make_request_id("elicit-2");
+  sent = registry.sendRequest("caller-a", request);
+
+  EXPECT_TRUE(holds_alternative<std::nullptr_t>(sent));
+  ASSERT_EQ(no_notification_filter->requests.size(), 1u)
+      << "the registry reused a dead stream instead of checking liveness at "
+         "send time";
+  EXPECT_EQ(no_notification_filter->requestSubscriptionOf(0), 2);
 }
 
 TEST(ListenRegistry, OneClientCannotUseOneIdTwice) {

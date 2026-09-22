@@ -97,15 +97,19 @@ class ListenRegistry {
                  const std::string& uri = std::string());
 
   /**
-   * Return one caller's live listen stream for a server-initiated request.
+   * Send a server-initiated request on one caller's live listen stream.
    *
    * A caller may hold several subscriptions, but one JSON-RPC request must
    * be sent once: sending the same id down multiple streams would make the
    * second answer look unmatched. Request methods are not notification
    * filters; deciding whether the client may be asked for sampling,
    * elicitation, or roots belongs to capability checks at the request layer.
+   *
+   * The registry performs the send so every message carries the subscription
+   * id for the stream it used and stream liveness is checked at send time.
    */
-  ResponseStreamPtr streamFor(const std::string& caller) const;
+  VoidResult sendRequest(const std::string& caller,
+                         const jsonrpc::Request& request) const;
 
   /**
    * End one on the server's own initiative, gracefully.
