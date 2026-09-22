@@ -97,18 +97,16 @@ class ListenRegistry {
                  const std::string& uri = std::string());
 
   /**
-   * Return one caller's live streams whose filters match a notification
-   * method.
+   * Return one caller's live listen streams.
    *
-   * Callers use this when a server-initiated request should ride the same
+   * Callers use this when a server-initiated request should ride a
    * long-lived stream a modern client opened with `subscriptions/listen`.
-   * That request belongs to a single client, so selecting streams across
-   * callers would leak prompts or authorization URLs to unrelated clients.
+   * Request methods are not notification filters: deciding whether the
+   * client may be asked for sampling, elicitation, or roots belongs to
+   * capability checks at the request layer. This lookup is only the
+   * caller-scoped routing step.
    */
-  std::vector<ResponseStreamPtr> streamsFor(
-      const std::string& caller,
-      const std::string& method,
-      const std::string& uri = std::string()) const;
+  std::vector<ResponseStreamPtr> streamsFor(const std::string& caller) const;
 
   /**
    * End one on the server's own initiative, gracefully.

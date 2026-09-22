@@ -279,11 +279,11 @@ TEST(ListenRegistry, TwoClientsMayUseTheSameIdForDifferentSubscriptions) {
       << "ending one client's subscription ended another's";
 }
 
-TEST(ListenRegistry, StreamsForIsScopedToOneCaller) {
+TEST(ListenRegistry, StreamsForIsScopedToOneCallerAndNotNotificationMethod) {
   ListenRegistry registry;
   auto first = std::make_shared<StreamSpy>();
   auto second = std::make_shared<StreamSpy>();
-  auto other_method = std::make_shared<StreamSpy>();
+  auto no_notification_filter = std::make_shared<StreamSpy>();
 
   ASSERT_TRUE(registry.open(
       "caller-a", make_request_id(1), first,
@@ -291,16 +291,16 @@ TEST(ListenRegistry, StreamsForIsScopedToOneCaller) {
   ASSERT_TRUE(registry.open(
       "caller-b", make_request_id(1), second,
       filterFrom(R"({"notifications":{"toolsListChanged":true}})")));
-  ASSERT_TRUE(registry.open(
-      "caller-a", make_request_id(2), other_method,
-      filterFrom(R"({"notifications":{"promptsListChanged":true}})")));
+  ASSERT_TRUE(registry.open("caller-a", make_request_id(2),
+                            no_notification_filter, filterFrom(R"({})")));
 
-  const auto streams =
-      registry.streamsFor("caller-a", modern::kNotificationToolsListChanged);
+  const auto streams = registry.streamsFor("caller-a");
 
-  ASSERT_EQ(streams.size(), 1u)
+  ASSERT_EQ(streams.size(), 2u)
       << "a caller-scoped stream lookup crossed into another client";
   EXPECT_EQ(streams[0], first);
+  EXPECT_EQ(streams[1], no_notification_filter)
+      << "server-initiated request routing was tied to notification filters";
 }
 
 TEST(ListenRegistry, OneClientCannotUseOneIdTwice) {
