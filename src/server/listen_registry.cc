@@ -8,6 +8,7 @@
 #include "mcp/server/listen_registry.h"
 
 #include <algorithm>
+#include <limits>
 #include <memory>
 #include <utility>
 
@@ -171,9 +172,18 @@ size_t ListenRegistry::publish(const std::string& method,
 }
 
 std::vector<ResponseStreamPtr> ListenRegistry::streamsFor(
-    const std::string& method, const std::string& uri) const {
+    const std::string& caller,
+    const std::string& method,
+    const std::string& uri) const {
   std::vector<ResponseStreamPtr> streams;
-  for (const auto& entry : subscriptions_) {
+
+  SubscriptionKey first_for_caller;
+  first_for_caller.caller = caller;
+  first_for_caller.id.number = std::numeric_limits<int64_t>::min();
+
+  for (auto it = subscriptions_.lower_bound(first_for_caller);
+       it != subscriptions_.end() && it->first.caller == caller; ++it) {
+    const auto& entry = *it;
     const Subscription& subscription = entry.second;
     if (!subscription.stream || !subscription.stream->alive() ||
         !subscription.filter.wants(method, uri)) {
