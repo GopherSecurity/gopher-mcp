@@ -171,7 +171,9 @@ size_t ListenRegistry::publish(const std::string& method,
   return delivered;
 }
 
-ResponseStreamPtr ListenRegistry::streamFor(const std::string& caller) const {
+VoidResult ListenRegistry::sendRequest(
+    const std::string& caller,
+    const jsonrpc::Request& request) const {
   SubscriptionKey first_for_caller;
   first_for_caller.caller = caller;
   first_for_caller.id.number = std::numeric_limits<int64_t>::min();
@@ -183,9 +185,20 @@ ResponseStreamPtr ListenRegistry::streamFor(const std::string& caller) const {
     if (!subscription.stream || !subscription.stream->alive()) {
       continue;
     }
-    return subscription.stream;
+
+    jsonrpc::Request tagged = request;
+    Metadata params;
+    if (tagged.params.has_value()) {
+      params = tagged.params.value();
+    }
+    tagWithSubscription(params, subscription.id);
+    tagged.params = mcp::make_optional(params);
+    return subscription.stream->sendRequest(tagged);
   }
-  return nullptr;
+
+  return makeVoidError(Error(jsonrpc::INTERNAL_ERROR,
+                             "no live subscription stream for caller " +
+                                 caller));
 }
 
 bool ListenRegistry::close(const std::string& caller, const RequestId& id) {
