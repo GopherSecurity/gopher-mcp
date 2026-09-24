@@ -83,6 +83,7 @@
 #include <thread>
 
 #include "mcp/client/mcp_client.h"
+#include "mcp/json/json_serialization.h"
 #include "mcp/logging/log_macros.h"
 #include "mcp/logging/log_sink.h"
 #include "mcp/logging/logger_registry.h"
@@ -223,53 +224,48 @@ ClientOptions parseArguments(int argc, char* argv[]) {
   return options;
 }
 
-// Helper to extract string from Metadata response
+// A response's result as a JSON object, or an empty object when it is
+// not one
+json::JsonValue resultObject(const jsonrpc::Response& response) {
+  if (response.result.has_value()) {
+    const auto& result = response.result.value();
+    if (holds_alternative<json::JsonValue>(result) &&
+        get<json::JsonValue>(result).isObject()) {
+      return get<json::JsonValue>(result);
+    }
+    if (holds_alternative<Metadata>(result)) {
+      return json::metadataToJson(get<Metadata>(result));
+    }
+  }
+  return json::JsonValue::object();
+}
+
+// Helper to extract string from a response result
 std::string extractMetadataString(const jsonrpc::Response& response,
                                   const std::string& key) {
-  if (!response.result.has_value())
-    return "";
-  if (!holds_alternative<Metadata>(response.result.value()))
-    return "";
-  auto metadata = get<Metadata>(response.result.value());
-  auto it = metadata.find(key);
-  if (it == metadata.end())
-    return "";
-  if (holds_alternative<std::string>(it->second)) {
-    return get<std::string>(it->second);
+  auto result = resultObject(response);
+  if (result.contains(key) && result[key].isString()) {
+    return result[key].getString();
   }
   return "";
 }
 
-// Helper to extract bool from Metadata response
+// Helper to extract bool from a response result
 bool extractMetadataBool(const jsonrpc::Response& response,
                          const std::string& key) {
-  if (!response.result.has_value())
-    return false;
-  if (!holds_alternative<Metadata>(response.result.value()))
-    return false;
-  auto metadata = get<Metadata>(response.result.value());
-  auto it = metadata.find(key);
-  if (it == metadata.end())
-    return false;
-  if (holds_alternative<bool>(it->second)) {
-    return get<bool>(it->second);
+  auto result = resultObject(response);
+  if (result.contains(key) && result[key].isBoolean()) {
+    return result[key].getBool();
   }
   return false;
 }
 
-// Helper to extract int64 from Metadata response
+// Helper to extract int64 from a response result
 int64_t extractMetadataInt(const jsonrpc::Response& response,
                            const std::string& key) {
-  if (!response.result.has_value())
-    return 0;
-  if (!holds_alternative<Metadata>(response.result.value()))
-    return 0;
-  auto metadata = get<Metadata>(response.result.value());
-  auto it = metadata.find(key);
-  if (it == metadata.end())
-    return 0;
-  if (holds_alternative<int64_t>(it->second)) {
-    return get<int64_t>(it->second);
+  auto result = resultObject(response);
+  if (result.contains(key) && result[key].isInteger()) {
+    return result[key].getInt64();
   }
   return 0;
 }
