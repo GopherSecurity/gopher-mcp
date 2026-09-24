@@ -2111,6 +2111,12 @@ void McpServer::onNotificationWithContext(
 
   session->updateActivity();
 
+  // Marked before any handler runs, so a handler for this notification
+  // sees the handshake as over, which is what the notification says.
+  if (notification.method == "notifications/initialized") {
+    session->setInitialized(true);
+  }
+
   // Route notification to appropriate handler
   {
     std::lock_guard<std::mutex> lock(handlers_mutex_);
@@ -2126,9 +2132,7 @@ void McpServer::onNotificationWithContext(
   }
 
   // Handle built-in notifications
-  if (notification.method == "notifications/initialized") {
-    session->setInitialized(true);
-  } else if (notification.method == "notifications/cancelled") {
+  if (notification.method == "notifications/cancelled") {
     // Client cancelled a request
     // Extract the request ID that was cancelled
     if (notification.params.has_value()) {
