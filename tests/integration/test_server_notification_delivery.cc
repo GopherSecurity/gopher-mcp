@@ -635,12 +635,11 @@ TEST_F(ServerNotificationDeliveryTest, SendRequestReachesStreamableHttpClient) {
 
   const jsonrpc::Response response = response_future.get();
   ASSERT_TRUE(response.result.has_value()) << "client returned an error";
-  ASSERT_TRUE(holds_alternative<Metadata>(*response.result));
-  const auto& result = get<Metadata>(*response.result);
-  auto answer = result.find("answer");
-  ASSERT_NE(answer, result.end());
-  ASSERT_TRUE(holds_alternative<std::string>(answer->second));
-  EXPECT_EQ(get<std::string>(answer->second), "pong");
+  ASSERT_TRUE(holds_alternative<json::JsonValue>(*response.result));
+  const auto& result = get<json::JsonValue>(*response.result);
+  ASSERT_TRUE(result.contains("answer"));
+  ASSERT_TRUE(result["answer"].isString());
+  EXPECT_EQ(result["answer"].getString(), "pong");
 }
 }  // namespace
 }  // namespace mcp
