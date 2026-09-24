@@ -18,6 +18,7 @@ add_executable(test_compat core/test_compat.cc)
 add_executable(test_buffer core/test_buffer.cc)
 # JSON serialization tests
 add_executable(test_mcp_serialization json/test_mcp_serialization.cc)
+add_executable(test_nested_json_fidelity json/test_nested_json_fidelity.cc)
 add_executable(test_mcp_serialization_extensive json/test_mcp_serialization_extensive.cc)
 add_executable(test_template_serialization json/test_template_serialization.cc)
 add_executable(test_short_json_api json/test_short_json_api.cc)
@@ -275,6 +276,13 @@ target_link_libraries(test_buffer
 )
 
 target_link_libraries(test_mcp_serialization
+    gopher-mcp
+    gtest
+    gtest_main
+    Threads::Threads
+)
+
+target_link_libraries(test_nested_json_fidelity
     gopher-mcp
     gtest
     gtest_main
@@ -1491,6 +1499,7 @@ add_test(NAME MCPTypesTest COMMAND test_mcp_types)
 add_test(NAME CompatTest COMMAND test_compat)
 add_test(NAME BufferTest COMMAND test_buffer)
 add_test(NAME McpSerializationTest COMMAND test_mcp_serialization)
+add_test(NAME NestedJsonFidelityTest COMMAND test_nested_json_fidelity)
 add_test(NAME McpSerializationExtensiveTest COMMAND test_mcp_serialization_extensive)
 add_test(NAME TemplateSerializationTest COMMAND test_template_serialization)
 add_test(NAME McpServerResponsesTest COMMAND test_mcp_server_responses)
