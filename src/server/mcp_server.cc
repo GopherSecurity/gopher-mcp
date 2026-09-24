@@ -2714,13 +2714,11 @@ jsonrpc::Response McpServer::handleGetPrompt(const jsonrpc::Request& request,
   // Get prompt
   auto result = prompt_registry_->getPrompt(name, arguments, session);
 
-  // Serialize GetPromptResult to JSON and convert to Metadata for response
-  // The result contains description and messages from the prompt handler
-  auto result_json = json::to_json(result);
-  auto result_metadata = json::jsonToMetadata(result_json);
-
-  return jsonrpc::Response::success(request.id,
-                                    jsonrpc::ResponseResult(result_metadata));
+  // Answered as JSON, not through Metadata: the flat map re-reads any
+  // string that looks like JSON as the object it looks like, which would
+  // turn a description such as "{}" into something that is not a string.
+  return jsonrpc::Response::success(
+      request.id, jsonrpc::ResponseResult(json::to_json(result)));
 }
 
 // Background task management using dispatcher timers.
