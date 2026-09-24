@@ -519,7 +519,15 @@ struct Request {
   std::string jsonrpc = "2.0";
   RequestId id;
   std::string method;
+  // A flat view of the params: top-level scalars as they are, nested
+  // objects and arrays as their JSON text. Kept so existing handlers read
+  // what they always have.
   optional<Metadata> params;
+  // The params exactly as they came off the wire, nested JSON included.
+  // Set on everything decoded; when set it is what gets encoded, so a
+  // request built from one keeps what the flat view cannot hold. Code
+  // that builds a request from a Metadata map leaves it empty.
+  optional<json::JsonValue> params_json;
 
   Request() = default;
   Request(const RequestId& i, const std::string& m) : id(i), method(m) {}
@@ -577,7 +585,10 @@ struct Response {
 struct Notification {
   std::string jsonrpc = "2.0";
   std::string method;
+  // The same pair a Request carries: a flat view for existing handlers,
+  // and the params as they came off the wire.
   optional<Metadata> params;
+  optional<json::JsonValue> params_json;
 
   Notification() = default;
   explicit Notification(const std::string& m) : method(m) {}

@@ -65,7 +65,9 @@ JsonValue serialize_Request(const jsonrpc::Request& request) {
       .add("id", to_json(request.id))
       .add("method", request.method);
 
-  if (request.params.has_value()) {
+  if (request.params_json.has_value()) {
+    builder.add("params", request.params_json.value());
+  } else if (request.params.has_value()) {
     builder.add("params", metadataToJson(request.params.value()));
   }
 
@@ -151,7 +153,9 @@ JsonValue serialize_Notification(const jsonrpc::Notification& notification) {
   builder.add("jsonrpc", notification.jsonrpc)
       .add("method", notification.method);
 
-  if (notification.params.has_value()) {
+  if (notification.params_json.has_value()) {
+    builder.add("params", notification.params_json.value());
+  } else if (notification.params.has_value()) {
     builder.add("params", metadataToJson(notification.params.value()));
   }
 
@@ -504,6 +508,7 @@ jsonrpc::Request deserialize_Request(const JsonValue& json) {
   request.method = json.at("method").getString();
 
   if (json.contains("params")) {
+    request.params_json = json["params"];
     request.params = jsonToMetadata(json["params"]);
   }
 
@@ -562,8 +567,10 @@ jsonrpc::ResponseResult deserialize_ResponseResult(const JsonValue& json) {
     if (json.contains("contents") && json["contents"].isArray()) {
       return jsonrpc::ResponseResult(from_json<ReadResourceResult>(json));
     }
-    // Otherwise treat as Metadata
-    return jsonrpc::ResponseResult(jsonToMetadata(json));
+    // Any other object is kept as it came. Flattening it into Metadata
+    // would stringify every nested value, and a result like initialize is
+    // nested all the way down.
+    return jsonrpc::ResponseResult(json);
   } else if (json.isArray() && json.size() > 0) {
     // Determine array type by examining first element
     const auto& first = json[0];
@@ -628,8 +635,11 @@ jsonrpc::ResponseResult deserialize_ResponseResult(const JsonValue& json) {
       }
     }
 
-    // Default to Metadata for unknown array types
-    return jsonrpc::ResponseResult(jsonToMetadata(json));
+    // Any other array is kept as it came, for the same reason.
+    return jsonrpc::ResponseResult(json);
+  } else if (json.isArray()) {
+    // Empty, so there is nothing to tell its type by; still an array.
+    return jsonrpc::ResponseResult(json);
   }
 
   // Default to null
@@ -642,6 +652,7 @@ jsonrpc::Notification deserialize_Notification(const JsonValue& json) {
   notification.method = json.at("method").getString();
 
   if (json.contains("params")) {
+    notification.params_json = json["params"];
     notification.params = jsonToMetadata(json["params"]);
   }
 
@@ -2731,16 +2742,23 @@ ServerCapabilities deserialize_ServerCapabilities(const JsonValue& json) {
     }
   }
 
+  // A capability is declared by an object — `{}` or `{"listChanged":
+  // true}` — and older peers of this SDK sent a bare bool. Either one
+  // declares it; the object's sub-flags have nowhere to go in this struct.
+  auto declared = [](const JsonValue& value) {
+    return value.isBoolean() ? value.getBool() : value.isObject();
+  };
+
   if (json.contains("tools")) {
-    caps.tools = json["tools"].getBool();
+    caps.tools = declared(json["tools"]);
   }
 
   if (json.contains("prompts")) {
-    caps.prompts = json["prompts"].getBool();
+    caps.prompts = declared(json["prompts"]);
   }
 
   if (json.contains("logging")) {
-    caps.logging = json["logging"].getBool();
+    caps.logging = declared(json["logging"]);
   }
 
   return caps;
@@ -2793,7 +2811,8 @@ ElicitationCapability deserialize_ElicitationCapability(const JsonValue& json) {
 RootsCapability deserialize_RootsCapability(const JsonValue& json) {
   RootsCapability cap;
 
-  if (json.contains("listChanged")) {
+  if (json.contains("listChanged") &&
+      !(json["listChanged"].isBoolean() && !json["listChanged"].getBool())) {
     cap.listChanged = from_json<EmptyCapability>(json["listChanged"]);
   }
 
@@ -2803,11 +2822,13 @@ RootsCapability deserialize_RootsCapability(const JsonValue& json) {
 ResourcesCapability deserialize_ResourcesCapability(const JsonValue& json) {
   ResourcesCapability cap;
 
-  if (json.contains("subscribe")) {
+  if (json.contains("subscribe") &&
+      !(json["subscribe"].isBoolean() && !json["subscribe"].getBool())) {
     cap.subscribe = from_json<EmptyCapability>(json["subscribe"]);
   }
 
-  if (json.contains("listChanged")) {
+  if (json.contains("listChanged") &&
+      !(json["listChanged"].isBoolean() && !json["listChanged"].getBool())) {
     cap.listChanged = from_json<EmptyCapability>(json["listChanged"]);
   }
 
@@ -2817,7 +2838,8 @@ ResourcesCapability deserialize_ResourcesCapability(const JsonValue& json) {
 PromptsCapability deserialize_PromptsCapability(const JsonValue& json) {
   PromptsCapability cap;
 
-  if (json.contains("listChanged")) {
+  if (json.contains("listChanged") &&
+      !(json["listChanged"].isBoolean() && !json["listChanged"].getBool())) {
     cap.listChanged = from_json<EmptyCapability>(json["listChanged"]);
   }
 
@@ -2826,6 +2848,12 @@ PromptsCapability deserialize_PromptsCapability(const JsonValue& json) {
 
 EmptyCapability deserialize_EmptyCapability(const JsonValue& json) {
   EmptyCapability cap;
+
+  // Flags such as `listChanged` are a bool on the wire, not an object.
+  // Present is what is being declared; there are no keys to carry.
+  if (!json.isObject()) {
+    return cap;
+  }
 
   for (const auto& key : json.keys()) {
     // EmptyCapability is a map of string to JsonValue
