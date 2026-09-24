@@ -434,6 +434,20 @@ TEST_F(McpClientInitializeRoutingTest,
         return result;
       }));
 
+  // What an application's own handler for the notification sees. It runs
+  // while the notification is handled, and the handshake is over by then.
+  auto seen_by_handler = std::make_shared<std::promise<bool>>();
+  auto seen_by_handler_future = seen_by_handler->get_future();
+  auto reported = std::make_shared<std::atomic<bool>>(false);
+  server_->registerNotificationHandler(
+      "notifications/initialized",
+      [seen_by_handler, reported](const jsonrpc::Notification&,
+                                  server::SessionContext& session) {
+        if (!reported->exchange(true)) {
+          seen_by_handler->set_value(session.isInitialized());
+        }
+      });
+
   client::McpClientConfig client_config;
   client_config.client_name = "init-routing-test-client";
   client_config.client_version = "0.0.1";
@@ -485,6 +499,12 @@ TEST_F(McpClientInitializeRoutingTest,
       << seen;
   EXPECT_NE(seen.find("initialized=1"), std::string::npos)
       << "notifications/initialized never marked the session: " << seen;
+
+  ASSERT_EQ(seen_by_handler_future.wait_for(5s), std::future_status::ready)
+      << "the application's handler for notifications/initialized never ran";
+  EXPECT_TRUE(seen_by_handler_future.get())
+      << "the handler for notifications/initialized saw the session as not "
+         "yet initialized";
 }
 
 }  // namespace
