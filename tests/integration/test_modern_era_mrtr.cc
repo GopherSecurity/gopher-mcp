@@ -222,9 +222,14 @@ server::McpServer::AsyncRequestHandler askingHandler(server::McpServer* server,
   return [server, rounds, state, asks](const jsonrpc::Request& request,
                                        server::SessionContext& session,
                                        const ResponseStreamPtr& stream) {
-    json::JsonValue params = request.params.has_value()
-                                 ? json::metadataToJson(request.params.value())
-                                 : json::JsonValue::object();
+    // Read as it came off the wire. Rebuilt from the flat map, a state
+    // that looks like JSON would be read as the object it looks like.
+    json::JsonValue params = json::JsonValue::object();
+    if (request.params_json.has_value()) {
+      params = request.params_json.value();
+    } else if (request.params.has_value()) {
+      params = json::metadataToJson(request.params.value());
+    }
     const auto carried = modern::carriedInputOf(params);
 
     std::string answered;
@@ -296,6 +301,35 @@ TEST_F(ModernEraMrtrTest, AQuestionIsAnsweredAndTheRequestComesBackAgain) {
   EXPECT_NE(rounds_.answers[1].find("accept"), std::string::npos)
       << "what the client answered did not reach the handler: "
       << rounds_.answers[1];
+}
+
+// The state is opaque, and a state that looks like JSON is still just a
+// string. It has to come back as those exact bytes, not as the object it
+// resembles, or the second round is not the continuation of the first.
+TEST_F(ModernEraMrtrTest, AStateThatLooksLikeJsonComesBackByteForByte) {
+  const std::string state = R"({"step": 1, "items": [1,2]})";
+  server_->registerAsyncRequestHandler(
+      modern::kMethodToolsCall,
+      askingHandler(server_.get(), &rounds_, state, /*asks=*/1),
+      StreamingMode::Optional);
+  startServing();
+  startClient();
+
+  Metadata args;
+  args["name"] = MetadataValue(std::string("confirm"));
+  auto called =
+      client_->sendRequest(modern::kMethodToolsCall, mcp::make_optional(args));
+  ASSERT_EQ(called.wait_for(10s), std::future_status::ready)
+      << "the call never came back";
+  auto answer = called.get();
+  EXPECT_FALSE(answer.error.has_value())
+      << "the call failed: "
+      << (answer.error.has_value() ? answer.error->message : "");
+
+  std::lock_guard<std::mutex> lock(rounds_.mutex);
+  ASSERT_EQ(rounds_.states.size(), 2u) << "the second round never arrived";
+  EXPECT_EQ(rounds_.states[1], state)
+      << "the state came back changed, or not as a string";
 }
 
 // The answer has to survive the trip up to the caller. A server of this

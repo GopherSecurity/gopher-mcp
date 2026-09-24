@@ -350,7 +350,9 @@ TEST_F(McpClientInitializeRoutingTest,
 
 // A prompt's answer is a description and an array of messages, each with
 // nested content. getPrompt() hands back what the server said, and the
-// arguments it sent arrive at the handler as the object they were.
+// arguments it sent arrive at the handler as the object they were. The
+// description looks like JSON on purpose: it is still a string, and has to
+// arrive as one.
 TEST_F(McpClientInitializeRoutingTest, APromptIsReadAsTheResultItIs) {
   Prompt greet("greet");
   greet.description = mcp::make_optional(std::string("Say hello"));
@@ -366,7 +368,7 @@ TEST_F(McpClientInitializeRoutingTest, APromptIsReadAsTheResultItIs) {
           }
         }
         GetPromptResult result;
-        result.description = mcp::make_optional(std::string("A greeting"));
+        result.description = mcp::make_optional(std::string("{}"));
         result.messages.push_back(
             PromptMessage(enums::Role::USER, TextContent("hello " + who)));
         return result;
@@ -398,7 +400,7 @@ TEST_F(McpClientInitializeRoutingTest, APromptIsReadAsTheResultItIs) {
   GetPromptResult result;
   ASSERT_NO_THROW(result = prompt_future.get());
   ASSERT_TRUE(result.description.has_value());
-  EXPECT_EQ(result.description.value(), "A greeting");
+  EXPECT_EQ(result.description.value(), "{}");
   ASSERT_EQ(result.messages.size(), 1u);
   EXPECT_EQ(result.messages[0].role, enums::Role::USER);
   ASSERT_TRUE(holds_alternative<TextContent>(result.messages[0].content));
