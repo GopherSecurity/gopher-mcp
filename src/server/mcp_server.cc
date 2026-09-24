@@ -2126,9 +2126,8 @@ void McpServer::onNotificationWithContext(
   }
 
   // Handle built-in notifications
-  if (notification.method == "initialized") {
-    // Client has completed initialization
-    // Mark session as initialized
+  if (notification.method == "notifications/initialized") {
+    session->setInitialized(true);
   } else if (notification.method == "notifications/cancelled") {
     // Client cancelled a request
     // Extract the request ID that was cancelled
@@ -2333,6 +2332,9 @@ jsonrpc::Response McpServer::handleInitialize(const jsonrpc::Request& request,
     server_capabilities = config_.capabilities;
     instructions_provider = config_.instructions_provider;
   }
+
+  // A new handshake: not over again until the client says it is.
+  session.setInitialized(false);
 
   // Read the revision the client asked for. Anything missing or of the
   // wrong type leaves this empty, which negotiates to our newest.

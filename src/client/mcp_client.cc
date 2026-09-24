@@ -757,15 +757,20 @@ Metadata McpClient::buildInitializeParams() const {
   auto init_params = make_metadata();
   init_params["protocolVersion"] = config_.protocol_version;
 
-  // clientInfo must be a nested object with name and version
-  // Store as JSON string - the serializer will parse it back to an object
-  std::string client_info_json = "{\"name\":\"" + config_.client_name +
-                                 "\",\"version\":\"" + config_.client_version +
-                                 "\"}";
-  init_params["clientInfo"] = client_info_json;
+  // clientInfo and capabilities are nested objects. The flat map holds them
+  // as their JSON text, and the serializer puts them back on the wire as
+  // the objects they are. Built as JSON so a name with a quote in it
+  // cannot break the text.
+  json::JsonValue client_info = json::JsonValue::object();
+  client_info.set("name", json::JsonValue(config_.client_name));
+  client_info.set("version", json::JsonValue(config_.client_version));
+  init_params["clientInfo"] = client_info.toString();
 
-  // capabilities must be an object (can be empty)
-  init_params["capabilities"] = "{}";
+  // What this client can do, derived the same way the newer era declares
+  // it on every request: what was configured, plus what the registered
+  // handlers can answer. Without it a server never asks this client for
+  // anything, however many handlers it has.
+  init_params["capabilities"] = declaredCapabilities().toString();
   return init_params;
 }
 
