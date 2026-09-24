@@ -254,14 +254,8 @@ TEST_F(McpClientInitializeRoutingTest, ReturnsCapabilitiesAndUnblocksFollowUp) {
   // configured value. Either branch runs inside the dispatcher-thread
   // commit post, so observing a populated protocolVersion here is
   // proof that the post executed before the future resolved.
-  //
-  // Finer-grained capability/serverInfo field asserts are deliberately
-  // omitted: the current client parser in initializeProtocol only
-  // recognizes flat dotted-key metadata entries ("capabilities.tools"
-  // as bool, "serverInfo.name" as string), while the server emits the
-  // initialize result with nested JSON objects. Bridging that
-  // deserialization gap is out of scope for this test, which covers
-  // the dispatcher-routing contract, not the response-parsing schema.
+  // What the nested initialize result says is checked by
+  // TheIntroductionIsReadAsTheNestedObjectItIs below.
   // Both ends serve the newest revision unless told otherwise, so this
   // is what they settled on — and it is not the configured version,
   // which is what an introduction would have offered. That era has none,
@@ -318,6 +312,97 @@ TEST_F(McpClientInitializeRoutingTest, AClientMayDeclineTheNewestEra) {
   auto ping_future = client_->sendRequest("ping");
   ASSERT_EQ(ping_future.wait_for(5s), std::future_status::ready);
   EXPECT_FALSE(ping_future.get().error.has_value());
+}
+
+// The older era's answer to an introduction nests serverInfo and
+// capabilities as objects. Read as the flat map it used to be squeezed
+// into, the name never arrived and every capability read as absent.
+TEST_F(McpClientInitializeRoutingTest,
+       TheIntroductionIsReadAsTheNestedObjectItIs) {
+  client::McpClientConfig client_config;
+  client_config.client_name = "init-routing-test-client";
+  client_config.client_version = "0.0.1";
+  client_config.num_workers = 1;
+  client_config.request_timeout = 5000ms;
+  client_config.protocol_initialization_timeout = 5000ms;
+  client_config.protocol_connection_timeout = 5000ms;
+  client_config.streamable_http.enable_modern_era = false;
+
+  client_ = client::createMcpClient(client_config);
+  ASSERT_NE(client_, nullptr);
+
+  const std::string uri = "http://127.0.0.1:" + std::to_string(port_) + "/rpc";
+  ASSERT_TRUE(holds_alternative<std::nullptr_t>(client_->connect(uri)));
+
+  auto init_future = client_->initializeProtocol();
+  ASSERT_EQ(init_future.wait_for(5s), std::future_status::ready);
+
+  InitializeResult result;
+  ASSERT_NO_THROW(result = init_future.get());
+  ASSERT_TRUE(result.serverInfo.has_value()) << "serverInfo never arrived";
+  EXPECT_EQ(result.serverInfo->name, "init-routing-test-server");
+  EXPECT_EQ(result.serverInfo->version, "0.0.1");
+  ASSERT_TRUE(result.capabilities.tools.has_value());
+  EXPECT_TRUE(result.capabilities.tools.value());
+  ASSERT_TRUE(result.capabilities.prompts.has_value());
+  EXPECT_TRUE(result.capabilities.prompts.value());
+}
+
+// A prompt's answer is a description and an array of messages, each with
+// nested content. getPrompt() hands back what the server said, and the
+// arguments it sent arrive at the handler as the object they were.
+TEST_F(McpClientInitializeRoutingTest, APromptIsReadAsTheResultItIs) {
+  Prompt greet("greet");
+  greet.description = mcp::make_optional(std::string("Say hello"));
+  server_->registerPrompt(
+      greet, [](const std::string&, const optional<Metadata>& arguments,
+                server::SessionContext&) {
+        std::string who = "nobody";
+        if (arguments.has_value()) {
+          auto it = arguments->find("who");
+          if (it != arguments->end() &&
+              holds_alternative<std::string>(it->second)) {
+            who = get<std::string>(it->second);
+          }
+        }
+        GetPromptResult result;
+        result.description = mcp::make_optional(std::string("A greeting"));
+        result.messages.push_back(
+            PromptMessage(enums::Role::USER, TextContent("hello " + who)));
+        return result;
+      });
+
+  client::McpClientConfig client_config;
+  client_config.client_name = "init-routing-test-client";
+  client_config.client_version = "0.0.1";
+  client_config.num_workers = 1;
+  client_config.request_timeout = 5000ms;
+  client_config.protocol_initialization_timeout = 5000ms;
+  client_config.protocol_connection_timeout = 5000ms;
+
+  client_ = client::createMcpClient(client_config);
+  ASSERT_NE(client_, nullptr);
+
+  const std::string uri = "http://127.0.0.1:" + std::to_string(port_) + "/rpc";
+  ASSERT_TRUE(holds_alternative<std::nullptr_t>(client_->connect(uri)));
+  auto init_future = client_->initializeProtocol();
+  ASSERT_EQ(init_future.wait_for(5s), std::future_status::ready);
+  ASSERT_NO_THROW(init_future.get());
+
+  Metadata arguments;
+  arguments["who"] = std::string("gopher");
+  auto prompt_future =
+      client_->getPrompt("greet", mcp::make_optional(arguments));
+  ASSERT_EQ(prompt_future.wait_for(5s), std::future_status::ready);
+
+  GetPromptResult result;
+  ASSERT_NO_THROW(result = prompt_future.get());
+  ASSERT_TRUE(result.description.has_value());
+  EXPECT_EQ(result.description.value(), "A greeting");
+  ASSERT_EQ(result.messages.size(), 1u);
+  EXPECT_EQ(result.messages[0].role, enums::Role::USER);
+  ASSERT_TRUE(holds_alternative<TextContent>(result.messages[0].content));
+  EXPECT_EQ(get<TextContent>(result.messages[0].content).text, "hello gopher");
 }
 
 }  // namespace

@@ -34,6 +34,7 @@
 #include <sys/wait.h>
 
 #include "mcp/client/mcp_client.h"
+#include "mcp/json/json_serialization.h"
 #include "mcp/types.h"
 
 #include "child_process.h"
@@ -198,6 +199,20 @@ std::string resultText(const jsonrpc::Response& response) {
     return std::string();
   }
   const auto& result = response.result.value();
+  if (holds_alternative<json::JsonValue>(result)) {
+    const auto& value = get<json::JsonValue>(result);
+    if (value.isObject() && value.contains("content") &&
+        value["content"].isArray()) {
+      const auto& content = value["content"];
+      for (size_t i = 0; i < content.size(); ++i) {
+        if (content[i].isObject() && content[i].contains("text") &&
+            content[i]["text"].isString()) {
+          return content[i]["text"].getString();
+        }
+      }
+    }
+    return std::string();
+  }
   if (holds_alternative<Metadata>(result)) {
     // A tool result arrives as content this client does not take apart:
     // the whole array lands under one key, as text. Read out of it
@@ -281,12 +296,11 @@ class OfficialServerInteropTest : public ::testing::Test {
     // mid-request gets something back rather than a refusal.
     client_->registerRequestHandler(
         "sampling/createMessage", [](const jsonrpc::Request&) {
-          auto answer = make_metadata();
-          answer["role"] = std::string("assistant");
-          answer["content.type"] = std::string("text");
-          answer["content.text"] = std::string("sampled by the C++ client");
-          answer["model"] = std::string("gopher-test");
-          return jsonrpc::ResponseResult(answer);
+          return jsonrpc::ResponseResult(json::JsonValue::parse(R"({
+            "role": "assistant",
+            "content": {"type": "text", "text": "sampled by the C++ client"},
+            "model": "gopher-test"
+          })"));
         });
 
     auto connected = client_->connect(server_.url());
@@ -340,14 +354,9 @@ class OfficialServerInteropTest : public ::testing::Test {
 // The handshake, against an implementation that did not learn it from
 // us. The reference server answers this one on a stream rather than in
 // the response body, which is itself something only interop reveals.
-// DISABLED: this fails on a client-side gap rather than on anything
-// about the transport. The reference server sends serverInfo as a
-// nested object, and this client's initialize parser reads only flat
-// dotted keys, so the name never arrives. The same gap is noted in
-// tests/integration/test_mcp_client_initialize_routing.cc. Enable it
-// with the parser that closes it.
-TEST_F(OfficialServerInteropTest,
-       DISABLED_TheHandshakeIsAnsweredAndUnderstood) {
+// It also sends serverInfo as a nested object, so the name arriving is
+// the result having been read as the nested JSON it is.
+TEST_F(OfficialServerInteropTest, TheHandshakeIsAnsweredAndUnderstood) {
   ASSERT_TRUE(server_.start()) << "the reference server did not come up";
   startClient();
 
@@ -427,13 +436,9 @@ TEST_F(OfficialServerInteropTest, APushArrivesOnTheHeldStream) {
 
 // A question the server asks mid-request. The tool returns what the
 // client answered, so a client that refused the question cannot make
-// this pass.
-// DISABLED: the question reaches this client and an answer goes back,
-// but the answer this client builds is a flat map of dotted keys and
-// the reference server expects a nested object, so what returns is not
-// what was said. The same flattening gap as the handshake above, seen
-// from the sending side.
-TEST_F(OfficialServerInteropTest, DISABLED_AQuestionFromTheServerIsAnswered) {
+// this pass — and neither can an answer that loses its nesting on the
+// way out, because the server reads the text from inside `content`.
+TEST_F(OfficialServerInteropTest, AQuestionFromTheServerIsAnswered) {
   ASSERT_TRUE(server_.start());
   startClient();
   ASSERT_NO_THROW(handshake());
