@@ -334,6 +334,12 @@ class SessionContext {
     return getProtocolVersion();
   }
 
+  // The handshake is over only once the client says so with
+  // notifications/initialized; answering initialize is not enough. Cleared
+  // when a new initialize starts the handshake again.
+  void setInitialized(bool initialized) { initialized_ = initialized; }
+  bool isInitialized() const { return initialized_; }
+
   void setClientCapabilities(const ClientCapabilities& capabilities) {
     client_capabilities_ = capabilities;
   }
@@ -385,6 +391,7 @@ class SessionContext {
   optional<Implementation> client_info_;
   std::string protocol_version_;  // negotiated at initialize
   ClientCapabilities client_capabilities_;
+  bool initialized_{false};             // notifications/initialized received
   optional<std::string> request_meta_;  // params._meta of the in-flight request
 
   mutable std::mutex mutex_;
