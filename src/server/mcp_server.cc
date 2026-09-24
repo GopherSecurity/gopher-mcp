@@ -50,6 +50,29 @@ std::string stringMetadataValue(const Metadata& metadata,
   return get<std::string>(it->second);
 }
 
+// A request's params as JSON: as they came off the wire when they did,
+// rebuilt from the flat map when the request was built from one.
+json::JsonValue paramsOf(const jsonrpc::Request& request) {
+  if (request.params_json.has_value()) {
+    return request.params_json.value();
+  }
+  if (request.params.has_value()) {
+    return json::metadataToJson(request.params.value());
+  }
+  return json::JsonValue::object();
+}
+
+// A tool's or a prompt's arguments, for handlers that take the flat map.
+// Present-but-not-an-object reads as no arguments, as it always has.
+optional<Metadata> argumentsOf(const json::JsonValue& params) {
+  if (!params.isObject() || !params.contains("arguments")) {
+    return nullopt;
+  }
+  const auto& arguments = params["arguments"];
+  return mcp::make_optional(
+      arguments.isObject() ? json::jsonToMetadata(arguments) : Metadata());
+}
+
 std::string negotiateProtocolVersion(const std::string& requested,
                                      const std::string& newest_supported) {
   if (requested.empty()) {
@@ -2276,14 +2299,7 @@ void McpServer::registerBuiltinHandlers() {
           return;
         }
 
-        // The filter arrives through the flat map its params are held
-        // in, so nested JSON comes back stringified; this rebuilds it.
-        json::JsonValue params = json::JsonValue::object();
-        if (request.params.has_value()) {
-          params = json::metadataToJson(request.params.value());
-        }
-
-        const auto filter = NotificationFilter::parse(params);
+        const auto filter = NotificationFilter::parse(paramsOf(request));
         // Held under who asked as well as what they called it: the id a
         // subscription answers to is one its own client chose, and two
         // clients each numbering their requests from one is ordinary.
@@ -2620,42 +2636,15 @@ jsonrpc::Response McpServer::handleCallTool(const jsonrpc::Request& request,
 
   std::string name = get<std::string>(name_it->second);
 
-  // Extract optional arguments
-  // The MCP protocol expects arguments to be nested under "arguments" field
-  // Since MetadataValue doesn't support nested maps, we need to handle this
-  // specially
-  optional<Metadata> arguments;
-  auto args_it = params.find("arguments");
-
-  if (args_it != params.end()) {
-    // The arguments field contains a JSON string representation of the nested
-    // object We need to parse it back to extract the actual arguments
-    if (holds_alternative<std::string>(args_it->second)) {
-      // The nested object was stringified during deserialization
-      // Parse it back to get the actual arguments
-      std::string args_json = get<std::string>(args_it->second);
-      try {
-        auto args_value = json::JsonValue::parse(args_json);
-        arguments = mcp::make_optional(json::jsonToMetadata(args_value));
-      } catch (const json::JsonException& e) {
-        // If parsing fails, treat it as empty arguments
-        arguments = mcp::make_optional(Metadata());
-      }
-    } else {
-      // Fallback: if arguments is not a string, create empty metadata
-      arguments = mcp::make_optional(Metadata());
-    }
-  }
+  const json::JsonValue params_json = paramsOf(request);
+  optional<Metadata> arguments = argumentsOf(params_json);
 
   // Surface the request's params._meta (out-of-band metadata, e.g. correlation
-  // ids) to the tool handler via the session it already receives. Carried as
-  // its stringified-JSON form, like nested arguments above. Cleared when absent
-  // so a prior request's _meta never aliases this one.
-  auto meta_it = params.find("_meta");
-  if (meta_it != params.end() &&
-      holds_alternative<std::string>(meta_it->second)) {
-    session.setRequestMeta(
-        mcp::make_optional(get<std::string>(meta_it->second)));
+  // ids) to the tool handler via the session it already receives, as its JSON
+  // text. Cleared when absent so a prior request's _meta never aliases this
+  // one.
+  if (params_json.contains("_meta") && params_json["_meta"].isObject()) {
+    session.setRequestMeta(mcp::make_optional(params_json["_meta"].toString()));
   } else {
     session.setRequestMeta(nullopt);
   }
@@ -2720,24 +2709,7 @@ jsonrpc::Response McpServer::handleGetPrompt(const jsonrpc::Request& request,
 
   std::string name = get<std::string>(name_it->second);
 
-  // Extract optional arguments. Nested objects do not fit in Metadata, so
-  // they arrive as the serialized form and are parsed back — the same way
-  // a tool call's arguments are, and for the same reason.
-  optional<Metadata> arguments;
-  auto args_it = params.find("arguments");
-  if (args_it != params.end()) {
-    arguments = mcp::make_optional(Metadata());
-    if (holds_alternative<std::string>(args_it->second)) {
-      try {
-        auto parsed = json::JsonValue::parse(get<std::string>(args_it->second));
-        arguments = mcp::make_optional(json::jsonToMetadata(parsed));
-      } catch (const json::JsonException&) {
-        // Unparseable arguments are no arguments. A prompt that needs one
-        // says so itself; refusing here would refuse a prompt that does
-        // not care.
-      }
-    }
-  }
+  optional<Metadata> arguments = argumentsOf(paramsOf(request));
 
   // Get prompt
   auto result = prompt_registry_->getPrompt(name, arguments, session);
