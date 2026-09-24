@@ -407,5 +407,85 @@ TEST_F(McpClientInitializeRoutingTest, APromptIsReadAsTheResultItIs) {
   EXPECT_EQ(get<TextContent>(result.messages[0].content).text, "hello gopher");
 }
 
+// What a tool sees of the session it was called in, as text: whether the
+// client declared sampling and elicitation at the handshake, and whether it
+// has said the handshake is over.
+std::string describeSession(server::SessionContext& session) {
+  const auto& caps = session.getClientCapabilities();
+  return std::string("sampling=") + (caps.sampling.has_value() ? "1" : "0") +
+         " elicitation=" + (caps.elicitation.has_value() ? "1" : "0") +
+         " initialized=" + (session.isInitialized() ? "1" : "0");
+}
+
+// The older era's handshake has to say what the client can answer, or a
+// server never asks it anything. A handler registered before initialize
+// is a capability declared by it; one registered after changes nothing the
+// handshake already said. And the handshake is over for the server only
+// once notifications/initialized has arrived.
+TEST_F(McpClientInitializeRoutingTest,
+       TheHandshakeDeclaresWhatTheClientCanAnswer) {
+  Tool inspect;
+  inspect.name = "inspect";
+  ASSERT_TRUE(server_->registerTool(
+      inspect, [](const std::string&, const optional<Metadata>&,
+                  server::SessionContext& session) {
+        CallToolResult result;
+        result.content.push_back(TextContent(describeSession(session)));
+        return result;
+      }));
+
+  client::McpClientConfig client_config;
+  client_config.client_name = "init-routing-test-client";
+  client_config.client_version = "0.0.1";
+  client_config.num_workers = 1;
+  client_config.request_timeout = 5000ms;
+  client_config.protocol_initialization_timeout = 5000ms;
+  client_config.protocol_connection_timeout = 5000ms;
+  client_config.streamable_http.enable_modern_era = false;
+
+  client_ = client::createMcpClient(client_config);
+  ASSERT_NE(client_, nullptr);
+
+  client_->registerRequestHandler(
+      "sampling/createMessage",
+      [](const jsonrpc::Request&) { return jsonrpc::ResponseResult(nullptr); });
+
+  const std::string uri = "http://127.0.0.1:" + std::to_string(port_) + "/rpc";
+  ASSERT_TRUE(holds_alternative<std::nullptr_t>(client_->connect(uri)));
+  auto init_future = client_->initializeProtocol();
+  ASSERT_EQ(init_future.wait_for(5s), std::future_status::ready);
+  ASSERT_NO_THROW(init_future.get());
+
+  client_->registerRequestHandler(
+      "elicitation/create",
+      [](const jsonrpc::Request&) { return jsonrpc::ResponseResult(nullptr); });
+
+  // notifications/initialized is sent as the handshake completes, but the
+  // server reads it on its own schedule, so it is waited for rather than
+  // assumed to be ahead of the next request.
+  std::string seen;
+  for (int attempt = 0; attempt < 40; ++attempt) {
+    auto called = client_->callTool("inspect");
+    ASSERT_EQ(called.wait_for(5s), std::future_status::ready);
+    CallToolResult result;
+    ASSERT_NO_THROW(result = called.get());
+    ASSERT_EQ(result.content.size(), 1u);
+    ASSERT_TRUE(holds_alternative<TextContent>(result.content[0]));
+    seen = get<TextContent>(result.content[0]).text;
+    if (seen.find("initialized=1") != std::string::npos) {
+      break;
+    }
+    std::this_thread::sleep_for(50ms);
+  }
+
+  EXPECT_NE(seen.find("sampling=1"), std::string::npos)
+      << "a handler registered before the handshake was not declared: " << seen;
+  EXPECT_NE(seen.find("elicitation=0"), std::string::npos)
+      << "a handler registered after the handshake changed what it said: "
+      << seen;
+  EXPECT_NE(seen.find("initialized=1"), std::string::npos)
+      << "notifications/initialized never marked the session: " << seen;
+}
+
 }  // namespace
 }  // namespace mcp
