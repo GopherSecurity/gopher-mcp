@@ -660,60 +660,42 @@ InitializeResult McpClient::parseInitializeResponse(
     throw std::runtime_error("Initialize response missing result");
   }
 
+  // What the client asked for stands in for anything the answer leaves
+  // out, so a sparse answer still leaves a usable result.
   InitializeResult init_result;
-  if (holds_alternative<Metadata>(response.result.value())) {
-    auto& metadata = get<Metadata>(response.result.value());
+  init_result.protocolVersion = protocol_version;
+  init_result.capabilities = ServerCapabilities();
 
-    auto proto_it = metadata.find("protocolVersion");
-    if (proto_it != metadata.end() &&
-        holds_alternative<std::string>(proto_it->second)) {
-      init_result.protocolVersion = get<std::string>(proto_it->second);
-    }
+  json::JsonValue result;
+  if (!resultAsJson(response, &result) || !result.isObject()) {
+    return init_result;
+  }
 
-    auto name_it = metadata.find("serverInfo.name");
-    auto version_it = metadata.find("serverInfo.version");
-    if (name_it != metadata.end() && version_it != metadata.end()) {
+  if (result.contains("protocolVersion") &&
+      result["protocolVersion"].isString()) {
+    init_result.protocolVersion = result["protocolVersion"].getString();
+  }
+
+  if (result.contains("capabilities") && result["capabilities"].isObject()) {
+    init_result.capabilities =
+        json::from_json<ServerCapabilities>(result["capabilities"]);
+  }
+
+  if (result.contains("serverInfo") && result["serverInfo"].isObject()) {
+    const auto& who = result["serverInfo"];
+    if (who.contains("name") && who["name"].isString()) {
       Implementation server_info(
-          holds_alternative<std::string>(name_it->second)
-              ? get<std::string>(name_it->second)
-              : "",
-          holds_alternative<std::string>(version_it->second)
-              ? get<std::string>(version_it->second)
-              : "");
+          who["name"].getString(),
+          who.contains("version") && who["version"].isString()
+              ? who["version"].getString()
+              : std::string());
       init_result.serverInfo = mcp::make_optional(server_info);
     }
+  }
 
-    ServerCapabilities caps;
-
-    auto tools_it = metadata.find("capabilities.tools");
-    if (tools_it != metadata.end() &&
-        holds_alternative<bool>(tools_it->second)) {
-      caps.tools = mcp::make_optional(get<bool>(tools_it->second));
-    }
-
-    auto prompts_it = metadata.find("capabilities.prompts");
-    if (prompts_it != metadata.end() &&
-        holds_alternative<bool>(prompts_it->second)) {
-      caps.prompts = mcp::make_optional(get<bool>(prompts_it->second));
-    }
-
-    auto resources_it = metadata.find("capabilities.resources");
-    if (resources_it != metadata.end() &&
-        holds_alternative<bool>(resources_it->second)) {
-      caps.resources = mcp::make_optional(
-          variant<bool, ResourcesCapability>(get<bool>(resources_it->second)));
-    }
-
-    auto logging_it = metadata.find("capabilities.logging");
-    if (logging_it != metadata.end() &&
-        holds_alternative<bool>(logging_it->second)) {
-      caps.logging = mcp::make_optional(get<bool>(logging_it->second));
-    }
-
-    init_result.capabilities = caps;
-  } else {
-    init_result.protocolVersion = protocol_version;
-    init_result.capabilities = ServerCapabilities();
+  if (result.contains("instructions") && result["instructions"].isString()) {
+    init_result.instructions =
+        mcp::make_optional(result["instructions"].getString());
   }
 
   return init_result;
@@ -735,11 +717,7 @@ InitializeResult McpClient::parseDiscoverResponse(
   init_result.capabilities = ServerCapabilities();
 
   json::JsonValue result;
-  if (holds_alternative<json::JsonValue>(response.result.value())) {
-    result = get<json::JsonValue>(response.result.value());
-  } else if (holds_alternative<Metadata>(response.result.value())) {
-    result = json::metadataToJson(get<Metadata>(response.result.value()));
-  } else {
+  if (!resultAsJson(response, &result)) {
     return init_result;
   }
 
@@ -1274,6 +1252,7 @@ void McpClient::sendRequestInternal(std::shared_ptr<RequestContext> context) {
   request.jsonrpc = "2.0";
   request.method = context->method;
   request.params = context->params;
+  request.params_json = context->params_json;
   request.id = context->id;
 
   GOPHER_LOG_DEBUG("Sending request through connection_manager: method={}",
@@ -1372,8 +1351,7 @@ bool McpClient::answerIsAQuestion(const Response& response) const {
   return protocol::modern::askedForIn(result).asked;
 }
 
-bool McpClient::resultAsJson(const Response& response,
-                             json::JsonValue* out) const {
+bool McpClient::resultAsJson(const Response& response, json::JsonValue* out) {
   if (!response.result.has_value()) {
     return false;
   }
@@ -1407,20 +1385,14 @@ bool McpClient::askAndSendAgain(const std::shared_ptr<RequestContext>& request,
     return false;
   }
 
-  // Handed back byte for byte or not at all. What carries a request's
-  // params here reads a string that looks like JSON as the JSON it looks
-  // like, so a state that would come out the other side as an object is
-  // one this client cannot echo — and sending something that merely
-  // meant the same would break the only rule the state has.
-  if (asked.request_state.has_value()) {
-    const std::string& state = asked.request_state.value();
-    if (!state.empty() && ((state.front() == '{' && state.back() == '}') ||
-                           (state.front() == '[' && state.back() == ']'))) {
-      *why_not = Error(::mcp::jsonrpc::INTERNAL_ERROR,
-                       "the state this server asked to have handed back "
-                       "cannot be handed back unchanged by this client");
-      return false;
-    }
+  // Built as JSON, not as the flat map: a state handed back through the
+  // map would come out as an object if it happened to look like one, and
+  // the one rule the state has is that it comes back byte for byte.
+  json::JsonValue params = json::JsonValue::object();
+  if (request->params_json.has_value() && request->params_json->isObject()) {
+    params = request->params_json.value();
+  } else if (request->params.has_value()) {
+    params = json::metadataToJson(request->params.value());
   }
 
   // Every question gets an entry, including the ones nothing could
@@ -1431,15 +1403,13 @@ bool McpClient::askAndSendAgain(const std::shared_ptr<RequestContext>& request,
     answers[entry.first] = askOurselves(entry.second);
   }
 
-  Metadata params =
-      request->params.has_value() ? request->params.value() : Metadata();
   if (!answers.empty()) {
-    params[protocol::modern::kInputResponsesField] = MetadataValue(
-        protocol::modern::renderInputResponses(answers).toString());
+    params.set(protocol::modern::kInputResponsesField,
+               protocol::modern::renderInputResponses(answers));
   }
   if (asked.request_state.has_value()) {
-    params[protocol::modern::kRequestStateField] =
-        MetadataValue(asked.request_state.value());
+    params.set(protocol::modern::kRequestStateField,
+               json::JsonValue(asked.request_state.value()));
   }
 
   // A new request, not a retry of this one. The revision is explicit
@@ -1448,7 +1418,8 @@ bool McpClient::askAndSendAgain(const std::shared_ptr<RequestContext>& request,
   // repeated id as one conversation it is expected to remember.
   RequestId fresh = static_cast<int64_t>(next_request_id_++);
   auto again = std::make_shared<RequestContext>(fresh, request->method);
-  again->params = mcp::make_optional(params);
+  again->params = request->params;
+  again->params_json = mcp::make_optional(params);
   again->http_headers = request->http_headers;
   again->start_time = request->start_time;
   again->input_rounds = request->input_rounds + 1;
@@ -1491,6 +1462,7 @@ json::JsonValue McpClient::askOurselves(
   question.id = static_cast<int64_t>(next_request_id_++);
   question.method = asked.method;
   question.params = mcp::make_optional(json::jsonToMetadata(asked.params));
+  question.params_json = mcp::make_optional(asked.params);
 
   try {
     jsonrpc::Response answered;
@@ -2907,40 +2879,14 @@ std::future<GetPromptResult> McpClient::getPrompt(
         result_promise->set_exception(std::make_exception_ptr(
             std::runtime_error(response.error->message)));
       } else if (response.result.has_value()) {
-        // Extract GetPromptResult from response
-        // Server serializes GetPromptResult to Metadata containing:
-        // - description (optional string)
-        // - messages (JSON string of array)
-        GetPromptResult result;
-        if (holds_alternative<Metadata>(response.result.value())) {
-          auto metadata = get<Metadata>(response.result.value());
-          // Extract description
-          auto desc_it = metadata.find("description");
-          if (desc_it != metadata.end() &&
-              holds_alternative<std::string>(desc_it->second)) {
-            result.description =
-                mcp::make_optional(get<std::string>(desc_it->second));
-          }
-          // Extract messages from JSON string
-          auto msgs_it = metadata.find("messages");
-          if (msgs_it != metadata.end() &&
-              holds_alternative<std::string>(msgs_it->second)) {
-            // Parse messages JSON string back to PromptMessage array
-            std::string msgs_json = get<std::string>(msgs_it->second);
-            try {
-              auto msgs_value = json::JsonValue::parse(msgs_json);
-              if (msgs_value.isArray()) {
-                size_t size = msgs_value.size();
-                for (size_t i = 0; i < size; ++i) {
-                  result.messages.push_back(
-                      json::from_json<PromptMessage>(msgs_value[i]));
-                }
-              }
-            } catch (...) {
-              // Failed to parse messages, leave empty
-            }
-          }
+        // A result that is not a GetPromptResult is an error, not an
+        // empty prompt: an answer the caller cannot tell from "no
+        // messages" would hide a server that sent something else.
+        json::JsonValue body;
+        if (!resultAsJson(response, &body) || !body.isObject()) {
+          throw std::runtime_error("prompts/get answered with no object");
         }
+        GetPromptResult result = json::from_json<GetPromptResult>(body);
         result_promise->set_value(result);
       } else {
         result_promise->set_value(GetPromptResult());

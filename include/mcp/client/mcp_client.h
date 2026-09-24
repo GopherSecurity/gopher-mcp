@@ -157,6 +157,9 @@ struct RequestContext {
   RequestId id;
   std::string method;
   optional<Metadata> params;
+  // Sent in place of `params` when set: for params the flat map cannot
+  // carry unchanged, such as a string that happens to look like JSON.
+  optional<json::JsonValue> params_json;
   std::map<std::string, std::string> http_headers;
   std::chrono::steady_clock::time_point start_time;
   std::promise<Response> promise;
@@ -953,8 +956,8 @@ class McpClient : public application::ApplicationBase {
   json::JsonValue declaredCapabilities() const;
 
   /** A response's result as JSON, however it happens to be held. */
-  bool resultAsJson(const jsonrpc::Response& response,
-                    json::JsonValue* out) const;
+  static bool resultAsJson(const jsonrpc::Response& response,
+                           json::JsonValue* out);
 
   /**
    * Answer what the server asked and send the whole request again.
