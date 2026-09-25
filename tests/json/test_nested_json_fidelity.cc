@@ -171,5 +171,32 @@ TEST(NestedJsonFidelity, ThePromptResultIsReadAsTheSpecShapesIt) {
   EXPECT_EQ(get<TextContent>(result.messages[0].content).text, "hello");
 }
 
+// A prompts/list answer decodes into its own type, the same as a tools or
+// resources listing does, so a caller of sendRequest gets it typed.
+TEST(NestedJsonFidelity, APromptListingDecodesAsAListPromptsResult) {
+  const char* body = R"({"jsonrpc":"2.0","id":1,"result":{"prompts":[)"
+                     R"({"name":"greet","description":"Say hello",)"
+                     R"("arguments":[{"name":"who","required":true}]}],)"
+                     R"("nextCursor":"page-2"}})";
+  const auto response = from_json<jsonrpc::Response>(JsonValue::parse(body));
+
+  ASSERT_TRUE(response.result.has_value());
+  ASSERT_TRUE(holds_alternative<ListPromptsResult>(response.result.value()));
+  const auto& listed = get<ListPromptsResult>(response.result.value());
+  ASSERT_EQ(listed.prompts.size(), 1u);
+  EXPECT_EQ(listed.prompts[0].name, "greet");
+  ASSERT_TRUE(listed.prompts[0].arguments.has_value());
+  EXPECT_EQ(listed.prompts[0].arguments->at(0).name, "who");
+  EXPECT_TRUE(listed.prompts[0].arguments->at(0).required);
+  ASSERT_TRUE(listed.nextCursor.has_value());
+  EXPECT_EQ(listed.nextCursor.value(), "page-2");
+
+  // And back out in the same shape it came in.
+  const JsonValue again = to_json(response);
+  EXPECT_TRUE(again["result"]["prompts"].isArray());
+  EXPECT_EQ(again["result"]["prompts"][0]["name"].getString(), "greet");
+  EXPECT_EQ(again["result"]["nextCursor"].getString(), "page-2");
+}
+
 }  // namespace
 }  // namespace mcp
