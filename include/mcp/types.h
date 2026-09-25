@@ -480,6 +480,19 @@ struct ListToolsResult {
   ListToolsResult() = default;
 };
 
+// PaginatedResult extends PaginatedResultBase for backwards compatibility
+struct PaginatedResult : PaginatedResultBase {
+  PaginatedResult() = default;
+};
+
+// Defined here, with the other list results, so that a prompts/list answer
+// can decode into it as a member of the ResponseResult variant.
+struct ListPromptsResult : PaginatedResult {
+  std::vector<Prompt> prompts;
+
+  ListPromptsResult() = default;
+};
+
 // Resource contents variations and ReadResourceResult are defined here (before
 // the jsonrpc::ResponseResult variant) so ReadResourceResult can participate in
 // that variant, mirroring ListResourcesResult / ListToolsResult above. This is
@@ -556,6 +569,7 @@ using ResponseResult = variant<std::nullptr_t,
                                std::vector<Resource>,
                                ListResourcesResult,
                                ListToolsResult,
+                               ListPromptsResult,
                                ReadResourceResult,
                                json::JsonValue>;
 
@@ -809,10 +823,7 @@ struct PaginatedRequest : jsonrpc::Request {
   PaginatedRequest() = default;
 };
 
-// PaginatedResult extends PaginatedResultBase for backwards compatibility
-struct PaginatedResult : PaginatedResultBase {
-  PaginatedResult() = default;
-};
+// PaginatedResult is defined earlier, before the ResponseResult variant.
 
 // Type aliases for JSON compatibility
 using Cursor = std::string;
@@ -1022,11 +1033,7 @@ struct ListPromptsRequest : PaginatedRequest {
   ListPromptsRequest() : PaginatedRequest() { method = "prompts/list"; }
 };
 
-struct ListPromptsResult : PaginatedResult {
-  std::vector<Prompt> prompts;
-
-  ListPromptsResult() = default;
-};
+// ListPromptsResult is defined earlier, before the ResponseResult variant.
 
 struct GetPromptRequest : jsonrpc::Request {
   std::string name;
