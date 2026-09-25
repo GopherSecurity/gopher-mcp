@@ -751,6 +751,46 @@ InitializeResult McpClient::parseDiscoverResponse(
   return init_result;
 }
 
+ListPromptsResult McpClient::parseListPromptsResponse(
+    const jsonrpc::Response& response) {
+  ListPromptsResult result;
+  if (!response.result.has_value()) {
+    return result;
+  }
+  const auto& answer = response.result.value();
+
+  // The spec's shape: an object with the prompts under "prompts" and,
+  // when there are more, a cursor for the next page.
+  if (holds_alternative<json::JsonValue>(answer)) {
+    const auto& value = get<json::JsonValue>(answer);
+    if (value.isObject() && value.contains("prompts") &&
+        value["prompts"].isArray()) {
+      return json::from_json<ListPromptsResult>(value);
+    }
+    if (value.isArray() && value.size() == 0) {
+      return result;
+    }
+  }
+
+  // A bare array, as older servers sent. The decoder cannot tell prompts
+  // from tools by shape alone, and reads prompts with no arguments as
+  // tools; a name and a description are all either one has in common.
+  if (holds_alternative<std::vector<Prompt>>(answer)) {
+    result.prompts = get<std::vector<Prompt>>(answer);
+    return result;
+  }
+  if (holds_alternative<std::vector<Tool>>(answer)) {
+    for (const auto& tool : get<std::vector<Tool>>(answer)) {
+      Prompt prompt(tool.name);
+      prompt.description = tool.description;
+      result.prompts.push_back(prompt);
+    }
+    return result;
+  }
+
+  throw std::runtime_error("prompts/list answered with no list of prompts");
+}
+
 Metadata McpClient::buildInitializeParams() const {
   // MCP spec requires: protocolVersion, capabilities, clientInfo (nested
   // object)
@@ -2814,13 +2854,7 @@ std::future<ListPromptsResult> McpClient::listPrompts(
         result_promise->set_exception(std::make_exception_ptr(
             std::runtime_error(response.error->message)));
       } else if (response.result.has_value()) {
-        // Extract prompts vector from response and wrap in ListPromptsResult
-        // ResponseResult variant contains std::vector<Prompt>
-        ListPromptsResult result;
-        if (holds_alternative<std::vector<Prompt>>(response.result.value())) {
-          result.prompts = get<std::vector<Prompt>>(response.result.value());
-        }
-        result_promise->set_value(result);
+        result_promise->set_value(parseListPromptsResponse(response));
       } else {
         result_promise->set_value(ListPromptsResult());
       }
