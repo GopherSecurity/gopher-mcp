@@ -48,6 +48,16 @@ class StreamSpy : public ResponseStream {
     notifications.push_back(json::to_json(notification));
     return makeVoidSuccess();
   }
+  VoidResult sendRequest(const jsonrpc::Request& request) override {
+    if (!alive_) {
+      return makeVoidError(Error(jsonrpc::INTERNAL_ERROR, "gone"));
+    }
+    if (fail_requests_) {
+      return makeVoidError(Error(jsonrpc::INTERNAL_ERROR, "send failed"));
+    }
+    requests.push_back(json::to_json(request));
+    return makeVoidSuccess();
+  }
   VoidResult sendResponse(const jsonrpc::Response& response) override {
     responses.push_back(json::to_json(response));
     return makeVoidSuccess();
@@ -59,6 +69,7 @@ class StreamSpy : public ResponseStream {
   }
 
   void die() { alive_ = false; }
+  void failRequests() { fail_requests_ = true; }
 
   /** What a client closing this stream does. */
   void clientWentAway() {
@@ -87,11 +98,19 @@ class StreamSpy : public ResponseStream {
         .getInt64();
   }
 
+  /** The subscription a delivered request says it belongs to. */
+  int64_t requestSubscriptionOf(size_t which) const {
+    return requests[which]["params"]["_meta"][modern::kMetaSubscriptionId]
+        .getInt64();
+  }
+
   std::vector<json::JsonValue> notifications;
+  std::vector<json::JsonValue> requests;
   std::vector<json::JsonValue> responses;
 
  private:
   bool alive_{true};
+  bool fail_requests_{false};
 };
 
 NotificationFilter filterFrom(const std::string& params_json) {
@@ -277,6 +296,125 @@ TEST(ListenRegistry, TwoClientsMayUseTheSameIdForDifferentSubscriptions) {
   EXPECT_EQ(registry.size(), 1u);
   EXPECT_TRUE(second->responses.empty())
       << "ending one client's subscription ended another's";
+}
+
+jsonrpc::Request elicitationRequest(const std::string& id) {
+  jsonrpc::Request request;
+  request.jsonrpc = "2.0";
+  request.id = make_request_id(id);
+  request.method = modern::kMethodElicitation;
+  return request;
+}
+
+TEST(ListenRegistry, SendRequestDoesNotCrossCallersWithMatchingSubscriptions) {
+  ListenRegistry registry;
+  auto first = std::make_shared<StreamSpy>();
+  auto second = std::make_shared<StreamSpy>();
+
+  ASSERT_TRUE(registry.open(
+      "caller-a", make_request_id(1), first,
+      filterFrom(R"({"notifications":{"toolsListChanged":true}})")));
+  ASSERT_TRUE(registry.open(
+      "caller-b", make_request_id(1), second,
+      filterFrom(R"({"notifications":{"toolsListChanged":true}})")));
+
+  auto sent = registry.sendRequest("caller-a", elicitationRequest("elicit-1"));
+
+  EXPECT_TRUE(holds_alternative<std::nullptr_t>(sent));
+  ASSERT_EQ(first->requests.size(), 1u)
+      << "the caller's live stream did not receive the request";
+  EXPECT_EQ(first->requests[0]["method"].getString(),
+            modern::kMethodElicitation);
+  EXPECT_EQ(first->requestSubscriptionOf(0), 1)
+      << "the request was not tagged with the subscription it used";
+  EXPECT_TRUE(second->requests.empty())
+      << "a caller-scoped request crossed into another client";
+}
+
+TEST(ListenRegistry, SendRequestIsNotFilteredByNotificationInterest) {
+  ListenRegistry registry;
+  auto no_notification_filter = std::make_shared<StreamSpy>();
+
+  ASSERT_TRUE(registry.open("caller-a", make_request_id(2),
+                            no_notification_filter, filterFrom(R"({})")));
+
+  auto sent = registry.sendRequest("caller-a", elicitationRequest("elicit-1"));
+
+  EXPECT_TRUE(holds_alternative<std::nullptr_t>(sent));
+  ASSERT_EQ(no_notification_filter->requests.size(), 1u)
+      << "server-initiated request routing was tied to notification filters";
+  EXPECT_EQ(no_notification_filter->requests[0]["method"].getString(),
+            modern::kMethodElicitation);
+  EXPECT_EQ(no_notification_filter->requestSubscriptionOf(0), 2)
+      << "the request was not tagged with the subscription it used";
+}
+
+TEST(ListenRegistry, SendRequestSkipsDeadStreamsAtSendTime) {
+  ListenRegistry registry;
+  auto dead = std::make_shared<StreamSpy>();
+  auto living = std::make_shared<StreamSpy>();
+
+  ASSERT_TRUE(registry.open(
+      "caller-a", make_request_id(1), dead,
+      filterFrom(R"({"notifications":{"toolsListChanged":true}})")));
+  ASSERT_TRUE(registry.open("caller-a", make_request_id(2), living,
+                            filterFrom(R"({})")));
+  dead->die();
+
+  auto sent = registry.sendRequest("caller-a", elicitationRequest("elicit-1"));
+
+  EXPECT_TRUE(holds_alternative<std::nullptr_t>(sent));
+  EXPECT_TRUE(dead->requests.empty())
+      << "the registry sent through a stream that was already dead";
+  ASSERT_EQ(living->requests.size(), 1u)
+      << "the registry reused a dead stream instead of checking liveness at "
+         "send time";
+  EXPECT_EQ(living->requestSubscriptionOf(0), 2);
+}
+
+TEST(ListenRegistry, SendRequestRetriesAfterLiveStreamWriteFailure) {
+  ListenRegistry registry;
+  auto failing = std::make_shared<StreamSpy>();
+  auto living = std::make_shared<StreamSpy>();
+
+  ASSERT_TRUE(registry.open("caller-a", make_request_id(1), failing,
+                            filterFrom(R"({})")));
+  ASSERT_TRUE(registry.open("caller-a", make_request_id(2), living,
+                            filterFrom(R"({})")));
+  failing->failRequests();
+
+  auto sent = registry.sendRequest("caller-a", elicitationRequest("elicit-1"));
+
+  EXPECT_TRUE(holds_alternative<std::nullptr_t>(sent));
+  EXPECT_TRUE(failing->requests.empty())
+      << "a failed send should not be recorded as delivered";
+  ASSERT_EQ(living->requests.size(), 1u)
+      << "a later live stream should be tried after a write failure";
+  EXPECT_EQ(living->requestSubscriptionOf(0), 2);
+}
+
+TEST(ListenRegistry, SendRequestPreservesExistingRequestMeta) {
+  ListenRegistry registry;
+  auto stream = std::make_shared<StreamSpy>();
+
+  ASSERT_TRUE(registry.open("caller-a", make_request_id(7), stream,
+                            filterFrom(R"({})")));
+
+  auto request = elicitationRequest("elicit-1");
+  Metadata params;
+  params["_meta"] = MetadataValue(std::string("{\"trace\":\"kept\",\"") +
+                                  modern::kMetaSubscriptionId + "\":999}");
+  request.params = mcp::make_optional(params);
+
+  auto sent = registry.sendRequest("caller-a", request);
+
+  EXPECT_TRUE(holds_alternative<std::nullptr_t>(sent));
+  ASSERT_EQ(stream->requests.size(), 1u);
+  const auto& meta = stream->requests[0]["params"]["_meta"];
+  EXPECT_EQ(meta["trace"].getString(), "kept")
+      << "request metadata was replaced instead of extended";
+  EXPECT_EQ(meta[modern::kMetaSubscriptionId].getInt64(), 7)
+      << "the registry did not stamp the subscription it used";
 }
 
 TEST(ListenRegistry, OneClientCannotUseOneIdTwice) {
