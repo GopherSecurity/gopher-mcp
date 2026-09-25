@@ -671,7 +671,11 @@ TEST(ExtensiveBuildersTest, RecursiveResourceBuilding) {
                           .mimeType("text/plain")
                           .build();
 
-  auto embeddedResource1 = make<EmbeddedResource>(baseResource).build();
+  auto embeddedResource1 =
+      make<EmbeddedResource>(TextResourceContents("base contents"))
+          .uri(baseResource.uri)
+          .mimeType(baseResource.mimeType.value())
+          .build();
 
   // Create a resource with a link to another resource
   auto linkedResource = make<ResourceLink>("file:///linked.txt", "linked-file")
@@ -679,8 +683,10 @@ TEST(ExtensiveBuildersTest, RecursiveResourceBuilding) {
                             .mimeType("application/json")
                             .build();
 
-  EXPECT_EQ(embeddedResource1.resource.uri, "file:///base.txt");
-  EXPECT_EQ(embeddedResource1.resource.name, "base");
+  const auto& contents =
+      mcp::get<TextResourceContents>(embeddedResource1.resource);
+  EXPECT_EQ(contents.uri.value(), "file:///base.txt");
+  EXPECT_EQ(contents.text, "base contents");
   EXPECT_EQ(linkedResource.uri, "file:///linked.txt");
   EXPECT_EQ(linkedResource.name, "linked-file");
 }

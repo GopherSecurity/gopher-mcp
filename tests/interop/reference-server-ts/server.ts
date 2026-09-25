@@ -164,6 +164,31 @@ function buildServer(): McpServer {
     }
   );
 
+  // A resource link and an embedded resource, in the shapes the SDK itself
+  // writes, for a client to read back.
+  server.registerTool(
+    'resource_content',
+    { description: 'Answer with a resource link and an embedded resource' },
+    async () => ({
+      content: [
+        {
+          type: 'resource_link',
+          uri: 'interop://linked',
+          name: 'linked.txt',
+          mimeType: 'text/plain'
+        },
+        {
+          type: 'resource',
+          resource: {
+            uri: 'interop://embedded',
+            mimeType: 'text/plain',
+            text: 'embedded by the reference server'
+          }
+        }
+      ]
+    })
+  );
+
   server.registerResource(
     'greeting',
     'interop://greeting',
