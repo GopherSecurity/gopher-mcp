@@ -262,6 +262,37 @@ TEST(ResourceContentShapes, EmbeddedContentsAreHeldToTheSpec) {
                json::JsonException);
 }
 
+// The same malformed contents inside a tool result. With no text or blob
+// they look a little like a link in the old shape, but a link has a name,
+// and these are refused rather than read as a link to nothing.
+TEST(ResourceContentShapes, MalformedContentsInAToolResultAreRefused) {
+  EXPECT_THROW(from_json<CallToolResult>(JsonValue::parse(
+                   R"({"content": [{"type": "resource",
+                       "resource": {"uri": "file:///a"}}]})")),
+               json::JsonException);
+  EXPECT_THROW(from_json<CallToolResult>(JsonValue::parse(
+                   R"({"content": [{"type": "resource",
+                       "resource": {"text": "no uri"}}]})")),
+               json::JsonException);
+
+  // A link in either shape, spec or old, still needs its name.
+  EXPECT_THROW(from_json<CallToolResult>(JsonValue::parse(
+                   R"({"content": [{"type": "resource_link",
+                       "uri": "file:///a"}]})")),
+               json::JsonException);
+  EXPECT_THROW(from_json<ContentBlock>(JsonValue::parse(
+                   R"({"type": "resource_link", "uri": "file:///a"})")),
+               json::JsonException);
+
+  // While an old-style link with its name is still read as one.
+  const auto old = from_json<CallToolResult>(JsonValue::parse(
+      R"({"content": [{"type": "resource",
+          "resource": {"uri": "file:///a", "name": "a"}}]})"));
+  ASSERT_EQ(old.content.size(), 1u);
+  ASSERT_TRUE(holds_alternative<ResourceLink>(old.content[0]));
+  EXPECT_EQ(get<ResourceLink>(old.content[0]).name, "a");
+}
+
 TEST(ResourceContentShapes, AnEmbeddedResourceWithNoUriIsNotWritten) {
   EXPECT_THROW(to_json(make_embedded_resource(TextResourceContents("t"))),
                json::JsonException);
