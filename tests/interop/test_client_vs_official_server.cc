@@ -529,5 +529,31 @@ TEST_F(OfficialServerInteropTest, ThePromptsAreListed) {
   EXPECT_EQ(greet->arguments->at(0).name, "name");
 }
 
+// What the official SDK writes for a resource link and an embedded
+// resource, read into the types they are.
+TEST_F(OfficialServerInteropTest, ResourceContentIsReadAsTheSpecShapesIt) {
+  ASSERT_TRUE(server_.start());
+  startClient();
+  ASSERT_NO_THROW(handshake());
+
+  auto called = client_->callTool("resource_content");
+  ASSERT_EQ(called.wait_for(15s), std::future_status::ready);
+  CallToolResult result;
+  ASSERT_NO_THROW(result = called.get());
+  ASSERT_EQ(result.content.size(), 2u);
+
+  ASSERT_TRUE(holds_alternative<ResourceLink>(result.content[0]));
+  const auto& link = get<ResourceLink>(result.content[0]);
+  EXPECT_EQ(link.uri, "interop://linked");
+  EXPECT_EQ(link.name, "linked.txt");
+
+  ASSERT_TRUE(holds_alternative<EmbeddedResource>(result.content[1]));
+  const auto& embedded = get<EmbeddedResource>(result.content[1]);
+  ASSERT_TRUE(holds_alternative<TextResourceContents>(embedded.resource));
+  const auto& contents = get<TextResourceContents>(embedded.resource);
+  EXPECT_EQ(contents.uri.value(), "interop://embedded");
+  EXPECT_EQ(contents.text, "embedded by the reference server");
+}
+
 }  // namespace
 }  // namespace mcp

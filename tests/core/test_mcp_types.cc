@@ -29,23 +29,22 @@ TEST_F(MCPTypesTest, ResourceLink) {
 
   EXPECT_TRUE(mcp::holds_alternative<ResourceLink>(link));
   auto& content = mcp::get<ResourceLink>(link);
-  EXPECT_EQ(content.type, "resource");
+  EXPECT_EQ(content.type, "resource_link");
   EXPECT_EQ(content.uri, "file:///test.txt");
 }
 
 TEST_F(MCPTypesTest, EmbeddedResource) {
-  auto resource = make_resource("file:///doc.pdf", "document.pdf");
-
-  auto embedded = make<EmbeddedResource>(resource)
-                      .add_text("This is page 1")
-                      .add_text("This is page 2")
-                      .add_image("base64imagedata", "image/png")
+  auto embedded = make<EmbeddedResource>(TextResourceContents("page 1"))
+                      .uri("file:///doc.txt")
+                      .mimeType("text/plain")
                       .build();
 
-  EXPECT_TRUE(embedded.resource.uri == "file:///doc.pdf");
-  EXPECT_EQ(embedded.content.size(), 3u);
-  EXPECT_TRUE(mcp::holds_alternative<TextContent>(embedded.content[0]));
-  EXPECT_TRUE(mcp::holds_alternative<ImageContent>(embedded.content[2]));
+  EXPECT_EQ(embedded.type, "resource");
+  ASSERT_TRUE(mcp::holds_alternative<TextResourceContents>(embedded.resource));
+  const auto& contents = mcp::get<TextResourceContents>(embedded.resource);
+  EXPECT_EQ(contents.text, "page 1");
+  EXPECT_EQ(contents.uri.value(), "file:///doc.txt");
+  EXPECT_EQ(contents.mimeType.value(), "text/plain");
 }
 
 // Test extended logging levels
@@ -1065,7 +1064,7 @@ TEST_F(MCPTypesTest, AllMCPTypesComprehensive) {
 
   // ResourceContent
   ResourceContent rc(resource1);
-  EXPECT_EQ(rc.type, "resource");
+  EXPECT_EQ(rc.type, "resource_link");
   EXPECT_EQ(rc.resource.uri, "file:///test.txt");
 
   // Tool
@@ -1122,17 +1121,21 @@ TEST_F(MCPTypesTest, ExtendedContentTypesComprehensive) {
   auto link = make_resource_link(resource);
   EXPECT_TRUE(mcp::holds_alternative<ResourceLink>(link));
   auto& link_content = mcp::get<ResourceLink>(link);
-  EXPECT_EQ(link_content.type, "resource");
+  EXPECT_EQ(link_content.type, "resource_link");
   EXPECT_EQ(link_content.uri, "http://example.com/file.pdf");
   EXPECT_EQ(link_content.name, "file.pdf");
 
   // Embedded resource
-  auto embedded = make_embedded_resource(resource);
+  BlobResourceContents blob("JVBERi0x");
+  blob.uri = std::string("http://example.com/file.pdf");
+  auto embedded = make_embedded_resource(blob);
   EXPECT_TRUE(mcp::holds_alternative<EmbeddedResource>(embedded));
   auto& embedded_content = mcp::get<EmbeddedResource>(embedded);
-  EXPECT_EQ(embedded_content.type, "embedded");
-  EXPECT_EQ(embedded_content.resource.uri, "http://example.com/file.pdf");
-  EXPECT_TRUE(embedded_content.content.empty());
+  EXPECT_EQ(embedded_content.type, "resource");
+  ASSERT_TRUE(
+      mcp::holds_alternative<BlobResourceContents>(embedded_content.resource));
+  EXPECT_EQ(mcp::get<BlobResourceContents>(embedded_content.resource).blob,
+            "JVBERi0x");
 }
 
 // Test JSON-RPC error codes
@@ -1297,20 +1300,19 @@ TEST_F(MCPTypesTest, BuilderPatternsComprehensive) {
   EXPECT_EQ(params.metadata->size(), 3u);
 
   // EmbeddedResourceBuilder
-  auto embedded_resource = make<EmbeddedResource>(resource)
-                               .add_text("Page 1 content")
-                               .add_text("Page 2 content")
-                               .add_image("img1_data", "image/png")
-                               .add_content(make_text_content("Custom content"))
-                               .build();
+  auto embedded_resource =
+      make<EmbeddedResource>(BlobResourceContents("aW1nMV9kYXRh"))
+          .uri(resource.uri)
+          .mimeType("application/pdf")
+          .build();
 
-  EXPECT_EQ(embedded_resource.type, "embedded");
-  EXPECT_EQ(embedded_resource.resource.uri, "file:///complex.pdf");
-  EXPECT_EQ(embedded_resource.content.size(), 4u);
-  EXPECT_TRUE(
-      mcp::holds_alternative<TextContent>(embedded_resource.content[0]));
-  EXPECT_TRUE(
-      mcp::holds_alternative<ImageContent>(embedded_resource.content[2]));
+  EXPECT_EQ(embedded_resource.type, "resource");
+  ASSERT_TRUE(
+      mcp::holds_alternative<BlobResourceContents>(embedded_resource.resource));
+  const auto& blob = mcp::get<BlobResourceContents>(embedded_resource.resource);
+  EXPECT_EQ(blob.uri.value(), "file:///complex.pdf");
+  EXPECT_EQ(blob.mimeType.value(), "application/pdf");
+  EXPECT_EQ(blob.blob, "aW1nMV9kYXRh");
 }
 
 // Test edge cases and boundary values

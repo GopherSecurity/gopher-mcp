@@ -189,6 +189,25 @@ std::string stringOr(const json::JsonValue& object,
 
 // ── Answering ──────────────────────────────────────────────────────────
 
+/**
+ * A resource link and an embedded resource, which another implementation
+ * reads only if both are in the shapes the spec gives them.
+ */
+jsonrpc::Response resourceResult(const RequestId& id) {
+  Resource linked("interop://linked", "linked.txt");
+  linked.mimeType = mcp::make_optional(std::string("text/plain"));
+
+  TextResourceContents contents("embedded by the gopher server");
+  contents.uri = mcp::make_optional(std::string("interop://embedded"));
+  contents.mimeType = mcp::make_optional(std::string("text/plain"));
+
+  CallToolResult result;
+  result.content.push_back(make_resource_link(linked));
+  result.content.push_back(make_embedded_resource(contents));
+  return jsonrpc::Response::success(
+      id, jsonrpc::ResponseResult(json::to_json(result)));
+}
+
 /** A tool's answer: one block of text, as every tool here returns. */
 jsonrpc::Response textResult(const RequestId& id, const std::string& text) {
   CallToolResult result;
@@ -242,6 +261,13 @@ std::vector<Tool> interopTools() {
   cut.inputSchema = mcp::make_optional(json::JsonValue::parse(
       R"({"type":"object","properties":{"then_notify":{"type":"integer"}}})"));
   tools.push_back(cut);
+
+  Tool resources("resource_content");
+  resources.description = mcp::make_optional(
+      std::string("Answer with a resource link and an embedded resource"));
+  resources.inputSchema = mcp::make_optional(
+      json::JsonValue::parse(R"({"type":"object","properties":{}})"));
+  tools.push_back(resources);
 
   return tools;
 }
@@ -369,6 +395,11 @@ class ToolCalls {
 
     if (name == "cut_stream") {
       cutTheStream(request, session, answer, arguments);
+      return;
+    }
+
+    if (name == "resource_content") {
+      answer->sendResponse(resourceResult(request.id));
       return;
     }
 

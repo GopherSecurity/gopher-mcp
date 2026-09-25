@@ -112,12 +112,17 @@ TEST_F(MCPSerializationTest, ExtendedContentBlock) {
       make_resource_link(Resource("http://link", "Link"));
   testRoundTrip(link);
 
-  // Embedded resource
-  EmbeddedResource embedded;
-  embedded.resource = Resource("embedded://res", "Embedded");
-  embedded.content.push_back(make_text_content("Embedded text"));
-  ExtendedContentBlock embed_block(embedded);
+  // Embedded resource, text and blob
+  TextResourceContents text("Embedded text");
+  text.uri = std::string("embedded://res");
+  ExtendedContentBlock embed_block = make_embedded_resource(text);
   testRoundTrip(embed_block);
+
+  BlobResourceContents blob("ZW1iZWRkZWQ=");
+  blob.uri = std::string("embedded://blob");
+  blob.mimeType = std::string("application/octet-stream");
+  ExtendedContentBlock blob_block = make_embedded_resource(blob);
+  testRoundTrip(blob_block);
 }
 
 // =============================================================================
@@ -225,16 +230,18 @@ TEST_F(MCPSerializationTest, PromptMessage) {
   testRoundTrip(msg);
 
   // Second test - embedded resource
-  // Temporarily comment out to isolate the issue
-  /*
-  EmbeddedResource embedded;
-  embedded.resource = Resource("data://embed", "Data");
-  embedded.content.push_back(make_text_content("Embedded content"));
+  TextResourceContents contents("Embedded content");
+  contents.uri = std::string("data://embed");
   PromptMessage embed_msg;
   embed_msg.role = enums::Role::ASSISTANT;
-  embed_msg.content = embedded;
+  embed_msg.content = EmbeddedResource(contents);
   testRoundTrip(embed_msg);
-  */
+
+  // Third test - resource link
+  PromptMessage link_msg;
+  link_msg.role = enums::Role::USER;
+  link_msg.content = ResourceLink(Resource("data://link", "Link"));
+  testRoundTrip(link_msg);
 }
 
 // =============================================================================
@@ -979,18 +986,14 @@ TEST_F(MCPSerializationTest, LargeNumbers) {
 }
 
 TEST_F(MCPSerializationTest, NestedStructures) {
-  // Deeply nested embedded resources
-  EmbeddedResource outer;
-  outer.resource = Resource("outer://resource", "Outer");
-
-  EmbeddedResource inner;
-  inner.resource = Resource("inner://resource", "Inner");
-  inner.content.push_back(make_text_content("Inner text"));
-  inner.content.push_back(make_image_content("innerimg", "image/png"));
-
-  // Create a resource content that contains the inner embedded resource
-  outer.content.push_back(make_text_content("Outer text"));
-  outer.content.push_back(make_resource_content(inner.resource));
+  // An embedded resource carrying every optional part it has
+  TextResourceContents contents("Outer text");
+  contents.uri = std::string("outer://resource");
+  contents.mimeType = std::string("text/plain");
+  EmbeddedResource outer(contents);
+  Annotations annotations;
+  annotations.priority = mcp::make_optional(0.5);
+  outer.annotations = annotations;
 
   testRoundTrip(outer);
 }

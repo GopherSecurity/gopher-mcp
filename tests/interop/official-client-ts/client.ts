@@ -293,6 +293,23 @@ await scenario('a resource and a prompt are read exactly', async () => {
   equal(content.text, 'Say hello to Ada', 'the prompt used the argument it was given');
 });
 
+await scenario('a resource link and an embedded resource are read as the spec shapes them', async () => {
+  // The SDK validates what comes back against its schema, so a block in
+  // any other shape fails the call before these checks are reached.
+  const answered: any = await main.client.callTool({ name: 'resource_content', arguments: {} });
+  equal(answered.content.length, 2, 'content blocks returned');
+
+  const link = answered.content[0];
+  equal(link.type, 'resource_link', 'the first block type');
+  equal(link.uri, 'interop://linked', 'the link uri');
+  equal(link.name, 'linked.txt', 'the link name');
+
+  const embedded = answered.content[1];
+  equal(embedded.type, 'resource', 'the second block type');
+  equal(embedded.resource.uri, 'interop://embedded', 'the embedded uri');
+  equal(embedded.resource.text, 'embedded by the gopher server', 'the embedded text');
+});
+
 await scenario('a dropped stream is reconnected and what was missed arrives', async () => {
   const before = pushed.length;
   const answered = await main.client.callTool({
