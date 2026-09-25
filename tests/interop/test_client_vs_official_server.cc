@@ -505,5 +505,29 @@ TEST_F(OfficialServerInteropTest, TheTransportIsWorkedOutByAsking) {
   EXPECT_EQ(resultText(answer), "42");
 }
 
+// The listing a compliant server gives is an object with the prompts under
+// "prompts", and every prompt in it is returned, arguments included.
+TEST_F(OfficialServerInteropTest, ThePromptsAreListed) {
+  ASSERT_TRUE(server_.start());
+  startClient();
+  ASSERT_NO_THROW(handshake());
+
+  auto listed = client_->listPrompts();
+  ASSERT_EQ(listed.wait_for(15s), std::future_status::ready);
+  ListPromptsResult result;
+  ASSERT_NO_THROW(result = listed.get());
+
+  const Prompt* greet = nullptr;
+  for (const auto& prompt : result.prompts) {
+    if (prompt.name == "greet") {
+      greet = &prompt;
+    }
+  }
+  ASSERT_NE(greet, nullptr) << "the reference server's prompt was not listed";
+  ASSERT_TRUE(greet->arguments.has_value());
+  ASSERT_EQ(greet->arguments->size(), 1u);
+  EXPECT_EQ(greet->arguments->at(0).name, "name");
+}
+
 }  // namespace
 }  // namespace mcp

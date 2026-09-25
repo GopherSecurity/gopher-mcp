@@ -54,6 +54,7 @@
 #include <stdexcept>
 #include <string>
 #include <thread>
+#include <vector>
 
 #include <gtest/gtest.h>
 
@@ -201,6 +202,39 @@ class McpClientInitializeRoutingTest : public ::testing::Test {
       std::this_thread::sleep_for(25ms);
     }
     return false;
+  }
+
+  // A client connected to this fixture's server with the handshake done,
+  // for tests about what comes after it.
+  void connectInitializedClient() {
+    client::McpClientConfig client_config;
+    client_config.client_name = "init-routing-test-client";
+    client_config.client_version = "0.0.1";
+    client_config.num_workers = 1;
+    client_config.request_timeout = 5000ms;
+    client_config.protocol_initialization_timeout = 5000ms;
+    client_config.protocol_connection_timeout = 5000ms;
+
+    client_ = client::createMcpClient(client_config);
+    ASSERT_NE(client_, nullptr);
+
+    const std::string uri =
+        "http://127.0.0.1:" + std::to_string(port_) + "/rpc";
+    ASSERT_TRUE(holds_alternative<std::nullptr_t>(client_->connect(uri)));
+    auto init_future = client_->initializeProtocol();
+    ASSERT_EQ(init_future.wait_for(5s), std::future_status::ready);
+    ASSERT_NO_THROW(init_future.get());
+  }
+
+  // Answer prompts/list with exactly this, in place of the server's own.
+  void answerPromptsListWith(const std::string& result_json) {
+    server_->registerRequestHandler(
+        "prompts/list", [result_json](const jsonrpc::Request& request,
+                                      server::SessionContext&) {
+          return jsonrpc::Response::success(
+              request.id,
+              jsonrpc::ResponseResult(json::JsonValue::parse(result_json)));
+        });
   }
 
   uint16_t port_{0};
@@ -505,6 +539,94 @@ TEST_F(McpClientInitializeRoutingTest,
   EXPECT_TRUE(seen_by_handler_future.get())
       << "the handler for notifications/initialized saw the session as not "
          "yet initialized";
+}
+
+// The listing comes back as an object with the prompts under "prompts",
+// which is what this SDK's own server sends. Read as anything else, every
+// prompt the server has is silently dropped.
+TEST_F(McpClientInitializeRoutingTest, ThePromptsTheServerListsAreReturned) {
+  Prompt greet("greet");
+  greet.description = mcp::make_optional(std::string("Say hello"));
+  PromptArgument who;
+  who.name = "who";
+  who.description = mcp::make_optional(std::string("Whom to greet"));
+  who.required = true;
+  greet.arguments = mcp::make_optional(std::vector<PromptArgument>{who});
+  server_->registerPrompt(
+      greet, [](const std::string&, const optional<Metadata>&,
+                server::SessionContext&) { return GetPromptResult(); });
+  server_->registerPrompt(
+      Prompt("farewell"),
+      [](const std::string&, const optional<Metadata>&,
+         server::SessionContext&) { return GetPromptResult(); });
+
+  connectInitializedClient();
+  auto listed = client_->listPrompts();
+  ASSERT_EQ(listed.wait_for(5s), std::future_status::ready);
+
+  ListPromptsResult result;
+  ASSERT_NO_THROW(result = listed.get());
+  ASSERT_EQ(result.prompts.size(), 2u);
+
+  const Prompt* found = nullptr;
+  for (const auto& prompt : result.prompts) {
+    if (prompt.name == "greet") {
+      found = &prompt;
+    }
+  }
+  ASSERT_NE(found, nullptr) << "greet was not listed";
+  ASSERT_TRUE(found->description.has_value());
+  EXPECT_EQ(found->description.value(), "Say hello");
+  ASSERT_TRUE(found->arguments.has_value());
+  ASSERT_EQ(found->arguments->size(), 1u);
+  EXPECT_EQ(found->arguments->at(0).name, "who");
+  EXPECT_TRUE(found->arguments->at(0).required);
+}
+
+// A listing with more to come says where the next page starts, and the
+// caller cannot ask for it without being told.
+TEST_F(McpClientInitializeRoutingTest, APagedListingCarriesItsCursor) {
+  answerPromptsListWith(
+      R"({"prompts":[{"name":"first"}],"nextCursor":"page-2"})");
+
+  connectInitializedClient();
+  auto listed = client_->listPrompts();
+  ASSERT_EQ(listed.wait_for(5s), std::future_status::ready);
+
+  ListPromptsResult result;
+  ASSERT_NO_THROW(result = listed.get());
+  ASSERT_EQ(result.prompts.size(), 1u);
+  EXPECT_EQ(result.prompts[0].name, "first");
+  ASSERT_TRUE(result.nextCursor.has_value());
+  EXPECT_EQ(result.nextCursor.value(), "page-2");
+}
+
+// Older servers answered with the bare array. One of prompts with no
+// arguments looks exactly like a list of tools, and is still read.
+TEST_F(McpClientInitializeRoutingTest, AnOlderServersBareArrayIsStillRead) {
+  answerPromptsListWith(R"([{"name":"first","description":"The first"}])");
+
+  connectInitializedClient();
+  auto listed = client_->listPrompts();
+  ASSERT_EQ(listed.wait_for(5s), std::future_status::ready);
+
+  ListPromptsResult result;
+  ASSERT_NO_THROW(result = listed.get());
+  ASSERT_EQ(result.prompts.size(), 1u);
+  EXPECT_EQ(result.prompts[0].name, "first");
+  ASSERT_TRUE(result.prompts[0].description.has_value());
+  EXPECT_EQ(result.prompts[0].description.value(), "The first");
+}
+
+// An answer that is no listing at all fails the call. An empty list in its
+// place would say the server has no prompts, which nothing said.
+TEST_F(McpClientInitializeRoutingTest, AnAnswerThatIsNoListingFailsTheCall) {
+  answerPromptsListWith(R"({"tools":"not prompts"})");
+
+  connectInitializedClient();
+  auto listed = client_->listPrompts();
+  ASSERT_EQ(listed.wait_for(5s), std::future_status::ready);
+  EXPECT_THROW(listed.get(), std::runtime_error);
 }
 
 }  // namespace
