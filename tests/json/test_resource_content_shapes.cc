@@ -210,5 +210,64 @@ TEST(ResourceContentShapes, UntypedResultsKeepEveryBlock) {
   EXPECT_EQ(kept[1]["resource"]["text"].getString(), "bee");
 }
 
+// A link with a title, a size or annotations has more than the older
+// ContentBlock can hold, so a result carrying one stays JSON and loses
+// none of it.
+TEST(ResourceContentShapes, ARichLinkInAnUntypedResultKeepsItsFields) {
+  const char* body = R"({
+    "jsonrpc": "2.0", "id": 1,
+    "result": [{"type": "resource_link", "uri": "file:///a.txt",
+                "name": "a.txt", "title": "A", "size": 12,
+                "annotations": {"priority": 0.5}}]
+  })";
+  const auto response = from_json<jsonrpc::Response>(JsonValue::parse(body));
+
+  ASSERT_TRUE(holds_alternative<JsonValue>(response.result.value()));
+  const auto& kept = get<JsonValue>(response.result.value());
+  EXPECT_EQ(kept[0]["title"].getString(), "A");
+  EXPECT_EQ(kept[0]["size"].getInt64(), 12);
+
+  // And out again unchanged.
+  EXPECT_EQ(to_json(response).toString(), JsonValue::parse(body).toString());
+
+  // The same on its own, not in a list.
+  const auto single = from_json<jsonrpc::Response>(JsonValue::parse(R"({
+    "jsonrpc": "2.0", "id": 1,
+    "result": {"type": "resource_link", "uri": "file:///a.txt",
+               "name": "a.txt", "title": "A"}
+  })"));
+  ASSERT_TRUE(holds_alternative<JsonValue>(single.result.value()));
+  EXPECT_EQ(get<JsonValue>(single.result.value())["title"].getString(), "A");
+}
+
+// Embedded contents name their resource and carry exactly one of text or
+// blob. Anything else is refused rather than read as something it is not.
+TEST(ResourceContentShapes, EmbeddedContentsAreHeldToTheSpec) {
+  EXPECT_THROW(from_json<EmbeddedResource>(JsonValue::parse(
+                   R"({"type": "resource", "resource": {"text": "no uri"}})")),
+               json::JsonException);
+  EXPECT_THROW(from_json<EmbeddedResource>(JsonValue::parse(
+                   R"({"type": "resource",
+              "resource": {"uri": "file:///a", "text": "t", "blob": "Yg=="}})")),
+               json::JsonException);
+  EXPECT_THROW(
+      from_json<EmbeddedResource>(JsonValue::parse(
+          R"({"type": "resource", "resource": {"uri": "file:///a"}})")),
+      json::JsonException);
+
+  // Both in a tool result, where the block is chosen by its contents.
+  EXPECT_THROW(from_json<CallToolResult>(JsonValue::parse(
+                   R"({"content": [{"type": "resource",
+              "resource": {"uri": "file:///a", "text": "t", "blob": "Yg=="}}]})")),
+               json::JsonException);
+}
+
+TEST(ResourceContentShapes, AnEmbeddedResourceWithNoUriIsNotWritten) {
+  EXPECT_THROW(to_json(make_embedded_resource(TextResourceContents("t"))),
+               json::JsonException);
+  EXPECT_THROW(to_json(make_embedded_resource(BlobResourceContents("Yg=="))),
+               json::JsonException);
+}
+
 }  // namespace
 }  // namespace mcp

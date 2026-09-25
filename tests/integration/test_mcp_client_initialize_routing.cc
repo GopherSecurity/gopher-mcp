@@ -629,5 +629,30 @@ TEST_F(McpClientInitializeRoutingTest, AnAnswerThatIsNoListingFailsTheCall) {
   EXPECT_THROW(listed.get(), std::runtime_error);
 }
 
+// A tool whose result cannot go on the wire as the spec shapes it gets an
+// error back, not a malformed answer and not a server that falls over.
+TEST_F(McpClientInitializeRoutingTest, AResultThatCannotBeEncodedIsAnError) {
+  Tool broken("broken");
+  ASSERT_TRUE(server_->registerTool(
+      broken, [](const std::string&, const optional<Metadata>&,
+                 server::SessionContext&) {
+        CallToolResult result;
+        // Embedded contents with no uri, which the spec does not allow.
+        result.content.push_back(
+            make_embedded_resource(TextResourceContents("orphan")));
+        return result;
+      }));
+
+  connectInitializedClient();
+  auto called = client_->callTool("broken");
+  ASSERT_EQ(called.wait_for(5s), std::future_status::ready);
+  EXPECT_THROW(called.get(), std::runtime_error);
+
+  // And the server is still answering.
+  auto ping = client_->sendRequest("ping");
+  ASSERT_EQ(ping.wait_for(5s), std::future_status::ready);
+  EXPECT_FALSE(ping.get().error.has_value());
+}
+
 }  // namespace
 }  // namespace mcp
