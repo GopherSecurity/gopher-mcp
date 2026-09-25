@@ -252,11 +252,21 @@ TEST_F(Nghttp2ParserTest, SubmitPriority) {
   auto parser =
       std::make_unique<Nghttp2Parser>(HttpParserType::BOTH, callbacks_.get());
 
+  // RFC 9113 deprecated RFC 7540 priorities, and newer nghttp2 releases
+  // make nghttp2_submit_priority a no-op. So whether a frame comes out
+  // depends on the library linked; what must hold either way is that
+  // submitting one is not an error, and that anything sent is a PRIORITY
+  // frame.
+  EXPECT_CALL(*callbacks_, onError(testing::_)).Times(0);
+
   parser->submitPriority(1, 256, 0);  // Stream ID: 1, weight: 256, exclusive: 0
 
-  // Should have pending PRIORITY frame to send
   auto pending_data = parser->getPendingData();
-  EXPECT_GT(pending_data.size(), 0);
+  if (!pending_data.empty()) {
+    // Frame header: 3-byte length, then the type. PRIORITY is 0x2.
+    ASSERT_GE(pending_data.size(), 9u);
+    EXPECT_EQ(pending_data[3], 0x2);
+  }
 }
 
 // Test reset functionality
