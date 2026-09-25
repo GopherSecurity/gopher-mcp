@@ -201,13 +201,18 @@ JsonValue serialize_ResourceContent(const ResourceContent& content) {
 }
 
 ResourceContent deserialize_ResourceContent(const JsonValue& json) {
-  ResourceContent content;
-  if (json.contains("resource") && json["resource"].isObject()) {
-    // The shape this SDK used to write: the resource nested, not inline.
-    content.resource = from_json<Resource>(json["resource"]);
-  } else {
-    content.resource = from_json<Resource>(json);
+  // The shape this SDK used to write nests the resource; the spec's is flat.
+  const JsonValue& linked =
+      json.contains("resource") && json["resource"].isObject()
+          ? json["resource"]
+          : json;
+  // A link names what it points at. Without a name it is not one, and is
+  // refused rather than read as a link to nothing in particular.
+  if (!linked.contains("name") || !linked["name"].isString()) {
+    throw JsonException("a resource link needs a name");
   }
+  ResourceContent content;
+  content.resource = from_json<Resource>(linked);
   return content;
 }
 
@@ -556,7 +561,8 @@ bool fitsContentBlock(const JsonValue& json) {
     // The older ContentBlock holds a link as a Resource, which has no room
     // for a title, a size or annotations. A link carrying any of them is
     // kept as JSON so they are not dropped.
-    return !json.contains("title") && !json.contains("size") &&
+    return json.contains("name") && json["name"].isString() &&
+           !json.contains("title") && !json.contains("size") &&
            !json.contains("annotations");
   }
   // A link in the shape this SDK used to write.
@@ -937,6 +943,20 @@ bool carriesContents(const JsonValue& json) {
   return resource.contains("text") || resource.contains("blob");
 }
 
+// Whether a "type": "resource" block is a link in the shape this SDK used to
+// write: a named resource, flat or nested under "resource", with no contents.
+bool isOldStyleLink(const JsonValue& json) {
+  if (carriesContents(json)) {
+    return false;
+  }
+  const JsonValue& linked =
+      json.contains("resource") && json["resource"].isObject()
+          ? json["resource"]
+          : json;
+  return linked.contains("uri") && linked["uri"].isString() &&
+         linked.contains("name") && linked["name"].isString();
+}
+
 }  // namespace
 
 ExtendedContentBlock deserialize_ExtendedContentBlock(const JsonValue& json) {
@@ -951,13 +971,13 @@ ExtendedContentBlock deserialize_ExtendedContentBlock(const JsonValue& json) {
   } else if (type == "resource_link") {
     return ExtendedContentBlock(from_json<ResourceLink>(json));
   } else if (type == "resource") {
-    if (carriesContents(json)) {
-      return ExtendedContentBlock(from_json<EmbeddedResource>(json));
+    if (isOldStyleLink(json)) {
+      return ExtendedContentBlock(
+          ResourceLink(from_json<ResourceContent>(json).resource));
     }
-    // A link in the shape this SDK used to write: flat, or nested under
-    // "resource".
-    return ExtendedContentBlock(
-        ResourceLink(from_json<ResourceContent>(json).resource));
+    // Everything else is read as the spec's embedded resource, which
+    // refuses contents that are missing a uri or a text or blob.
+    return ExtendedContentBlock(from_json<EmbeddedResource>(json));
   }
 
   throw JsonException("Unknown extended content block type: " + type);
