@@ -1049,6 +1049,16 @@ class McpClient : public application::ApplicationBase {
    */
   static InitializeResult parseDiscoverResponse(
       const jsonrpc::Response& response, const std::string& protocol_version);
+
+  /**
+   * A prompts/list answer, in the shape the spec gives it or as the bare
+   * array older servers sent.
+   *
+   * @throws std::runtime_error when the answer is neither, rather than
+   *         returning an empty list the caller cannot tell from "none".
+   */
+  static ListPromptsResult parseListPromptsResponse(
+      const jsonrpc::Response& response);
   void coordinateProtocolState();
   void handleProtocolStateChange(
       const protocol::ProtocolStateTransitionContext& context);
