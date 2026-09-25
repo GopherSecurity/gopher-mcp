@@ -471,6 +471,8 @@ TEST_F(SseTransportRoundTripTest,
     post += "Host: localhost\r\n";
     post += "Content-Type: application/json\r\n";
     post += "Connection: keep-alive\r\n";
+    // Everything after initialize names its session, this included.
+    post += "Mcp-Session-Id: " + session_id + "\r\n";
     post += "Content-Length: " + std::to_string(body.size()) + "\r\n";
     post += "\r\n";
     post += body;
