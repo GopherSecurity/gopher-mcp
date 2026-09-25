@@ -1073,8 +1073,8 @@ int main(int argc, char* argv[]) {
 
   // Resources capability with subscription support
   ResourcesCapability res_cap;
-  res_cap.subscribe = mcp::make_optional(EmptyCapability());
-  res_cap.listChanged = mcp::make_optional(EmptyCapability());
+  res_cap.subscribe = mcp::make_optional(true);
+  res_cap.listChanged = mcp::make_optional(true);
   config.capabilities.resources =
       mcp::make_optional(variant<bool, ResourcesCapability>(res_cap));
 

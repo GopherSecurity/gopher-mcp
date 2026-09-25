@@ -73,6 +73,19 @@ optional<Metadata> argumentsOf(const json::JsonValue& params) {
       arguments.isObject() ? json::jsonToMetadata(arguments) : Metadata());
 }
 
+// What this server says it can do, the same in answer to initialize and to
+// server/discover. The tools capability's listChanged comes from the server
+// setting of that name unless the capability says so itself.
+ServerCapabilities advertisedCapabilities(ServerCapabilities capabilities,
+                                          bool tools_list_changed) {
+  if (capabilities.tools.has_value() &&
+      static_cast<bool>(capabilities.tools.value()) &&
+      !capabilities.tools->listChanged.has_value()) {
+    capabilities.tools->listChanged = mcp::make_optional(tools_list_changed);
+  }
+  return capabilities;
+}
+
 std::string negotiateProtocolVersion(const std::string& requested,
                                      const std::string& newest_supported) {
   if (requested.empty()) {
@@ -2325,10 +2338,12 @@ jsonrpc::Response McpServer::handleInitialize(const jsonrpc::Request& request,
   std::string server_name;
   std::string server_version;
   ServerCapabilities server_capabilities;
+  bool tools_list_changed = false;
   std::function<std::string(const jsonrpc::Request&, SessionContext&)>
       instructions_provider;
   {
     std::lock_guard<std::mutex> lock(config_mutex_);
+    tools_list_changed = config_.tools_list_changed;
     instructions = config_.instructions;
     protocol_version = config_.protocol_version;
     server_name = config_.server_name;
@@ -2404,38 +2419,8 @@ jsonrpc::Response McpServer::handleInitialize(const jsonrpc::Request& request,
   server_info["version"] = server_version;
   result_json["serverInfo"] = std::move(server_info);
 
-  // Add capabilities as nested object with empty objects for enabled caps
-  json::JsonValue capabilities = json::JsonValue::object();
-  if (server_capabilities.resources.has_value()) {
-    if (holds_alternative<bool>(server_capabilities.resources.value())) {
-      if (get<bool>(server_capabilities.resources.value())) {
-        capabilities["resources"] = json::JsonValue::object();
-      }
-    } else {
-      json::JsonValue resources_cap = json::JsonValue::object();
-      resources_cap["subscribe"] = true;
-      resources_cap["listChanged"] = true;
-      capabilities["resources"] = std::move(resources_cap);
-    }
-  }
-  if (server_capabilities.tools.has_value() &&
-      server_capabilities.tools.value()) {
-    json::JsonValue tools_cap = json::JsonValue::object();
-    // Honour what the server was configured to promise. Hardcoding false
-    // meant an aggregator that gains tools after initialize had no way to
-    // tell clients to look again.
-    tools_cap["listChanged"] = config_.tools_list_changed;
-    capabilities["tools"] = std::move(tools_cap);
-  }
-  if (server_capabilities.prompts.has_value() &&
-      server_capabilities.prompts.value()) {
-    capabilities["prompts"] = json::JsonValue::object();
-  }
-  if (server_capabilities.logging.has_value() &&
-      server_capabilities.logging.value()) {
-    capabilities["logging"] = json::JsonValue::object();
-  }
-  result_json["capabilities"] = std::move(capabilities);
+  result_json["capabilities"] = json::to_json(
+      advertisedCapabilities(server_capabilities, tools_list_changed));
 
   // Add instructions if present
   if (!instructions.empty()) {
@@ -2451,9 +2436,12 @@ jsonrpc::Response McpServer::handleDiscover(const jsonrpc::Request& request,
                                             SessionContext& session) {
   (void)session;
   std::string instructions;
+  ServerCapabilities capabilities;
   {
     std::lock_guard<std::mutex> lock(config_mutex_);
     instructions = config_.instructions;
+    capabilities = advertisedCapabilities(config_.capabilities,
+                                          config_.tools_list_changed);
   }
 
   // What a client would otherwise have learned from an introduction. In
@@ -2472,7 +2460,7 @@ jsonrpc::Response McpServer::handleDiscover(const jsonrpc::Request& request,
   }
   result.set("supportedVersions", versions);
 
-  result.set("capabilities", json::to_json(config_.capabilities));
+  result.set("capabilities", json::to_json(capabilities));
 
   if (!instructions.empty()) {
     result.set("instructions", json::JsonValue(instructions));

@@ -1859,6 +1859,8 @@ JsonValue serialize_ResourceTemplateReference(
 // ===== Capability Types Serialization =====
 
 JsonValue serialize_ServerCapabilities(const ServerCapabilities& caps) {
+  // Every capability goes out as an object with boolean flags inside, and
+  // one that is not declared is left out rather than written as false.
   JsonObjectBuilder builder;
 
   if (caps.experimental.has_value()) {
@@ -1868,22 +1870,30 @@ JsonValue serialize_ServerCapabilities(const ServerCapabilities& caps) {
   if (caps.resources.has_value()) {
     mcp::match(
         caps.resources.value(),
-        [&builder](bool b) { builder.add("resources", b); },
+        [&builder](bool declared) {
+          if (declared) {
+            builder.add("resources", JsonValue::object());
+          }
+        },
         [&builder](const ResourcesCapability& res) {
           builder.add("resources", to_json(res));
         });
   }
 
-  if (caps.tools.has_value()) {
-    builder.add("tools", caps.tools.value());
+  if (caps.tools.has_value() && static_cast<bool>(caps.tools.value())) {
+    JsonValue tools = JsonValue::object();
+    if (caps.tools->listChanged.has_value()) {
+      tools.set("listChanged", JsonValue(caps.tools->listChanged.value()));
+    }
+    builder.add("tools", tools);
   }
 
-  if (caps.prompts.has_value()) {
-    builder.add("prompts", caps.prompts.value());
+  if (caps.prompts.has_value() && static_cast<bool>(caps.prompts.value())) {
+    builder.add("prompts", to_json(caps.prompts.value()));
   }
 
-  if (caps.logging.has_value()) {
-    builder.add("logging", caps.logging.value());
+  if (caps.logging.has_value() && static_cast<bool>(caps.logging.value())) {
+    builder.add("logging", JsonValue::object());
   }
 
   return builder.build();
@@ -1940,11 +1950,11 @@ JsonValue serialize_ResourcesCapability(const ResourcesCapability& cap) {
   JsonObjectBuilder builder;
 
   if (cap.subscribe.has_value()) {
-    builder.add("subscribe", to_json(cap.subscribe.value()));
+    builder.add("subscribe", cap.subscribe.value());
   }
 
   if (cap.listChanged.has_value()) {
-    builder.add("listChanged", to_json(cap.listChanged.value()));
+    builder.add("listChanged", cap.listChanged.value());
   }
 
   return builder.build();
@@ -1954,7 +1964,7 @@ JsonValue serialize_PromptsCapability(const PromptsCapability& cap) {
   JsonObjectBuilder builder;
 
   if (cap.listChanged.has_value()) {
-    builder.add("listChanged", to_json(cap.listChanged.value()));
+    builder.add("listChanged", cap.listChanged.value());
   }
 
   return builder.build();
@@ -2860,6 +2870,27 @@ ResourceTemplateReference deserialize_ResourceTemplateReference(
 
 // ===== Deserialization of Capability Types =====
 
+namespace {
+
+// A capability's flag, as the spec writes it: a boolean. Older peers of
+// this SDK wrote an object in its place, which declared it.
+optional<bool> capabilityFlag(const JsonValue& capability,
+                              const std::string& name) {
+  if (!capability.isObject() || !capability.contains(name)) {
+    return nullopt;
+  }
+  const auto& flag = capability[name];
+  if (flag.isBoolean()) {
+    return mcp::make_optional(flag.getBool());
+  }
+  if (flag.isObject()) {
+    return mcp::make_optional(true);
+  }
+  return nullopt;
+}
+
+}  // namespace
+
 ServerCapabilities deserialize_ServerCapabilities(const JsonValue& json) {
   ServerCapabilities caps;
 
@@ -2867,6 +2898,9 @@ ServerCapabilities deserialize_ServerCapabilities(const JsonValue& json) {
     caps.experimental = from_json<Metadata>(json["experimental"]);
   }
 
+  // A capability is declared by an object, `{}` or `{"listChanged": true}`,
+  // and older servers sent a bare bool instead. A bool false, or anything
+  // else, declares nothing.
   if (json.contains("resources")) {
     const auto& res = json["resources"];
     if (res.isBoolean()) {
@@ -2877,23 +2911,29 @@ ServerCapabilities deserialize_ServerCapabilities(const JsonValue& json) {
     }
   }
 
-  // A capability is declared by an object — `{}` or `{"listChanged":
-  // true}` — and older peers of this SDK sent a bare bool. Either one
-  // declares it; the object's sub-flags have nowhere to go in this struct.
-  auto declared = [](const JsonValue& value) {
-    return value.isBoolean() ? value.getBool() : value.isObject();
-  };
-
   if (json.contains("tools")) {
-    caps.tools = declared(json["tools"]);
+    const auto& tools = json["tools"];
+    if (tools.isBoolean() || tools.isObject()) {
+      ToolsCapability capability(tools.isObject() || tools.getBool());
+      capability.listChanged = capabilityFlag(tools, "listChanged");
+      caps.tools = capability;
+    }
   }
 
   if (json.contains("prompts")) {
-    caps.prompts = declared(json["prompts"]);
+    const auto& prompts = json["prompts"];
+    if (prompts.isBoolean()) {
+      caps.prompts = PromptsCapability(prompts.getBool());
+    } else if (prompts.isObject()) {
+      caps.prompts = from_json<PromptsCapability>(prompts);
+    }
   }
 
   if (json.contains("logging")) {
-    caps.logging = declared(json["logging"]);
+    const auto& logging = json["logging"];
+    if (logging.isBoolean() || logging.isObject()) {
+      caps.logging = LoggingCapability(logging.isObject() || logging.getBool());
+    }
   }
 
   return caps;
@@ -2956,28 +2996,14 @@ RootsCapability deserialize_RootsCapability(const JsonValue& json) {
 
 ResourcesCapability deserialize_ResourcesCapability(const JsonValue& json) {
   ResourcesCapability cap;
-
-  if (json.contains("subscribe") &&
-      !(json["subscribe"].isBoolean() && !json["subscribe"].getBool())) {
-    cap.subscribe = from_json<EmptyCapability>(json["subscribe"]);
-  }
-
-  if (json.contains("listChanged") &&
-      !(json["listChanged"].isBoolean() && !json["listChanged"].getBool())) {
-    cap.listChanged = from_json<EmptyCapability>(json["listChanged"]);
-  }
-
+  cap.subscribe = capabilityFlag(json, "subscribe");
+  cap.listChanged = capabilityFlag(json, "listChanged");
   return cap;
 }
 
 PromptsCapability deserialize_PromptsCapability(const JsonValue& json) {
   PromptsCapability cap;
-
-  if (json.contains("listChanged") &&
-      !(json["listChanged"].isBoolean() && !json["listChanged"].getBool())) {
-    cap.listChanged = from_json<EmptyCapability>(json["listChanged"]);
-  }
-
+  cap.listChanged = capabilityFlag(json, "listChanged");
   return cap;
 }
 
