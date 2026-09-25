@@ -325,17 +325,27 @@ class ServerCapabilitiesBuilder
   }
 
   ServerCapabilitiesBuilder& tools(bool enabled) {
-    value_.tools = mcp::make_optional(enabled);
+    value_.tools = mcp::make_optional(ToolsCapability(enabled));
+    return *this;
+  }
+
+  ServerCapabilitiesBuilder& tools(const ToolsCapability& tools_caps) {
+    value_.tools = mcp::make_optional(tools_caps);
     return *this;
   }
 
   ServerCapabilitiesBuilder& prompts(bool enabled) {
-    value_.prompts = mcp::make_optional(enabled);
+    value_.prompts = mcp::make_optional(PromptsCapability(enabled));
+    return *this;
+  }
+
+  ServerCapabilitiesBuilder& prompts(const PromptsCapability& prompts_caps) {
+    value_.prompts = mcp::make_optional(prompts_caps);
     return *this;
   }
 
   ServerCapabilitiesBuilder& logging(bool enabled) {
-    value_.logging = mcp::make_optional(enabled);
+    value_.logging = mcp::make_optional(LoggingCapability(enabled));
     return *this;
   }
 };
@@ -1232,23 +1242,37 @@ class PromptReferenceBuilder
 class ResourcesCapabilityBuilder
     : public Builder<ResourcesCapability, ResourcesCapabilityBuilder> {
  public:
-  ResourcesCapabilityBuilder& subscribe(const EmptyCapability& cap) {
-    value_.subscribe = cap;
+  ResourcesCapabilityBuilder& subscribe(bool enabled = true) {
+    value_.subscribe = enabled;
     return *this;
   }
 
-  ResourcesCapabilityBuilder& listChanged(const EmptyCapability& cap) {
-    value_.listChanged = cap;
+  // Older form: an EmptyCapability declared the flag.
+  ResourcesCapabilityBuilder& subscribe(const EmptyCapability&) {
+    return subscribe(true);
+  }
+
+  ResourcesCapabilityBuilder& listChanged(bool enabled = true) {
+    value_.listChanged = enabled;
     return *this;
+  }
+
+  ResourcesCapabilityBuilder& listChanged(const EmptyCapability&) {
+    return listChanged(true);
   }
 };
 
 class PromptsCapabilityBuilder
     : public Builder<PromptsCapability, PromptsCapabilityBuilder> {
  public:
-  PromptsCapabilityBuilder& listChanged(const EmptyCapability& cap) {
-    value_.listChanged = cap;
+  PromptsCapabilityBuilder& listChanged(bool enabled = true) {
+    value_.listChanged = enabled;
     return *this;
+  }
+
+  // Older form: an EmptyCapability declared the flag.
+  PromptsCapabilityBuilder& listChanged(const EmptyCapability&) {
+    return listChanged(true);
   }
 };
 

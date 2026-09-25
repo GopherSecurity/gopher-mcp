@@ -855,14 +855,57 @@ using EmptyCapability =
     std::map<std::string, mcp::json::JsonValue>;  // Empty capability objects
 // JSONObject type alias removed - use mcp::json::JsonValue instead
 
-// Complex capability types for JSON compatibility
+// Server capabilities are objects on the wire, with boolean flags inside:
+//   "tools": {"listChanged": true}, "prompts": {}, "logging": {},
+//   "resources": {"subscribe": true, "listChanged": true}
+//
+// A capability can still be declared with a bool, as older code does
+// (`caps.tools = mcp::make_optional(true)`): true declares it with no flags,
+// false leaves it undeclared, and an undeclared capability is never written.
+// Read as a bool, a capability says whether it is declared.
 struct ResourcesCapability {
-  optional<EmptyCapability> subscribe;
-  optional<EmptyCapability> listChanged;
+  optional<bool> subscribe;
+  optional<bool> listChanged;
+};
+
+struct ToolsCapability {
+  optional<bool> listChanged;
+
+  ToolsCapability() = default;
+  ToolsCapability(bool declared) : declared_(declared) {}
+  ToolsCapability(const optional<bool>& declared)
+      : declared_(declared.has_value() && declared.value()) {}
+
+  explicit operator bool() const { return declared_; }
+
+ private:
+  bool declared_ = true;
 };
 
 struct PromptsCapability {
-  optional<EmptyCapability> listChanged;
+  optional<bool> listChanged;
+
+  PromptsCapability() = default;
+  PromptsCapability(bool declared) : declared_(declared) {}
+  PromptsCapability(const optional<bool>& declared)
+      : declared_(declared.has_value() && declared.value()) {}
+
+  explicit operator bool() const { return declared_; }
+
+ private:
+  bool declared_ = true;
+};
+
+struct LoggingCapability {
+  LoggingCapability() = default;
+  LoggingCapability(bool declared) : declared_(declared) {}
+  LoggingCapability(const optional<bool>& declared)
+      : declared_(declared.has_value() && declared.value()) {}
+
+  explicit operator bool() const { return declared_; }
+
+ private:
+  bool declared_ = true;
 };
 
 struct RootsCapability {
@@ -886,10 +929,11 @@ struct ClientCapabilities {
 
 struct ServerCapabilities {
   optional<Metadata> experimental;
+  // true declares resources with no flags; false leaves them undeclared.
   optional<variant<bool, ResourcesCapability>> resources;
-  optional<bool> tools;
-  optional<bool> prompts;
-  optional<bool> logging;
+  optional<ToolsCapability> tools;
+  optional<PromptsCapability> prompts;
+  optional<LoggingCapability> logging;
 
   ServerCapabilities() = default;
 };
