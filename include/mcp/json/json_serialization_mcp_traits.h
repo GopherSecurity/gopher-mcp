@@ -286,6 +286,7 @@ JsonValue serialize_Notification(const jsonrpc::Notification& value);
 jsonrpc::Notification deserialize_Notification(const JsonValue& json);
 
 // Special deserialization
+JsonValue serialize_ResourceLink(const ResourceLink& value);
 ResourceLink deserialize_ResourceLink(const JsonValue& json);
 EmbeddedResource deserialize_EmbeddedResource(const JsonValue& json);
 }  // namespace impl
@@ -543,6 +544,13 @@ struct JsonDeserializeTraits<jsonrpc::Notification> {
 };
 
 // Special deserialization for variant types
+template <>
+struct JsonSerializeTraits<ResourceLink> {
+  static JsonValue serialize(const ResourceLink& value) {
+    return impl::serialize_ResourceLink(value);
+  }
+};
+
 template <>
 struct JsonDeserializeTraits<ResourceLink> {
   static ResourceLink deserialize(const JsonValue& json) {
