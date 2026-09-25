@@ -684,6 +684,7 @@ class HttpSseJsonRpcProtocolFilter
     // HTTP filter adds headers/framing for normal HTTP responses
     status = http_filter_->onWrite(data, end_stream);
     if (status != network::FilterStatus::StopIteration && is_server_ &&
+        streamable_http_session_id_from_request_ &&
         !streamable_http_session_id_.empty() && data.length() > 0) {
       addStreamableHttpSessionHeader(data);
     }
@@ -878,6 +879,7 @@ class HttpSseJsonRpcProtocolFilter
           server_mode_->handleEvent(ServerConnEvent::CallbackPostDetected);
         }
         streamable_http_session_id_.clear();
+        streamable_http_session_id_from_request_ = false;
         sse_callback_session_id_ = path.substr(cb_pos + callback_prefix.size());
         GOPHER_LOG_DEBUG("SSE callback POST: session={}",
                          sse_callback_session_id_);
@@ -910,9 +912,11 @@ class HttpSseJsonRpcProtocolFilter
       }
       sse_callback_session_id_.clear();
       streamable_http_session_id_.clear();
+      streamable_http_session_id_from_request_ = false;
       auto session_it = headers.find("mcp-session-id");
       if (session_it != headers.end()) {
         streamable_http_session_id_ = session_it->second;
+        streamable_http_session_id_from_request_ = true;
       }
       // The protocol version header only became required after a certain
       // revision, so a request without one identifies a peer speaking the
@@ -1658,14 +1662,18 @@ class HttpSseJsonRpcProtocolFilter
       return false;
     }
 
-    std::string event;
-    event.reserve(json_data.size() + 8);
-    event.append("data: ");
-    event.append(json_data);
-    event.append("\n\n");
+    // Through the writer that opened the stream, so the event is framed the
+    // way the prelude said it would be. The stream is chunked, and an event
+    // written as bare text would be read by the client as a malformed
+    // chunk, which ends the stream there.
+    if (!response_writer_.writeEvent("", json_data)) {
+      GOPHER_LOG_WARN("SSE stream write rejected: no open stream (session={})",
+                      sse_session_id_);
+      return false;
+    }
 
     OwnedBuffer buffer;
-    buffer.add(event.c_str(), event.length());
+    response_writer_.drainTo(buffer);
     {
       HandshakeWriteGuard guard(*server_mode_);
       write_callbacks_->connection().write(buffer, /*end_stream=*/false);
@@ -1982,10 +1990,15 @@ class HttpSseJsonRpcProtocolFilter
   // durable request-session identity for POST /mcp clients that do not use the
   // SSE callback path.
   std::string streamable_http_session_id_;
+  // Whether that id came from the request. One made up here, for a request
+  // that named none, is only a key to route by: the client was never given
+  // it, so it is never put on the wire as though the server had issued it.
+  bool streamable_http_session_id_from_request_{false};
 
   void clearPerRequestSessionIds() {
     sse_callback_session_id_.clear();
     streamable_http_session_id_.clear();
+    streamable_http_session_id_from_request_ = false;
   }
 
   // Messages queued during SSE endpoint negotiation (client mode only).
