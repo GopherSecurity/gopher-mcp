@@ -142,26 +142,40 @@ class SamplingParamsBuilder
   }
 };
 
-// EmbeddedResource Builder (moved from types.h)
+// EmbeddedResource Builder: a resource's contents, carried inline.
 class EmbeddedResourceBuilder
     : public Builder<EmbeddedResource, EmbeddedResourceBuilder> {
  public:
-  explicit EmbeddedResourceBuilder(const Resource& r) { value_.resource = r; }
+  explicit EmbeddedResourceBuilder(const TextResourceContents& contents) {
+    value_.resource = contents;
+  }
 
-  EmbeddedResourceBuilder& add_content(const ContentBlock& content) {
-    value_.content.push_back(content);
+  explicit EmbeddedResourceBuilder(const BlobResourceContents& contents) {
+    value_.resource = contents;
+  }
+
+  EmbeddedResourceBuilder& uri(const std::string& uri) {
+    contents().uri = uri;
     return *this;
   }
 
-  EmbeddedResourceBuilder& add_text(const std::string& text) {
-    value_.content.push_back(make_text_content(text));
+  EmbeddedResourceBuilder& mimeType(const std::string& mime_type) {
+    contents().mimeType = mime_type;
     return *this;
   }
 
-  EmbeddedResourceBuilder& add_image(const std::string& data,
-                                     const std::string& mime_type) {
-    value_.content.push_back(make_image_content(data, mime_type));
+  EmbeddedResourceBuilder& annotations(const Annotations& annotations) {
+    value_.annotations = annotations;
     return *this;
+  }
+
+ private:
+  // The part text and blob contents share, whichever this holds.
+  ResourceContents& contents() {
+    if (auto* text = mcp::get_if<TextResourceContents>(&value_.resource)) {
+      return *text;
+    }
+    return mcp::get<BlobResourceContents>(value_.resource);
   }
 };
 
@@ -1110,6 +1124,21 @@ class ResourceLinkBuilder : public Builder<ResourceLink, ResourceLinkBuilder> {
 
   ResourceLinkBuilder& mimeType(const std::string& mime) {
     value_.mimeType = mime;
+    return *this;
+  }
+
+  ResourceLinkBuilder& title(const std::string& title) {
+    value_.title = title;
+    return *this;
+  }
+
+  ResourceLinkBuilder& size(int64_t bytes) {
+    value_.size = bytes;
+    return *this;
+  }
+
+  ResourceLinkBuilder& annotations(const Annotations& annotations) {
+    value_.annotations = annotations;
     return *this;
   }
 };

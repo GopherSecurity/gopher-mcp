@@ -194,16 +194,20 @@ JsonValue serialize_AudioContent(const AudioContent& content) {
   return builder.build();
 }
 
+// The older ContentBlock form of a resource link, written the same way a
+// ResourceLink is.
 JsonValue serialize_ResourceContent(const ResourceContent& content) {
-  JsonObjectBuilder builder;
-  builder.add("type", "resource").add("resource", to_json(content.resource));
-  return builder.build();
+  return to_json(ResourceLink(content.resource));
 }
 
 ResourceContent deserialize_ResourceContent(const JsonValue& json) {
   ResourceContent content;
-  content.type = json["type"].getString();
-  content.resource = from_json<Resource>(json["resource"]);
+  if (json.contains("resource") && json["resource"].isObject()) {
+    // The shape this SDK used to write: the resource nested, not inline.
+    content.resource = from_json<Resource>(json["resource"]);
+  } else {
+    content.resource = from_json<Resource>(json);
+  }
   return content;
 }
 
@@ -535,6 +539,26 @@ jsonrpc::Response deserialize_Response(const JsonValue& json) {
   return response;
 }
 
+namespace {
+
+// Whether a content block can be held as a ContentBlock without losing any
+// of it. An embedded resource, audio and anything newer cannot, and a
+// result carrying one is kept as the JSON it came as instead.
+bool fitsContentBlock(const JsonValue& json) {
+  if (!json.isObject() || !json.contains("type") || !json["type"].isString()) {
+    return false;
+  }
+  const std::string type = json["type"].getString();
+  if (type == "text" || type == "image" || type == "resource_link") {
+    return true;
+  }
+  // A link in the shape this SDK used to write.
+  return type == "resource" && json.contains("resource") &&
+         json["resource"].isObject() && json["resource"].contains("name");
+}
+
+}  // namespace
+
 jsonrpc::ResponseResult deserialize_ResponseResult(const JsonValue& json) {
   if (json.isNull()) {
     return jsonrpc::ResponseResult(nullptr);
@@ -548,14 +572,11 @@ jsonrpc::ResponseResult deserialize_ResponseResult(const JsonValue& json) {
     return jsonrpc::ResponseResult(json.getString());
   } else if (json.isObject()) {
     // Check if it's a specific type based on fields present
-    if (json.contains("type")) {
-      std::string type = json["type"].getString();
-      if (type == "text" || type == "image" || type == "resource") {
-        // It's a single ContentBlock
-        std::vector<ContentBlock> blocks;
-        blocks.push_back(from_json<ContentBlock>(json));
-        return jsonrpc::ResponseResult(blocks);
-      }
+    if (fitsContentBlock(json)) {
+      // It's a single ContentBlock
+      std::vector<ContentBlock> blocks;
+      blocks.push_back(from_json<ContentBlock>(json));
+      return jsonrpc::ResponseResult(blocks);
     }
     // Check if it's a ListResourcesResult - has "resources" array field
     if (json.contains("resources") && json["resources"].isArray()) {
@@ -585,11 +606,14 @@ jsonrpc::ResponseResult deserialize_ResponseResult(const JsonValue& json) {
 
     if (first.isObject()) {
       if (first.contains("type")) {
-        std::string type = first["type"].getString();
-        if (type == "text" || type == "image" || type == "resource") {
+        bool all_fit = true;
+        size_t size = json.size();
+        for (size_t i = 0; i < size && all_fit; ++i) {
+          all_fit = fitsContentBlock(json[i]);
+        }
+        if (all_fit) {
           // Array of ContentBlocks
           std::vector<ContentBlock> blocks;
-          size_t size = json.size();
           for (size_t i = 0; i < size; ++i) {
             blocks.push_back(from_json<ContentBlock>(json[i]));
           }
@@ -675,10 +699,13 @@ ContentBlock deserialize_ContentBlock(const JsonValue& json) {
     return ContentBlock(from_json<TextContent>(json));
   } else if (type == "image") {
     return ContentBlock(from_json<ImageContent>(json));
-  } else if (type == "resource") {
-    ResourceContent resource;
-    resource.resource = from_json<Resource>(json.at("resource"));
-    return ContentBlock(resource);
+  } else if (type == "resource_link") {
+    return ContentBlock(from_json<ResourceContent>(json));
+  } else if (type == "resource" && json.contains("resource") &&
+             json["resource"].isObject() && json["resource"].contains("name")) {
+    // A link in the shape this SDK used to write. An embedded resource
+    // carries contents, which have no name, and does not fit here.
+    return ContentBlock(from_json<ResourceContent>(json));
   }
 
   throw JsonException("Unknown content block type: " + type);
@@ -781,10 +808,37 @@ AudioContent deserialize_AudioContent(const JsonValue& json) {
   return content;
 }
 
+JsonValue serialize_ResourceLink(const ResourceLink& link) {
+  JsonObjectBuilder builder;
+  builder.add("type", "resource_link")
+      .add("uri", link.uri)
+      .add("name", link.name);
+  if (link.title.has_value()) {
+    builder.add("title", link.title.value());
+  }
+  if (link.description.has_value()) {
+    builder.add("description", link.description.value());
+  }
+  if (link.mimeType.has_value()) {
+    builder.add("mimeType", link.mimeType.value());
+  }
+  if (link.size.has_value()) {
+    builder.add("size", JsonValue(link.size.value()));
+  }
+  if (link.annotations.has_value()) {
+    builder.add("annotations", to_json(link.annotations.value()));
+  }
+  return builder.build();
+}
+
 ResourceLink deserialize_ResourceLink(const JsonValue& json) {
   ResourceLink link;
   link.uri = json.at("uri").getString();
   link.name = json.at("name").getString();
+
+  if (json.contains("title") && json["title"].isString()) {
+    link.title = json["title"].getString();
+  }
 
   if (json.contains("description")) {
     link.description = json["description"].getString();
@@ -794,34 +848,61 @@ ResourceLink deserialize_ResourceLink(const JsonValue& json) {
     link.mimeType = json["mimeType"].getString();
   }
 
+  if (json.contains("size") && json["size"].isInteger()) {
+    link.size = json["size"].getInt64();
+  }
+
+  if (json.contains("annotations") && json["annotations"].isObject()) {
+    link.annotations = from_json<Annotations>(json["annotations"]);
+  }
+
   return link;
 }
 
 JsonValue serialize_EmbeddedResource(const EmbeddedResource& embedded) {
+  JsonValue contents;
+  mcp::match(
+      embedded.resource,
+      [&contents](const TextResourceContents& text) {
+        contents = to_json(text);
+      },
+      [&contents](const BlobResourceContents& blob) {
+        contents = to_json(blob);
+      });
+
   JsonObjectBuilder builder;
-  builder.add("type", "embedded").add("resource", to_json(embedded.resource));
-  JsonArrayBuilder contentArray;
-  for (const auto& content : embedded.content) {
-    contentArray.add(to_json(content));
+  builder.add("type", "resource").add("resource", contents);
+  if (embedded.annotations.has_value()) {
+    builder.add("annotations", to_json(embedded.annotations.value()));
   }
-  builder.add("content", contentArray.build());
   return builder.build();
 }
 
 EmbeddedResource deserialize_EmbeddedResource(const JsonValue& json) {
   EmbeddedResource embedded;
-  embedded.resource = from_json<Resource>(json.at("resource"));
+  embedded.resource = deserialize_ResourceContents(json.at("resource"));
 
-  if (json.contains("content")) {
-    const auto& contentArray = json["content"];
-    size_t size = contentArray.size();
-    for (size_t i = 0; i < size; ++i) {
-      embedded.content.push_back(from_json<ContentBlock>(contentArray[i]));
-    }
+  if (json.contains("annotations") && json["annotations"].isObject()) {
+    embedded.annotations = from_json<Annotations>(json["annotations"]);
   }
 
   return embedded;
 }
+
+namespace {
+
+// Whether a "type": "resource" block carries a resource's contents, which
+// is what the spec means by it, rather than a link in the shape this SDK
+// used to write, which nests a named resource instead.
+bool carriesContents(const JsonValue& json) {
+  if (!json.contains("resource") || !json["resource"].isObject()) {
+    return false;
+  }
+  const auto& resource = json["resource"];
+  return resource.contains("text") || resource.contains("blob");
+}
+
+}  // namespace
 
 ExtendedContentBlock deserialize_ExtendedContentBlock(const JsonValue& json) {
   std::string type = json.at("type").getString();
@@ -832,10 +913,16 @@ ExtendedContentBlock deserialize_ExtendedContentBlock(const JsonValue& json) {
     return ExtendedContentBlock(from_json<ImageContent>(json));
   } else if (type == "audio") {
     return ExtendedContentBlock(from_json<AudioContent>(json));
-  } else if (type == "resource") {
+  } else if (type == "resource_link") {
     return ExtendedContentBlock(from_json<ResourceLink>(json));
-  } else if (type == "embedded") {
-    return ExtendedContentBlock(from_json<EmbeddedResource>(json));
+  } else if (type == "resource") {
+    if (carriesContents(json)) {
+      return ExtendedContentBlock(from_json<EmbeddedResource>(json));
+    }
+    // A link in the shape this SDK used to write: flat, or nested under
+    // "resource".
+    return ExtendedContentBlock(
+        ResourceLink(from_json<ResourceContent>(json).resource));
   }
 
   throw JsonException("Unknown extended content block type: " + type);
@@ -850,19 +937,7 @@ JsonValue serialize_ExtendedContentBlock(const ExtendedContentBlock& block) {
       block, [&result](const TextContent& text) { result = to_json(text); },
       [&result](const ImageContent& image) { result = to_json(image); },
       [&result](const AudioContent& audio) { result = to_json(audio); },
-      [&result](const ResourceLink& link) {
-        JsonObjectBuilder builder;
-        builder.add("type", "resource")
-            .add("uri", link.uri)
-            .add("name", link.name);
-        if (link.description.has_value()) {
-          builder.add("description", link.description.value());
-        }
-        if (link.mimeType.has_value()) {
-          builder.add("mimeType", link.mimeType.value());
-        }
-        result = builder.build();
-      },
+      [&result](const ResourceLink& link) { result = to_json(link); },
       [&result](const EmbeddedResource& embedded) {
         result = to_json(embedded);
       });
@@ -986,15 +1061,10 @@ JsonValue serialize_PromptMessage(const PromptMessage& message) {
         builder.add("content", to_json(image));
       },
       [&builder](const EmbeddedResource& embedded) {
-        JsonObjectBuilder embBuilder;
-        embBuilder.add("type", "embedded")
-            .add("resource", to_json(embedded.resource));
-        JsonArrayBuilder contentArray;
-        for (const auto& content : embedded.content) {
-          contentArray.add(to_json(content));
-        }
-        embBuilder.add("content", contentArray.build());
-        builder.add("content", embBuilder.build());
+        builder.add("content", to_json(embedded));
+      },
+      [&builder](const ResourceLink& link) {
+        builder.add("content", to_json(link));
       });
 
   return builder.build();
@@ -1992,8 +2062,10 @@ PromptMessage deserialize_PromptMessage(const JsonValue& json) {
       message.content = from_json<TextContent>(content);
     } else if (type == "image") {
       message.content = from_json<ImageContent>(content);
-    } else if (type == "embedded") {
+    } else if (type == "resource") {
       message.content = from_json<EmbeddedResource>(content);
+    } else if (type == "resource_link") {
+      message.content = from_json<ResourceLink>(content);
     }
   } else if (content.isString()) {
     // Plain text content

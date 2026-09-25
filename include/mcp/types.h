@@ -215,8 +215,11 @@ struct Resource {
       : uri(u), name(n) {}
 };
 
+// A resource link in the older ContentBlock variant: a pointer to a resource
+// the client fetches later with resources/read. Written on the wire as
+// {"type": "resource_link", "uri", "name", ...}, the same as ResourceLink.
 struct ResourceContent {
-  std::string type = "resource";
+  std::string type = "resource_link";
   Resource resource;
 
   ResourceContent() = default;
@@ -250,22 +253,57 @@ struct AudioContent {
       : data(d), mimeType(mt) {}
 };
 
-// Resource link (reference to a resource)
+// What a resource holds: its text, or its bytes base64-encoded. Read back by
+// resources/read, and carried inline by an embedded resource.
+struct ResourceContents {
+  optional<std::string> uri;
+  optional<std::string> mimeType;
+
+  ResourceContents() = default;
+};
+
+struct TextResourceContents : ResourceContents {
+  std::string text;
+
+  TextResourceContents() = default;
+  explicit TextResourceContents(const std::string& t) : text(t) {}
+};
+
+struct BlobResourceContents : ResourceContents {
+  std::string blob;  // Base64-encoded data
+
+  BlobResourceContents() = default;
+  explicit BlobResourceContents(const std::string& b) : blob(b) {}
+};
+
+// Resource link: a pointer to a resource, which the client fetches later
+// with resources/read. On the wire:
+//   {"type": "resource_link", "uri", "name", "title"?, "description"?,
+//    "mimeType"?, "size"?, "annotations"?}
 struct ResourceLink : Resource {
-  std::string type = "resource";
+  std::string type = "resource_link";
+  optional<std::string> title;
+  optional<int64_t> size;  // In bytes, before any encoding
+  optional<Annotations> annotations;
 
   ResourceLink() = default;
   explicit ResourceLink(const Resource& r) : Resource(r) {}
 };
 
-// Embedded resource with nested content (uses ContentBlock for now)
+// Embedded resource: the resource's contents themselves, inline. On the
+// wire:
+//   {"type": "resource", "resource": {"uri", "mimeType"?, "text" | "blob"},
+//    "annotations"?}
 struct EmbeddedResource {
-  std::string type = "embedded";
-  Resource resource;
-  std::vector<ContentBlock> content;
+  std::string type = "resource";
+  variant<TextResourceContents, BlobResourceContents> resource;
+  optional<Annotations> annotations;
 
   EmbeddedResource() = default;
-  explicit EmbeddedResource(const Resource& r) : resource(r) {}
+  explicit EmbeddedResource(const TextResourceContents& contents)
+      : resource(contents) {}
+  explicit EmbeddedResource(const BlobResourceContents& contents)
+      : resource(contents) {}
 };
 
 // Extended ContentBlock to include all types
@@ -391,8 +429,14 @@ inline ExtendedContentBlock make_resource_link(const Resource& resource) {
   return ExtendedContentBlock(ResourceLink(resource));
 }
 
-inline ExtendedContentBlock make_embedded_resource(const Resource& resource) {
-  return ExtendedContentBlock(EmbeddedResource(resource));
+inline ExtendedContentBlock make_embedded_resource(
+    const TextResourceContents& contents) {
+  return ExtendedContentBlock(EmbeddedResource(contents));
+}
+
+inline ExtendedContentBlock make_embedded_resource(
+    const BlobResourceContents& contents) {
+  return ExtendedContentBlock(EmbeddedResource(contents));
 }
 
 inline Tool make_tool(const std::string& name) { return Tool(name); }
@@ -493,32 +537,12 @@ struct ListPromptsResult : PaginatedResult {
   ListPromptsResult() = default;
 };
 
-// Resource contents variations and ReadResourceResult are defined here (before
-// the jsonrpc::ResponseResult variant) so ReadResourceResult can participate in
-// that variant, mirroring ListResourcesResult / ListToolsResult above. This is
-// what lets a resources/read response deserialize into a structured result
-// rather than being flattened into Metadata.
-struct ResourceContents {
-  optional<std::string> uri;
-  optional<std::string> mimeType;
-
-  ResourceContents() = default;
-};
-
-struct TextResourceContents : ResourceContents {
-  std::string text;
-
-  TextResourceContents() = default;
-  explicit TextResourceContents(const std::string& t) : text(t) {}
-};
-
-struct BlobResourceContents : ResourceContents {
-  std::string blob;  // Base64-encoded data
-
-  BlobResourceContents() = default;
-  explicit BlobResourceContents(const std::string& b) : blob(b) {}
-};
-
+// ReadResourceResult is defined here (before the jsonrpc::ResponseResult
+// variant) so it can participate in that variant, mirroring
+// ListResourcesResult / ListToolsResult above. This is what lets a
+// resources/read response deserialize into a structured result rather than
+// being flattened into Metadata. The contents it holds are defined earlier,
+// with the content blocks, because an embedded resource holds them too.
 struct ReadResourceResult {
   std::vector<variant<TextResourceContents, BlobResourceContents>> contents;
 
@@ -670,7 +694,7 @@ inline BlobResourceContents make_blob_resource(const std::string& blob) {
 // Prompt message with embedded resources
 struct PromptMessage {
   enums::Role::Value role;
-  variant<TextContent, ImageContent, EmbeddedResource> content;
+  variant<TextContent, ImageContent, EmbeddedResource, ResourceLink> content;
 
   PromptMessage() = default;
   PromptMessage(enums::Role::Value r, const TextContent& c)
