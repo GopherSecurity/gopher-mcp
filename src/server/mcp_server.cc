@@ -2661,11 +2661,20 @@ jsonrpc::Response McpServer::handleCallTool(const jsonrpc::Request& request,
   GOPHER_LOG_DEBUG("tool_registry_->callTool returned for: {}", name);
 
   // Serialize CallToolResult to proper MCP format
-  // The result must have content as an array of content blocks per MCP spec
-  auto result_json = json::to_json(result);
-
-  return jsonrpc::Response::success(request.id,
-                                    jsonrpc::ResponseResult(result_json));
+  // The result must have content as an array of content blocks per MCP spec.
+  // A result the tool built in a shape that cannot go on the wire, such as
+  // an embedded resource with no uri, is answered as an error rather than
+  // sent malformed.
+  try {
+    auto result_json = json::to_json(result);
+    return jsonrpc::Response::success(request.id,
+                                      jsonrpc::ResponseResult(result_json));
+  } catch (const json::JsonException& e) {
+    return jsonrpc::Response::make_error(
+        request.id,
+        Error(jsonrpc::INTERNAL_ERROR,
+              std::string("Tool result could not be encoded: ") + e.what()));
+  }
 }
 
 jsonrpc::Response McpServer::handleListPrompts(const jsonrpc::Request& request,
@@ -2723,8 +2732,15 @@ jsonrpc::Response McpServer::handleGetPrompt(const jsonrpc::Request& request,
   // Answered as JSON, not through Metadata: the flat map re-reads any
   // string that looks like JSON as the object it looks like, which would
   // turn a description such as "{}" into something that is not a string.
-  return jsonrpc::Response::success(
-      request.id, jsonrpc::ResponseResult(json::to_json(result)));
+  try {
+    return jsonrpc::Response::success(
+        request.id, jsonrpc::ResponseResult(json::to_json(result)));
+  } catch (const json::JsonException& e) {
+    return jsonrpc::Response::make_error(
+        request.id,
+        Error(jsonrpc::INTERNAL_ERROR,
+              std::string("Prompt result could not be encoded: ") + e.what()));
+  }
 }
 
 // Background task management using dispatcher timers.

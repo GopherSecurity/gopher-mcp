@@ -549,8 +549,15 @@ bool fitsContentBlock(const JsonValue& json) {
     return false;
   }
   const std::string type = json["type"].getString();
-  if (type == "text" || type == "image" || type == "resource_link") {
+  if (type == "text" || type == "image") {
     return true;
+  }
+  if (type == "resource_link") {
+    // The older ContentBlock holds a link as a Resource, which has no room
+    // for a title, a size or annotations. A link carrying any of them is
+    // kept as JSON so they are not dropped.
+    return !json.contains("title") && !json.contains("size") &&
+           !json.contains("annotations");
   }
   // A link in the shape this SDK used to write.
   return type == "resource" && json.contains("resource") &&
@@ -861,14 +868,22 @@ ResourceLink deserialize_ResourceLink(const JsonValue& json) {
 
 JsonValue serialize_EmbeddedResource(const EmbeddedResource& embedded) {
   JsonValue contents;
+  bool has_uri = false;
   mcp::match(
       embedded.resource,
-      [&contents](const TextResourceContents& text) {
+      [&contents, &has_uri](const TextResourceContents& text) {
+        has_uri = text.uri.has_value();
         contents = to_json(text);
       },
-      [&contents](const BlobResourceContents& blob) {
+      [&contents, &has_uri](const BlobResourceContents& blob) {
+        has_uri = blob.uri.has_value();
         contents = to_json(blob);
       });
+  // The spec requires the contents to say which resource they are. Refused
+  // here rather than written without one, which a peer would reject.
+  if (!has_uri) {
+    throw JsonException("an embedded resource needs a uri");
+  }
 
   JsonObjectBuilder builder;
   builder.add("type", "resource").add("resource", contents);
@@ -879,8 +894,28 @@ JsonValue serialize_EmbeddedResource(const EmbeddedResource& embedded) {
 }
 
 EmbeddedResource deserialize_EmbeddedResource(const JsonValue& json) {
+  // Held to the spec: a uri, and exactly one of text or blob. Contents with
+  // both would otherwise be read as whichever came first, silently.
+  const auto& contents = json.at("resource");
+  if (!contents.isObject()) {
+    throw JsonException("an embedded resource's contents must be an object");
+  }
+  if (!contents.contains("uri") || !contents["uri"].isString()) {
+    throw JsonException("an embedded resource needs a uri");
+  }
+  const bool has_text = contents.contains("text");
+  const bool has_blob = contents.contains("blob");
+  if (has_text == has_blob) {
+    throw JsonException(
+        "an embedded resource needs exactly one of text or blob");
+  }
+
   EmbeddedResource embedded;
-  embedded.resource = deserialize_ResourceContents(json.at("resource"));
+  if (has_text) {
+    embedded.resource = from_json<TextResourceContents>(contents);
+  } else {
+    embedded.resource = from_json<BlobResourceContents>(contents);
+  }
 
   if (json.contains("annotations") && json["annotations"].isObject()) {
     embedded.annotations = from_json<Annotations>(json["annotations"]);
