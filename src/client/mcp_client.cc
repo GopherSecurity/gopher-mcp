@@ -760,13 +760,13 @@ ListPromptsResult McpClient::parseListPromptsResponse(
   const auto& answer = response.result.value();
 
   // The spec's shape: an object with the prompts under "prompts" and,
-  // when there are more, a cursor for the next page.
+  // when there are more, a cursor for the next page. The decoder reads it
+  // into this type, so it arrives already typed.
+  if (holds_alternative<ListPromptsResult>(answer)) {
+    return get<ListPromptsResult>(answer);
+  }
   if (holds_alternative<json::JsonValue>(answer)) {
     const auto& value = get<json::JsonValue>(answer);
-    if (value.isObject() && value.contains("prompts") &&
-        value["prompts"].isArray()) {
-      return json::from_json<ListPromptsResult>(value);
-    }
     if (value.isArray() && value.size() == 0) {
       return result;
     }
