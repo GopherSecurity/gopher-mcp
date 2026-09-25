@@ -145,6 +145,8 @@ TEST(NestedJsonFidelity, CapabilitiesDeclaredAsObjectsAreRead) {
 
   ASSERT_TRUE(caps.tools.has_value());
   EXPECT_TRUE(caps.tools.value());
+  ASSERT_TRUE(caps.tools->listChanged.has_value());
+  EXPECT_TRUE(caps.tools->listChanged.value());
   ASSERT_TRUE(caps.prompts.has_value());
   EXPECT_TRUE(caps.prompts.value());
   ASSERT_TRUE(caps.logging.has_value());
@@ -153,9 +155,12 @@ TEST(NestedJsonFidelity, CapabilitiesDeclaredAsObjectsAreRead) {
   ASSERT_TRUE(caps.resources.has_value());
   ASSERT_TRUE(holds_alternative<ResourcesCapability>(caps.resources.value()));
   const auto& resources = get<ResourcesCapability>(caps.resources.value());
-  EXPECT_FALSE(resources.subscribe.has_value())
+  // The flags are booleans, read as the server sent them.
+  ASSERT_TRUE(resources.subscribe.has_value());
+  EXPECT_FALSE(resources.subscribe.value())
       << "a flag declared false was read as declared";
-  EXPECT_TRUE(resources.listChanged.has_value());
+  ASSERT_TRUE(resources.listChanged.has_value());
+  EXPECT_TRUE(resources.listChanged.value());
 }
 
 TEST(NestedJsonFidelity, ThePromptResultIsReadAsTheSpecShapesIt) {

@@ -693,8 +693,8 @@ TEST_F(MCPSerializationExtensiveTest, AllCapabilityCombinations) {
   // Server capabilities with ResourcesCapability
   ServerCapabilities server_with_resources;
   ResourcesCapability res_cap;
-  res_cap.subscribe = mcp::make_optional(EmptyCapability());
-  res_cap.listChanged = mcp::make_optional(EmptyCapability());
+  res_cap.subscribe = mcp::make_optional(true);
+  res_cap.listChanged = mcp::make_optional(true);
   server_with_resources.resources =
       mcp::make_optional(variant<bool, ResourcesCapability>(res_cap));
   server_with_resources.tools = mcp::make_optional(true);

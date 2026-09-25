@@ -625,7 +625,7 @@ int main(int argc, char** argv) {
   config.capabilities.prompts = mcp::make_optional(true);
   config.capabilities.logging = mcp::make_optional(true);
   ResourcesCapability resources;
-  resources.subscribe = mcp::make_optional(EmptyCapability());
+  resources.subscribe = mcp::make_optional(true);
   config.capabilities.resources =
       mcp::make_optional(variant<bool, ResourcesCapability>(resources));
 
