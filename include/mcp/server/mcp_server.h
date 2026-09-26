@@ -31,6 +31,7 @@
 #include <mutex>
 #include <queue>
 #include <set>
+#include <stdexcept>
 #include <string>
 #include <thread>
 #include <unordered_map>
@@ -73,6 +74,22 @@ class TcpActiveListener;
 }  // namespace network
 
 namespace server {
+
+/**
+ * Thrown when a read names a resource nothing registered serves. Kept apart
+ * from other failures because the protocol answers it with an error code of
+ * its own, and names the resource that was asked for.
+ */
+class ResourceNotFound : public std::runtime_error {
+ public:
+  explicit ResourceNotFound(const std::string& uri)
+      : std::runtime_error("Resource not found: " + uri), uri_(uri) {}
+
+  const std::string& uri() const { return uri_; }
+
+ private:
+  std::string uri_;
+};
 
 // Forward declarations
 class RequestHandler;
@@ -494,15 +511,15 @@ class ResourceManager {
   }
 
   // Read resource content by delegating to the registered handler.
-  // Returns an empty result when the URI is unknown, and throws if
-  // the resource was registered without a read handler.
+  // Throws ResourceNotFound when the URI is unknown, and a runtime_error
+  // if the resource was registered without a read handler.
   ReadResourceResult readResource(const std::string& uri,
                                   SessionContext& session) {
     std::lock_guard<std::mutex> lock(mutex_);
 
     auto res_it = resources_.find(uri);
     if (res_it == resources_.end()) {
-      return ReadResourceResult{};  // unknown resource
+      throw ResourceNotFound(uri);
     }
 
     auto handler_it = resource_handlers_.find(uri);
