@@ -32,6 +32,9 @@ constexpr int INVALID_REQUEST = -32600;
 constexpr int METHOD_NOT_FOUND = -32601;
 constexpr int INVALID_PARAMS = -32602;
 constexpr int INTERNAL_ERROR = -32603;
+// MCP's own code for reading a resource that does not exist, in the
+// revisions before 2026-07-28. That revision uses INVALID_PARAMS instead.
+constexpr int RESOURCE_NOT_FOUND = -32002;
 }  // namespace jsonrpc
 
 // Protocol type aliases

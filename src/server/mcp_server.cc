@@ -2532,6 +2532,17 @@ jsonrpc::Response McpServer::handleReadResource(const jsonrpc::Request& request,
     auto result_json = json::to_json(result);
     return jsonrpc::Response::success(request.id,
                                       jsonrpc::ResponseResult(result_json));
+  } catch (const ResourceNotFound& missing) {
+    // An error, never an empty result: the spec forbids empty contents,
+    // and a client could not tell "no such resource" from one that is
+    // empty. The code is the one the caller's revision defines.
+    Error error(isModernRequest(request) ? jsonrpc::INVALID_PARAMS
+                                         : jsonrpc::RESOURCE_NOT_FOUND,
+                "Resource not found");
+    std::map<std::string, std::string> data;
+    data["uri"] = missing.uri();
+    error.data = mcp::make_optional(ErrorData(data));
+    return jsonrpc::Response::make_error(request.id, error);
   } catch (const std::exception& e) {
     return jsonrpc::Response::make_error(
         request.id, Error(jsonrpc::INVALID_PARAMS,
