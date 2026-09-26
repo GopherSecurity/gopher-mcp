@@ -307,6 +307,7 @@ target_link_libraries(test_mcp_server_responses
 
 target_link_libraries(test_resource_read
     gopher-mcp
+    gopher-mcp-logging
     gtest
     gtest_main
     Threads::Threads

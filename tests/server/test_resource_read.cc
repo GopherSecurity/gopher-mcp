@@ -17,6 +17,8 @@
 
 #include "mcp/json/json_bridge.h"
 #include "mcp/json/json_serialization.h"
+#include "mcp/message_dispatch_context.h"
+#include "mcp/protocol/modern_era.h"
 #include "mcp/server/mcp_server.h"
 #include "mcp/types.h"
 
@@ -160,12 +162,17 @@ TEST_F(ResourceManagerTest, ReadInvokesRegisteredHandler) {
   EXPECT_EQ(text->text, "payload");
 }
 
-// readResource returns empty result for an unknown URI
-TEST_F(ResourceManagerTest, ReadUnknownUriReturnsEmpty) {
+// readResource refuses an unknown URI, naming it, rather than returning an
+// empty result the spec forbids
+TEST_F(ResourceManagerTest, ReadUnknownUriThrowsNotFound) {
   ResourceManager mgr(stats_);
 
-  auto result = mgr.readResource("unknown://nowhere", session_);
-  EXPECT_TRUE(result.contents.empty());
+  try {
+    mgr.readResource("unknown://nowhere", session_);
+    FAIL() << "an unknown resource was read";
+  } catch (const ResourceNotFound& missing) {
+    EXPECT_EQ(missing.uri(), "unknown://nowhere");
+  }
 }
 
 // readResource throws when resource was registered without a handler
@@ -232,4 +239,136 @@ TEST_F(ResourceManagerTest, ReadIncrementsStats) {
   EXPECT_EQ(stats_.resources_served.load(), 1u);
   mgr.readResource("test://stats", session_);
   EXPECT_EQ(stats_.resources_served.load(), 2u);
+}
+
+// ---------------------------------------------------------------------------
+// resources/read of an unknown resource, as a client sees it
+// ---------------------------------------------------------------------------
+
+namespace {
+
+/** Widens the dispatch entry so a request can be handed straight in. */
+class DispatchTestServer : public McpServer {
+ public:
+  explicit DispatchTestServer(const McpServerConfig& config)
+      : McpServer(config) {}
+  using McpServer::onRequestWithContext;
+};
+
+/** A return path that keeps what was sent instead of writing it. */
+class CapturingContext : public NullMessageDispatchContext {
+ public:
+  VoidResult sendResponse(const jsonrpc::Response& response) override {
+    captured = mcp::make_optional(response);
+    return makeVoidSuccess();
+  }
+
+  optional<jsonrpc::Response> captured;
+};
+
+/** A resources/read, declaring a revision in _meta when given one. */
+jsonrpc::Request readRequest(const std::string& uri,
+                             const std::string& revision = std::string()) {
+  jsonrpc::Request request;
+  request.jsonrpc = "2.0";
+  request.id = make_request_id(1);
+  request.method = "resources/read";
+  Metadata params;
+  params["uri"] = MetadataValue(uri);
+  if (!revision.empty()) {
+    JsonValue meta = JsonValue::object();
+    meta.set(protocol::modern::kMetaProtocolVersion, JsonValue(revision));
+    params["_meta"] = MetadataValue(meta.toString());
+  }
+  request.params = mcp::make_optional(params);
+  return request;
+}
+
+/** The answer to a read of this server, as a peer would read it. */
+JsonValue answerTo(McpServer& server, const jsonrpc::Request& request) {
+  CapturingContext context;
+  static_cast<DispatchTestServer&>(server).onRequestWithContext(request,
+                                                                context);
+  if (!context.captured.has_value()) {
+    ADD_FAILURE() << "resources/read went unanswered";
+    return JsonValue::object();
+  }
+  return json::to_json(context.captured.value());
+}
+
+McpServerConfig readTestConfig() {
+  McpServerConfig config;
+  config.server_name = "resource-read-test";
+  config.server_version = "0.0.1";
+  return config;
+}
+
+}  // namespace
+
+// The revisions before 2026-07-28 give a missing resource a code of its own.
+TEST(ResourceNotFoundResponse, AnOlderCallerGetsResourceNotFound) {
+  DispatchTestServer server(readTestConfig());
+
+  const JsonValue answer = answerTo(server, readRequest("missing://here"));
+
+  EXPECT_FALSE(answer.contains("result")) << answer.toString();
+  ASSERT_TRUE(answer.contains("error")) << answer.toString();
+  EXPECT_EQ(answer["error"]["code"].getInt(), -32002);
+  EXPECT_EQ(answer["error"]["data"]["uri"].getString(), "missing://here");
+}
+
+// 2026-07-28 answers it as invalid params instead.
+TEST(ResourceNotFoundResponse, AModernCallerGetsInvalidParams) {
+  DispatchTestServer server(readTestConfig());
+
+  const JsonValue answer =
+      answerTo(server, readRequest("missing://here", "2026-07-28"));
+
+  EXPECT_FALSE(answer.contains("result")) << answer.toString();
+  ASSERT_TRUE(answer.contains("error")) << answer.toString();
+  EXPECT_EQ(answer["error"]["code"].getInt(), -32602);
+  EXPECT_EQ(answer["error"]["data"]["uri"].getString(), "missing://here");
+}
+
+// A resource that is there is read as before, in either era.
+TEST(ResourceNotFoundResponse, AResourceThatExistsIsStillRead) {
+  DispatchTestServer server(readTestConfig());
+  Resource resource;
+  resource.uri = "present://here";
+  resource.name = "present";
+  server.registerResource(resource,
+                          [](const std::string& uri, SessionContext&) {
+                            ReadResourceResult result;
+                            TextResourceContents contents("here");
+                            contents.uri = mcp::make_optional(uri);
+                            result.contents.push_back(contents);
+                            return result;
+                          });
+
+  for (const std::string revision :
+       {std::string(), std::string("2026-07-28")}) {
+    const JsonValue answer =
+        answerTo(server, readRequest("present://here", revision));
+    ASSERT_TRUE(answer.contains("result")) << answer.toString();
+    EXPECT_EQ(answer["result"]["contents"][0]["text"].getString(), "here");
+  }
+}
+
+// A handler that fails still produces an error, not a not-found.
+TEST(ResourceNotFoundResponse, AFailingHandlerIsStillAnError) {
+  DispatchTestServer server(readTestConfig());
+  Resource resource;
+  resource.uri = "broken://here";
+  resource.name = "broken";
+  server.registerResource(
+      resource, [](const std::string&, SessionContext&) -> ReadResourceResult {
+        throw std::runtime_error("the disk is gone");
+      });
+
+  const JsonValue answer = answerTo(server, readRequest("broken://here"));
+
+  ASSERT_TRUE(answer.contains("error")) << answer.toString();
+  EXPECT_EQ(answer["error"]["code"].getInt(), -32602);
+  EXPECT_NE(answer["error"]["message"].getString().find("the disk is gone"),
+            std::string::npos);
 }
