@@ -169,6 +169,26 @@ bool describesAnObject(const json::JsonValue& schema) {
          schema["type"].isString() && schema["type"].getString() == "object";
 }
 
+// What a caller's revision allows of structured tool output.
+enum class StructuredOutput {
+  None,         // before 2025-06-18: neither outputSchema nor structuredContent
+  ObjectsOnly,  // 2025-06-18 and 2025-11-25: object schemas and results only
+  Any           // 2026-07-28: any schema, any JSON value
+};
+
+// A classic caller's revision is the one its handshake settled. One with no
+// handshake recorded is taken as the newest of those revisions.
+StructuredOutput structuredOutputFor(bool modern,
+                                     const std::string& negotiated) {
+  if (modern) {
+    return StructuredOutput::Any;
+  }
+  if (!negotiated.empty() && negotiated < "2025-06-18") {
+    return StructuredOutput::None;
+  }
+  return StructuredOutput::ObjectsOnly;
+}
+
 std::string negotiateProtocolVersion(const std::string& requested,
                                      const std::string& newest_supported) {
   if (requested.empty()) {
@@ -2717,14 +2737,18 @@ jsonrpc::Response McpServer::handleListTools(const jsonrpc::Request& request,
   // Get tools from tool registry
   auto result = tool_registry_->listTools();
 
-  // Build response as JsonValue with "tools" key per MCP spec. An older
-  // caller's revision allows only object output schemas; a tool with any
-  // other is still listed, without it, and answers that caller in text.
-  const bool modern = isModernRequest(request);
+  // Build response as JsonValue with "tools" key per MCP spec. An output
+  // schema goes only to a caller whose revision has one it can read; a tool
+  // whose schema it cannot is still listed, without it, and answers that
+  // caller in text.
+  const StructuredOutput allowed = structuredOutputFor(
+      isModernRequest(request), session.getNegotiatedProtocolVersion());
   json::JsonValue tools_array = json::JsonValue::array();
   for (auto tool : result.tools) {
-    if (!modern && tool.outputSchema.has_value() &&
-        !describesAnObject(tool.outputSchema.value())) {
+    if (tool.outputSchema.has_value() &&
+        (allowed == StructuredOutput::None ||
+         (allowed == StructuredOutput::ObjectsOnly &&
+          !describesAnObject(tool.outputSchema.value())))) {
       tool.outputSchema = nullopt;
     }
     tools_array.push_back(json::to_json(tool));
@@ -2793,11 +2817,31 @@ jsonrpc::Response McpServer::handleCallTool(const jsonrpc::Request& request,
         TextContent(result.structuredContent->toString())));
   }
 
-  // The revisions before 2026-07-28 allow only an object here. Anything
-  // else is left out for their clients, which read the text above instead.
-  if (result.structuredContent.has_value() &&
-      !result.structuredContent->isObject() && !isModernRequest(request)) {
-    result.structuredContent = nullopt;
+  // What the caller's revision cannot carry is left out: before 2025-06-18
+  // there is no structuredContent at all, and until 2026-07-28 only an
+  // object. The data is not lost with it: the caller gets it as text, unless
+  // the tool already said exactly that.
+  if (result.structuredContent.has_value()) {
+    const StructuredOutput allowed = structuredOutputFor(
+        isModernRequest(request), session.getNegotiatedProtocolVersion());
+    const bool fits = allowed == StructuredOutput::Any ||
+                      (allowed == StructuredOutput::ObjectsOnly &&
+                       result.structuredContent->isObject());
+    if (!fits) {
+      const std::string text = result.structuredContent->toString();
+      bool said = false;
+      for (const auto& block : result.content) {
+        if (holds_alternative<TextContent>(block) &&
+            get<TextContent>(block).text == text) {
+          said = true;
+          break;
+        }
+      }
+      if (!said) {
+        result.content.push_back(ExtendedContentBlock(TextContent(text)));
+      }
+      result.structuredContent = nullopt;
+    }
   }
 
   // Serialize CallToolResult to proper MCP format
