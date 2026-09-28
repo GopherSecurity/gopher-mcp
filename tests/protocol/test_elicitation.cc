@@ -40,7 +40,7 @@ ElicitRequest deploymentQuestion() {
   NumberSchema replicas;
   replicas.type = "integer";
   return make<ElicitRequest>("Which environment?")
-      .mode("form")
+      .formMode()
       .field("env", env)
       .field("replicas", replicas)
       .field("notify", BooleanSchema())
@@ -130,6 +130,34 @@ TEST(Elicitation, ARequestItCannotReadIsRefused) {
                    R"({"mode": "url", "message": "m",
                        "url": "https://example.com"})")),
                json::JsonException);
+  // A form that does not say it is an object
+  EXPECT_THROW(json::from_json<ElicitRequest>(JsonValue::parse(
+                   R"({"message": "m",
+                       "requestedSchema": {"properties": {}}})")),
+               json::JsonException);
+  // A field of a type a form cannot hold, which must not become a string
+  EXPECT_THROW(json::from_json<ElicitRequest>(JsonValue::parse(
+                   R"({"message": "m",
+                       "requestedSchema": {"type": "object", "properties":
+                         {"address": {"type": "object"}}}})")),
+               json::JsonException);
+  // A field with no type at all
+  EXPECT_THROW(json::from_json<ElicitRequest>(JsonValue::parse(
+                   R"({"message": "m",
+                       "requestedSchema": {"type": "object", "properties":
+                         {"x": {"description": "untyped"}}}})")),
+               json::JsonException);
+}
+
+// Only form mode is written; a request naming another mode is refused on the
+// way out rather than sent with a form a client would not expect.
+TEST(Elicitation, AnotherModeIsNotWritten) {
+  ElicitRequest request = deploymentQuestion();
+  request.mode = mcp::make_optional(std::string("url"));
+  EXPECT_THROW(json::to_json(request), json::JsonException);
+
+  request.mode = nullopt;
+  EXPECT_FALSE(json::to_json(request).contains("mode"));
 }
 
 TEST(Elicitation, AnAnswerGoesBackAsActionAndContent) {
