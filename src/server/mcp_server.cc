@@ -126,6 +126,42 @@ void stampCacheHints(const McpServerConfig::CacheHint& hint,
   response.result = mcp::make_optional(jsonrpc::ResponseResult(result));
 }
 
+// An older caller's revision has no caching hints, so none reach it, even
+// ones a handler put on its result itself.
+void stripCacheHints(jsonrpc::Response& response) {
+  if (response.error.has_value() || !response.result.has_value()) {
+    return;
+  }
+  json::JsonValue result = json::to_json(response.result.value());
+  if (!result.isObject() ||
+      (!result.contains("ttlMs") && !result.contains("cacheScope"))) {
+    return;
+  }
+  result.erase("ttlMs");
+  result.erase("cacheScope");
+  response.result = mcp::make_optional(jsonrpc::ResponseResult(result));
+}
+
+// What a cacheable method's answer says about caching, settled once for the
+// request it answers: hints for a caller of the newest revision, none for
+// anyone else.
+struct CacheHintPolicy {
+  bool cacheable = false;
+  bool modern = false;
+  McpServerConfig::CacheHint hint;
+
+  void apply(jsonrpc::Response& response) const {
+    if (!cacheable) {
+      return;
+    }
+    if (modern) {
+      stampCacheHints(hint, response);
+    } else {
+      stripCacheHints(response);
+    }
+  }
+};
+
 std::string negotiateProtocolVersion(const std::string& requested,
                                      const std::string& newest_supported) {
   if (requested.empty()) {
@@ -254,8 +290,12 @@ namespace {
  */
 class DeferredAnswer : public ResponseStream {
  public:
-  DeferredAnswer(ResponseStreamPtr stream, std::function<void()> on_answered)
-      : stream_(std::move(stream)), on_answered_(std::move(on_answered)) {}
+  DeferredAnswer(ResponseStreamPtr stream,
+                 std::function<void()> on_answered,
+                 CacheHintPolicy cache_hints = CacheHintPolicy())
+      : stream_(std::move(stream)),
+        on_answered_(std::move(on_answered)),
+        cache_hints_(std::move(cache_hints)) {}
 
   VoidResult sendNotification(
       const jsonrpc::Notification& notification) override {
@@ -267,7 +307,11 @@ class DeferredAnswer : public ResponseStream {
   }
 
   VoidResult sendResponse(const jsonrpc::Response& response) override {
-    auto sent = stream_ ? stream_->sendResponse(response) : noStream();
+    // Settled here as well as on the ordinary path, since an answer that
+    // comes later still answers a method whose result is cacheable.
+    jsonrpc::Response settled = response;
+    cache_hints_.apply(settled);
+    auto sent = stream_ ? stream_->sendResponse(settled) : noStream();
     // Told once, whether or not the write reached anyone: the request is
     // over either way, and a client that has gone — or a stream that was
     // never there — is not a reason to keep accounting for it.
@@ -316,6 +360,7 @@ class DeferredAnswer : public ResponseStream {
 
   ResponseStreamPtr stream_;
   std::function<void()> on_answered_;
+  CacheHintPolicy cache_hints_;
 };
 
 /**
@@ -2001,6 +2046,19 @@ void McpServer::onRequestWithContext(const jsonrpc::Request& request,
     return;
   }
 
+  // Caching hints, for the results the newest revision lets a client cache.
+  // Settled for this request whichever way it is answered.
+  CacheHintPolicy cache_hints;
+  cache_hints.cacheable = isCacheableMethod(request.method);
+  if (cache_hints.cacheable) {
+    cache_hints.modern = isModernRequest(request);
+    std::lock_guard<std::mutex> lock(config_mutex_);
+    auto it = config_.cache_hints.find(request.method);
+    if (it != config_.cache_hints.end()) {
+      cache_hints.hint = it->second;
+    }
+  }
+
   if (async_handler) {
     // The stream leaves the session for the same reason it was ever
     // attached: it belongs to this request, and this request is not over.
@@ -2011,7 +2069,8 @@ void McpServer::onRequestWithContext(const jsonrpc::Request& request,
             ? get<std::string>(request.id)
             : std::to_string(get<int64_t>(request.id));
     auto answer = std::make_shared<DeferredAnswer>(
-        stream, [this, pending_key]() { forgetPendingRequest(pending_key); });
+        stream, [this, pending_key]() { forgetPendingRequest(pending_key); },
+        cache_hints);
 
     try {
       async_handler(request, *session, answer);
@@ -2100,19 +2159,7 @@ void McpServer::onRequestWithContext(const jsonrpc::Request& request,
 
   session->setResponseStream(nullptr);
 
-  // Caching hints, for the results the newest revision lets a client cache.
-  // Only for callers of that revision; an older one has no such fields.
-  if (isCacheableMethod(request.method) && isModernRequest(request)) {
-    McpServerConfig::CacheHint hint;
-    {
-      std::lock_guard<std::mutex> lock(config_mutex_);
-      auto it = config_.cache_hints.find(request.method);
-      if (it != config_.cache_hints.end()) {
-        hint = it->second;
-      }
-    }
-    stampCacheHints(hint, response);
-  }
+  cache_hints.apply(response);
 
   // Down the same stream the progress went, when there was one: the
   // response is the last thing on it, and a second path out would leave
