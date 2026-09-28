@@ -511,6 +511,7 @@ set(MCP_CORE_SOURCES
     src/protocol/header_sentinel.cc         # Header values that survive the trip
     src/protocol/designated_params.cc       # Tool arguments mirrored into headers
     src/protocol/mrtr.cc                    # Asking a client without sending a request
+    src/protocol/elicitation.cc             # Elicitation, typed, in either revision
     src/protocol/subscriptions.cc           # What a subscription asks to hear
     src/server/listen_registry.cc           # Long-lived notification streams
     src/config/config_manager.cc

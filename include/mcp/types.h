@@ -771,7 +771,7 @@ struct StringSchema {
 };
 
 struct NumberSchema {
-  std::string type = "number";
+  std::string type = "number";  // "number", or "integer" for whole numbers
   optional<std::string> description;
   optional<double> minimum;
   optional<double> maximum;
@@ -1259,18 +1259,45 @@ struct CreateMessageResult : SamplingMessage {
 };
 
 // Elicitation types
-struct ElicitRequest : jsonrpc::Request {
-  std::string name;
-  PrimitiveSchemaDefinition schema;
-  optional<std::string> prompt;
+// The form an elicitation asks the user to fill in: always an object, one
+// primitive schema per field. On the wire:
+//   {"type": "object", "properties": {"<field>": {...}}, "required"?: [...]}
+struct ElicitRequestedSchema {
+  std::map<std::string, PrimitiveSchemaDefinition> properties;
+  optional<std::vector<std::string>> required;
 
-  ElicitRequest() : jsonrpc::Request() { method = "elicit/createMessage"; }
+  ElicitRequestedSchema() = default;
 };
 
+// A server asking the user for input, through the client. The same in every
+// revision; only how it travels differs: a request to the client in the
+// older ones, an entry in inputRequests in 2026-07-28. Its params:
+//   {"mode"?: "form", "message": "...", "requestedSchema": {...}}
+struct ElicitRequest : jsonrpc::Request {
+  optional<std::string> mode;  // "form" when present
+  std::string message;
+  ElicitRequestedSchema requestedSchema;
+
+  ElicitRequest() : jsonrpc::Request() { method = "elicitation/create"; }
+};
+
+// What the user did with the form.
+enum class ElicitAction { Accept, Decline, Cancel };
+
+// One field of what the user entered: a string, a number, a boolean, or a
+// list of strings.
+using ElicitContentValue =
+    variant<std::string, int64_t, double, bool, std::vector<std::string>>;
+
+// The client's answer. On the wire:
+//   {"action": "accept" | "decline" | "cancel", "content"?: {...}}
+// with content only when the user accepted.
 struct ElicitResult {
-  variant<std::string, double, bool, std::nullptr_t> value;
+  ElicitAction action = ElicitAction::Cancel;
+  optional<std::map<std::string, ElicitContentValue>> content;
 
   ElicitResult() = default;
+  explicit ElicitResult(ElicitAction a) : action(a) {}
 };
 
 // Factory functions for requests

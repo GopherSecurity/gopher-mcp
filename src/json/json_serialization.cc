@@ -286,7 +286,7 @@ StringSchema deserialize_StringSchema(const JsonValue& json) {
 
 JsonValue serialize_NumberSchema(const NumberSchema& schema) {
   JsonObjectBuilder builder;
-  builder.add("type", "number");
+  builder.add("type", schema.type == "integer" ? "integer" : "number");
   if (schema.description.has_value()) {
     builder.add("description", schema.description.value());
   }
@@ -389,7 +389,7 @@ PrimitiveSchemaDefinition deserialize_PrimitiveSchemaDefinition(
     } else {
       return from_json<StringSchema>(json);
     }
-  } else if (type == "number") {
+  } else if (type == "number" || type == "integer") {
     return from_json<NumberSchema>(json);
   } else if (type == "boolean") {
     return from_json<BooleanSchema>(json);
@@ -1354,80 +1354,32 @@ JsonValue serialize_CreateMessageRequest(const CreateMessageRequest& request) {
   return builder.build();
 }
 
+// An elicitation's params, as they travel in either revision:
+//   {"mode"?: "form", "message": "...",
+//    "requestedSchema": {"type": "object", "properties": {...},
+//                        "required"?: [...]}}
 JsonValue serialize_ElicitRequest(const ElicitRequest& request) {
   JsonObjectBuilder builder;
 
-  // Add base class ID if present
-  if ((mcp::holds_alternative<std::string>(request.id) &&
-       !mcp::get<std::string>(request.id).empty()) ||
-      mcp::holds_alternative<int64_t>(request.id)) {
-    builder.add("id", to_json(request.id));
+  if (request.mode.has_value()) {
+    builder.add("mode", request.mode.value());
   }
+  builder.add("message", request.message);
 
-  builder.add("name", request.name);
-
-  // Serialize schema
-  mcp::match(
-      request.schema,
-      [&builder](const StringSchema& s) {
-        JsonObjectBuilder schemaBuilder;
-        schemaBuilder.add("type", "string");
-        if (s.description.has_value()) {
-          schemaBuilder.add("description", s.description.value());
-        }
-        if (s.pattern.has_value()) {
-          schemaBuilder.add("pattern", s.pattern.value());
-        }
-        if (s.minLength.has_value()) {
-          schemaBuilder.add("minLength", s.minLength.value());
-        }
-        if (s.maxLength.has_value()) {
-          schemaBuilder.add("maxLength", s.maxLength.value());
-        }
-        builder.add("schema", schemaBuilder.build());
-      },
-      [&builder](const NumberSchema& n) {
-        JsonObjectBuilder schemaBuilder;
-        schemaBuilder.add("type", "number");
-        if (n.description.has_value()) {
-          schemaBuilder.add("description", n.description.value());
-        }
-        if (n.minimum.has_value()) {
-          schemaBuilder.add("minimum", n.minimum.value());
-        }
-        if (n.maximum.has_value()) {
-          schemaBuilder.add("maximum", n.maximum.value());
-        }
-        if (n.multipleOf.has_value()) {
-          schemaBuilder.add("multipleOf", n.multipleOf.value());
-        }
-        builder.add("schema", schemaBuilder.build());
-      },
-      [&builder](const BooleanSchema& b) {
-        JsonObjectBuilder schemaBuilder;
-        schemaBuilder.add("type", "boolean");
-        if (b.description.has_value()) {
-          schemaBuilder.add("description", b.description.value());
-        }
-        builder.add("schema", schemaBuilder.build());
-      },
-      [&builder](const EnumSchema& e) {
-        JsonObjectBuilder schemaBuilder;
-        schemaBuilder.add("type", "string");
-        if (e.description.has_value()) {
-          schemaBuilder.add("description", e.description.value());
-        }
-        JsonArrayBuilder values;
-        for (const auto& val : e.values) {
-          values.add(val);
-        }
-        schemaBuilder.add("enum", values.build());
-        builder.add("schema", schemaBuilder.build());
-      });
-
-  if (request.prompt.has_value()) {
-    builder.add("prompt", request.prompt.value());
+  JsonObjectBuilder properties;
+  for (const auto& field : request.requestedSchema.properties) {
+    properties.add(field.first, to_json(field.second));
   }
+  JsonObjectBuilder schema;
+  schema.add("type", "object").add("properties", properties.build());
+  if (request.requestedSchema.required.has_value()) {
+    JsonArrayBuilder required;
+    for (const auto& name : request.requestedSchema.required.value()) {
+      required.add(name);
+    }
+    schema.add("required", required.build());
+  }
+  builder.add("requestedSchema", schema.build());
 
   return builder.build();
 }
@@ -1639,12 +1591,38 @@ JsonValue serialize_CreateMessageResult(const CreateMessageResult& result) {
 JsonValue serialize_ElicitResult(const ElicitResult& result) {
   JsonObjectBuilder builder;
 
-  mcp::match(
-      result.value,
-      [&builder](const std::string& s) { builder.add("value", s); },
-      [&builder](double d) { builder.add("value", d); },
-      [&builder](bool b) { builder.add("value", b); },
-      [&builder](std::nullptr_t) { builder.addNull("value"); });
+  switch (result.action) {
+    case ElicitAction::Accept:
+      builder.add("action", "accept");
+      break;
+    case ElicitAction::Decline:
+      builder.add("action", "decline");
+      break;
+    case ElicitAction::Cancel:
+      builder.add("action", "cancel");
+      break;
+  }
+
+  // What the user entered goes back only with an accept.
+  if (result.action == ElicitAction::Accept && result.content.has_value()) {
+    JsonObjectBuilder content;
+    for (const auto& field : result.content.value()) {
+      mcp::match(
+          field.second,
+          [&](const std::string& s) { content.add(field.first, s); },
+          [&](int64_t i) { content.add(field.first, JsonValue(i)); },
+          [&](double d) { content.add(field.first, d); },
+          [&](bool b) { content.add(field.first, b); },
+          [&](const std::vector<std::string>& list) {
+            JsonArrayBuilder values;
+            for (const auto& value : list) {
+              values.add(value);
+            }
+            content.add(field.first, values.build());
+          });
+    }
+    builder.add("content", content.build());
+  }
 
   return builder.build();
 }
@@ -2358,66 +2336,45 @@ CreateMessageRequest deserialize_CreateMessageRequest(const JsonValue& json) {
 ElicitRequest deserialize_ElicitRequest(const JsonValue& json) {
   ElicitRequest request;
 
-  // Deserialize base class ID if present
-  if (json.contains("id")) {
-    request.id = from_json<RequestId>(json["id"]);
-  }
-  request.name = json.at("name").getString();
-
-  const auto& schema = json.at("schema");
-  std::string schemaType = schema.at("type").getString();
-
-  if (schemaType == "string") {
-    StringSchema s;
-    if (schema.contains("description")) {
-      s.description = schema["description"].getString();
+  if (json.contains("mode")) {
+    if (!json["mode"].isString()) {
+      throw JsonException("an elicitation's mode must be a string");
     }
-    if (schema.contains("pattern")) {
-      s.pattern = schema["pattern"].getString();
+    // URL mode carries a url instead of a form, and is not read here.
+    if (json["mode"].getString() != "form") {
+      throw JsonException("unsupported elicitation mode: " +
+                          json["mode"].getString());
     }
-    if (schema.contains("minLength")) {
-      s.minLength = schema["minLength"].getInt();
-    }
-    if (schema.contains("maxLength")) {
-      s.maxLength = schema["maxLength"].getInt();
-    }
-    request.schema = PrimitiveSchemaDefinition(s);
-  } else if (schemaType == "number") {
-    NumberSchema n;
-    if (schema.contains("description")) {
-      n.description = schema["description"].getString();
-    }
-    if (schema.contains("minimum")) {
-      n.minimum = schema["minimum"].getFloat();
-    }
-    if (schema.contains("maximum")) {
-      n.maximum = schema["maximum"].getFloat();
-    }
-    if (schema.contains("multipleOf")) {
-      n.multipleOf = schema["multipleOf"].getFloat();
-    }
-    request.schema = PrimitiveSchemaDefinition(n);
-  } else if (schemaType == "boolean") {
-    BooleanSchema b;
-    if (schema.contains("description")) {
-      b.description = schema["description"].getString();
-    }
-    request.schema = PrimitiveSchemaDefinition(b);
-  } else if (schema.contains("enum")) {
-    EnumSchema e;
-    if (schema.contains("description")) {
-      e.description = schema["description"].getString();
-    }
-    const auto& enumArray = schema["enum"];
-    size_t enumSize = enumArray.size();
-    for (size_t i = 0; i < enumSize; ++i) {
-      e.values.push_back(enumArray[i].getString());
-    }
-    request.schema = PrimitiveSchemaDefinition(e);
+    request.mode = json["mode"].getString();
   }
 
-  if (json.contains("prompt")) {
-    request.prompt = json["prompt"].getString();
+  request.message = json.at("message").getString();
+
+  const auto& schema = json.at("requestedSchema");
+  if (!schema.isObject() || !schema.contains("properties") ||
+      !schema["properties"].isObject()) {
+    throw JsonException(
+        "an elicitation's requestedSchema must be an object with properties");
+  }
+  if (schema.contains("type") &&
+      (!schema["type"].isString() || schema["type"].getString() != "object")) {
+    throw JsonException("an elicitation's requestedSchema must be an object");
+  }
+  const auto& properties = schema["properties"];
+  for (const auto& name : properties.keys()) {
+    request.requestedSchema.properties[name] =
+        from_json<PrimitiveSchemaDefinition>(properties[name]);
+  }
+  if (schema.contains("required")) {
+    const auto& required = schema["required"];
+    if (!required.isArray()) {
+      throw JsonException("an elicitation's required must be an array");
+    }
+    std::vector<std::string> names;
+    for (size_t i = 0; i < required.size(); ++i) {
+      names.push_back(required[i].getString());
+    }
+    request.requestedSchema.required = names;
   }
 
   return request;
@@ -2664,20 +2621,54 @@ CreateMessageResult deserialize_CreateMessageResult(const JsonValue& json) {
 ElicitResult deserialize_ElicitResult(const JsonValue& json) {
   ElicitResult result;
 
-  const auto& value = json.at("value");
-  if (value.isNull()) {
-    result.value = variant<std::string, double, bool, std::nullptr_t>(nullptr);
-  } else if (value.isBoolean()) {
-    result.value =
-        variant<std::string, double, bool, std::nullptr_t>(value.getBool());
-  } else if (value.isFloat() || value.isInteger()) {
-    result.value =
-        variant<std::string, double, bool, std::nullptr_t>(value.getFloat());
-  } else if (value.isString()) {
-    result.value =
-        variant<std::string, double, bool, std::nullptr_t>(value.getString());
+  const auto& action = json.at("action");
+  const std::string name = action.isString() ? action.getString() : "";
+  if (name == "accept") {
+    result.action = ElicitAction::Accept;
+  } else if (name == "decline") {
+    result.action = ElicitAction::Decline;
+  } else if (name == "cancel") {
+    result.action = ElicitAction::Cancel;
+  } else {
+    throw JsonException("unknown elicitation action: " + action.toString());
   }
 
+  // Content means something only with an accept; with anything else there
+  // is nothing the user entered, whatever the answer carries.
+  if (result.action != ElicitAction::Accept || !json.contains("content")) {
+    return result;
+  }
+  const auto& content = json["content"];
+  if (!content.isObject()) {
+    throw JsonException("an elicitation's content must be an object");
+  }
+  std::map<std::string, ElicitContentValue> fields;
+  for (const auto& key : content.keys()) {
+    const auto& value = content[key];
+    if (value.isString()) {
+      fields[key] = value.getString();
+    } else if (value.isBoolean()) {
+      fields[key] = value.getBool();
+    } else if (value.isInteger()) {
+      fields[key] = value.getInt64();
+    } else if (value.isFloat()) {
+      fields[key] = value.getFloat();
+    } else if (value.isArray()) {
+      std::vector<std::string> list;
+      for (size_t i = 0; i < value.size(); ++i) {
+        if (!value[i].isString()) {
+          throw JsonException("elicitation content field " + key +
+                              " holds something other than strings");
+        }
+        list.push_back(value[i].getString());
+      }
+      fields[key] = list;
+    } else {
+      throw JsonException("elicitation content field " + key +
+                          " is not a string, number, boolean or list");
+    }
+  }
+  result.content = fields;
   return result;
 }
 
