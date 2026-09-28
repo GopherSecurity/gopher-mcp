@@ -7,12 +7,20 @@ wherever that reading was wrong. These tests are the other side of that
 question: the peer is an implementation nobody here wrote, and every
 disagreement is evidence about us.
 
-Both directions are covered:
+Both directions are covered, against two official SDKs:
 
 | Direction | This project | The official SDK |
 |---|---|---|
-| **A** | client | server (`reference-server-ts`) |
-| **B** | server (`gopher_interop_server`) | client (`official-client-ts`) |
+| **A** | client | TypeScript server (`reference-server-ts`) |
+| **B** | server (`gopher_interop_server`) | TypeScript client (`official-client-ts`) |
+| **A-py** | client | Python server (`reference-server-py`) |
+| **B-py** | server (`gopher_interop_server`) | Python client (`official-client-py`) |
+
+The TypeScript SDK speaks revisions up to `2025-11-25`. The Python SDK
+(`mcp` 2.2.0) is the only released SDK that speaks `2026-07-28`, so the
+Python suites are the only independent check of that revision, and they
+run every scenario in an earlier revision too. See
+[the Python suites](#the-python-suites--the-2026-07-28-revision).
 
 B is the stricter of the two. The SDK's client validates every message
 against the schema and is exact about statuses, headers and session
@@ -33,8 +41,8 @@ shell/test_interop_official_client.sh   # B
 ```
 
 Each installs what it needs, builds, and runs. All of them skip rather
-than fail when Node is unavailable, because not having Node is not the
-same as being broken. The suites are deliberately outside `make test`,
+than fail when Node or Python is unavailable, because not having them is
+not the same as being broken. The suites are deliberately outside `make test`,
 which must stay runnable with nothing but a C++ toolchain.
 
 To run them by hand:
@@ -49,6 +57,17 @@ cmake --build build --target test_client_vs_official_server
 cd tests/interop/official-client-ts && npm ci
 cmake --build build --target test_official_client_vs_server
 ./build/tests/test_official_client_vs_server
+```
+
+The Python suites use a virtualenv at `tests/interop/.venv-py` (not
+committed), installed from the pinned lock file:
+
+```
+python3 -m venv tests/interop/.venv-py
+tests/interop/.venv-py/bin/pip install -r tests/interop/python-requirements.lock
+cmake --build build --target test_client_vs_python_server test_python_client_vs_server
+./build/tests/test_client_vs_python_server     # A-py
+./build/tests/test_python_client_vs_server     # B-py
 ```
 
 Each scenario starts its own peer on its own free port and stops it
@@ -114,22 +133,12 @@ Two flags change what the client has to cope with:
 | `AServerKeepingNoSessionsStillWorks` | that a client can hold a conversation with a server that never names one. Stateless is a mode a client must cope with, not one it may insist against. |
 | `TheTransportIsWorkedOutByAsking` | that a client given nothing but a URL finds out what is there by asking — against an implementation that answers the asking its own way. |
 
-### Currently disabled, and why
+### Formerly disabled
 
-Two scenarios are disabled. They are left in place rather than deleted
-because they are the scenarios; what is wrong is on our side.
-
-- **`TheHandshakeIsAnsweredAndUnderstood`** and
-  **`AQuestionFromTheServerIsAnswered`** fail on one gap seen from both
-  directions: this **client** flattens nested JSON objects into dotted
-  keys. So `serverInfo` arrives and its name never populates, and the
-  sampling answer this client sends is a flat map where a nested object
-  is expected. The same limitation is noted in
-  `tests/integration/test_mcp_client_initialize_routing.cc`. Enable both
-  with the parser that closes it.
-
-  The server does not have this gap, which is why direction B passes the
-  equivalent scenarios.
+`TheHandshakeIsAnsweredAndUnderstood` and
+`AQuestionFromTheServerIsAnswered` were disabled while this client
+flattened nested JSON into dotted keys. Both run again since that was
+fixed (#283).
 
 ## B — the official SDK's client against our server
 
@@ -194,3 +203,58 @@ needed paths that did not exist: a response stream that can carry a
 question to the client, a handler that answers after its dispatch
 returned, and closing the stream a session holds without ending the
 session.
+
+## The Python suites — the 2026-07-28 revision
+
+No released TypeScript SDK speaks `2026-07-28` (checked 2026-09-28:
+`@modelcontextprotocol/sdk` 1.30.1 and the v2 packages at 2.1.0 both top
+out at `2025-11-25`). The official Python SDK does, from `mcp` 2.2.0, so
+it is what this project's newest-era client and server are checked
+against. Every scenario also runs in an earlier revision, against the
+same peer. Re-run these after each phase of the spec work.
+
+Pinned in `python-requirements.txt` (`mcp==2.2.0`, `mcp-types==2.2.0`),
+with the full install in `python-requirements.lock`.
+
+### A-py — our client against the Python SDK's server
+
+`test_client_vs_python_server`, each scenario in `Modern` (2026-07-28)
+and `Classic` (the handshake revisions):
+
+| Scenario | Checks |
+|---|---|
+| `TheServerIsDiscoveredOrIntroduced` | discovery in 2026-07-28, the handshake otherwise; server name; caching hints on discovery |
+| `AToolIsCalledAndAnswersExactly` | `add` returns exactly `42` |
+| `AStructuredResultIsListedAndRead` | `outputSchema` listed, `structuredContent` read; `ttlMs`/`cacheScope` on `tools/list` in 2026-07-28 only |
+| `AnElicitationIsAnsweredInEitherRevision` | the typed elicitation handler answers; `input_required` in 2026-07-28 |
+| `AResourceIsReadAndAMissingOneRefused` | a resource is read exactly; a missing one is an error |
+| `AMissingResourceKeepsTheServersError` | the server's own error code comes through |
+| `AListenerHearsAResourceChange` | `subscriptions/listen` hears a resource update (2026-07-28 only) |
+| `AServerKeepingNoSessionsStillWorks` | against a stateless server |
+| `AToolListingIsPaged` | skipped: paging is not implemented yet |
+
+### B-py — the Python SDK's client against our server
+
+`test_python_client_vs_server` runs `official-client-py/client.py` in
+`--mode modern` and `--mode legacy`, against a whole server and a
+stateless one. Its scenarios: discovery or the handshake, tools,
+structured output, elicitation, a resource and a prompt, caching hints,
+listen, the not-found error codes (`-32602` in 2026-07-28, `-32002`
+before), with paging and the `-3202x` codes skipped until they exist.
+
+### What the Python SDK found
+
+Our server passed every scenario in both revisions. Our client did not,
+and each finding has a ticket; the affected scenarios skip naming it
+until it is fixed:
+
+| Ticket | What was wrong |
+|---|---|
+| #296 | Naming the Streamable HTTP transport skipped the `server/discover` probe, so the client never spoke 2026-07-28. |
+| #297 | An error sent with HTTP 400 and a JSON-RPC body was replaced by a generic `-32603`. |
+| #298 | In the earlier revisions, the answer to a server's request was pipelined behind the call's streaming response, which uvicorn does not read; the call hung. Node reads pipelined requests, which is why the TypeScript suite never saw it. |
+| #299 | `notifications/initialized` was sent in the 2026-07-28 era, which has no handshake. |
+
+The Python SDK itself answers a missing resource with `-32602` in the
+earlier revisions too, where they name `-32002`; the suites accept
+either from that server.
