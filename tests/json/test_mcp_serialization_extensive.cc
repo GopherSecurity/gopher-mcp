@@ -916,16 +916,15 @@ TEST_F(MCPSerializationExtensiveTest, AllElicitationSchemas) {
 
   for (size_t i = 0; i < schemas.size(); ++i) {
     ElicitRequest req;
-    req.id = mcp::make_request_id("elicit-" + std::to_string(i));
-    req.name = "field_" + std::to_string(i);
-    req.schema = schemas[i];
-    req.prompt = mcp::make_optional(std::string("Please provide input"));
+    const std::string field = "field_" + std::to_string(i);
+    req.message = "Please provide input";
+    req.requestedSchema.properties[field] = schemas[i];
 
     JsonValue req_json = to_json(req);
     ElicitRequest req_des = from_json<ElicitRequest>(req_json);
 
-    EXPECT_EQ(req_des.name, req.name);
-    EXPECT_TRUE(req_des.prompt.has_value());
+    EXPECT_EQ(req_des.message, req.message);
+    EXPECT_EQ(req_des.requestedSchema.properties.count(field), 1u);
   }
 }
 

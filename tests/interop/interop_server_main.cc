@@ -41,9 +41,11 @@
 #include <string>
 #include <vector>
 
+#include "mcp/builders.h"
 #include "mcp/event/event_loop.h"
 #include "mcp/json/json_bridge.h"
 #include "mcp/json/json_serialization.h"
+#include "mcp/protocol/elicitation.h"
 #include "mcp/server/mcp_server.h"
 #include "mcp/types.h"
 
@@ -247,6 +249,13 @@ std::vector<Tool> interopTools() {
       R"({"type":"object","properties":{"text":{"type":"string"}}})"));
   tools.push_back(trigger);
 
+  Tool elicit("elicit_prompt");
+  elicit.description = mcp::make_optional(
+      std::string("Ask the user which environment, and return the answer"));
+  elicit.inputSchema = mcp::make_optional(
+      json::JsonValue::parse(R"({"type":"object","properties":{}})"));
+  tools.push_back(elicit);
+
   Tool sample("sample_prompt");
   sample.description = mcp::make_optional(
       std::string("Ask the client to sample, and return what it said"));
@@ -393,6 +402,11 @@ class ToolCalls {
       return;
     }
 
+    if (name == "elicit_prompt") {
+      elicitFromTheClient(request, answer);
+      return;
+    }
+
     if (name == "cut_stream") {
       cutTheStream(request, session, answer, arguments);
       return;
@@ -437,6 +451,49 @@ class ToolCalls {
       return;
     }
     task->runOverTime(*server_.dispatcher());
+  }
+
+  /**
+   * An elicitation, built with the typed API and asked of the client. The
+   * answer comes back as "<action>:<env>", so the round trip can be checked
+   * from the far side exactly.
+   */
+  void elicitFromTheClient(const jsonrpc::Request& request,
+                           const ResponseStreamPtr& answer) {
+    EnumSchema env;
+    env.values = {"staging", "production"};
+    const ElicitRequest question = make<ElicitRequest>("Which environment?")
+                                       .field("env", env)
+                                       .required("env")
+                                       .build();
+
+    const RequestId call_id = request.id;
+    auto asked = server_.askClient(
+        answer,
+        protocol::elicitation::toRequest(question, RequestId(nextQuestionId())),
+        [answer, call_id](const jsonrpc::Response& said) {
+          std::string told;
+          try {
+            const ElicitResult result = protocol::elicitation::resultFrom(said);
+            told = result.action == ElicitAction::Accept
+                       ? "accept"
+                       : (result.action == ElicitAction::Decline ? "decline"
+                                                                 : "cancel");
+            told += ":";
+            if (result.content.has_value() && result.content->count("env") &&
+                holds_alternative<std::string>(result.content->at("env"))) {
+              told += get<std::string>(result.content->at("env"));
+            }
+          } catch (const std::exception& e) {
+            told = std::string("unreadable: ") + e.what();
+          }
+          answer->sendResponse(textResult(call_id, told));
+        },
+        std::chrono::seconds(10));
+
+    if (holds_alternative<Error>(asked)) {
+      answer->sendResponse(toolError(request.id, get<Error>(asked).message));
+    }
   }
 
   void askTheClient(const jsonrpc::Request& request,

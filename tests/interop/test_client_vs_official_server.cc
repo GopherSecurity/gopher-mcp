@@ -33,8 +33,10 @@
 #include <gtest/gtest.h>
 #include <sys/wait.h>
 
+#include "mcp/builders.h"
 #include "mcp/client/mcp_client.h"
 #include "mcp/json/json_serialization.h"
+#include "mcp/protocol/elicitation.h"
 #include "mcp/types.h"
 
 #include "child_process.h"
@@ -291,6 +293,23 @@ class OfficialServerInteropTest : public ::testing::Test {
     client_->registerNotificationHandler(
         "notifications/message",
         [this](const jsonrpc::Notification&) { pushed_.record("pushed"); });
+
+    // An elicitation, read and answered with the typed API.
+    client_->registerRequestHandler(
+        "elicitation/create",
+        [](const jsonrpc::Request& request) -> jsonrpc::ResponseResult {
+          const ElicitRequest question =
+              protocol::elicitation::fromRequest(request);
+          if (question.message != "Which environment?" ||
+              question.requestedSchema.properties.count("env") == 0) {
+            return protocol::elicitation::toResult(
+                ElicitResult(ElicitAction::Decline));
+          }
+          return protocol::elicitation::toResult(
+              make<ElicitResult>(ElicitAction::Accept)
+                  .field("env", "staging")
+                  .build());
+        });
 
     // A question this client can answer, so that a server asking one
     // mid-request gets something back rather than a refusal.
@@ -553,6 +572,19 @@ TEST_F(OfficialServerInteropTest, ResourceContentIsReadAsTheSpecShapesIt) {
   const auto& contents = get<TextResourceContents>(embedded.resource);
   EXPECT_EQ(contents.uri.value(), "interop://embedded");
   EXPECT_EQ(contents.text, "embedded by the reference server");
+}
+
+// An elicitation from the official SDK's server, read by this client with
+// the typed API and answered in a shape that SDK accepts.
+TEST_F(OfficialServerInteropTest, AnElicitationIsReadAndAnswered) {
+  ASSERT_TRUE(server_.start());
+  startClient();
+  ASSERT_NO_THROW(handshake());
+
+  auto answer = callTool("elicit_prompt", R"({})");
+  ASSERT_FALSE(answer.error.has_value())
+      << "elicit_prompt failed: " << answer.error->message;
+  EXPECT_EQ(resultText(answer), "accept:staging");
 }
 
 }  // namespace

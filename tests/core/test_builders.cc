@@ -366,22 +366,32 @@ TEST(BuildersTest, EnumSchemaBuilder) {
 }
 
 TEST(BuildersTest, ElicitRequestBuilder) {
-  auto schema = PrimitiveSchemaDefinition(StringSchema());
-  auto request = make<ElicitRequest>("user-input", schema)
-                     .prompt("Please enter your name:")
+  auto request = make<ElicitRequest>("Please enter your name:")
+                     .field("name", PrimitiveSchemaDefinition(StringSchema()))
+                     .required("name")
                      .build();
 
-  EXPECT_EQ(request.name, "user-input");
-  ASSERT_TRUE(request.prompt.has_value());
-  EXPECT_EQ(request.prompt.value(), "Please enter your name:");
+  EXPECT_EQ(request.method, "elicitation/create");
+  EXPECT_EQ(request.message, "Please enter your name:");
+  ASSERT_EQ(request.requestedSchema.properties.count("name"), 1u);
+  ASSERT_TRUE(request.requestedSchema.required.has_value());
+  EXPECT_EQ(request.requestedSchema.required->at(0), "name");
 }
 
 TEST(BuildersTest, ElicitResultBuilder) {
-  auto result = make<ElicitResult>().value("user response").build();
+  auto result = make<ElicitResult>(ElicitAction::Accept)
+                    .field("name", "user response")
+                    .field("age", 30)
+                    .build();
 
-  auto* stringValue = mcp::get_if<std::string>(&result.value);
-  ASSERT_NE(stringValue, nullptr);
-  EXPECT_EQ(*stringValue, "user response");
+  EXPECT_EQ(result.action, ElicitAction::Accept);
+  ASSERT_TRUE(result.content.has_value());
+  auto* name = mcp::get_if<std::string>(&result.content->at("name"));
+  ASSERT_NE(name, nullptr);
+  EXPECT_EQ(*name, "user response");
+  auto* age = mcp::get_if<int64_t>(&result.content->at("age"));
+  ASSERT_NE(age, nullptr);
+  EXPECT_EQ(*age, 30);
 }
 
 TEST(BuildersTest, BuilderImplicitConversion) {
@@ -1036,15 +1046,16 @@ TEST(ExtensiveBuildersTest, ComplexElicitRequest) {
           .pattern("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$")
           .build());
 
-  auto request = make<ElicitRequest>("email-input", schema)
-                     .prompt("Please enter your email address:")
+  auto request = make<ElicitRequest>("Please enter your email address:")
+                     .field("email", schema)
+                     .required("email")
                      .build();
 
-  EXPECT_EQ(request.name, "email-input");
-  ASSERT_TRUE(request.prompt.has_value());
-  EXPECT_EQ(request.prompt.value(), "Please enter your email address:");
+  EXPECT_EQ(request.message, "Please enter your email address:");
+  ASSERT_EQ(request.requestedSchema.properties.count("email"), 1u);
 
-  auto* stringSchema = mcp::get_if<StringSchema>(&request.schema);
+  auto* stringSchema = mcp::get_if<StringSchema>(
+      &request.requestedSchema.properties.at("email"));
   ASSERT_NE(stringSchema, nullptr);
   ASSERT_TRUE(stringSchema->pattern.has_value());
 }

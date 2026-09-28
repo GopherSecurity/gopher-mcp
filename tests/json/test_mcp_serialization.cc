@@ -887,33 +887,32 @@ TEST_F(MCPSerializationTest, CompleteResult) {
 
 TEST_F(MCPSerializationTest, ElicitRequest) {
   ElicitRequest req;
-  req.id = make_request_id("elicit-1");
-  req.name = "user_age";
-  req.schema = make_number_schema();
-  req.prompt = mcp::make_optional(std::string("Please enter your age"));
+  req.message = "Please enter your age";
+  req.mode = mcp::make_optional(std::string("form"));
+  NumberSchema age;
+  age.type = "integer";
+  req.requestedSchema.properties["age"] = age;
+  req.requestedSchema.properties["name"] = make_string_schema();
+  req.requestedSchema.required =
+      mcp::make_optional(std::vector<std::string>{"age"});
   testRoundTrip(req);
 }
 
 TEST_F(MCPSerializationTest, ElicitResult) {
-  // String result
-  ElicitResult str_result;
-  str_result.value = std::string("John Doe");
-  testRoundTrip(str_result);
+  // Accepted, with every kind of value the user can enter
+  ElicitResult accepted(ElicitAction::Accept);
+  std::map<std::string, ElicitContentValue> content;
+  content["name"] = std::string("John Doe");
+  content["age"] = static_cast<int64_t>(25);
+  content["height"] = 1.8;
+  content["subscribed"] = true;
+  content["tags"] = std::vector<std::string>{"a", "b"};
+  accepted.content = content;
+  testRoundTrip(accepted);
 
-  // Number result
-  ElicitResult num_result;
-  num_result.value = 25.5;
-  testRoundTrip(num_result);
-
-  // Boolean result
-  ElicitResult bool_result;
-  bool_result.value = true;
-  testRoundTrip(bool_result);
-
-  // Null result
-  ElicitResult null_result;
-  null_result.value = nullptr;
-  testRoundTrip(null_result);
+  // Declined and cancelled carry nothing the user entered
+  testRoundTrip(ElicitResult(ElicitAction::Decline));
+  testRoundTrip(ElicitResult(ElicitAction::Cancel));
 }
 
 // =============================================================================

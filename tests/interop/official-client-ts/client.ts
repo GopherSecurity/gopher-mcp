@@ -22,7 +22,7 @@
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-import { CreateMessageRequestSchema } from '@modelcontextprotocol/sdk/types.js';
+import { CreateMessageRequestSchema, ElicitRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 
 interface Options {
   url: string;
@@ -137,8 +137,19 @@ async function connectClient(collectPushes = false) {
   const transport = newTransport();
   const client = new Client(
     { name: 'gopher-interop-driver', version: '1.0.0' },
-    { capabilities: { sampling: {} } }
+    { capabilities: { sampling: {}, elicitation: {} } }
   );
+
+  // The SDK validates the request against its own schema before this runs,
+  // so reaching here means the elicitation arrived in the spec's shape.
+  client.setRequestHandler(ElicitRequestSchema, async (request: any) => {
+    const env = request.params?.requestedSchema?.properties?.env;
+    const first = Array.isArray(env?.enum) ? env.enum[0] : undefined;
+    if (request.params?.message !== 'Which environment?' || !first) {
+      return { action: 'decline' };
+    }
+    return { action: 'accept', content: { env: first } };
+  });
 
   client.setRequestHandler(CreateMessageRequestSchema, async (request) => {
     // Canned on purpose: what matters is that the round trip happened and
@@ -278,6 +289,11 @@ await scenario('a question from the server is answered', async () => {
     'the client said: say something',
     'what the tool returned of what the client said'
   );
+});
+
+await scenario('an elicitation is asked in the spec shape and answered', async () => {
+  const answered = await main.client.callTool({ name: 'elicit_prompt', arguments: {} });
+  equal(toolText(answered), 'accept:staging', 'what the server read back');
 });
 
 await scenario('a resource and a prompt are read exactly', async () => {
