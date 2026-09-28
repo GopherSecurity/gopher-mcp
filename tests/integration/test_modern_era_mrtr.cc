@@ -33,10 +33,12 @@
 
 #include <gtest/gtest.h>
 
+#include "mcp/builders.h"
 #include "mcp/client/mcp_client.h"
 #include "mcp/json/json_bridge.h"
 #include "mcp/network/address.h"
 #include "mcp/network/socket_interface.h"
+#include "mcp/protocol/elicitation.h"
 #include "mcp/protocol/modern_era.h"
 #include "mcp/protocol/mrtr.h"
 #include "mcp/protocol/protocol_versions.h"
@@ -330,6 +332,81 @@ TEST_F(ModernEraMrtrTest, AStateThatLooksLikeJsonComesBackByteForByte) {
   ASSERT_EQ(rounds_.states.size(), 2u) << "the second round never arrived";
   EXPECT_EQ(rounds_.states[1], state)
       << "the state came back changed, or not as a string";
+}
+
+// The newest revision's elicitation: the typed request goes out as an entry
+// in inputRequests, the client answers it with the typed result, and the
+// handler reads that back from inputResponses when the call comes again.
+TEST_F(ModernEraMrtrTest, ATypedElicitationTravelsAsInputRequests) {
+  server_->registerAsyncRequestHandler(
+      modern::kMethodToolsCall,
+      [this](const jsonrpc::Request& request, server::SessionContext& session,
+             const ResponseStreamPtr& stream) {
+        const json::JsonValue params = request.params_json.has_value()
+                                           ? request.params_json.value()
+                                           : json::JsonValue::object();
+        const auto carried = modern::carriedInputOf(params);
+
+        if (!carried.responses.isObject() ||
+            !carried.responses.contains("env")) {
+          EnumSchema env;
+          env.values = {"staging", "production"};
+          modern::NeedsInput needed;
+          needed.requests["env"] = protocol::elicitation::toInputRequest(
+              make<ElicitRequest>("Which environment?")
+                  .field("env", env)
+                  .required("env")
+                  .build());
+          needed.request_state = mcp::make_optional(std::string("s"));
+          server_->answerWithInput(stream, request, session, needed);
+          return;
+        }
+
+        std::string chosen = "nothing";
+        try {
+          const ElicitResult answer =
+              protocol::elicitation::resultFrom(carried.responses["env"]);
+          if (answer.action == ElicitAction::Accept && answer.content) {
+            chosen = get<std::string>(answer.content->at("env"));
+          }
+        } catch (const std::exception& e) {
+          chosen = std::string("unreadable: ") + e.what();
+        }
+        json::JsonValue text = json::JsonValue::object();
+        text.set("type", json::JsonValue("text"));
+        text.set("text", json::JsonValue(chosen));
+        json::JsonValue content = json::JsonValue::array();
+        content.push_back(text);
+        json::JsonValue done = json::JsonValue::object();
+        done.set("content", content);
+        stream->sendResponse(jsonrpc::Response::success(
+            request.id, jsonrpc::ResponseResult(done)));
+      },
+      StreamingMode::Optional);
+  startServing();
+  startClient();
+
+  std::string asked;
+  client_->registerRequestHandler(
+      modern::kMethodElicitation,
+      [&asked](const jsonrpc::Request& request) -> jsonrpc::ResponseResult {
+        const ElicitRequest question =
+            protocol::elicitation::fromRequest(request);
+        asked = question.message;
+        return protocol::elicitation::toResult(
+            make<ElicitResult>(ElicitAction::Accept)
+                .field("env", "staging")
+                .build());
+      });
+
+  auto called = client_->callTool("deploy", optional<Metadata>());
+  ASSERT_EQ(called.wait_for(10s), std::future_status::ready);
+  CallToolResult result;
+  ASSERT_NO_THROW(result = called.get());
+  ASSERT_EQ(result.content.size(), 1u);
+  ASSERT_TRUE(holds_alternative<TextContent>(result.content[0]));
+  EXPECT_EQ(get<TextContent>(result.content[0]).text, "staging");
+  EXPECT_EQ(asked, "Which environment?");
 }
 
 // The answer has to survive the trip up to the caller. A server of this

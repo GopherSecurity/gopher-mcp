@@ -44,9 +44,11 @@
 
 #include <gtest/gtest.h>
 
+#include "mcp/builders.h"
 #include "mcp/client/mcp_client.h"
 #include "mcp/network/address.h"
 #include "mcp/network/socket_interface.h"
+#include "mcp/protocol/elicitation.h"
 #include "mcp/server/mcp_server.h"
 #include "mcp/types.h"
 
@@ -641,5 +643,69 @@ TEST_F(ServerNotificationDeliveryTest, SendRequestReachesStreamableHttpClient) {
   ASSERT_TRUE(result["answer"].isString());
   EXPECT_EQ(result["answer"].getString(), "pong");
 }
+// The older revisions' elicitation: the server sends elicitation/create as a
+// request of its own, built from the typed request, and reads the client's
+// answer back as a typed result. The client reads the question and answers
+// with the typed result too.
+TEST_F(ServerNotificationDeliveryTest, ATypedElicitationIsAskedAndAnswered) {
+  std::promise<std::future<jsonrpc::Response>> server_answer;
+  auto server_answer_future = server_answer.get_future();
+  server_->registerRequestHandler(
+      "test/ask",
+      [this, &server_answer](
+          const jsonrpc::Request& request,
+          server::SessionContext& session) -> jsonrpc::Response {
+        EnumSchema env;
+        env.values = {"staging", "production"};
+        const ElicitRequest question = make<ElicitRequest>("Which environment?")
+                                           .field("env", env)
+                                           .required("env")
+                                           .build();
+        server_answer.set_value(server_->sendRequest(
+            session.getId(),
+            protocol::elicitation::toRequest(question, std::string("elicit-1")),
+            5000ms));
+        return jsonrpc::Response::success(
+            request.id, jsonrpc::ResponseResult(make<Metadata>().build()));
+      });
+
+  auto* client = makeConnectedStreamableClient("elicitation-client");
+  ASSERT_NE(client, nullptr);
+  std::string asked;
+  client->registerRequestHandler(
+      "elicitation/create",
+      [&asked](const jsonrpc::Request& request) -> jsonrpc::ResponseResult {
+        const ElicitRequest question =
+            protocol::elicitation::fromRequest(request);
+        asked = question.message;
+        if (question.requestedSchema.properties.count("env") == 0) {
+          return protocol::elicitation::toResult(
+              ElicitResult(ElicitAction::Decline));
+        }
+        return protocol::elicitation::toResult(
+            make<ElicitResult>(ElicitAction::Accept)
+                .field("env", "staging")
+                .build());
+      });
+
+  auto trigger = client->sendRequest("test/ask");
+  ASSERT_EQ(trigger.wait_for(5s), std::future_status::ready);
+  ASSERT_NO_THROW(trigger.get());
+
+  ASSERT_EQ(server_answer_future.wait_for(5s), std::future_status::ready)
+      << "the server never asked";
+  auto response_future = server_answer_future.get();
+  ASSERT_EQ(response_future.wait_for(5s), std::future_status::ready)
+      << "the client never answered the elicitation";
+
+  ElicitResult answer;
+  ASSERT_NO_THROW(answer =
+                      protocol::elicitation::resultFrom(response_future.get()));
+  EXPECT_EQ(asked, "Which environment?");
+  EXPECT_EQ(answer.action, ElicitAction::Accept);
+  ASSERT_TRUE(answer.content.has_value());
+  EXPECT_EQ(get<std::string>(answer.content->at("env")), "staging");
+}
+
 }  // namespace
 }  // namespace mcp

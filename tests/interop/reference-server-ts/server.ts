@@ -164,6 +164,33 @@ function buildServer(): McpServer {
     }
   );
 
+  // An elicitation asked of the client, whose answer the SDK validates
+  // against its own schema before handing it back. Tied to the call, so it
+  // goes down the stream the call is being answered on, as sampling's does,
+  // rather than waiting on a standalone stream the client may not have
+  // opened yet.
+  server.registerTool(
+    'elicit_prompt',
+    { description: 'Ask the user which environment, and return the answer' },
+    async (extra) => {
+      const result = await server.server.elicitInput(
+        {
+          message: 'Which environment?',
+          requestedSchema: {
+            type: 'object',
+            properties: {
+              env: { type: 'string', enum: ['staging', 'production'] }
+            },
+            required: ['env']
+          }
+        },
+        { relatedRequestId: extra.requestId }
+      );
+      const env = typeof result.content?.env === 'string' ? result.content.env : '';
+      return { content: [{ type: 'text', text: `${result.action}:${env}` }] };
+    }
+  );
+
   // A resource link and an embedded resource, in the shapes the SDK itself
   // writes, for a client to read back.
   server.registerTool(
