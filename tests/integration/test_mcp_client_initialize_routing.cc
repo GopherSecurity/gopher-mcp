@@ -654,5 +654,33 @@ TEST_F(McpClientInitializeRoutingTest, AResultThatCannotBeEncodedIsAnError) {
   EXPECT_FALSE(ping.get().error.has_value());
 }
 
+// A client speaking the newest revision is told how long it may cache what
+// it discovered and listed, and whether it may share it. With nothing
+// configured on the server, that is the safe answer: refetch, and keep it
+// to yourself.
+TEST_F(McpClientInitializeRoutingTest, CachingHintsReachTheClient) {
+  connectInitializedClient();
+
+  // connectInitializedClient() already ran the handshake, which in this
+  // revision is a server/discover; run it again to look at the answer.
+  auto discovered = client_->initializeProtocol();
+  ASSERT_EQ(discovered.wait_for(5s), std::future_status::ready);
+  InitializeResult discovery;
+  ASSERT_NO_THROW(discovery = discovered.get());
+  ASSERT_TRUE(discovery.ttlMs.has_value()) << "discovery carried no ttlMs";
+  EXPECT_EQ(discovery.ttlMs.value(), 0);
+  ASSERT_TRUE(discovery.cacheScope.has_value());
+  EXPECT_EQ(discovery.cacheScope.value(), "private");
+
+  auto listed = client_->listTools();
+  ASSERT_EQ(listed.wait_for(5s), std::future_status::ready);
+  ListToolsResult tools;
+  ASSERT_NO_THROW(tools = listed.get());
+  ASSERT_TRUE(tools.ttlMs.has_value()) << "tools/list carried no ttlMs";
+  EXPECT_EQ(tools.ttlMs.value(), 0);
+  ASSERT_TRUE(tools.cacheScope.has_value());
+  EXPECT_EQ(tools.cacheScope.value(), "private");
+}
+
 }  // namespace
 }  // namespace mcp

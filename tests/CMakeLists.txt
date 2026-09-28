@@ -31,6 +31,7 @@ add_executable(test_session_transport_binding server/test_session_transport_bind
 add_executable(test_legacy_dispatch_session server/test_legacy_dispatch_session.cc)
 add_executable(test_empty_result_shape server/test_empty_result_shape.cc)
 add_executable(test_server_capability_shapes server/test_server_capability_shapes.cc)
+add_executable(test_cache_hints server/test_cache_hints.cc)
 add_executable(test_ask_client server/test_ask_client.cc)
 add_executable(test_deferred_handler server/test_deferred_handler.cc)
 add_executable(test_drop_session_stream server/test_drop_session_stream.cc)
@@ -349,6 +350,15 @@ target_link_libraries(test_empty_result_shape
 )
 
 target_link_libraries(test_server_capability_shapes
+    gopher-mcp
+    gopher-mcp-logging
+    gtest
+    gtest_main
+    Threads::Threads
+    fmt::fmt
+)
+
+target_link_libraries(test_cache_hints
     gopher-mcp
     gopher-mcp-logging
     gtest
@@ -1529,6 +1539,7 @@ add_test(NAME SessionTransportBindingTest COMMAND test_session_transport_binding
 add_test(NAME LegacyDispatchSessionTest COMMAND test_legacy_dispatch_session)
 add_test(NAME EmptyResultShapeTest COMMAND test_empty_result_shape)
 add_test(NAME ServerCapabilityShapesTest COMMAND test_server_capability_shapes)
+add_test(NAME CacheHintsTest COMMAND test_cache_hints)
 add_test(NAME AskClientTest COMMAND test_ask_client)
 add_test(NAME DeferredHandlerTest COMMAND test_deferred_handler)
 add_test(NAME DropSessionStreamTest COMMAND test_drop_session_stream)
