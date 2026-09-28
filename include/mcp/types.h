@@ -517,12 +517,20 @@ struct PaginatedResultBase {
   PaginatedResultBase() = default;
 };
 
-struct ListResourcesResult : PaginatedResultBase {
+// Caching hints a result may carry in the 2026-07-28 revision: how long it
+// stays valid, and whether a cache may share it between users. Present only
+// when the server sent them; a server fills them in on the way out.
+struct CacheableResult {
+  optional<int64_t> ttlMs;           // Milliseconds; 0 means always refetch
+  optional<std::string> cacheScope;  // "public" or "private"
+};
+
+struct ListResourcesResult : PaginatedResultBase, CacheableResult {
   std::vector<Resource> resources;
   ListResourcesResult() = default;
 };
 
-struct ListToolsResult {
+struct ListToolsResult : CacheableResult {
   std::vector<Tool> tools;
   ListToolsResult() = default;
 };
@@ -534,7 +542,7 @@ struct PaginatedResult : PaginatedResultBase {
 
 // Defined here, with the other list results, so that a prompts/list answer
 // can decode into it as a member of the ResponseResult variant.
-struct ListPromptsResult : PaginatedResult {
+struct ListPromptsResult : PaginatedResult, CacheableResult {
   std::vector<Prompt> prompts;
 
   ListPromptsResult() = default;
@@ -546,7 +554,7 @@ struct ListPromptsResult : PaginatedResult {
 // resources/read response deserialize into a structured result rather than
 // being flattened into Metadata. The contents it holds are defined earlier,
 // with the content blocks, because an embedded resource holds them too.
-struct ReadResourceResult {
+struct ReadResourceResult : CacheableResult {
   std::vector<variant<TextResourceContents, BlobResourceContents>> contents;
 
   ReadResourceResult() = default;
@@ -979,7 +987,9 @@ struct InitializeRequest : jsonrpc::Request {
   InitializeRequest() : jsonrpc::Request() { method = "initialize"; }
 };
 
-struct InitializeResult {
+// The caching hints are carried only by the server/discover answer this is
+// also read from; an initialize answer has none.
+struct InitializeResult : CacheableResult {
   std::string protocolVersion;
   ServerCapabilities capabilities;
   optional<Implementation> serverInfo;
@@ -1044,7 +1054,7 @@ struct ResourceTemplate : BaseMetadata {
   ResourceTemplate() = default;
 };
 
-struct ListResourceTemplatesResult : PaginatedResult {
+struct ListResourceTemplatesResult : PaginatedResult, CacheableResult {
   std::vector<ResourceTemplate> resourceTemplates;
 
   ListResourceTemplatesResult() = default;

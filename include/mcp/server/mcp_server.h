@@ -121,6 +121,21 @@ struct McpServerConfig : public application::ApplicationBase::Config {
   // notifications/tools/list_changed when its set changes.
   bool tools_list_changed = false;
 
+  // Caching hints for the results the 2026-07-28 revision lets clients cache:
+  // server/discover, tools/list, prompts/list, resources/list,
+  // resources/templates/list and resources/read. Keyed by method. A method
+  // with no entry gets the defaults, a ttl of 0 and a private scope, which
+  // mean "always refetch" and "never share between users" and are always
+  // safe. Public lets a shared cache, such as a gateway, serve one user's
+  // answer to another, so it is only for results that do not depend on who
+  // asked. Earlier revisions have no such fields and never get them.
+  enum class CacheScope { Private, Public };
+  struct CacheHint {
+    std::chrono::milliseconds ttl{0};
+    CacheScope scope = CacheScope::Private;
+  };
+  std::map<std::string, CacheHint> cache_hints;
+
   // Transport configuration
   std::vector<TransportType> supported_transports = {TransportType::Stdio,
                                                      TransportType::HttpSse};

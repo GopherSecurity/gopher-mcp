@@ -748,6 +748,17 @@ InitializeResult McpClient::parseDiscoverResponse(
         mcp::make_optional(result["instructions"].getString());
   }
 
+  // How long this answer may be cached, and whether it may be shared.
+  if (result.isObject() && result.contains("ttlMs") &&
+      result["ttlMs"].isInteger()) {
+    init_result.ttlMs = mcp::make_optional(result["ttlMs"].getInt64());
+  }
+  if (result.isObject() && result.contains("cacheScope") &&
+      result["cacheScope"].isString()) {
+    init_result.cacheScope =
+        mcp::make_optional(result["cacheScope"].getString());
+  }
+
   return init_result;
 }
 
