@@ -15,6 +15,7 @@
  */
 
 #include <string>
+#include <vector>
 
 #include <gtest/gtest.h>
 
@@ -287,6 +288,108 @@ TEST(StructuredToolOutput, AnOlderRevisionIsSentOnlyObjects) {
 
   const JsonValue object_call = answerTo(server, "tools/call", "get_weather");
   EXPECT_TRUE(object_call["result"]["structuredContent"].isObject());
+}
+
+/** Settle a revision for this server's session, as a client's handshake does.
+ */
+void introduceAs(DispatchTestServer& server, const std::string& revision) {
+  jsonrpc::Request request;
+  request.jsonrpc = "2.0";
+  request.id = make_request_id(100);
+  request.method = "initialize";
+  Metadata params;
+  params["protocolVersion"] = MetadataValue(revision);
+  request.params = mcp::make_optional(params);
+  CapturingContext context;
+  server.onRequestWithContext(request, context);
+  ASSERT_TRUE(context.captured.has_value());
+  const JsonValue wire = json::to_json(context.captured.value());
+  ASSERT_EQ(wire["result"]["protocolVersion"].getString(), revision)
+      << wire.toString();
+}
+
+/** The text blocks of a tool result. */
+std::vector<std::string> textsOf(const JsonValue& result) {
+  std::vector<std::string> texts;
+  for (size_t i = 0; i < result["content"].size(); ++i) {
+    if (result["content"][i]["type"].getString() == "text") {
+      texts.push_back(result["content"][i]["text"].getString());
+    }
+  }
+  return texts;
+}
+
+// A revision from before structured output has neither field, so a caller
+// speaking it is sent neither, and reads the data as text instead.
+TEST(StructuredToolOutput, ARevisionBeforeItIsSentNeither) {
+  DispatchTestServer server(testConfig());
+  ASSERT_TRUE(server.registerTool(
+      weatherTool(),
+      [](const std::string&, const optional<Metadata>&, SessionContext&) {
+        return make<CallToolResult>()
+            .addText("22.5 and cloudy")
+            .structuredContent(weatherData())
+            .build();
+      }));
+  introduceAs(server, "2025-03-26");
+
+  const JsonValue listed = answerTo(server, "tools/list");
+  EXPECT_FALSE(listed["result"]["tools"][0].contains("outputSchema"))
+      << listed.toString();
+
+  const JsonValue called = answerTo(server, "tools/call", "get_weather");
+  ASSERT_TRUE(called.contains("result")) << called.toString();
+  EXPECT_FALSE(called["result"].contains("structuredContent"));
+  const auto texts = textsOf(called["result"]);
+  ASSERT_EQ(texts.size(), 2u) << called.toString();
+  EXPECT_EQ(texts[0], "22.5 and cloudy");
+  EXPECT_EQ(JsonValue::parse(texts[1]).toString(), weatherData().toString());
+}
+
+// A tool that gave a summary as well as a list: a caller that cannot be
+// sent the list still gets it, as text, beside the summary.
+TEST(StructuredToolOutput, DataLeftOutIsStillSentAsText) {
+  DispatchTestServer server(testConfig());
+  ASSERT_TRUE(server.registerTool(
+      make<Tool>("readings").build(),
+      [](const std::string&, const optional<Metadata>&, SessionContext&) {
+        return make<CallToolResult>()
+            .addText("three readings")
+            .structuredContent(JsonValue::parse("[21, 22.5, 24]"))
+            .build();
+      }));
+
+  // An earlier revision: objects only, so the list goes out as text.
+  const JsonValue older = answerTo(server, "tools/call", "readings");
+  EXPECT_FALSE(older["result"].contains("structuredContent"));
+  const auto texts = textsOf(older["result"]);
+  ASSERT_EQ(texts.size(), 2u) << older.toString();
+  EXPECT_EQ(texts[0], "three readings");
+  EXPECT_EQ(JsonValue::parse(texts[1]).size(), 3u);
+
+  // The newest: the list goes out as it is, and nothing is added.
+  const JsonValue newest = answerTo(server, "tools/call", "readings", kModern);
+  EXPECT_TRUE(newest["result"]["structuredContent"].isArray());
+  EXPECT_EQ(textsOf(newest["result"]).size(), 1u) << newest.toString();
+}
+
+// When the tool already said exactly what the data says, it is not said
+// twice.
+TEST(StructuredToolOutput, DataAlreadyInTheTextIsNotRepeated) {
+  DispatchTestServer server(testConfig());
+  ASSERT_TRUE(server.registerTool(
+      make<Tool>("readings").build(),
+      [](const std::string&, const optional<Metadata>&, SessionContext&) {
+        const JsonValue data = JsonValue::parse("[21, 22.5, 24]");
+        return make<CallToolResult>()
+            .addText(data.toString())
+            .structuredContent(data)
+            .build();
+      }));
+
+  const JsonValue older = answerTo(server, "tools/call", "readings");
+  EXPECT_FALSE(older["result"].contains("structuredContent"));
+  EXPECT_EQ(textsOf(older["result"]).size(), 1u) << older.toString();
 }
 
 // Nothing changes for a tool that does not use either field.
