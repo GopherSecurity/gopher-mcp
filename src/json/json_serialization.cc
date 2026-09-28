@@ -9,6 +9,30 @@ namespace mcp {
 namespace json {
 namespace impl {
 
+namespace {
+
+// The caching hints a result carries in the 2026-07-28 revision, written
+// only when set and read only when well-formed.
+void addCacheHints(JsonObjectBuilder& builder, const CacheableResult& result) {
+  if (result.ttlMs.has_value()) {
+    builder.add("ttlMs", JsonValue(result.ttlMs.value()));
+  }
+  if (result.cacheScope.has_value()) {
+    builder.add("cacheScope", result.cacheScope.value());
+  }
+}
+
+void readCacheHints(const JsonValue& json, CacheableResult& result) {
+  if (json.contains("ttlMs") && json["ttlMs"].isInteger()) {
+    result.ttlMs = json["ttlMs"].getInt64();
+  }
+  if (json.contains("cacheScope") && json["cacheScope"].isString()) {
+    result.cacheScope = json["cacheScope"].getString();
+  }
+}
+
+}  // namespace
+
 // Serialize Error and ErrorData
 JsonValue serialize_Error(const Error& error) {
   JsonObjectBuilder builder;
@@ -1473,6 +1497,8 @@ JsonValue serialize_ListToolsResult(const ListToolsResult& result) {
   }
   builder.add("tools", tools.build());
 
+  addCacheHints(builder, result);
+
   return builder.build();
 }
 
@@ -1506,6 +1532,8 @@ JsonValue serialize_ListPromptsResult(const ListPromptsResult& result) {
     builder.add("nextCursor", result.nextCursor.value());
   }
 
+  addCacheHints(builder, result);
+
   return builder.build();
 }
 
@@ -1526,6 +1554,8 @@ JsonValue serialize_ReadResourceResult(const ReadResourceResult& result) {
   }
   builder.add("contents", contents.build());
 
+  addCacheHints(builder, result);
+
   return builder.build();
 }
 
@@ -1541,6 +1571,8 @@ JsonValue serialize_ListResourcesResult(const ListResourcesResult& result) {
   if (result.nextCursor.has_value()) {
     builder.add("nextCursor", result.nextCursor.value());
   }
+
+  addCacheHints(builder, result);
 
   return builder.build();
 }
@@ -1558,6 +1590,8 @@ JsonValue serialize_ListResourceTemplatesResult(
   if (result.nextCursor.has_value()) {
     builder.add("nextCursor", result.nextCursor.value());
   }
+
+  addCacheHints(builder, result);
 
   return builder.build();
 }
@@ -2453,6 +2487,8 @@ ListToolsResult deserialize_ListToolsResult(const JsonValue& json) {
     result.tools.push_back(from_json<Tool>(tools[i]));
   }
 
+  readCacheHints(json, result);
+
   return result;
 }
 
@@ -2484,6 +2520,8 @@ ListPromptsResult deserialize_ListPromptsResult(const JsonValue& json) {
   if (json.contains("nextCursor")) {
     result.nextCursor = json["nextCursor"].getString();
   }
+
+  readCacheHints(json, result);
 
   return result;
 }
@@ -2537,6 +2575,8 @@ ReadResourceResult deserialize_ReadResourceResult(const JsonValue& json) {
     result.contents.push_back(deserialize_ResourceContents(contents[i]));
   }
 
+  readCacheHints(json, result);
+
   return result;
 }
 
@@ -2552,6 +2592,8 @@ ListResourcesResult deserialize_ListResourcesResult(const JsonValue& json) {
   if (json.contains("nextCursor")) {
     result.nextCursor = json["nextCursor"].getString();
   }
+
+  readCacheHints(json, result);
 
   return result;
 }
@@ -2570,6 +2612,8 @@ ListResourceTemplatesResult deserialize_ListResourceTemplatesResult(
   if (json.contains("nextCursor")) {
     result.nextCursor = json["nextCursor"].getString();
   }
+
+  readCacheHints(json, result);
 
   return result;
 }

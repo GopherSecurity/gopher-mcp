@@ -86,6 +86,46 @@ ServerCapabilities advertisedCapabilities(ServerCapabilities capabilities,
   return capabilities;
 }
 
+// The results the 2026-07-28 revision lets a client cache, and so the ones
+// that carry caching hints.
+bool isCacheableMethod(const std::string& method) {
+  return method == protocol::modern::kMethodServerDiscover ||
+         method == "tools/list" || method == "prompts/list" ||
+         method == "resources/list" || method == "resources/templates/list" ||
+         method == "resources/read";
+}
+
+// Put the caching hints on a complete result. Never on an error, and never
+// on a result that is really a question back, which is not an answer a
+// cache could keep. A value the handler already put there is its to keep.
+void stampCacheHints(const McpServerConfig::CacheHint& hint,
+                     jsonrpc::Response& response) {
+  if (response.error.has_value() || !response.result.has_value()) {
+    return;
+  }
+  json::JsonValue result = json::to_json(response.result.value());
+  if (!result.isObject()) {
+    return;
+  }
+  if (result.contains(protocol::modern::kResultTypeField) &&
+      result[protocol::modern::kResultTypeField].isString() &&
+      result[protocol::modern::kResultTypeField].getString() ==
+          protocol::modern::kResultTypeInputRequired) {
+    return;
+  }
+  if (!result.contains("ttlMs")) {
+    const int64_t ttl = hint.ttl.count() < 0 ? 0 : hint.ttl.count();
+    result.set("ttlMs", json::JsonValue(ttl));
+  }
+  if (!result.contains("cacheScope")) {
+    result.set("cacheScope",
+               json::JsonValue(hint.scope == McpServerConfig::CacheScope::Public
+                                   ? "public"
+                                   : "private"));
+  }
+  response.result = mcp::make_optional(jsonrpc::ResponseResult(result));
+}
+
 std::string negotiateProtocolVersion(const std::string& requested,
                                      const std::string& newest_supported) {
   if (requested.empty()) {
@@ -2059,6 +2099,20 @@ void McpServer::onRequestWithContext(const jsonrpc::Request& request,
                        : std::to_string(get<int64_t>(request.id)));
 
   session->setResponseStream(nullptr);
+
+  // Caching hints, for the results the newest revision lets a client cache.
+  // Only for callers of that revision; an older one has no such fields.
+  if (isCacheableMethod(request.method) && isModernRequest(request)) {
+    McpServerConfig::CacheHint hint;
+    {
+      std::lock_guard<std::mutex> lock(config_mutex_);
+      auto it = config_.cache_hints.find(request.method);
+      if (it != config_.cache_hints.end()) {
+        hint = it->second;
+      }
+    }
+    stampCacheHints(hint, response);
+  }
 
   // Down the same stream the progress went, when there was one: the
   // response is the last thing on it, and a second path out would leave
