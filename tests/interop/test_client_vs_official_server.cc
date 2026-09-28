@@ -587,5 +587,36 @@ TEST_F(OfficialServerInteropTest, AnElicitationIsReadAndAnswered) {
   EXPECT_EQ(resultText(answer), "accept:staging");
 }
 
+// A tool with a declared result shape, from the official SDK's server: the
+// schema comes through on the listing, and the data on the call.
+TEST_F(OfficialServerInteropTest, AStructuredResultIsListedAndRead) {
+  ASSERT_TRUE(server_.start());
+  startClient();
+  ASSERT_NO_THROW(handshake());
+
+  auto listed = client_->listTools();
+  ASSERT_EQ(listed.wait_for(15s), std::future_status::ready);
+  ListToolsResult tools;
+  ASSERT_NO_THROW(tools = listed.get());
+  const Tool* weather = nullptr;
+  for (const auto& tool : tools.tools) {
+    if (tool.name == "get_weather") {
+      weather = &tool;
+    }
+  }
+  ASSERT_NE(weather, nullptr) << "get_weather was not listed";
+  ASSERT_TRUE(weather->outputSchema.has_value());
+  EXPECT_EQ((*weather->outputSchema)["type"].getString(), "object");
+  EXPECT_TRUE((*weather->outputSchema)["properties"].contains("temp"));
+
+  auto called = client_->callTool("get_weather");
+  ASSERT_EQ(called.wait_for(15s), std::future_status::ready);
+  CallToolResult result;
+  ASSERT_NO_THROW(result = called.get());
+  ASSERT_TRUE(result.structuredContent.has_value());
+  EXPECT_EQ((*result.structuredContent)["temp"].getFloat(), 22.5);
+  EXPECT_EQ((*result.structuredContent)["conditions"].getString(), "Cloudy");
+}
+
 }  // namespace
 }  // namespace mcp

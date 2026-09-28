@@ -249,6 +249,16 @@ std::vector<Tool> interopTools() {
       R"({"type":"object","properties":{"text":{"type":"string"}}})"));
   tools.push_back(trigger);
 
+  Tool weather("get_weather");
+  weather.description =
+      mcp::make_optional(std::string("The weather, as text and as data"));
+  weather.inputSchema = mcp::make_optional(
+      json::JsonValue::parse(R"({"type":"object","properties":{}})"));
+  weather.outputSchema = mcp::make_optional(json::JsonValue::parse(
+      R"({"type":"object","properties":{"temp":{"type":"number"},)"
+      R"("conditions":{"type":"string"}},"required":["temp","conditions"]})"));
+  tools.push_back(weather);
+
   Tool elicit("elicit_prompt");
   elicit.description = mcp::make_optional(
       std::string("Ask the user which environment, and return the answer"));
@@ -399,6 +409,17 @@ class ToolCalls {
 
     if (name == "sample_prompt") {
       askTheClient(request, answer, arguments);
+      return;
+    }
+
+    if (name == "get_weather") {
+      CallToolResult result;
+      result.content.push_back(
+          ExtendedContentBlock(TextContent("22.5 and cloudy")));
+      result.structuredContent = mcp::make_optional(
+          json::JsonValue::parse(R"({"temp": 22.5, "conditions": "Cloudy"})"));
+      answer->sendResponse(jsonrpc::Response::success(
+          request.id, jsonrpc::ResponseResult(json::to_json(result))));
       return;
     }
 

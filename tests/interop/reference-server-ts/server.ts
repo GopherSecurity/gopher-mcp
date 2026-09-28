@@ -164,6 +164,20 @@ function buildServer(): McpServer {
     }
   );
 
+  // A tool with a declared result shape, answering with the data as well
+  // as text. The SDK checks the data against the schema before sending.
+  server.registerTool(
+    'get_weather',
+    {
+      description: 'The weather, as text and as data',
+      outputSchema: { temp: z.number(), conditions: z.string() }
+    },
+    async () => ({
+      content: [{ type: 'text', text: '22.5 and cloudy' }],
+      structuredContent: { temp: 22.5, conditions: 'Cloudy' }
+    })
+  );
+
   // An elicitation asked of the client, whose answer the SDK validates
   // against its own schema before handing it back. Tied to the call, so it
   // goes down the stream the call is being answered on, as sampling's does,

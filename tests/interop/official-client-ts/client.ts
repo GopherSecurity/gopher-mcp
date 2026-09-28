@@ -296,6 +296,20 @@ await scenario('an elicitation is asked in the spec shape and answered', async (
   equal(toolText(answered), 'accept:staging', 'what the server read back');
 });
 
+await scenario('a structured result is listed and returned in the spec shape', async () => {
+  // Listed first, so the SDK knows the schema and checks the result against
+  // it: a structuredContent that does not match fails the call.
+  const listed = await main.client.listTools();
+  const weather: any = listed.tools.find((tool) => tool.name === 'get_weather');
+  check(weather, 'get_weather was not listed');
+  equal(weather.outputSchema?.type, 'object', 'the listed outputSchema type');
+
+  const answered: any = await main.client.callTool({ name: 'get_weather', arguments: {} });
+  equal(answered.structuredContent?.temp, 22.5, 'the structured temp');
+  equal(answered.structuredContent?.conditions, 'Cloudy', 'the structured conditions');
+  equal(toolText(answered), '22.5 and cloudy', 'the text beside it');
+});
+
 await scenario('a resource and a prompt are read exactly', async () => {
   const read = await main.client.readResource({ uri: 'interop://greeting' });
   equal(read.contents.length, 1, 'contents returned');
