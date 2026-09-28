@@ -16,7 +16,9 @@
  * question back is not an answer anything could cache.
  */
 
+#include <memory>
 #include <string>
+#include <vector>
 
 #include <gtest/gtest.h>
 
@@ -51,6 +53,33 @@ class CapturingContext : public NullMessageDispatchContext {
   }
 
   optional<jsonrpc::Response> captured;
+};
+
+/** A return path that also holds a stream, for answers given later. */
+class StreamingContext : public NullMessageDispatchContext {
+ public:
+  class Stream : public ResponseStream {
+   public:
+    VoidResult sendNotification(const jsonrpc::Notification&) override {
+      return makeVoidSuccess();
+    }
+    VoidResult sendResponse(const jsonrpc::Response& response) override {
+      responses.push_back(response);
+      return makeVoidSuccess();
+    }
+    bool alive() const override { return true; }
+
+    std::vector<jsonrpc::Response> responses;
+  };
+
+  ResponseStreamPtr beginResponseStream() override {
+    if (!stream) {
+      stream = std::make_shared<Stream>();
+    }
+    return stream;
+  }
+
+  std::shared_ptr<Stream> stream;
 };
 
 const char* const kModern = "2026-07-28";
@@ -243,6 +272,70 @@ TEST(CacheHints, AHandlersOwnValuesAreKept) {
   const JsonValue answer = answerTo(server, request("tools/list", kModern));
   EXPECT_EQ(answer["result"]["ttlMs"].getInt64(), 5);
   EXPECT_EQ(answer["result"]["cacheScope"].getString(), "public");
+}
+
+// A handler that answers later still answers a cacheable method, and the
+// answer carries the hints the same as one given straight away.
+TEST(CacheHints, ADeferredAnswerCarriesThem) {
+  DispatchTestServer server(testConfig());
+  ResponseStreamPtr held;
+  jsonrpc::Request asked;
+  server.registerAsyncRequestHandler(
+      "tools/list",
+      [&held, &asked](const jsonrpc::Request& req, SessionContext&,
+                      const ResponseStreamPtr& answer) {
+        held = answer;
+        asked = req;
+      });
+
+  StreamingContext context;
+  server.onRequestWithContext(request("tools/list", kModern), context);
+  ASSERT_TRUE(held) << "the handler was never asked";
+  held->sendResponse(jsonrpc::Response::success(
+      asked.id, jsonrpc::ResponseResult(JsonValue::parse(R"({"tools": []})"))));
+
+  ASSERT_TRUE(context.stream);
+  ASSERT_EQ(context.stream->responses.size(), 1u);
+  const JsonValue answer = json::to_json(context.stream->responses[0]);
+  EXPECT_EQ(answer["result"]["ttlMs"].getInt64(), 0) << answer.toString();
+  EXPECT_EQ(answer["result"]["cacheScope"].getString(), "private");
+}
+
+// No hints reach an older caller, even ones a handler put on a typed result
+// itself, whether it answers straight away or later.
+TEST(CacheHints, AHandlersHintsNeverReachAnOlderCaller) {
+  ListToolsResult typed;
+  typed.ttlMs = mcp::make_optional(static_cast<int64_t>(5));
+  typed.cacheScope = mcp::make_optional(std::string("public"));
+
+  DispatchTestServer direct(testConfig());
+  direct.registerRequestHandler(
+      "tools/list", [typed](const jsonrpc::Request& req, SessionContext&) {
+        return jsonrpc::Response::success(req.id,
+                                          jsonrpc::ResponseResult(typed));
+      });
+  const JsonValue answered =
+      answerTo(direct, request("tools/list", std::string()));
+  ASSERT_TRUE(answered.contains("result")) << answered.toString();
+  EXPECT_FALSE(answered["result"].contains("ttlMs")) << answered.toString();
+  EXPECT_FALSE(answered["result"].contains("cacheScope"))
+      << answered.toString();
+
+  DispatchTestServer later(testConfig());
+  later.registerAsyncRequestHandler(
+      "tools/list", [typed](const jsonrpc::Request& req, SessionContext&,
+                            const ResponseStreamPtr& answer) {
+        answer->sendResponse(
+            jsonrpc::Response::success(req.id, jsonrpc::ResponseResult(typed)));
+      });
+  StreamingContext context;
+  later.onRequestWithContext(request("tools/list", std::string()), context);
+  ASSERT_TRUE(context.stream);
+  ASSERT_EQ(context.stream->responses.size(), 1u);
+  const JsonValue deferred = json::to_json(context.stream->responses[0]);
+  EXPECT_FALSE(deferred["result"].contains("ttlMs")) << deferred.toString();
+  EXPECT_FALSE(deferred["result"].contains("cacheScope"))
+      << deferred.toString();
 }
 
 // What a client reads: the hints come through on each typed result, and go
