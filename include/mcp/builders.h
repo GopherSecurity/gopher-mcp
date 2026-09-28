@@ -1082,8 +1082,10 @@ class ElicitRequestBuilder
     value_.message = message;
   }
 
-  ElicitRequestBuilder& mode(const std::string& m) {
-    value_.mode = mcp::make_optional(m);
+  // Says the form mode outright. It is the only mode this builds; leaving
+  // it out means the same thing.
+  ElicitRequestBuilder& formMode() {
+    value_.mode = mcp::make_optional(std::string("form"));
     return *this;
   }
 

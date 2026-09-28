@@ -1361,7 +1361,13 @@ JsonValue serialize_CreateMessageRequest(const CreateMessageRequest& request) {
 JsonValue serialize_ElicitRequest(const ElicitRequest& request) {
   JsonObjectBuilder builder;
 
+  // Only a form is written here; URL mode carries a url in its place, and
+  // naming it over a form would send a request no client could read.
   if (request.mode.has_value()) {
+    if (request.mode.value() != "form") {
+      throw JsonException("unsupported elicitation mode: " +
+                          request.mode.value());
+    }
     builder.add("mode", request.mode.value());
   }
   builder.add("message", request.message);
@@ -2351,19 +2357,30 @@ ElicitRequest deserialize_ElicitRequest(const JsonValue& json) {
   request.message = json.at("message").getString();
 
   const auto& schema = json.at("requestedSchema");
-  if (!schema.isObject() || !schema.contains("properties") ||
-      !schema["properties"].isObject()) {
+  if (!schema.isObject() || !schema.contains("type") ||
+      !schema["type"].isString() || schema["type"].getString() != "object" ||
+      !schema.contains("properties") || !schema["properties"].isObject()) {
     throw JsonException(
-        "an elicitation's requestedSchema must be an object with properties");
-  }
-  if (schema.contains("type") &&
-      (!schema["type"].isString() || schema["type"].getString() != "object")) {
-    throw JsonException("an elicitation's requestedSchema must be an object");
+        "an elicitation's requestedSchema must be {\"type\": \"object\", "
+        "\"properties\": {...}}");
   }
   const auto& properties = schema["properties"];
   for (const auto& name : properties.keys()) {
+    // Only the primitive types a form can hold. Anything else is refused
+    // rather than read as a string, which would put a different form in
+    // front of the user than the one the server asked for.
+    const auto& property = properties[name];
+    const std::string type = property.isObject() && property.contains("type") &&
+                                     property["type"].isString()
+                                 ? property["type"].getString()
+                                 : std::string();
+    if (type != "string" && type != "number" && type != "integer" &&
+        type != "boolean") {
+      throw JsonException("elicitation field " + name +
+                          " is not a string, number, integer or boolean");
+    }
     request.requestedSchema.properties[name] =
-        from_json<PrimitiveSchemaDefinition>(properties[name]);
+        from_json<PrimitiveSchemaDefinition>(property);
   }
   if (schema.contains("required")) {
     const auto& required = schema["required"];
