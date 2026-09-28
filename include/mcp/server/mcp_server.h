@@ -629,16 +629,11 @@ class ToolRegistry {
    * @return False when the tool was refused, with the reason logged.
    */
   bool registerTool(const Tool& tool, ToolHandler handler) {
-    // A structured result is always an object, so a schema for one that
-    // says anything else could never be met.
-    if (tool.outputSchema.has_value() &&
-        !(tool.outputSchema->isObject() &&
-          tool.outputSchema->contains("type") &&
-          (*tool.outputSchema)["type"].isString() &&
-          (*tool.outputSchema)["type"].getString() == "object")) {
+    // A JSON Schema is an object. What it describes may be anything in
+    // 2026-07-28; the earlier revisions are only shown object schemas.
+    if (tool.outputSchema.has_value() && !tool.outputSchema->isObject()) {
       GOPHER_LOG_ERROR(
-          "Tool {} refused: its outputSchema must be a JSON Schema with "
-          "\"type\": \"object\"",
+          "Tool {} refused: its outputSchema must be a JSON Schema object",
           tool.name);
       return false;
     }

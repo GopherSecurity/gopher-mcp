@@ -1453,10 +1453,9 @@ JsonValue serialize_CallToolResult(const CallToolResult& result) {
     builder.add("isError", result.isError);
   }
 
+  // Any JSON value, as 2026-07-28 allows. Which revisions may be sent what
+  // is the server's to decide before it gets here.
   if (result.structuredContent.has_value()) {
-    if (!result.structuredContent->isObject()) {
-      throw JsonException("a tool's structuredContent must be a JSON object");
-    }
     builder.add("structuredContent", result.structuredContent.value());
   }
 
@@ -2466,10 +2465,9 @@ CallToolResult deserialize_CallToolResult(const JsonValue& json) {
     result.isError = json["isError"].getBool();
   }
 
+  // Any JSON value, null included: present and null is not the same as
+  // absent.
   if (json.contains("structuredContent")) {
-    if (!json["structuredContent"].isObject()) {
-      throw JsonException("a tool's structuredContent must be a JSON object");
-    }
     result.structuredContent = json["structuredContent"];
   }
 
