@@ -435,6 +435,10 @@ JsonValue serialize_Tool(const Tool& tool) {
     builder.add("inputSchema", empty_schema.build());
   }
 
+  if (tool.outputSchema.has_value()) {
+    builder.add("outputSchema", tool.outputSchema.value());
+  }
+
   return builder.build();
 }
 
@@ -760,6 +764,12 @@ Tool deserialize_Tool(const JsonValue& json) {
   if (json.contains("inputSchema")) {
     // ToolInputSchema is JsonValue
     tool.inputSchema = json["inputSchema"];
+  }
+
+  // Kept as given. What a schema says is checked where the result is, not
+  // here, where one malformed schema would make the whole list unreadable.
+  if (json.contains("outputSchema") && json["outputSchema"].isObject()) {
+    tool.outputSchema = json["outputSchema"];
   }
 
   return tool;
@@ -1441,6 +1451,13 @@ JsonValue serialize_CallToolResult(const CallToolResult& result) {
 
   if (result.isError) {
     builder.add("isError", result.isError);
+  }
+
+  if (result.structuredContent.has_value()) {
+    if (!result.structuredContent->isObject()) {
+      throw JsonException("a tool's structuredContent must be a JSON object");
+    }
+    builder.add("structuredContent", result.structuredContent.value());
   }
 
   return builder.build();
@@ -2447,6 +2464,13 @@ CallToolResult deserialize_CallToolResult(const JsonValue& json) {
 
   if (json.contains("isError")) {
     result.isError = json["isError"].getBool();
+  }
+
+  if (json.contains("structuredContent")) {
+    if (!json["structuredContent"].isObject()) {
+      throw JsonException("a tool's structuredContent must be a JSON object");
+    }
+    result.structuredContent = json["structuredContent"];
   }
 
   return result;
