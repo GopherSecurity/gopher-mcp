@@ -1016,6 +1016,12 @@ class ResourceUpdatedNotificationBuilder
 
 class NumberSchemaBuilder : public Builder<NumberSchema, NumberSchemaBuilder> {
  public:
+  // Whole numbers only: written as "type": "integer".
+  NumberSchemaBuilder& integer() {
+    value_.type = "integer";
+    return *this;
+  }
+
   NumberSchemaBuilder& description(const std::string& desc) {
     value_.description = mcp::make_optional(desc);
     return *this;
@@ -1063,27 +1069,72 @@ class EnumSchemaBuilder : public Builder<EnumSchema, EnumSchemaBuilder> {
   }
 };
 
+// An elicitation: a message for the user and the form they fill in.
+//
+//   make<ElicitRequest>("Which environment?")
+//       .field("env", make<EnumSchema>().addValue("staging")...build())
+//       .required("env")
+//       .build();
 class ElicitRequestBuilder
     : public Builder<ElicitRequest, ElicitRequestBuilder> {
  public:
-  ElicitRequestBuilder(const std::string& name,
-                       const PrimitiveSchemaDefinition& schema) {
-    value_.name = name;
-    value_.schema = schema;
+  explicit ElicitRequestBuilder(const std::string& message) {
+    value_.message = message;
   }
 
-  ElicitRequestBuilder& prompt(const std::string& p) {
-    value_.prompt = mcp::make_optional(p);
+  ElicitRequestBuilder& mode(const std::string& m) {
+    value_.mode = mcp::make_optional(m);
+    return *this;
+  }
+
+  ElicitRequestBuilder& field(const std::string& name,
+                              const PrimitiveSchemaDefinition& schema) {
+    value_.requestedSchema.properties[name] = schema;
+    return *this;
+  }
+
+  ElicitRequestBuilder& required(const std::string& name) {
+    if (!value_.requestedSchema.required.has_value()) {
+      value_.requestedSchema.required =
+          mcp::make_optional(std::vector<std::string>());
+    }
+    value_.requestedSchema.required->push_back(name);
     return *this;
   }
 };
 
+// The client's answer to an elicitation.
+//
+//   make<ElicitResult>(ElicitAction::Accept).field("env", "staging").build();
 class ElicitResultBuilder : public Builder<ElicitResult, ElicitResultBuilder> {
  public:
-  template <typename T>
-  ElicitResultBuilder& value(T&& v) {
-    value_.value = std::forward<T>(v);
+  explicit ElicitResultBuilder(ElicitAction action = ElicitAction::Cancel) {
+    value_.action = action;
+  }
+
+  ElicitResultBuilder& action(ElicitAction a) {
+    value_.action = a;
     return *this;
+  }
+
+  // One field of what the user entered: a string, a whole number, a
+  // number, a boolean or a list of strings.
+  ElicitResultBuilder& field(const std::string& name,
+                             const ElicitContentValue& value) {
+    if (!value_.content.has_value()) {
+      value_.content =
+          mcp::make_optional(std::map<std::string, ElicitContentValue>());
+    }
+    (*value_.content)[name] = value;
+    return *this;
+  }
+
+  ElicitResultBuilder& field(const std::string& name, const char* value) {
+    return field(name, ElicitContentValue(std::string(value)));
+  }
+
+  ElicitResultBuilder& field(const std::string& name, int value) {
+    return field(name, ElicitContentValue(static_cast<int64_t>(value)));
   }
 };
 
