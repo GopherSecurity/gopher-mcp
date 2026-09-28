@@ -329,8 +329,10 @@ inline ContentBlock make_image_content(const std::string& data,
 // Tool definitions
 using ToolInputSchema =
     mcp::json::JsonValue;  // Tool input schema is a JSON object
-// The shape of a tool's structured result: a JSON Schema with
-// "type": "object". A tool that declares one returns structuredContent
+// The shape of a tool's structured result: a JSON Schema object. In
+// 2026-07-28 it may describe any JSON value; the earlier revisions allow
+// only "type": "object", and a schema for anything else is not shown to
+// their clients. A tool that declares one returns structuredContent
 // matching it with every successful result.
 using ToolOutputSchema = mcp::json::JsonValue;
 
@@ -1170,9 +1172,11 @@ struct CallToolRequest : jsonrpc::Request {
 struct CallToolResult {
   std::vector<ExtendedContentBlock> content;
   bool isError = false;
-  // The result as data, for programs rather than the model: a JSON object,
-  // matching the tool's outputSchema when it declares one. The content
-  // blocks stay for the model and for clients that do not read this.
+  // The result as data, for programs rather than the model, matching the
+  // tool's outputSchema when it declares one. In 2026-07-28 any JSON value,
+  // null included; the earlier revisions allow only an object, and their
+  // clients are not sent anything else. The content blocks stay for the
+  // model and for clients that do not read this.
   optional<mcp::json::JsonValue> structuredContent;
 
   CallToolResult() = default;

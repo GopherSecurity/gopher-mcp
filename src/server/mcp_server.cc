@@ -162,6 +162,13 @@ struct CacheHintPolicy {
   }
 };
 
+// Whether an outputSchema is one the revisions before 2026-07-28 allow:
+// they describe only objects.
+bool describesAnObject(const json::JsonValue& schema) {
+  return schema.isObject() && schema.contains("type") &&
+         schema["type"].isString() && schema["type"].getString() == "object";
+}
+
 std::string negotiateProtocolVersion(const std::string& requested,
                                      const std::string& newest_supported) {
   if (requested.empty()) {
@@ -2710,9 +2717,16 @@ jsonrpc::Response McpServer::handleListTools(const jsonrpc::Request& request,
   // Get tools from tool registry
   auto result = tool_registry_->listTools();
 
-  // Build response as JsonValue with "tools" key per MCP spec
+  // Build response as JsonValue with "tools" key per MCP spec. An older
+  // caller's revision allows only object output schemas; a tool with any
+  // other is still listed, without it, and answers that caller in text.
+  const bool modern = isModernRequest(request);
   json::JsonValue tools_array = json::JsonValue::array();
-  for (const auto& tool : result.tools) {
+  for (auto tool : result.tools) {
+    if (!modern && tool.outputSchema.has_value() &&
+        !describesAnObject(tool.outputSchema.value())) {
+      tool.outputSchema = nullopt;
+    }
     tools_array.push_back(json::to_json(tool));
   }
 
@@ -2774,10 +2788,16 @@ jsonrpc::Response McpServer::handleCallTool(const jsonrpc::Request& request,
 
   // For clients that do not read structuredContent, the same data as text,
   // when the tool said nothing else.
-  if (result.structuredContent.has_value() && result.content.empty() &&
-      result.structuredContent->isObject()) {
+  if (result.structuredContent.has_value() && result.content.empty()) {
     result.content.push_back(ExtendedContentBlock(
         TextContent(result.structuredContent->toString())));
+  }
+
+  // The revisions before 2026-07-28 allow only an object here. Anything
+  // else is left out for their clients, which read the text above instead.
+  if (result.structuredContent.has_value() &&
+      !result.structuredContent->isObject() && !isModernRequest(request)) {
+    result.structuredContent = nullopt;
   }
 
   // Serialize CallToolResult to proper MCP format
