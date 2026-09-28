@@ -46,6 +46,8 @@
 #include "mcp/json/json_bridge.h"
 #include "mcp/json/json_serialization.h"
 #include "mcp/protocol/elicitation.h"
+#include "mcp/protocol/modern_era.h"
+#include "mcp/protocol/mrtr.h"
 #include "mcp/server/mcp_server.h"
 #include "mcp/types.h"
 
@@ -124,6 +126,20 @@ json::JsonValue callArguments(const jsonrpc::Request& request) {
   } catch (const std::exception&) {
     return json::JsonValue::object();
   }
+}
+
+/** Whether a request declares the newest revision, as all of its do. */
+bool declaresNewestRevision(const jsonrpc::Request& request) {
+  if (!request.params_json.has_value() || !request.params_json->isObject() ||
+      !request.params_json->contains("_meta")) {
+    return false;
+  }
+  const auto& meta = (*request.params_json)["_meta"];
+  return meta.isObject() &&
+         meta.contains(protocol::modern::kMetaProtocolVersion) &&
+         meta[protocol::modern::kMetaProtocolVersion].isString() &&
+         protocol::modern::isModernVersion(
+             meta[protocol::modern::kMetaProtocolVersion].getString());
 }
 
 std::string calledTool(const jsonrpc::Request& request) {
@@ -258,6 +274,13 @@ std::vector<Tool> interopTools() {
       R"({"type":"object","properties":{"temp":{"type":"number"},)"
       R"("conditions":{"type":"string"}},"required":["temp","conditions"]})"));
   tools.push_back(weather);
+
+  Tool touch("touch_greeting");
+  touch.description = mcp::make_optional(
+      std::string("Say the greeting resource changed, for anyone listening"));
+  touch.inputSchema = mcp::make_optional(
+      json::JsonValue::parse(R"({"type":"object","properties":{}})"));
+  tools.push_back(touch);
 
   Tool elicit("elicit_prompt");
   elicit.description = mcp::make_optional(
@@ -424,7 +447,17 @@ class ToolCalls {
     }
 
     if (name == "elicit_prompt") {
-      elicitFromTheClient(request, answer);
+      if (declaresNewestRevision(request)) {
+        elicitThroughInputRequired(request, session, answer);
+      } else {
+        elicitFromTheClient(request, answer);
+      }
+      return;
+    }
+
+    if (name == "touch_greeting") {
+      server_.notifyResourceUpdate("interop://greeting");
+      answer->sendResponse(textResult(request.id, "touched"));
       return;
     }
 
@@ -479,6 +512,62 @@ class ToolCalls {
    * answer comes back as "<action>:<env>", so the round trip can be checked
    * from the far side exactly.
    */
+  /** The question elicit_prompt asks, in either revision. */
+  static ElicitRequest whichEnvironment() {
+    EnumSchema env;
+    env.values = {"staging", "production"};
+    return make<ElicitRequest>("Which environment?")
+        .field("env", env)
+        .required("env")
+        .build();
+  }
+
+  /** What the tool answers with, from what the user did. */
+  static std::string describeAnswer(const ElicitResult& result) {
+    std::string told =
+        result.action == ElicitAction::Accept
+            ? "accept"
+            : (result.action == ElicitAction::Decline ? "decline" : "cancel");
+    told += ":";
+    if (result.content.has_value() && result.content->count("env") &&
+        holds_alternative<std::string>(result.content->at("env"))) {
+      told += get<std::string>(result.content->at("env"));
+    }
+    return told;
+  }
+
+  /**
+   * The newest revision's way: the server cannot send the client a request,
+   * so it answers the call with input_required, and the client makes the
+   * call again with the answer under inputResponses.
+   */
+  void elicitThroughInputRequired(const jsonrpc::Request& request,
+                                  SessionContext& session,
+                                  const ResponseStreamPtr& answer) {
+    const auto carried = protocol::modern::carriedInputOf(
+        request.params_json.value_or(json::JsonValue::object()));
+    if (carried.responses.isObject() && carried.responses.contains("env")) {
+      std::string told;
+      try {
+        told = describeAnswer(
+            protocol::elicitation::resultFrom(carried.responses["env"]));
+      } catch (const std::exception& e) {
+        told = std::string("unreadable: ") + e.what();
+      }
+      answer->sendResponse(textResult(request.id, told));
+      return;
+    }
+
+    protocol::modern::NeedsInput needed;
+    needed.requests["env"] =
+        protocol::elicitation::toInputRequest(whichEnvironment());
+    needed.request_state = mcp::make_optional(std::string("elicit_prompt"));
+    auto asked = server_.answerWithInput(answer, request, session, needed);
+    if (holds_alternative<Error>(asked)) {
+      answer->sendResponse(toolError(request.id, get<Error>(asked).message));
+    }
+  }
+
   void elicitFromTheClient(const jsonrpc::Request& request,
                            const ResponseStreamPtr& answer) {
     EnumSchema env;
@@ -702,6 +791,11 @@ int main(int argc, char** argv) {
   config.capabilities.tools = mcp::make_optional(true);
   config.capabilities.prompts = mcp::make_optional(true);
   config.capabilities.logging = mcp::make_optional(true);
+  // So a client of the newest revision has caching hints to read.
+  McpServerConfig::CacheHint tools_hint;
+  tools_hint.ttl = std::chrono::milliseconds(60000);
+  tools_hint.scope = McpServerConfig::CacheScope::Public;
+  config.cache_hints["tools/list"] = tools_hint;
   ResourcesCapability resources;
   resources.subscribe = mcp::make_optional(true);
   config.capabilities.resources =

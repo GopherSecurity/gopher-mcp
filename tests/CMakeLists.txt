@@ -1025,6 +1025,39 @@ target_compile_definitions(test_official_client_vs_server PRIVATE
 
 add_dependencies(test_official_client_vs_server gopher_interop_server)
 
+# The same two directions against the official Python SDK, the only
+# released SDK that speaks 2026-07-28. Run by `make test-interop`, which
+# creates the virtualenv they use; they skip rather than fail without it.
+add_executable(test_client_vs_python_server EXCLUDE_FROM_ALL
+    interop/test_client_vs_python_server.cc)
+add_executable(test_python_client_vs_server EXCLUDE_FROM_ALL
+    interop/test_python_client_vs_server.cc)
+
+target_link_libraries(test_client_vs_python_server
+    gopher-mcp
+    gopher-mcp-event
+    gtest
+    gtest_main
+    Threads::Threads
+)
+target_compile_definitions(test_client_vs_python_server PRIVATE
+    GOPHER_INTEROP_PYTHON="${CMAKE_CURRENT_SOURCE_DIR}/interop/.venv-py/bin/python"
+    GOPHER_INTEROP_PY_SERVER_DIR="${CMAKE_CURRENT_SOURCE_DIR}/interop/reference-server-py")
+
+target_link_libraries(test_python_client_vs_server
+    gopher-mcp
+    gopher-mcp-logging
+    gtest
+    gtest_main
+    Threads::Threads
+    fmt::fmt
+)
+target_compile_definitions(test_python_client_vs_server PRIVATE
+    GOPHER_INTEROP_PYTHON="${CMAKE_CURRENT_SOURCE_DIR}/interop/.venv-py/bin/python"
+    GOPHER_INTEROP_PY_CLIENT_DIR="${CMAKE_CURRENT_SOURCE_DIR}/interop/official-client-py"
+    GOPHER_INTEROP_SERVER_BIN="$<TARGET_FILE:gopher_interop_server>")
+add_dependencies(test_python_client_vs_server gopher_interop_server)
+
 target_link_libraries(test_builders
     gopher-mcp
     gtest
