@@ -22,6 +22,7 @@
 #include "mcp/json/json_bridge.h"
 #include "mcp/json/json_serialization.h"
 #include "mcp/message_dispatch_context.h"
+#include "mcp/protocol/modern_era.h"
 #include "mcp/server/mcp_server.h"
 #include "mcp/types.h"
 
@@ -73,10 +74,17 @@ JsonValue weatherData() {
       R"({"temp": 22.5, "conditions": "Cloudy", "hourly": [21, 22.5, 24]})");
 }
 
-/** The answer to a request, as a peer would read it. */
+const char* const kModern = "2026-07-28";
+
+/**
+ * The answer to a request, as a peer would read it. With a revision, the
+ * request declares it, as every request of 2026-07-28 does; without one it
+ * is a request of an earlier revision.
+ */
 JsonValue answerTo(DispatchTestServer& server,
                    const std::string& method,
-                   const std::string& tool = std::string()) {
+                   const std::string& tool = std::string(),
+                   const std::string& revision = std::string()) {
   jsonrpc::Request request;
   request.jsonrpc = "2.0";
   request.id = make_request_id(1);
@@ -84,6 +92,11 @@ JsonValue answerTo(DispatchTestServer& server,
   Metadata params;
   if (!tool.empty()) {
     params["name"] = MetadataValue(tool);
+  }
+  if (!revision.empty()) {
+    JsonValue meta = JsonValue::object();
+    meta.set(protocol::modern::kMetaProtocolVersion, JsonValue(revision));
+    params["_meta"] = MetadataValue(meta.toString());
   }
   request.params = mcp::make_optional(params);
 
@@ -189,26 +202,91 @@ TEST(StructuredToolOutput, AFailedCallNeedsNoStructuredResult) {
   EXPECT_FALSE(answer["result"].contains("structuredContent"));
 }
 
-// A structured result is always an object, so a schema for anything else
-// could never be met, and the tool is refused.
-TEST(StructuredToolOutput, AnOutputSchemaThatIsNotAnObjectIsRefused) {
+// A JSON Schema is an object, whatever it describes. A schema for a list is
+// a schema; a bare string is not.
+TEST(StructuredToolOutput, AnOutputSchemaMustBeASchemaObject) {
   DispatchTestServer server(testConfig());
   auto handler = [](const std::string&, const optional<Metadata>&,
                     SessionContext&) { return CallToolResult(); };
 
-  EXPECT_FALSE(server.registerTool(
+  EXPECT_TRUE(server.registerTool(
       make<Tool>("list_tool")
           .outputSchema(JsonValue::parse(R"({"type": "array"})"))
           .build(),
       handler));
   EXPECT_FALSE(server.registerTool(
-      make<Tool>("untyped_tool")
-          .outputSchema(JsonValue::parse(R"({"properties": {}})"))
-          .build(),
-      handler));
-  EXPECT_FALSE(server.registerTool(
       make<Tool>("string_tool").outputSchema(JsonValue("object")).build(),
       handler));
+}
+
+/** A tool whose result is a list rather than an object. */
+void addListTool(DispatchTestServer& server) {
+  ASSERT_TRUE(server.registerTool(
+      make<Tool>("readings")
+          .outputSchema(JsonValue::parse(
+              R"({"type": "array", "items": {"type": "number"}})"))
+          .build(),
+      [](const std::string&, const optional<Metadata>&, SessionContext&) {
+        return make<CallToolResult>()
+            .structuredContent(JsonValue::parse("[21, 22.5, 24]"))
+            .build();
+      }));
+}
+
+// 2026-07-28 allows any JSON value as a structured result, and a schema for
+// any of them; its callers get both as given, with the text beside them.
+TEST(StructuredToolOutput, TheNewestRevisionIsSentAnyJsonValue) {
+  DispatchTestServer server(testConfig());
+  addListTool(server);
+
+  const JsonValue listed =
+      answerTo(server, "tools/list", std::string(), kModern);
+  EXPECT_EQ(listed["result"]["tools"][0]["outputSchema"]["type"].getString(),
+            "array")
+      << listed.toString();
+
+  const JsonValue called = answerTo(server, "tools/call", "readings", kModern);
+  ASSERT_TRUE(called.contains("result")) << called.toString();
+  ASSERT_TRUE(called["result"]["structuredContent"].isArray());
+  EXPECT_EQ(called["result"]["structuredContent"].size(), 3u);
+  ASSERT_EQ(called["result"]["content"].size(), 1u);
+  EXPECT_EQ(JsonValue::parse(called["result"]["content"][0]["text"].getString())
+                .size(),
+            3u);
+}
+
+// The earlier revisions allow only objects. Their callers still see the
+// tool, and its answer as text, but neither the schema nor the value they
+// have no way to read.
+TEST(StructuredToolOutput, AnOlderRevisionIsSentOnlyObjects) {
+  DispatchTestServer server(testConfig());
+  addListTool(server);
+  ASSERT_TRUE(server.registerTool(
+      weatherTool(),
+      [](const std::string&, const optional<Metadata>&, SessionContext&) {
+        return make<CallToolResult>().structuredContent(weatherData()).build();
+      }));
+
+  const JsonValue listed = answerTo(server, "tools/list");
+  ASSERT_EQ(listed["result"]["tools"].size(), 2u) << listed.toString();
+  for (size_t i = 0; i < listed["result"]["tools"].size(); ++i) {
+    const auto& tool = listed["result"]["tools"][i];
+    if (tool["name"].getString() == "readings") {
+      EXPECT_FALSE(tool.contains("outputSchema")) << listed.toString();
+    } else {
+      EXPECT_TRUE(tool.contains("outputSchema")) << listed.toString();
+    }
+  }
+
+  const JsonValue list_call = answerTo(server, "tools/call", "readings");
+  ASSERT_TRUE(list_call.contains("result")) << list_call.toString();
+  EXPECT_FALSE(list_call["result"].contains("structuredContent"));
+  ASSERT_EQ(list_call["result"]["content"].size(), 1u);
+  EXPECT_EQ(list_call["result"]["content"][0]["text"].getString(),
+            "[21,22.5,24]");
+
+  const JsonValue object_call = answerTo(server, "tools/call", "get_weather");
+  EXPECT_TRUE(object_call["result"]["structuredContent"].isObject());
 }
 
 // Nothing changes for a tool that does not use either field.
@@ -252,10 +330,23 @@ TEST(StructuredToolOutput, TheClientReadsBothFields) {
   EXPECT_EQ(json::to_json(called)["structuredContent"].toString(),
             called.structuredContent->toString());
 
-  // A structured result that is not an object is refused.
-  EXPECT_THROW(json::from_json<CallToolResult>(JsonValue::parse(
-                   R"({"content": [], "structuredContent": [1, 2]})")),
-               json::JsonException);
+  // Any JSON value is read as given, a list and a null included; a null
+  // that was sent is not the same as nothing sent.
+  const auto list = json::from_json<CallToolResult>(
+      JsonValue::parse(R"({"content": [], "structuredContent": [1, 2]})"));
+  ASSERT_TRUE(list.structuredContent.has_value());
+  EXPECT_TRUE(list.structuredContent->isArray());
+
+  const auto null_result = json::from_json<CallToolResult>(
+      JsonValue::parse(R"({"content": [], "structuredContent": null})"));
+  ASSERT_TRUE(null_result.structuredContent.has_value());
+  EXPECT_TRUE(null_result.structuredContent->isNull());
+  EXPECT_TRUE(json::to_json(null_result).contains("structuredContent"));
+
+  const auto none =
+      json::from_json<CallToolResult>(JsonValue::parse(R"({"content": []})"));
+  EXPECT_FALSE(none.structuredContent.has_value());
+  EXPECT_FALSE(json::to_json(none).contains("structuredContent"));
 }
 
 }  // namespace
