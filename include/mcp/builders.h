@@ -76,6 +76,11 @@ class ToolBuilder : public Builder<Tool, ToolBuilder> {
     return *this;
   }
 
+  ToolBuilder& outputSchema(const ToolOutputSchema& schema) {
+    value_.outputSchema = mcp::make_optional(schema);
+    return *this;
+  }
+
   ToolBuilder& parameter(const std::string& name,
                          const std::string& type,
                          bool required = false) {
@@ -755,6 +760,11 @@ class CallToolResultBuilder
     : public Builder<CallToolResult, CallToolResultBuilder> {
  public:
   CallToolResultBuilder() = default;
+
+  CallToolResultBuilder& structuredContent(const json::JsonValue& data) {
+    value_.structuredContent = mcp::make_optional(data);
+    return *this;
+  }
 
   CallToolResultBuilder& addText(const std::string& text) {
     value_.content.push_back(ExtendedContentBlock(TextContent(text)));

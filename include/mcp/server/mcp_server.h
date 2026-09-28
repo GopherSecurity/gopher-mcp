@@ -629,6 +629,20 @@ class ToolRegistry {
    * @return False when the tool was refused, with the reason logged.
    */
   bool registerTool(const Tool& tool, ToolHandler handler) {
+    // A structured result is always an object, so a schema for one that
+    // says anything else could never be met.
+    if (tool.outputSchema.has_value() &&
+        !(tool.outputSchema->isObject() &&
+          tool.outputSchema->contains("type") &&
+          (*tool.outputSchema)["type"].isString() &&
+          (*tool.outputSchema)["type"].getString() == "object")) {
+      GOPHER_LOG_ERROR(
+          "Tool {} refused: its outputSchema must be a JSON Schema with "
+          "\"type\": \"object\"",
+          tool.name);
+      return false;
+    }
+
     std::vector<protocol::modern::DesignatedParam> designated;
     auto usable = protocol::modern::designatedParams(tool, &designated);
     if (!holds_alternative<std::nullptr_t>(usable)) {
@@ -641,6 +655,13 @@ class ToolRegistry {
     tool_handlers_[tool.name] = handler;
     designated_[tool.name] = std::move(designated);
     return true;
+  }
+
+  /** Whether a registered tool declares an outputSchema. */
+  bool declaresOutputSchema(const std::string& tool_name) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto it = tools_.find(tool_name);
+    return it != tools_.end() && it->second.outputSchema.has_value();
   }
 
   /** The arguments a tool asks to have carried in headers as well. */

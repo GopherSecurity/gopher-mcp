@@ -2760,6 +2760,26 @@ jsonrpc::Response McpServer::handleCallTool(const jsonrpc::Request& request,
   auto result = tool_registry_->callTool(name, arguments, session);
   GOPHER_LOG_DEBUG("tool_registry_->callTool returned for: {}", name);
 
+  // A tool that declared the shape of its result owes one. A success
+  // without it would leave a program reading structuredContent with
+  // nothing, so it is answered as an error instead.
+  if (!result.isError && !result.structuredContent.has_value() &&
+      tool_registry_->declaresOutputSchema(name)) {
+    return jsonrpc::Response::make_error(
+        request.id, Error(jsonrpc::INTERNAL_ERROR,
+                          "Tool " + name +
+                              " declares an outputSchema but returned no "
+                              "structuredContent"));
+  }
+
+  // For clients that do not read structuredContent, the same data as text,
+  // when the tool said nothing else.
+  if (result.structuredContent.has_value() && result.content.empty() &&
+      result.structuredContent->isObject()) {
+    result.content.push_back(ExtendedContentBlock(
+        TextContent(result.structuredContent->toString())));
+  }
+
   // Serialize CallToolResult to proper MCP format
   // The result must have content as an array of content blocks per MCP spec.
   // A result the tool built in a shape that cannot go on the wire, such as
