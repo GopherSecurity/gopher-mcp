@@ -84,6 +84,7 @@ test_socket_option
 
 # Dependency directories
 node_modules/
+tests/interop/.venv-py/
 vendor/
 
 # Coverage files

@@ -72,22 +72,39 @@ test:
 	@echo "Running all tests..."
 	@cd build && ctest --output-on-failure
 
-# Run both interop suites: this project's client against a server built
-# on the official SDK, and this project's server against that SDK's
-# client. Kept out of `test` because they need Node and a package
-# install, and they skip rather than fail when those are absent.
+# Run the interop suites: this project's client against a server built on
+# an official SDK, and this project's server against that SDK's client,
+# for the TypeScript SDK (revisions up to 2025-11-25) and the Python SDK
+# (the only one that speaks 2026-07-28). Kept out of `test` because they
+# need Node, Python and package installs, and they skip rather than fail
+# when those are absent.
+PY_INTEROP_VENV := tests/interop/.venv-py
 test-interop:
 	@echo "Installing the reference server..."
 	@cd tests/interop/reference-server-ts && npm ci --no-audit --no-fund
 	@echo "Installing the driver..."
 	@cd tests/interop/official-client-ts && npm ci --no-audit --no-fund
-	@echo "Building both interop suites..."
+	@echo "Installing the Python SDK..."
+	@if command -v python3 > /dev/null 2>&1; then \
+		[ -x $(PY_INTEROP_VENV)/bin/python ] || python3 -m venv $(PY_INTEROP_VENV); \
+		$(PY_INTEROP_VENV)/bin/pip install --quiet --disable-pip-version-check \
+			-r tests/interop/python-requirements.lock; \
+	else \
+		echo "python3 is not installed; the Python interop suites will skip"; \
+	fi
+	@echo "Building the interop suites..."
 	@cmake --build build --target test_client_vs_official_server
 	@cmake --build build --target test_official_client_vs_server
-	@echo "Running interop against the official SDK's server..."
+	@cmake --build build --target test_client_vs_python_server
+	@cmake --build build --target test_python_client_vs_server
+	@echo "Running interop against the official TypeScript SDK's server..."
 	@./build/tests/test_client_vs_official_server
-	@echo "Running interop against the official SDK's client..."
+	@echo "Running interop against the official TypeScript SDK's client..."
 	@./build/tests/test_official_client_vs_server
+	@echo "Running interop against the official Python SDK's server..."
+	@./build/tests/test_client_vs_python_server
+	@echo "Running interop against the official Python SDK's client..."
+	@./build/tests/test_python_client_vs_server
 
 # Run tests with verbose output
 test-verbose:
