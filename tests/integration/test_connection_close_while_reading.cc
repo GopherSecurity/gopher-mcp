@@ -86,6 +86,15 @@ class ThrowingReader : public ReadFilter {
   void initializeReadFilterCallbacks(ReadFilterCallbacks&) override {}
 };
 
+/** Fails on whatever it is asked to send. */
+class ThrowingWriter : public WriteFilter {
+ public:
+  FilterStatus onWrite(Buffer&, bool) override {
+    throw std::runtime_error("a filter could not frame this");
+  }
+  void initializeWriteFilterCallbacks(WriteFilterCallbacks&) override {}
+};
+
 class ClosedEvents : public ConnectionCallbacks {
  public:
   void onEvent(ConnectionEvent event) override {
@@ -108,7 +117,8 @@ class ConnectionCloseWhileReadingTest : public test::RealIoTestBase {
   }
 
   /** A server connection reading through this filter, and its peer. */
-  void connect(ReadFilterSharedPtr filter) {
+  void connect(ReadFilterSharedPtr filter,
+               WriteFilterSharedPtr writer = nullptr) {
     executeInDispatcher([&]() {
       auto pair = createSocketPair();
       auto local = Address::parseInternetAddress("127.0.0.1", 0);
@@ -121,6 +131,9 @@ class ConnectionCloseWhileReadingTest : public test::RealIoTestBase {
       auto* impl = static_cast<ConnectionImpl*>(conn_.get());
       impl->addConnectionCallbacks(events_);
       impl->filterManager().addReadFilter(filter);
+      if (writer) {
+        impl->filterManager().addWriteFilter(writer);
+      }
       impl->filterManager().initializeReadFilters();
       peer_ = std::move(pair.second);
     });
@@ -179,6 +192,27 @@ TEST_F(ConnectionCloseWhileReadingTest, AFailingReaderClosesOnlyItsConnection) {
       << "the connection stayed open after its filter failed";
 
   // Still running: the dispatcher goes on serving work.
+  std::atomic<bool> ran{false};
+  executeInDispatcher([&]() { ran = true; });
+  EXPECT_TRUE(ran.load());
+}
+
+// A write filter failing on what the application sends ends its
+// connection too. Writes come from posted tasks, not socket events, so
+// this is a separate way for an exception to reach the event loop.
+TEST_F(ConnectionCloseWhileReadingTest, AFailingWriterClosesOnlyItsConnection) {
+  Observed observed;
+  connect(std::make_shared<ClosingReader>(observed),
+          std::make_shared<ThrowingWriter>());
+
+  EXPECT_NO_THROW(executeInDispatcher([this]() {
+    OwnedBuffer out;
+    out.add("HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n");
+    conn_->write(out, false);
+  })) << "a failed write escaped into the event loop";
+
+  EXPECT_TRUE(waitFor([&]() { return events_.closed.load(); }))
+      << "the connection stayed open after its write filter failed";
   std::atomic<bool> ran{false};
   executeInDispatcher([&]() { ran = true; });
   EXPECT_TRUE(ran.load());
