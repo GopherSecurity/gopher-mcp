@@ -3,6 +3,7 @@
 
 #include "mcp/json/json_serialization.h"
 
+#include <limits>
 #include <sstream>
 
 namespace mcp {
@@ -89,7 +90,8 @@ JsonValue serialize_ErrorData(const ErrorData& data) {
           builder.add(kv.first, kv.second);
         }
         result = builder.build();
-      });
+      },
+      [&result](const JsonValue& json) { result = json; });
 
   return result;
 }
@@ -535,32 +537,49 @@ Error deserialize_Error(const JsonValue& json) {
 }
 
 ErrorData deserialize_ErrorData(const JsonValue& json) {
+  // Each simple alternative is used only when it holds the value exactly;
+  // anything else is kept as the JSON it arrived as.
   if (json.isNull()) {
     return ErrorData(nullptr);
-  } else if (json.isBoolean()) {
+  }
+  if (json.isBoolean()) {
     return ErrorData(json.getBool());
-  } else if (json.isInteger()) {
-    return ErrorData(json.getInt());
-  } else if (json.isFloat()) {
+  }
+  if (json.isInteger()) {
+    const int64_t value = json.getInt64();
+    if (value >= std::numeric_limits<int>::min() &&
+        value <= std::numeric_limits<int>::max()) {
+      return ErrorData(static_cast<int>(value));
+    }
+    return ErrorData(json);
+  }
+  if (json.isFloat()) {
     return ErrorData(json.getFloat());
-  } else if (json.isString()) {
+  }
+  if (json.isString()) {
     return ErrorData(json.getString());
-  } else if (json.isArray()) {
+  }
+  if (json.isArray()) {
     std::vector<std::string> vec;
-    size_t size = json.size();
-    for (size_t i = 0; i < size; ++i) {
+    for (size_t i = 0; i < json.size(); ++i) {
+      if (!json[i].isString()) {
+        return ErrorData(json);
+      }
       vec.push_back(json[i].getString());
     }
     return ErrorData(vec);
-  } else if (json.isObject()) {
+  }
+  if (json.isObject()) {
     std::map<std::string, std::string> map;
     for (const auto& key : json.keys()) {
+      if (!json[key].isString()) {
+        return ErrorData(json);
+      }
       map[key] = json[key].getString();
     }
     return ErrorData(map);
   }
-
-  return ErrorData(nullptr);
+  return ErrorData(json);
 }
 
 // Deserialize jsonrpc types
