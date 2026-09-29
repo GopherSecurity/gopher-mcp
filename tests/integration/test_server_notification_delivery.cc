@@ -220,6 +220,10 @@ class ServerNotificationDeliveryTest : public ::testing::Test {
     client_config.client_version = "0.0.1";
     client_config.num_workers = 1;
     client_config.preferred_transport = TransportType::StreamableHttp;
+    // The server-initiated requests these check exist only in the revisions
+    // before 2026-07-28, so the client is held to them; with the newest
+    // allowed it would find and speak that one (#296).
+    client_config.streamable_http.enable_modern_era = false;
     client_config.request_timeout = 5000ms;
     client_config.protocol_initialization_timeout = 5000ms;
     client_config.protocol_connection_timeout = 5000ms;
