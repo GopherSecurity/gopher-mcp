@@ -266,7 +266,7 @@ struct JsonSerializeTraits<Metadata> {
               builder.add(kv.first, s);
             }
           },
-          [&](int64_t i) { builder.add(kv.first, static_cast<int>(i)); },
+          [&](int64_t i) { builder.add(kv.first, JsonValue(i)); },
           [&](double d) { builder.add(kv.first, d); },
           [&](bool b) { builder.add(kv.first, b); });
     }
@@ -312,6 +312,26 @@ struct JsonDeserializeTraits<Metadata> {
 
 inline JsonValue metadataToJson(const Metadata& metadata) {
   return JsonSerializer::serialize(metadata);
+}
+
+/**
+ * Metadata as exactly the JSON it holds: a string stays a string even when
+ * it looks like JSON. metadataToJson() parses such strings into objects,
+ * which is how a flat map has carried nested values, and which rewrites a
+ * string argument that merely resembles one.
+ */
+inline JsonValue metadataToExactJson(const Metadata& metadata) {
+  JsonValue out = JsonValue::object();
+  for (const auto& kv : metadata) {
+    match(
+        kv.second,
+        [&](std::nullptr_t) { out.set(kv.first, JsonValue::null()); },
+        [&](const std::string& s) { out.set(kv.first, JsonValue(s)); },
+        [&](int64_t i) { out.set(kv.first, JsonValue(i)); },
+        [&](double d) { out.set(kv.first, JsonValue(d)); },
+        [&](bool b) { out.set(kv.first, JsonValue(b)); });
+  }
+  return out;
 }
 
 inline Metadata jsonToMetadata(const JsonValue& json) {
