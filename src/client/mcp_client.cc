@@ -669,7 +669,7 @@ std::future<InitializeResult> McpClient::initializeProtocol() {
         return;
       }
       dispatcher->post([client, alive, protocol_version, result_promise,
-                        init_result]() {
+                        init_result, modern]() {
         if (alive.expired()) {
           result_promise->set_exception(
               std::make_exception_ptr(std::runtime_error("Client shut down")));
@@ -692,7 +692,12 @@ std::future<InitializeResult> McpClient::initializeProtocol() {
           client->protocol_state_machine_->handleEvent(
               protocol::McpProtocolEvent::INITIALIZED);
         }
-        client->sendInitializedNotification();
+        // Only the handshake of the earlier revisions ends with this.
+        // The newest has no handshake to end, and a server speaking it
+        // has no meaning for the notification.
+        if (!modern) {
+          client->sendInitializedNotification();
+        }
         // Only now: a stream belongs to a session, and until the
         // handshake landed there was no session to hold one under.
         if (client->config_.streamable_http.open_server_stream) {
