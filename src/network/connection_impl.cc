@@ -848,15 +848,29 @@ void ConnectionImpl::onFileEvent(uint32_t events) {
     return;
   }
 
-  if (events & static_cast<uint32_t>(event::FileReadyType::Write)) {
-    onWriteReady();
-  }
+  // Whatever goes wrong handling this connection's I/O is this
+  // connection's problem. Left to escape, it would unwind through the
+  // event loop and end the process, and every other connection with it.
+  try {
+    if (events & static_cast<uint32_t>(event::FileReadyType::Write)) {
+      onWriteReady();
+    }
 
-  // Check if socket is still open after write handling
-  if (socket_->isOpen() &&
-      (events & static_cast<uint32_t>(event::FileReadyType::Read))) {
-    // Process read event
-    onReadReady();
+    // Check if socket is still open after write handling
+    if (socket_->isOpen() &&
+        (events & static_cast<uint32_t>(event::FileReadyType::Read))) {
+      // Process read event
+      onReadReady();
+    }
+  } catch (const std::exception& e) {
+    GOPHER_LOG_ERROR("Closing connection after an error handling its I/O: {}",
+                     e.what());
+    closeSocket(ConnectionEvent::LocalClose);
+  } catch (...) {
+    GOPHER_LOG_ERROR(
+        "Closing connection after an unknown error handling its "
+        "I/O");
+    closeSocket(ConnectionEvent::LocalClose);
   }
 }
 
@@ -1113,7 +1127,14 @@ void ConnectionImpl::closeSocket(ConnectionEvent close_type) {
   // Drain buffers (reference pattern)
   // This prevents buffer fragments from outliving the connection
   write_buffer_.drain(write_buffer_.length());
-  read_buffer_.drain(read_buffer_.length());
+  // Not while the read filters are still parsing it: they hold pointers
+  // into it and drain what they have consumed once they return, so
+  // emptying it under them frees what they are reading and makes their
+  // drain ask for more than is there. processReadBuffer() drains it when
+  // they are done.
+  if (!processing_read_buffer_) {
+    read_buffer_.drain(read_buffer_.length());
+  }
 
   // Close actual socket (with null check)
   if (socket_) {
@@ -1401,8 +1422,30 @@ TransportIoResult ConnectionImpl::doReadFromSocket() {
 }
 
 void ConnectionImpl::processReadBuffer() {
-  if (read_buffer_.length() > 0) {
+  if (read_buffer_.length() == 0) {
+    return;
+  }
+  if (processing_read_buffer_) {
     filter_manager_.onRead();
+    return;
+  }
+
+  // Put back however the filters leave, including by throwing.
+  struct Reading {
+    explicit Reading(bool& flag) : flag_(flag) { flag_ = true; }
+    ~Reading() { flag_ = false; }
+    bool& flag_;
+  };
+  {
+    Reading reading(processing_read_buffer_);
+    filter_manager_.onRead();
+  }
+
+  // The connection may have closed while the filters were reading: a
+  // response written from inside them can find the peer gone. What the
+  // close could not drain then is drained now.
+  if (state_ == ConnectionState::Closed || state_ == ConnectionState::Closing) {
+    read_buffer_.drain(read_buffer_.length());
   }
 }
 

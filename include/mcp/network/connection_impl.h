@@ -204,6 +204,10 @@ class ConnectionImpl : public ConnectionImplBase,
   bool bind_error_{false};
   bool write_ready_{false};
   bool transport_wants_read_{false};  // Transport requested read resumption
+  // True while the read filters are working through read_buffer_. A close
+  // reached from inside them leaves the buffer alone until they return:
+  // they are still reading from it.
+  bool processing_read_buffer_{false};
 
   // Socket options
   SocketOptionsSharedPtr socket_options_;
