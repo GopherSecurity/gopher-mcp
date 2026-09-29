@@ -1267,6 +1267,28 @@ std::future<Response> McpClient::sendRequest(
   return context->promise.get_future();
 }
 
+std::future<Response> McpClient::sendRequestWithParams(
+    const std::string& method,
+    const json::JsonValue& params,
+    const std::map<std::string, std::string>& http_headers) {
+  if (!circuit_breaker_->allowRequest()) {
+    client_stats_.circuit_breaker_opens++;
+    auto promise = std::make_shared<std::promise<Response>>();
+    promise->set_value(Response::make_error(
+        "", Error(::mcp::jsonrpc::INTERNAL_ERROR, "Circuit breaker open")));
+    return promise->get_future();
+  }
+
+  RequestId id = static_cast<int64_t>(next_request_id_++);
+  auto context = std::make_shared<RequestContext>(id, method);
+  context->params_json = mcp::make_optional(params);
+  context->http_headers = http_headers;
+  context->start_time = std::chrono::steady_clock::now();
+  request_tracker_->trackRequest(context);
+  sendRequestInternal(context);
+  return context->promise.get_future();
+}
+
 // Send notification (fire-and-forget, no response expected)
 VoidResult McpClient::sendNotification(const std::string& method,
                                        const optional<Metadata>& params) {
@@ -2827,6 +2849,46 @@ std::future<CallToolResult> McpClient::callTool(
     const std::string& name,
     const optional<Metadata>& arguments,
     const std::map<std::string, std::string>& http_headers) {
+  return callToolWith(
+      name,
+      arguments.has_value()
+          ? mcp::make_optional(json::metadataToExactJson(arguments.value()))
+          : optional<json::JsonValue>(),
+      http_headers);
+}
+
+std::future<CallToolResult> McpClient::callTool(
+    const std::string& name, const json::JsonValue& arguments) {
+  return callTool(name, arguments, {});
+}
+
+std::future<CallToolResult> McpClient::callTool(
+    const std::string& name,
+    const json::JsonValue& arguments,
+    const std::map<std::string, std::string>& http_headers) {
+  return callToolWith(name, mcp::make_optional(arguments), http_headers);
+}
+
+namespace {
+
+/** A call whose arguments are not an object, refused before it is sent. */
+template <typename Result>
+std::future<Result> refuseArguments(const std::string& method) {
+  std::promise<Result> refused;
+  refused.set_exception(std::make_exception_ptr(
+      std::invalid_argument(method + " arguments must be a JSON object")));
+  return refused.get_future();
+}
+
+}  // namespace
+
+std::future<CallToolResult> McpClient::callToolWith(
+    const std::string& name,
+    const optional<json::JsonValue>& arguments,
+    const std::map<std::string, std::string>& http_headers) {
+  if (arguments.has_value() && !arguments->isObject()) {
+    return refuseArguments<CallToolResult>("tools/call");
+  }
   auto result_promise = std::make_shared<std::promise<CallToolResult>>();
 
   if (!main_dispatcher_) {
@@ -2842,29 +2904,26 @@ std::future<CallToolResult> McpClient::callTool(
 
   auto request_future_ptr = std::make_shared<std::future<Response>>();
 
-  // Prepare params before posting to dispatcher
-  auto params = make_metadata();
-  params["name"] = name;
+  // The arguments go out as the JSON they are. Through the flat map they
+  // would be rewritten on the way: a string that looks like JSON parsed
+  // into an object, a wide integer narrowed.
+  json::JsonValue params = json::JsonValue::object();
+  params.set("name", json::JsonValue(name));
   if (arguments.has_value()) {
-    // Convert arguments to JSON string for nested object support
-    // Server expects "arguments" as a nested JSON object which is stored
-    // as a JSON string in Metadata since MetadataValue doesn't support nesting
-    auto args_json = json::metadataToJson(arguments.value());
-    params["arguments"] = args_json.toString();
+    params.set("arguments", arguments.value());
   }
-  auto params_ptr = std::make_shared<Metadata>(std::move(params));
+  auto params_ptr = std::make_shared<json::JsonValue>(std::move(params));
 
-  GOPHER_LOG_FLOW_DEBUG(
-      "MCP invoke: tools/call name={} args={}", name,
-      arguments.has_value()
-          ? logTruncate(json::metadataToJson(arguments.value()).toString())
-          : "<none>");
+  GOPHER_LOG_FLOW_DEBUG("MCP invoke: tools/call name={} args={}", name,
+                        arguments.has_value()
+                            ? logTruncate(arguments.value().toString())
+                            : "<none>");
 
   // Step 1: Post to dispatcher to send the request (non-blocking)
   main_dispatcher_->post(
       [this, request_future_ptr, params_ptr, http_headers]() {
-        *request_future_ptr = sendRequest(
-            "tools/call", mcp::make_optional(*params_ptr), http_headers);
+        *request_future_ptr =
+            sendRequestWithParams("tools/call", *params_ptr, http_headers);
       });
 
   // Step 2: Use std::thread to wait for response on a worker thread (not
@@ -2989,6 +3048,23 @@ std::future<ListPromptsResult> McpClient::listPrompts(
 // Get a prompt
 std::future<GetPromptResult> McpClient::getPrompt(
     const std::string& name, const optional<Metadata>& arguments) {
+  return getPromptWith(
+      name,
+      arguments.has_value()
+          ? mcp::make_optional(json::metadataToExactJson(arguments.value()))
+          : optional<json::JsonValue>());
+}
+
+std::future<GetPromptResult> McpClient::getPrompt(
+    const std::string& name, const json::JsonValue& arguments) {
+  return getPromptWith(name, mcp::make_optional(arguments));
+}
+
+std::future<GetPromptResult> McpClient::getPromptWith(
+    const std::string& name, const optional<json::JsonValue>& arguments) {
+  if (arguments.has_value() && !arguments->isObject()) {
+    return refuseArguments<GetPromptResult>("prompts/get");
+  }
   auto result_promise = std::make_shared<std::promise<GetPromptResult>>();
 
   if (!main_dispatcher_) {
@@ -3004,24 +3080,21 @@ std::future<GetPromptResult> McpClient::getPrompt(
 
   auto request_future_ptr = std::make_shared<std::future<Response>>();
 
-  // Prepare params before posting to dispatcher
-  auto params = make_metadata();
-  params["name"] = name;
+  // The arguments go out as the JSON they are. Through the flat map they
+  // would be rewritten on the way: a string that looks like JSON parsed
+  // into an object, a wide integer narrowed.
+  json::JsonValue params = json::JsonValue::object();
+  params.set("name", json::JsonValue(name));
   if (arguments.has_value()) {
-    // Convert arguments to JSON string for nested object support
-    // Server expects "arguments" as a nested JSON object which is stored
-    // as a JSON string in Metadata since MetadataValue doesn't support nesting
-    auto args_json = json::metadataToJson(arguments.value());
-    params["arguments"] = args_json.toString();
+    params.set("arguments", arguments.value());
   }
-  auto params_ptr = std::make_shared<Metadata>(std::move(params));
+  auto params_ptr = std::make_shared<json::JsonValue>(std::move(params));
 
   GOPHER_LOG_FLOW_DEBUG("MCP invoke: prompts/get name={}", name);
 
   // Step 1: Post to dispatcher to send the request (non-blocking)
   main_dispatcher_->post([this, request_future_ptr, params_ptr]() {
-    *request_future_ptr =
-        sendRequest("prompts/get", mcp::make_optional(*params_ptr));
+    *request_future_ptr = sendRequestWithParams("prompts/get", *params_ptr, {});
   });
 
   // Step 2: Use std::thread to wait for response on a worker thread (not

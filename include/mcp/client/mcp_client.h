@@ -516,12 +516,24 @@ class McpClient : public application::ApplicationBase {
       const std::string& name,
       const optional<Metadata>& arguments,
       const std::map<std::string, std::string>& http_headers);
+  // Arguments as the JSON object they are, sent exactly as given: nested
+  // values stay nested, integers keep their width, and a string that
+  // looks like JSON is still a string. The Metadata overloads send their
+  // values exactly too, but cannot hold anything nested.
+  std::future<CallToolResult> callTool(const std::string& name,
+                                       const json::JsonValue& arguments);
+  std::future<CallToolResult> callTool(
+      const std::string& name,
+      const json::JsonValue& arguments,
+      const std::map<std::string, std::string>& http_headers);
 
   // Prompt operations
   std::future<ListPromptsResult> listPrompts(
       const optional<Cursor>& cursor = nullopt);
   std::future<GetPromptResult> getPrompt(
       const std::string& name, const optional<Metadata>& arguments = nullopt);
+  std::future<GetPromptResult> getPrompt(const std::string& name,
+                                         const json::JsonValue& arguments);
 
   // Logging operations
   std::future<VoidResult> setLogLevel(enums::LoggingLevel::Value level);
@@ -691,6 +703,17 @@ class McpClient : public application::ApplicationBase {
       const optional<Metadata>& params,
       const std::map<std::string, std::string>& http_headers);
   void sendRequestInternal(std::shared_ptr<RequestContext> context);
+  // A request whose params go out exactly as this JSON.
+  std::future<Response> sendRequestWithParams(
+      const std::string& method,
+      const json::JsonValue& params,
+      const std::map<std::string, std::string>& http_headers);
+  std::future<CallToolResult> callToolWith(
+      const std::string& name,
+      const optional<json::JsonValue>& arguments,
+      const std::map<std::string, std::string>& http_headers);
+  std::future<GetPromptResult> getPromptWith(
+      const std::string& name, const optional<json::JsonValue>& arguments);
   void handleTimeout(std::shared_ptr<RequestContext> context);
   void retryRequest(std::shared_ptr<RequestContext> context);
 
