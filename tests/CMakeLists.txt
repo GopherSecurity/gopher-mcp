@@ -2122,6 +2122,18 @@ target_link_libraries(test_http_sse_filter_server_mode
 )
 add_test(NAME ServerModeFilterTest COMMAND test_http_sse_filter_server_mode)
 
+# A connection closed from inside its own read filters
+add_executable(test_connection_close_while_reading integration/test_connection_close_while_reading.cc)
+target_link_libraries(test_connection_close_while_reading
+    gopher-mcp
+    gopher-mcp-event
+    gtest
+    gtest_main
+    gmock
+    Threads::Threads
+)
+add_test(NAME ConnectionCloseWhileReadingTest COMMAND test_connection_close_while_reading)
+
 # Streamable HTTP POST Test - what the MCP endpoint puts on the wire
 add_executable(test_streamable_http_post integration/test_streamable_http_post.cc)
 target_link_libraries(test_streamable_http_post

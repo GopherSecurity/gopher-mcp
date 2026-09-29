@@ -844,6 +844,37 @@ TEST_F(McpClientInitializeRoutingTest, AHandshakeAtTheSessionEndpointHolds) {
       << "the server never took notifications/initialized";
 }
 
+// A client that gives its session back and goes at once leaves the server
+// answering on a connection that is already gone. That is the server's
+// problem to absorb, not a reason for it to stop.
+TEST_F(McpClientInitializeRoutingTest, AClientLeavingAtOnceLeavesTheServerUp) {
+  auto arrived = std::make_shared<std::atomic<int>>(0);
+  server_->registerNotificationHandler(
+      "notifications/initialized",
+      [arrived](const jsonrpc::Notification&, server::SessionContext&) {
+        ++*arrived;
+      });
+
+  client::McpClientConfig config = namedTransportConfig();
+  config.streamable_http.enable_modern_era = false;
+  client_ = client::createMcpClient(config);
+  ASSERT_NE(client_, nullptr);
+  const std::string uri = "http://127.0.0.1:" + std::to_string(port_) + "/mcp";
+  ASSERT_TRUE(holds_alternative<std::nullptr_t>(client_->connect(uri)));
+
+  auto init_future = client_->initializeProtocol();
+  ASSERT_EQ(init_future.wait_for(5s), std::future_status::ready);
+  ASSERT_NO_THROW(init_future.get());
+  client_->shutdown();
+  client_.reset();
+
+  const auto deadline = std::chrono::steady_clock::now() + 5s;
+  while (arrived->load() == 0 && std::chrono::steady_clock::now() < deadline) {
+    std::this_thread::sleep_for(10ms);
+  }
+  EXPECT_EQ(arrived->load(), 1);
+}
+
 // A server that serves only the older revisions is met through the
 // handshake, even by a client that would rather speak the newest.
 TEST_F(McpClientInitializeRoutingTest, NamingTheTransportMeetsAnOlderServer) {
