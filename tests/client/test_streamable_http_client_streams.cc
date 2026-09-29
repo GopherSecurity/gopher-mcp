@@ -257,7 +257,8 @@ TEST_F(StreamableHttpClientStreamTest, ARequestFromTheServerIsAnswered) {
   server_.pushToStream(streamEvent("s:1", serverRequest(77, "ping")));
 
   // The answer arrives as a POST, on the connection the client sends
-  // everything else on, carrying the id it was asked under.
+  // everything else on, carrying the id it was asked under. Nothing is
+  // outstanding there, so there is no reason to open another.
   const auto found = server_.waitFor([this]() {
     for (const auto& seen : server_.seen()) {
       if (seen.method == "POST" && seen.rpc_id == "77" &&
@@ -267,7 +268,62 @@ TEST_F(StreamableHttpClientStreamTest, ARequestFromTheServerIsAnswered) {
     }
     return false;
   });
-  EXPECT_TRUE(found) << "the client never answered the server's request";
+  ASSERT_TRUE(found) << "the client never answered the server's request";
+  size_t requests_on = 0;
+  size_t answer_on = 0;
+  for (const auto& seen : server_.seen()) {
+    if (seen.rpc_method == "initialize") {
+      requests_on = seen.connection;
+    }
+    if (seen.rpc_id == "77" && seen.rpc_method.empty()) {
+      answer_on = seen.connection;
+    }
+  }
+  EXPECT_EQ(answer_on, requests_on)
+      << "an idle request connection was passed over";
+}
+
+// A server may ask its question in the middle of the call it needs the
+// answer for, on that call's streamed response. The answer cannot go out
+// behind that response: a server need not read a request queued behind
+// one it is still sending, and this one does not.
+TEST_F(StreamableHttpClientStreamTest, AnAnswerDoesNotWaitBehindTheCall) {
+  std::atomic<size_t> call_connection{0};
+  std::atomic<size_t> answer_connection{0};
+  std::string call_id;
+  server_.holdRequestsBehindStream();
+  const uint16_t port = server_.start([&](const Seen& seen) -> Reply {
+    if (seen.rpc_method == "initialize") {
+      return Reply::write(handshakeAnswer(seen, kSession, "2025-06-18"));
+    }
+    if (seen.rpc_method == "tools/call") {
+      call_connection = seen.connection;
+      call_id = seen.rpc_id;
+      return Reply::stream(streamPrelude() +
+                           streamEvent("c:1", serverRequest(77, "ping")));
+    }
+    if (seen.rpc_method.empty() && seen.rpc_id == "77") {
+      // Answered: now the call can finish.
+      answer_connection = seen.connection;
+      server_.pushToStream(streamEvent("c:2", streamedAnswer(call_id)));
+      server_.endStream();
+      return Reply::write(accepted());
+    }
+    if (seen.rpc_id.empty()) {
+      return Reply::write(accepted());
+    }
+    return Reply::write(answer(seen, "{}"));
+  });
+
+  startClient(port, false);
+  handshake();
+
+  auto called = client_->sendRequest("tools/call");
+  ASSERT_EQ(called.wait_for(5s), std::future_status::ready)
+      << "the call never finished: its answer waited behind it";
+  EXPECT_FALSE(called.get().error.has_value());
+  EXPECT_NE(answer_connection.load(), call_connection.load())
+      << "the answer went out behind the call it was answering";
 }
 
 // The one this is all for: a stream that is cut is picked up where it

@@ -48,6 +48,7 @@ struct Seen {
   std::string body;
   std::string rpc_method;  // "initialize", "ping", ... where there is one
   std::string rpc_id;      // as written, so it can be echoed back
+  size_t connection = 0;   // which accepted connection it came in on
 
   std::string header(const std::string& name) const {
     auto it = headers.find(name);
@@ -358,6 +359,20 @@ class ScriptedServer {
     return waitFor([&]() { return hasStream(); }, budget);
   }
 
+  /**
+   * Read nothing more on a connection while a stream is held open on it,
+   * as a server that does not read pipelined requests would not. A
+   * request queued behind the stream then waits until the stream ends.
+   */
+  void holdRequestsBehindStream() { hold_behind_stream_ = true; }
+
+  /** Finish the stream cleanly and stop holding its connection. */
+  void endStream() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    stream_pending_ += streamEnd();
+    stream_ended_ = true;
+  }
+
   /** Write onto the connection currently held as the stream. */
   void pushToStream(const std::string& bytes) {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -405,6 +420,9 @@ class ScriptedServer {
           buffers_[i].append(in.toString());
           progressed = true;
         }
+        if (hold_behind_stream_ && streamIs(i)) {
+          continue;
+        }
         while (conns_[i] && takeOne(i)) {
           progressed = true;
         }
@@ -420,6 +438,11 @@ class ScriptedServer {
     }
   }
 
+  bool streamIs(size_t index) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return stream_index_ == static_cast<int>(index);
+  }
+
   /** Write and cut what the test asked for on the held stream. */
   bool drainStreamWork() {
     std::string pending;
@@ -431,6 +454,10 @@ class ScriptedServer {
       pending.swap(stream_pending_);
       cut = stream_cut_;
       stream_cut_ = false;
+      if (stream_ended_) {
+        stream_ended_ = false;
+        stream_index_ = -1;
+      }
     }
     if (index < 0 || static_cast<size_t>(index) >= conns_.size() ||
         !conns_[index]) {
@@ -538,6 +565,7 @@ class ScriptedServer {
 
     seen.rpc_method = jsonField(seen.body, "method");
     seen.rpc_id = jsonField(seen.body, "id");
+    seen.connection = index;
 
     const Reply reply = script_(seen);
     {
@@ -575,6 +603,8 @@ class ScriptedServer {
   int stream_index_{-1};
   std::string stream_pending_;
   bool stream_cut_{false};
+  bool stream_ended_{false};
+  std::atomic<bool> hold_behind_stream_{false};
 };
 
 }  // namespace test

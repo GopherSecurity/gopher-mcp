@@ -245,11 +245,6 @@ TEST_P(PythonServerInteropTest, AStructuredResultIsListedAndRead) {
 // earlier revisions, input_required in the newest. Either way the typed
 // handler answers, and the tool returns what it was told.
 TEST_P(PythonServerInteropTest, AnElicitationIsAnsweredInEitherRevision) {
-  if (!modern()) {
-    GTEST_SKIP() << "known client bug #298: the answer is pipelined behind "
-                    "the call's streaming response, which this server does "
-                    "not read, so the call never completes";
-  }
   ASSERT_TRUE(startServer());
   startClient();
   ASSERT_NO_THROW(handshake());
