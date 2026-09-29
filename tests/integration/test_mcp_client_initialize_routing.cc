@@ -366,6 +366,61 @@ TEST_F(McpClientInitializeRoutingTest, AClientMayDeclineTheNewestEra) {
   EXPECT_FALSE(ping_future.get().error.has_value());
 }
 
+// notifications/initialized ends the handshake of the earlier revisions.
+// The newest has no handshake, so a client speaking it has nothing to
+// end and sends nothing; one speaking an earlier revision still does.
+TEST_F(McpClientInitializeRoutingTest, OnlyAHandshakeIsFollowedByInitialized) {
+  for (const bool newest : {true, false}) {
+    SCOPED_TRACE(newest ? "newest revision" : "earlier revision");
+    auto arrived = std::make_shared<std::atomic<int>>(0);
+    server_->registerNotificationHandler(
+        "notifications/initialized",
+        [arrived](const jsonrpc::Notification&, server::SessionContext&) {
+          ++*arrived;
+        });
+
+    client::McpClientConfig client_config;
+    client_config.client_name = "init-routing-test-client";
+    client_config.client_version = "0.0.1";
+    client_config.num_workers = 1;
+    client_config.request_timeout = 5000ms;
+    client_config.protocol_initialization_timeout = 5000ms;
+    client_config.protocol_connection_timeout = 5000ms;
+    client_config.streamable_http.enable_modern_era = newest;
+    client_ = client::createMcpClient(client_config);
+    ASSERT_NE(client_, nullptr);
+
+    const std::string uri =
+        "http://127.0.0.1:" + std::to_string(port_) + "/rpc";
+    ASSERT_TRUE(holds_alternative<std::nullptr_t>(client_->connect(uri)));
+    auto init_future = client_->initializeProtocol();
+    ASSERT_EQ(init_future.wait_for(5s), std::future_status::ready);
+    InitializeResult result;
+    ASSERT_NO_THROW(result = init_future.get());
+    ASSERT_EQ(result.protocolVersion == protocol::kProtocolVersion20260728,
+              newest);
+
+    // Anything sent at the end of the handshake went out before this, on
+    // the same connection, and has been read by the time it is answered.
+    auto ping = client_->sendRequest("ping");
+    ASSERT_EQ(ping.wait_for(5s), std::future_status::ready);
+    EXPECT_FALSE(ping.get().error.has_value());
+    if (!newest) {
+      const auto deadline = std::chrono::steady_clock::now() + 5s;
+      while (arrived->load() == 0 &&
+             std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(10ms);
+      }
+    } else {
+      std::this_thread::sleep_for(200ms);
+    }
+    EXPECT_EQ(arrived->load(), newest ? 0 : 1);
+
+    client_->shutdown();
+    client_.reset();
+  }
+}
+
 // The older era's answer to an introduction nests serverInfo and
 // capabilities as objects. Read as the flat map it used to be squeezed
 // into, the name never arrived and every capability read as absent.
