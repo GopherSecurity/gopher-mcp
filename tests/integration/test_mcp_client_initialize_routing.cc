@@ -768,6 +768,113 @@ client::McpClientConfig namedTransportConfig() {
   return config;
 }
 
+// What the server received as a call's params, read back from its answer.
+// The handlers below replace the server's own and echo the params exactly
+// as they came off the wire.
+json::JsonValue echoedParams(const std::string& text) {
+  return json::JsonValue::parse(text);
+}
+
+// A tool's arguments reach the server as they were given. Through the flat
+// map they used to be rewritten on the way: a string that looks like JSON
+// became an object, and an integer wider than int was cut down.
+TEST_F(McpClientInitializeRoutingTest, ToolArgumentsReachTheServerUnchanged) {
+  server_->registerRequestHandler(
+      "tools/call",
+      [](const jsonrpc::Request& request, server::SessionContext&) {
+        const std::string received = request.params_json.has_value()
+                                         ? request.params_json->toString()
+                                         : std::string("null");
+        CallToolResult result;
+        result.content.push_back(TextContent(received));
+        return jsonrpc::Response::success(
+            request.id, jsonrpc::ResponseResult(json::to_json(result)));
+      });
+  connectInitializedClient();
+
+  auto textOf = [](std::future<CallToolResult> call) {
+    EXPECT_EQ(call.wait_for(5s), std::future_status::ready);
+    CallToolResult result = call.get();
+    return get<TextContent>(result.content.at(0)).text;
+  };
+
+  Metadata flat;
+  flat["literal"] = std::string("{}");
+  flat["list"] = std::string("[1,2]");
+  flat["wide"] = static_cast<int64_t>(5000000000LL);
+  flat["flag"] = true;
+  auto sent = echoedParams(textOf(client_->callTool("echo", flat)));
+  EXPECT_EQ(sent["name"].getString(), "echo");
+  ASSERT_TRUE(sent["arguments"]["literal"].isString())
+      << "a string argument was sent as something else: " << sent.toString();
+  EXPECT_EQ(sent["arguments"]["literal"].getString(), "{}");
+  EXPECT_TRUE(sent["arguments"]["list"].isString());
+  EXPECT_EQ(sent["arguments"]["wide"].getInt64(), 5000000000LL)
+      << "a wide integer argument was narrowed";
+  EXPECT_TRUE(sent["arguments"]["flag"].getBool());
+
+  // Nested arguments, given as the JSON they are.
+  auto nested = json::JsonValue::parse(
+      R"({"filter":{"tags":["a","b"],"limit":9007199254740993},)"
+      R"("raw":"{\"not\":\"parsed\"}"})");
+  sent = echoedParams(textOf(client_->callTool("echo", nested)));
+  EXPECT_EQ(sent["arguments"].toString(), nested.toString());
+}
+
+// A prompt's arguments go the same way.
+TEST_F(McpClientInitializeRoutingTest, PromptArgumentsReachTheServerUnchanged) {
+  server_->registerRequestHandler(
+      "prompts/get",
+      [](const jsonrpc::Request& request, server::SessionContext&) {
+        const std::string received = request.params_json.has_value()
+                                         ? request.params_json->toString()
+                                         : std::string("null");
+        auto result = json::JsonValue::object();
+        auto message = json::JsonValue::object();
+        message.set("role", json::JsonValue("user"));
+        auto content = json::JsonValue::object();
+        content.set("type", json::JsonValue("text"));
+        content.set("text", json::JsonValue(received));
+        message.set("content", content);
+        auto messages = json::JsonValue::array();
+        messages.push_back(message);
+        result.set("messages", messages);
+        return jsonrpc::Response::success(request.id,
+                                          jsonrpc::ResponseResult(result));
+      });
+  connectInitializedClient();
+
+  Metadata flat;
+  flat["topic"] = std::string("[draft]");
+  auto got = client_->getPrompt("greet", flat);
+  ASSERT_EQ(got.wait_for(5s), std::future_status::ready);
+  GetPromptResult prompt = got.get();
+  ASSERT_EQ(prompt.messages.size(), 1u);
+  auto sent = echoedParams(get<TextContent>(prompt.messages[0].content).text);
+  EXPECT_EQ(sent["name"].getString(), "greet");
+  ASSERT_TRUE(sent["arguments"]["topic"].isString()) << sent.toString();
+  EXPECT_EQ(sent["arguments"]["topic"].getString(), "[draft]");
+
+  auto given = json::JsonValue::parse(R"({"topic":"{draft}"})");
+  got = client_->getPrompt("greet", given);
+  ASSERT_EQ(got.wait_for(5s), std::future_status::ready);
+  prompt = got.get();
+  sent = echoedParams(get<TextContent>(prompt.messages[0].content).text);
+  EXPECT_EQ(sent["arguments"].toString(), given.toString());
+}
+
+// Arguments are an object or nothing; anything else is refused before it
+// is sent rather than left for the server to make sense of.
+TEST_F(McpClientInitializeRoutingTest, ArgumentsThatAreNoObjectAreRefused) {
+  connectInitializedClient();
+  auto call = client_->callTool("echo", json::JsonValue("not an object"));
+  ASSERT_EQ(call.wait_for(5s), std::future_status::ready);
+  EXPECT_THROW(call.get(), std::invalid_argument);
+  auto prompt = client_->getPrompt("greet", json::JsonValue::array());
+  ASSERT_EQ(prompt.wait_for(5s), std::future_status::ready);
+  EXPECT_THROW(prompt.get(), std::invalid_argument);
+}
+
 // Naming the transport says which transport, not which revision: the
 // client still asks, and speaks the newest revision to a server serving it.
 TEST_F(McpClientInitializeRoutingTest, NamingTheTransportStillFindsTheNewest) {

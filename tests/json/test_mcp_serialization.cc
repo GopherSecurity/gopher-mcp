@@ -272,6 +272,17 @@ TEST_F(MCPSerializationTest, Error) {
   testRoundTrip(map_error);
 }
 
+// An integer in a flat map keeps its width on the way out.
+TEST_F(MCPSerializationTest, MetadataKeepsWideIntegers) {
+  Metadata metadata;
+  metadata["wide"] = static_cast<int64_t>(5000000000LL);
+  metadata["literal"] = std::string("{}");
+  EXPECT_EQ(metadataToJson(metadata)["wide"].getInt64(), 5000000000LL);
+  EXPECT_EQ(metadataToExactJson(metadata)["wide"].getInt64(), 5000000000LL);
+  // The exact form leaves a string that looks like JSON as a string.
+  EXPECT_TRUE(metadataToExactJson(metadata)["literal"].isString());
+}
+
 // A server may put any JSON value in an error's data. What the simple
 // alternatives cannot hold exactly is kept whole, not dropped, and does
 // not cost the error its code and message.
