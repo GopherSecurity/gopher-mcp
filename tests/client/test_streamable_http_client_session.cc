@@ -91,6 +91,34 @@ class StreamableHttpClientSessionTest : public ::testing::Test {
     ASSERT_NO_THROW(init.get());
   }
 
+  /** Serve the handshake, then refuse every request with HTTP 502 and this
+   * body. */
+  void refuseEveryRequestWith(const std::string& body) {
+    const uint16_t port = server_.start([body](const Seen& seen) -> Reply {
+      if (seen.rpc_method == "initialize") {
+        return Reply::write(handshakeAnswer(seen, "session-one", "2025-06-18"));
+      }
+      if (seen.rpc_id.empty()) {
+        return Reply::write(accepted());
+      }
+      return Reply::write(
+          withBody(502, "Bad Gateway", "text/plain", body, std::string()));
+    });
+    startClient(port);
+    handshake();
+  }
+
+  void expectPingNamesTheStatus() {
+    auto ping = client_->sendRequest("ping");
+    ASSERT_EQ(ping.wait_for(5s), std::future_status::ready);
+    const auto response = ping.get();
+    ASSERT_TRUE(response.error.has_value());
+    EXPECT_EQ(response.error->code, jsonrpc::INTERNAL_ERROR)
+        << response.error->message;
+    EXPECT_NE(response.error->message.find("HTTP 502"), std::string::npos)
+        << response.error->message;
+  }
+
   ScriptedServer server_;
   std::unique_ptr<client::McpClient> client_;
 };
@@ -308,10 +336,96 @@ TEST_F(StreamableHttpClientSessionTest, ARefusalThatIsNotAboutTheSession) {
             std::string::npos)
       << "the caller was not told what the server said: "
       << response.error->message;
+  // The server's own error, not a stand-in for it.
+  EXPECT_EQ(response.error->code, jsonrpc::INVALID_REQUEST);
 
   // Nothing about a bad request says the session is gone.
   EXPECT_EQ(server_.countOf("initialize"), 1u);
   EXPECT_EQ(server_.countOf("ping"), 1u);
+}
+
+// An error the server sent with an HTTP error status is the answer: its
+// code, message and data reach the caller, not a stand-in for them. The
+// 2026-07-28 transport answers this way for several errors, and a server
+// may for any.
+TEST_F(StreamableHttpClientSessionTest, AnErrorSentWithAStatusKeepsItsCode) {
+  const uint16_t port = server_.start([](const Seen& seen) -> Reply {
+    if (seen.rpc_method == "initialize") {
+      return Reply::write(handshakeAnswer(seen, kSessionOne, "2025-06-18"));
+    }
+    if (seen.rpc_id.empty()) {
+      return Reply::write(accepted());
+    }
+    return Reply::write(withBody(
+        400, "Bad Request", "application/json",
+        "{\"jsonrpc\":\"2.0\",\"id\":" + seen.rpc_id +
+            ",\"error\":{\"code\":-32602,\"message\":\"Unknown resource\","
+            "\"data\":{\"uri\":\"file:///missing\"}}}",
+        std::string()));
+  });
+
+  startClient(port);
+  handshake();
+
+  auto ping = client_->sendRequest("ping");
+  ASSERT_EQ(ping.wait_for(5s), std::future_status::ready);
+  const auto response = ping.get();
+  ASSERT_TRUE(response.error.has_value());
+  EXPECT_EQ(response.error->code, jsonrpc::INVALID_PARAMS)
+      << response.error->message;
+  EXPECT_EQ(response.error->message, "Unknown resource");
+  ASSERT_TRUE(response.error->data.has_value());
+  const auto* data =
+      get_if<std::map<std::string, std::string>>(&response.error->data.value());
+  ASSERT_NE(data, nullptr);
+  EXPECT_EQ(data->at("uri"), "file:///missing");
+}
+
+// A server refusing before it read the id may name none; the error is
+// still this request's.
+TEST_F(StreamableHttpClientSessionTest, AnErrorNamingNoIdIsStillTheAnswer) {
+  const uint16_t port = server_.start([](const Seen& seen) -> Reply {
+    if (seen.rpc_method == "initialize") {
+      return Reply::write(handshakeAnswer(seen, kSessionOne, "2025-06-18"));
+    }
+    if (seen.rpc_id.empty()) {
+      return Reply::write(accepted());
+    }
+    return Reply::write(
+        withBody(400, "Bad Request", "application/json",
+                 "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32020,"
+                 "\"message\":\"Header mismatch\"}}",
+                 std::string()));
+  });
+
+  startClient(port);
+  handshake();
+
+  auto ping = client_->sendRequest("ping");
+  ASSERT_EQ(ping.wait_for(5s), std::future_status::ready);
+  const auto response = ping.get();
+  ASSERT_TRUE(response.error.has_value());
+  EXPECT_EQ(response.error->code, -32020) << response.error->message;
+  EXPECT_EQ(response.error->message, "Header mismatch");
+}
+
+// A body that is not this request's JSON-RPC error, or is not one at all,
+// still fails the request, naming the status it came with.
+TEST_F(StreamableHttpClientSessionTest, AnotherRequestsErrorNamesTheStatus) {
+  refuseEveryRequestWith(
+      "{\"jsonrpc\":\"2.0\",\"id\":999999,\"error\":"
+      "{\"code\":-32602,\"message\":\"someone else's\"}}");
+  expectPingNamesTheStatus();
+}
+
+TEST_F(StreamableHttpClientSessionTest, ABodyThatIsNotJsonNamesTheStatus) {
+  refuseEveryRequestWith("<html>gateway error</html>");
+  expectPingNamesTheStatus();
+}
+
+TEST_F(StreamableHttpClientSessionTest, AnEmptyBodyNamesTheStatus) {
+  refuseEveryRequestWith(std::string());
+  expectPingNamesTheStatus();
 }
 
 // A client that is finished says so, rather than leaving the session to

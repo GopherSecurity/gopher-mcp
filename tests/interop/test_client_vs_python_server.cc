@@ -287,10 +287,6 @@ TEST_P(PythonServerInteropTest, AResourceIsReadAndAMissingOneRefused) {
 // What the server said about the missing resource, not just that it said
 // no. This server sends it with an HTTP 400, as 2026-07-28 servers may.
 TEST_P(PythonServerInteropTest, AMissingResourceKeepsTheServersError) {
-  if (modern()) {
-    GTEST_SKIP() << "known client bug #297: an error sent with HTTP 400 is "
-                    "replaced by a generic -32603";
-  }
   ASSERT_TRUE(startServer());
   startClient();
   ASSERT_NO_THROW(handshake());
@@ -307,6 +303,16 @@ TEST_P(PythonServerInteropTest, AMissingResourceKeepsTheServersError) {
   EXPECT_TRUE(response.error->code == jsonrpc::INVALID_PARAMS ||
               response.error->code == jsonrpc::RESOURCE_NOT_FOUND)
       << response.error->code << ": " << response.error->message;
+  if (modern()) {
+    // Sent with HTTP 400 in 2026-07-28; the client keeps the body's error.
+    EXPECT_EQ(response.error->code, jsonrpc::INVALID_PARAMS);
+  }
+  ASSERT_TRUE(response.error->data.has_value()) << response.error->message;
+  const auto* data =
+      get_if<std::map<std::string, std::string>>(&response.error->data.value());
+  ASSERT_NE(data, nullptr);
+  EXPECT_EQ(data->count("uri") ? data->at("uri") : std::string(),
+            "interop://missing");
 }
 
 // Listening, which only the newest revision has: a subscription to the
