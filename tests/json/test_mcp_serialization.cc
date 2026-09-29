@@ -272,6 +272,62 @@ TEST_F(MCPSerializationTest, Error) {
   testRoundTrip(map_error);
 }
 
+// A server may put any JSON value in an error's data. What the simple
+// alternatives cannot hold exactly is kept whole, not dropped, and does
+// not cost the error its code and message.
+TEST_F(MCPSerializationTest, ErrorDataOfAnyShapeIsKept) {
+  const std::vector<std::string> rich = {
+      R"({"retryAfter":1})",
+      R"({"uri":"file:///x","detail":{"lines":[1,2,3]}})",
+      R"([1,"two",{"three":3}])",
+      R"(9007199254740993)",
+  };
+  for (const auto& text : rich) {
+    SCOPED_TRACE(text);
+    const JsonValue wire = JsonValue::parse(
+        R"({"code":-32000,"message":"Busy","data":)" + text + "}");
+    Error error;
+    ASSERT_NO_THROW(error = from_json<Error>(wire));
+    EXPECT_EQ(error.code, -32000);
+    EXPECT_EQ(error.message, "Busy");
+    ASSERT_TRUE(error.data.has_value());
+    const auto* kept = mcp::get_if<JsonValue>(&error.data.value());
+    ASSERT_NE(kept, nullptr) << "kept in a shape that cannot hold it";
+    EXPECT_EQ(kept->toString(), JsonValue::parse(text).toString());
+    EXPECT_EQ(to_json(error)["data"].toString(),
+              JsonValue::parse(text).toString())
+        << "sent on in a different shape than it came in";
+  }
+
+  // The simple shapes still arrive as their own alternatives.
+  Error flat = from_json<Error>(JsonValue::parse(
+      R"({"code":-32602,"message":"Unknown","data":{"uri":"file:///x"}})"));
+  ASSERT_TRUE(flat.data.has_value());
+  EXPECT_NE(
+      (mcp::get_if<std::map<std::string, std::string>>(&flat.data.value())),
+      nullptr);
+  Error number = from_json<Error>(
+      JsonValue::parse(R"({"code":-32000,"message":"x","data":42})"));
+  ASSERT_TRUE(number.data.has_value());
+  EXPECT_NE(mcp::get_if<int>(&number.data.value()), nullptr);
+}
+
+// The same error in an ordinary response, which is where most arrive.
+TEST_F(MCPSerializationTest, AnErrorResponseWithRichDataIsRead) {
+  const JsonValue wire = JsonValue::parse(
+      R"({"jsonrpc":"2.0","id":7,"error":{"code":-32000,"message":"Busy",)"
+      R"("data":{"retryAfter":1}}})");
+  jsonrpc::Response response;
+  ASSERT_NO_THROW(response = from_json<jsonrpc::Response>(wire));
+  ASSERT_TRUE(response.error.has_value());
+  EXPECT_EQ(response.error->code, -32000);
+  EXPECT_EQ(response.error->message, "Busy");
+  ASSERT_TRUE(response.error->data.has_value());
+  const auto* kept = mcp::get_if<JsonValue>(&response.error->data.value());
+  ASSERT_NE(kept, nullptr);
+  EXPECT_EQ((*kept)["retryAfter"].getInt64(), 1);
+}
+
 // =============================================================================
 // JSON-RPC Types
 // =============================================================================

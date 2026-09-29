@@ -381,6 +381,41 @@ TEST_F(StreamableHttpClientSessionTest, AnErrorSentWithAStatusKeepsItsCode) {
   EXPECT_EQ(data->at("uri"), "file:///missing");
 }
 
+// Data of any shape travels with the error. A server may put anything
+// there, and a shape the client has no simple type for is no reason to
+// lose the code and message it came with.
+TEST_F(StreamableHttpClientSessionTest, AnErrorKeepsDataOfAnyShape) {
+  const uint16_t port = server_.start([](const Seen& seen) -> Reply {
+    if (seen.rpc_method == "initialize") {
+      return Reply::write(handshakeAnswer(seen, kSessionOne, "2025-06-18"));
+    }
+    if (seen.rpc_id.empty()) {
+      return Reply::write(accepted());
+    }
+    return Reply::write(withBody(
+        429, "Too Many Requests", "application/json",
+        "{\"jsonrpc\":\"2.0\",\"id\":" + seen.rpc_id +
+            ",\"error\":{\"code\":-32000,\"message\":\"Slow down\","
+            "\"data\":{\"retryAfter\":1,\"detail\":{\"window\":[1,2]}}}}",
+        std::string()));
+  });
+
+  startClient(port);
+  handshake();
+
+  auto ping = client_->sendRequest("ping");
+  ASSERT_EQ(ping.wait_for(5s), std::future_status::ready);
+  const auto response = ping.get();
+  ASSERT_TRUE(response.error.has_value());
+  EXPECT_EQ(response.error->code, -32000) << response.error->message;
+  EXPECT_EQ(response.error->message, "Slow down");
+  ASSERT_TRUE(response.error->data.has_value());
+  const auto* data = get_if<json::JsonValue>(&response.error->data.value());
+  ASSERT_NE(data, nullptr);
+  EXPECT_EQ((*data)["retryAfter"].getInt64(), 1);
+  EXPECT_EQ((*data)["detail"]["window"].size(), 2u);
+}
+
 // A server refusing before it read the id may name none; the error is
 // still this request's.
 TEST_F(StreamableHttpClientSessionTest, AnErrorNamingNoIdIsStillTheAnswer) {
