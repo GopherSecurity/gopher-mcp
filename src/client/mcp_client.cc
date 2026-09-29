@@ -125,7 +125,11 @@ optional<Error> jsonRpcErrorIn(const std::string& body, const RequestId& id) {
   try {
     return mcp::make_optional(json::from_json<Error>(json["error"]));
   } catch (const std::exception&) {
-    return nullopt;
+    // The code and message are what matter most, and they were checked
+    // above; whatever went wrong was in the data.
+    return mcp::make_optional(
+        Error(static_cast<int>(json["error"]["code"].getInt64()),
+              json["error"]["message"].getString()));
   }
 }
 

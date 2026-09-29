@@ -383,17 +383,18 @@ struct Prompt {
   explicit Prompt(const std::string& n) : name(n) {}
 };
 
-// Error data type
-using ErrorData =
-    variant<std::nullptr_t,
-            bool,
-            int,
-            double,
-            std::string,
-            std::vector<std::string>,  // Simplified: vector of strings instead
-                                       // of nested variant
-            std::map<std::string, std::string>>;  // Simplified: map of string
-                                                  // to string
+// Error data type. A server may put any JSON value in an error's data.
+// The simple shapes keep their own alternatives; anything they cannot hold
+// exactly — nested values, numbers in a map, integers beyond int — is
+// kept whole as JSON rather than dropped or rewritten.
+using ErrorData = variant<std::nullptr_t,
+                          bool,
+                          int,
+                          double,
+                          std::string,
+                          std::vector<std::string>,
+                          std::map<std::string, std::string>,
+                          mcp::json::JsonValue>;
 
 // Error type
 struct Error {
