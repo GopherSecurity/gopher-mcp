@@ -65,6 +65,10 @@ class StreamableHttpClientSessionTest : public ::testing::Test {
     // not about how a client works out which one to choose. Saying so
     // keeps the search for that out of what they count.
     config.preferred_transport = TransportType::StreamableHttp;
+    // And about sessions, which only the revisions before 2026-07-28 have.
+    // Declining the newest keeps its discovery out of the counts too: a
+    // client that may speak it asks first, even with the transport named.
+    config.streamable_http.enable_modern_era = false;
     config.request_timeout = 5000ms;
     config.protocol_initialization_timeout = 5000ms;
     config.protocol_connection_timeout = 5000ms;

@@ -108,14 +108,11 @@ class PythonServerInteropTest : public ::testing::TestWithParam<Era> {
     config.request_timeout = 15000ms;
     config.protocol_initialization_timeout = 15000ms;
     config.protocol_connection_timeout = 15000ms;
-    // The newest revision unless held to the earlier ones. The newest is
-    // found by asking, so the transport is left for the client to work out:
-    // naming it outright skips the discovery that settles the revision
-    // (#296).
+    // The newest revision unless held to the earlier ones. The transport is
+    // named in both, as an application would; the revision is still found
+    // by asking (#296).
+    config.preferred_transport = TransportType::StreamableHttp;
     config.streamable_http.enable_modern_era = modern();
-    if (!modern()) {
-      config.preferred_transport = TransportType::StreamableHttp;
-    }
 
     client_ = client::createMcpClient(config);
     ASSERT_NE(client_, nullptr);

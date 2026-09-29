@@ -113,7 +113,13 @@ uint16_t pickEphemeralPort() {
 
 class McpClientInitializeRoutingTest : public ::testing::Test {
  protected:
-  void SetUp() override {
+  void SetUp() override { startServer(/*serve_newest=*/true); }
+
+  /**
+   * Bring up the server on a fresh port. With serve_newest false it serves
+   * only the revisions before 2026-07-28, as an older server would.
+   */
+  void startServer(bool serve_newest) {
     port_ = pickEphemeralPort();
 
     // Server: minimal config. One worker, known capability set — the test
@@ -127,6 +133,7 @@ class McpClientInitializeRoutingTest : public ::testing::Test {
     server_config.capabilities.tools = mcp::make_optional(true);
     server_config.capabilities.prompts = mcp::make_optional(true);
     server_config.capabilities.logging = mcp::make_optional(true);
+    server_config.streamable_http.enable_modern_era = serve_newest;
 
     server_ = server::createMcpServer(server_config);
     ASSERT_NE(server_, nullptr);
@@ -149,6 +156,17 @@ class McpClientInitializeRoutingTest : public ::testing::Test {
     // sleeping long enough to cover the slowest machine.
     ASSERT_TRUE(waitForListenerReady(port_, 5s))
         << "Server did not begin accepting on port " << port_;
+  }
+
+  /** Stop the running server, so another can be started in its place. */
+  void stopServer() {
+    if (server_) {
+      server_->shutdown();
+    }
+    if (server_thread_.joinable()) {
+      server_thread_.join();
+    }
+    server_.reset();
   }
 
   void TearDown() override {
@@ -680,6 +698,80 @@ TEST_F(McpClientInitializeRoutingTest, CachingHintsReachTheClient) {
   EXPECT_EQ(tools.ttlMs.value(), 0);
   ASSERT_TRUE(tools.cacheScope.has_value());
   EXPECT_EQ(tools.cacheScope.value(), "private");
+}
+
+/** A client that names Streamable HTTP as its transport. */
+client::McpClientConfig namedTransportConfig() {
+  client::McpClientConfig config;
+  config.client_name = "init-routing-test-client";
+  config.client_version = "0.0.1";
+  config.num_workers = 1;
+  config.request_timeout = 5000ms;
+  config.protocol_initialization_timeout = 5000ms;
+  config.protocol_connection_timeout = 5000ms;
+  config.preferred_transport = TransportType::StreamableHttp;
+  return config;
+}
+
+// Naming the transport says which transport, not which revision: the
+// client still asks, and speaks the newest revision to a server serving it.
+TEST_F(McpClientInitializeRoutingTest, NamingTheTransportStillFindsTheNewest) {
+  client_ = client::createMcpClient(namedTransportConfig());
+  ASSERT_NE(client_, nullptr);
+  const std::string uri = "http://127.0.0.1:" + std::to_string(port_) + "/mcp";
+  ASSERT_TRUE(holds_alternative<std::nullptr_t>(client_->connect(uri)));
+
+  auto init_future = client_->initializeProtocol();
+  ASSERT_EQ(init_future.wait_for(5s), std::future_status::ready);
+  InitializeResult result;
+  ASSERT_NO_THROW(result = init_future.get());
+  EXPECT_EQ(result.protocolVersion, protocol::kProtocolVersion20260728)
+      << "a client that named its transport never spoke the newest revision";
+
+  auto ping = client_->sendRequest("ping");
+  ASSERT_EQ(ping.wait_for(5s), std::future_status::ready);
+  EXPECT_FALSE(ping.get().error.has_value());
+}
+
+// A client that declines the newest revision is not asked to find it.
+TEST_F(McpClientInitializeRoutingTest,
+       NamingTheTransportAndDecliningStaysOlder) {
+  client::McpClientConfig config = namedTransportConfig();
+  config.streamable_http.enable_modern_era = false;
+  client_ = client::createMcpClient(config);
+  ASSERT_NE(client_, nullptr);
+  const std::string uri = "http://127.0.0.1:" + std::to_string(port_) + "/rpc";
+  ASSERT_TRUE(holds_alternative<std::nullptr_t>(client_->connect(uri)));
+
+  auto init_future = client_->initializeProtocol();
+  ASSERT_EQ(init_future.wait_for(5s), std::future_status::ready);
+  InitializeResult result;
+  ASSERT_NO_THROW(result = init_future.get());
+  EXPECT_EQ(result.protocolVersion, config.protocol_version);
+}
+
+// A server that serves only the older revisions is met through the
+// handshake, even by a client that would rather speak the newest.
+TEST_F(McpClientInitializeRoutingTest, NamingTheTransportMeetsAnOlderServer) {
+  stopServer();
+  startServer(/*serve_newest=*/false);
+
+  client::McpClientConfig config = namedTransportConfig();
+  client_ = client::createMcpClient(config);
+  ASSERT_NE(client_, nullptr);
+  const std::string uri = "http://127.0.0.1:" + std::to_string(port_) + "/rpc";
+  ASSERT_TRUE(holds_alternative<std::nullptr_t>(client_->connect(uri)));
+
+  auto init_future = client_->initializeProtocol();
+  ASSERT_EQ(init_future.wait_for(5s), std::future_status::ready);
+  InitializeResult result;
+  ASSERT_NO_THROW(result = init_future.get());
+  EXPECT_FALSE(result.protocolVersion.empty());
+  EXPECT_NE(result.protocolVersion, protocol::kProtocolVersion20260728);
+
+  auto ping = client_->sendRequest("ping");
+  ASSERT_EQ(ping.wait_for(5s), std::future_status::ready);
+  EXPECT_FALSE(ping.get().error.has_value());
 }
 
 }  // namespace
