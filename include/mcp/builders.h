@@ -174,6 +174,11 @@ class EmbeddedResourceBuilder
     return *this;
   }
 
+  EmbeddedResourceBuilder& meta(const json::JsonValue& meta) {
+    value_._meta = mcp::make_optional(meta);
+    return *this;
+  }
+
  private:
   // The part text and blob contents share, whichever this holds.
   ResourceContents& contents() {
@@ -484,6 +489,12 @@ class TextContentBuilder : public Builder<TextContent, TextContentBuilder> {
     value_.annotations->priority = mcp::make_optional(p);
     return *this;
   }
+
+  // Extension data: a JSON object, kept as given.
+  TextContentBuilder& meta(const json::JsonValue& meta) {
+    value_._meta = mcp::make_optional(meta);
+    return *this;
+  }
 };
 
 // ImageContent Builder
@@ -493,6 +504,17 @@ class ImageContentBuilder : public Builder<ImageContent, ImageContentBuilder> {
     value_.data = data;
     value_.mimeType = mimeType;
   }
+
+  ImageContentBuilder& annotations(const Annotations& ann) {
+    value_.annotations = mcp::make_optional(ann);
+    return *this;
+  }
+
+  // Extension data: a JSON object, kept as given.
+  ImageContentBuilder& meta(const json::JsonValue& meta) {
+    value_._meta = mcp::make_optional(meta);
+    return *this;
+  }
 };
 
 // AudioContent Builder
@@ -501,6 +523,17 @@ class AudioContentBuilder : public Builder<AudioContent, AudioContentBuilder> {
   AudioContentBuilder(const std::string& data, const std::string& mimeType) {
     value_.data = data;
     value_.mimeType = mimeType;
+  }
+
+  AudioContentBuilder& annotations(const Annotations& ann) {
+    value_.annotations = mcp::make_optional(ann);
+    return *this;
+  }
+
+  // Extension data: a JSON object, kept as given.
+  AudioContentBuilder& meta(const json::JsonValue& meta) {
+    value_._meta = mcp::make_optional(meta);
+    return *this;
   }
 };
 
@@ -660,6 +693,17 @@ class PromptMessageBuilder
 
   PromptMessageBuilder& embeddedResource(const EmbeddedResource& resource) {
     value_.content = resource;
+    return *this;
+  }
+
+  PromptMessageBuilder& audio(const std::string& data,
+                              const std::string& mimeType) {
+    value_.content = AudioContent(data, mimeType);
+    return *this;
+  }
+
+  PromptMessageBuilder& resourceLink(const ResourceLink& link) {
+    value_.content = link;
     return *this;
   }
 };
@@ -1163,6 +1207,12 @@ class AnnotationsBuilder : public Builder<Annotations, AnnotationsBuilder> {
     value_.priority = p;
     return *this;
   }
+
+  // An ISO 8601 timestamp, e.g. "2026-01-12T15:00:58Z".
+  AnnotationsBuilder& lastModified(const std::string& when) {
+    value_.lastModified = when;
+    return *this;
+  }
 };
 
 class BaseMetadataBuilder : public Builder<BaseMetadata, BaseMetadataBuilder> {
@@ -1212,6 +1262,11 @@ class ResourceLinkBuilder : public Builder<ResourceLink, ResourceLinkBuilder> {
 
   ResourceLinkBuilder& annotations(const Annotations& annotations) {
     value_.annotations = annotations;
+    return *this;
+  }
+
+  ResourceLinkBuilder& meta(const json::JsonValue& meta) {
+    value_._meta = mcp::make_optional(meta);
     return *this;
   }
 };
