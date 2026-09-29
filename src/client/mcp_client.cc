@@ -85,6 +85,50 @@ std::future<Response> makeReadyResponseFuture(const Response& response) {
 // because nothing is waiting for an answer — only for the bytes to have
 // been handed over.
 constexpr std::chrono::milliseconds kSessionDeleteFlushWait{250};
+/**
+ * The JSON-RPC error a refused request's body carries, if it carries one.
+ *
+ * A server may answer with an HTTP error status and still say, in JSON-RPC,
+ * exactly what went wrong: the 2026-07-28 transport does for a header that
+ * does not match, a revision it does not serve and a capability that was
+ * not declared, and any server may for anything else. The error is this
+ * request's when it names this request's id, or names none, which a server
+ * refusing a request before reading its id may do.
+ */
+optional<Error> jsonRpcErrorIn(const std::string& body, const RequestId& id) {
+  if (body.empty()) {
+    return nullopt;
+  }
+  json::JsonValue json;
+  try {
+    json = json::JsonValue::parse(body);
+  } catch (const std::exception&) {
+    return nullopt;
+  }
+  if (!json.isObject() || !json.contains("error") ||
+      !json["error"].isObject() || !json["error"].contains("code") ||
+      !json["error"]["code"].isInteger() ||
+      !json["error"].contains("message") ||
+      !json["error"]["message"].isString()) {
+    return nullopt;
+  }
+  if (json.contains("id") && !json["id"].isNull()) {
+    const auto& named = json["id"];
+    const bool same = (named.isString() && holds_alternative<std::string>(id) &&
+                       named.getString() == get<std::string>(id)) ||
+                      (named.isInteger() && holds_alternative<int64_t>(id) &&
+                       named.getInt64() == get<int64_t>(id));
+    if (!same) {
+      return nullopt;
+    }
+  }
+  try {
+    return mcp::make_optional(json::from_json<Error>(json["error"]));
+  } catch (const std::exception&) {
+    return nullopt;
+  }
+}
+
 }  // namespace
 
 // Out-of-class definition for static constexpr member (required for C++14)
@@ -1148,6 +1192,14 @@ void McpClient::handleTransportStatus(int status_code,
   }
 
   if (!context) {
+    return;
+  }
+
+  // What the server said, when it said it in JSON-RPC: its code, message
+  // and data are the answer, and the HTTP status only how it was sent.
+  auto said = jsonRpcErrorIn(detail, context->id);
+  if (said.has_value()) {
+    completeRequestWithError(context, said.value());
     return;
   }
 
