@@ -22,6 +22,28 @@ void addCacheHints(JsonObjectBuilder& builder, const CacheableResult& result) {
   }
 }
 
+// `_meta` on a content block or resource contents: a JSON object, kept as
+// given so nested values survive. Anything but an object is refused.
+void addMeta(JsonObjectBuilder& builder, const optional<JsonValue>& meta) {
+  if (!meta.has_value()) {
+    return;
+  }
+  if (!meta->isObject()) {
+    throw JsonException("_meta must be a JSON object");
+  }
+  builder.add("_meta", meta.value());
+}
+
+optional<JsonValue> readMeta(const JsonValue& json) {
+  if (!json.contains("_meta")) {
+    return nullopt;
+  }
+  if (!json["_meta"].isObject()) {
+    throw JsonException("_meta must be a JSON object");
+  }
+  return mcp::make_optional(json["_meta"]);
+}
+
 void readCacheHints(const JsonValue& json, CacheableResult& result) {
   if (json.contains("ttlMs") && json["ttlMs"].isInteger()) {
     result.ttlMs = json["ttlMs"].getInt64();
@@ -198,6 +220,7 @@ JsonValue serialize_TextContent(const TextContent& content) {
   if (content.annotations.has_value()) {
     builder.add("annotations", to_json(content.annotations.value()));
   }
+  addMeta(builder, content._meta);
 
   return builder.build();
 }
@@ -207,6 +230,10 @@ JsonValue serialize_ImageContent(const ImageContent& content) {
   builder.add("type", "image")
       .add("mimeType", content.mimeType)
       .add("data", content.data);
+  if (content.annotations.has_value()) {
+    builder.add("annotations", to_json(content.annotations.value()));
+  }
+  addMeta(builder, content._meta);
   return builder.build();
 }
 
@@ -215,6 +242,10 @@ JsonValue serialize_AudioContent(const AudioContent& content) {
   builder.add("type", "audio")
       .add("mimeType", content.mimeType)
       .add("data", content.data);
+  if (content.annotations.has_value()) {
+    builder.add("annotations", to_json(content.annotations.value()));
+  }
+  addMeta(builder, content._meta);
   return builder.build();
 }
 
@@ -591,7 +622,7 @@ bool fitsContentBlock(const JsonValue& json) {
     // kept as JSON so they are not dropped.
     return json.contains("name") && json["name"].isString() &&
            !json.contains("title") && !json.contains("size") &&
-           !json.contains("annotations");
+           !json.contains("annotations") && !json.contains("_meta");
   }
   // A link in the shape this SDK used to write.
   return type == "resource" && json.contains("resource") &&
@@ -838,6 +869,7 @@ TextContent deserialize_TextContent(const JsonValue& json) {
   if (json.contains("annotations")) {
     content.annotations = from_json<Annotations>(json["annotations"]);
   }
+  content._meta = readMeta(json);
   return content;
 }
 
@@ -845,6 +877,10 @@ ImageContent deserialize_ImageContent(const JsonValue& json) {
   ImageContent content;
   content.data = json.at("data").getString();
   content.mimeType = json.at("mimeType").getString();
+  if (json.contains("annotations") && json["annotations"].isObject()) {
+    content.annotations = from_json<Annotations>(json["annotations"]);
+  }
+  content._meta = readMeta(json);
   return content;
 }
 
@@ -852,6 +888,10 @@ AudioContent deserialize_AudioContent(const JsonValue& json) {
   AudioContent content;
   content.data = json.at("data").getString();
   content.mimeType = json.at("mimeType").getString();
+  if (json.contains("annotations") && json["annotations"].isObject()) {
+    content.annotations = from_json<Annotations>(json["annotations"]);
+  }
+  content._meta = readMeta(json);
   return content;
 }
 
@@ -875,6 +915,7 @@ JsonValue serialize_ResourceLink(const ResourceLink& link) {
   if (link.annotations.has_value()) {
     builder.add("annotations", to_json(link.annotations.value()));
   }
+  addMeta(builder, link._meta);
   return builder.build();
 }
 
@@ -902,6 +943,7 @@ ResourceLink deserialize_ResourceLink(const JsonValue& json) {
   if (json.contains("annotations") && json["annotations"].isObject()) {
     link.annotations = from_json<Annotations>(json["annotations"]);
   }
+  link._meta = readMeta(json);
 
   return link;
 }
@@ -930,6 +972,7 @@ JsonValue serialize_EmbeddedResource(const EmbeddedResource& embedded) {
   if (embedded.annotations.has_value()) {
     builder.add("annotations", to_json(embedded.annotations.value()));
   }
+  addMeta(builder, embedded._meta);
   return builder.build();
 }
 
@@ -960,6 +1003,7 @@ EmbeddedResource deserialize_EmbeddedResource(const JsonValue& json) {
   if (json.contains("annotations") && json["annotations"].isObject()) {
     embedded.annotations = from_json<Annotations>(json["annotations"]);
   }
+  embedded._meta = readMeta(json);
 
   return embedded;
 }
@@ -1148,6 +1192,9 @@ JsonValue serialize_PromptMessage(const PromptMessage& message) {
       },
       [&builder](const ImageContent& image) {
         builder.add("content", to_json(image));
+      },
+      [&builder](const AudioContent& audio) {
+        builder.add("content", to_json(audio));
       },
       [&builder](const EmbeddedResource& embedded) {
         builder.add("content", to_json(embedded));
@@ -1762,6 +1809,8 @@ JsonValue serialize_TextResourceContents(const TextResourceContents& contents) {
     builder.add("mimeType", contents.mimeType.value());
   }
 
+  addMeta(builder, contents._meta);
+
   return builder.build();
 }
 
@@ -1776,6 +1825,8 @@ JsonValue serialize_BlobResourceContents(const BlobResourceContents& contents) {
   if (contents.mimeType.has_value()) {
     builder.add("mimeType", contents.mimeType.value());
   }
+
+  addMeta(builder, contents._meta);
 
   return builder.build();
 }
@@ -1857,6 +1908,10 @@ JsonValue serialize_Annotations(const Annotations& annotations) {
 
   if (annotations.priority.has_value()) {
     builder.add("priority", annotations.priority.value());
+  }
+
+  if (annotations.lastModified.has_value()) {
+    builder.add("lastModified", annotations.lastModified.value());
   }
 
   return builder.build();
@@ -2161,6 +2216,8 @@ PromptMessage deserialize_PromptMessage(const JsonValue& json) {
       message.content = from_json<TextContent>(content);
     } else if (type == "image") {
       message.content = from_json<ImageContent>(content);
+    } else if (type == "audio") {
+      message.content = from_json<AudioContent>(content);
     } else if (type == "resource") {
       message.content = from_json<EmbeddedResource>(content);
     } else if (type == "resource_link") {
@@ -2544,6 +2601,8 @@ TextResourceContents deserialize_TextResourceContents(const JsonValue& json) {
     contents.mimeType = json["mimeType"].getString();
   }
 
+  contents._meta = readMeta(json);
+
   return contents;
 }
 
@@ -2558,6 +2617,8 @@ BlobResourceContents deserialize_BlobResourceContents(const JsonValue& json) {
   if (json.contains("mimeType")) {
     contents.mimeType = json["mimeType"].getString();
   }
+
+  contents._meta = readMeta(json);
 
   return contents;
 }
@@ -2903,6 +2964,10 @@ Annotations deserialize_Annotations(const JsonValue& json) {
 
   if (json.contains("priority")) {
     annotations.priority = json["priority"].getFloat();
+  }
+
+  if (json.contains("lastModified") && json["lastModified"].isString()) {
+    annotations.lastModified = json["lastModified"].getString();
   }
 
   return annotations;

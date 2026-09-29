@@ -183,15 +183,21 @@ inline ProgressToken make_progress_token(const char* token) {
 struct Annotations {
   optional<std::vector<enums::Role::Value>> audience;
   optional<double> priority;  // 1.0 = most important
+  // When the content last changed, as an ISO 8601 timestamp
+  // (e.g. "2026-01-12T15:00:58Z").
+  optional<std::string> lastModified;
 
   Annotations() = default;
 };
 
 // Base types
+// Every content block may carry annotations for the client and `_meta`, a
+// JSON object for extension data, kept as JSON so nested values survive.
 struct TextContent {
   std::string type = "text";
   std::string text;
   optional<Annotations> annotations;
+  optional<mcp::json::JsonValue> _meta;
 
   TextContent() = default;
   explicit TextContent(const std::string& t) : text(t) {}
@@ -201,6 +207,8 @@ struct ImageContent {
   std::string type = "image";
   std::string data;
   std::string mimeType;
+  optional<Annotations> annotations;
+  optional<mcp::json::JsonValue> _meta;
 
   ImageContent() = default;
   ImageContent(const std::string& d, const std::string& mt)
@@ -250,6 +258,8 @@ struct AudioContent {
   std::string type = "audio";
   std::string data;  // Base64-encoded audio data
   std::string mimeType;
+  optional<Annotations> annotations;
+  optional<mcp::json::JsonValue> _meta;
 
   AudioContent() = default;
   AudioContent(const std::string& d, const std::string& mt)
@@ -261,6 +271,7 @@ struct AudioContent {
 struct ResourceContents {
   optional<std::string> uri;
   optional<std::string> mimeType;
+  optional<mcp::json::JsonValue> _meta;
 
   ResourceContents() = default;
 };
@@ -288,6 +299,7 @@ struct ResourceLink : Resource {
   optional<std::string> title;
   optional<int64_t> size;  // In bytes, before any encoding
   optional<Annotations> annotations;
+  optional<mcp::json::JsonValue> _meta;
 
   ResourceLink() = default;
   explicit ResourceLink(const Resource& r) : Resource(r) {}
@@ -301,6 +313,7 @@ struct EmbeddedResource {
   std::string type = "resource";
   variant<TextResourceContents, BlobResourceContents> resource;
   optional<Annotations> annotations;
+  optional<mcp::json::JsonValue> _meta;
 
   EmbeddedResource() = default;
   explicit EmbeddedResource(const TextResourceContents& contents)
@@ -712,7 +725,13 @@ inline BlobResourceContents make_blob_resource(const std::string& blob) {
 // Prompt message with embedded resources
 struct PromptMessage {
   enums::Role::Value role;
-  variant<TextContent, ImageContent, EmbeddedResource, ResourceLink> content;
+  // Any content block the spec allows in a prompt message.
+  variant<TextContent,
+          ImageContent,
+          AudioContent,
+          EmbeddedResource,
+          ResourceLink>
+      content;
 
   PromptMessage() = default;
   PromptMessage(enums::Role::Value r, const TextContent& c)
