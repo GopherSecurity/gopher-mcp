@@ -578,6 +578,27 @@ std::string ConnectionImpl::requestedServerName() const {
 }
 
 void ConnectionImpl::write(Buffer& data, bool end_stream) {
+  // A write is as much this connection's I/O as a socket event is, and is
+  // guarded the same way: most arrive from a posted task rather than from
+  // onFileEvent(), and an exception escaping one of those would unwind
+  // through the event loop and end the process.
+  try {
+    writeThroughFilters(data, end_stream);
+  } catch (const std::exception& e) {
+    current_write_buffer_ = nullptr;
+    current_write_end_stream_ = false;
+    GOPHER_LOG_ERROR("Closing connection after an error writing to it: {}",
+                     e.what());
+    closeSocket(ConnectionEvent::LocalClose);
+  } catch (...) {
+    current_write_buffer_ = nullptr;
+    current_write_end_stream_ = false;
+    GOPHER_LOG_ERROR("Closing connection after an unknown error writing to it");
+    closeSocket(ConnectionEvent::LocalClose);
+  }
+}
+
+void ConnectionImpl::writeThroughFilters(Buffer& data, bool end_stream) {
   /**
    * PUBLIC WRITE INTERFACE - Application entry point for sending data
    *

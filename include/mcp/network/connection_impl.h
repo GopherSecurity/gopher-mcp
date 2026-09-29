@@ -169,6 +169,8 @@ class ConnectionImpl : public ConnectionImplBase,
 
   // Write path
   void doWrite();
+  // write() without its guard: the write filters, then the socket.
+  void writeThroughFilters(Buffer& data, bool end_stream);
   TransportIoResult doWriteToSocket();
   void handleWrite(bool all_data_sent);
 
