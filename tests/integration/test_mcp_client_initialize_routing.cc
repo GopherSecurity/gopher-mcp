@@ -863,6 +863,37 @@ TEST_F(McpClientInitializeRoutingTest, PromptArgumentsReachTheServerUnchanged) {
   EXPECT_EQ(sent["arguments"].toString(), given.toString());
 }
 
+// {} has always meant "no arguments", and still does next to the overloads
+// that take JSON: this must compile, and send none.
+TEST_F(McpClientInitializeRoutingTest, EmptyBracesStillMeanNoArguments) {
+  auto echo = [](const jsonrpc::Request& request, server::SessionContext&) {
+    const std::string received = request.params_json.has_value()
+                                     ? request.params_json->toString()
+                                     : std::string("null");
+    CallToolResult result;
+    result.content.push_back(TextContent(received));
+    return jsonrpc::Response::success(
+        request.id, jsonrpc::ResponseResult(json::to_json(result)));
+  };
+  server_->registerRequestHandler("tools/call", echo);
+  connectInitializedClient();
+
+  auto expectNoArguments = [](std::future<CallToolResult> call) {
+    ASSERT_EQ(call.wait_for(5s), std::future_status::ready);
+    CallToolResult result = call.get();
+    auto sent = echoedParams(get<TextContent>(result.content.at(0)).text);
+    EXPECT_EQ(sent["name"].getString(), "echo");
+    EXPECT_FALSE(sent.contains("arguments")) << sent.toString();
+  };
+  expectNoArguments(client_->callTool("echo", {}));
+  expectNoArguments(client_->callTool("echo", {}, {}));
+
+  // getPrompt takes {} the same way; what it sends is covered above, so
+  // here it only has to be accepted.
+  auto prompt = client_->getPrompt("greet", {});
+  EXPECT_EQ(prompt.wait_for(5s), std::future_status::ready);
+}
+
 // Arguments are an object or nothing; anything else is refused before it
 // is sent rather than left for the server to make sense of.
 TEST_F(McpClientInitializeRoutingTest, ArgumentsThatAreNoObjectAreRefused) {
