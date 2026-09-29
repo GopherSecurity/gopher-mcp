@@ -80,10 +80,13 @@ test:
 # when those are absent.
 PY_INTEROP_VENV := tests/interop/.venv-py
 test-interop:
-	@echo "Installing the reference server..."
-	@cd tests/interop/reference-server-ts && npm ci --no-audit --no-fund
-	@echo "Installing the driver..."
-	@cd tests/interop/official-client-ts && npm ci --no-audit --no-fund
+	@echo "Installing the TypeScript SDK..."
+	@if command -v npm > /dev/null 2>&1; then \
+		(cd tests/interop/reference-server-ts && npm ci --no-audit --no-fund) && \
+		(cd tests/interop/official-client-ts && npm ci --no-audit --no-fund); \
+	else \
+		echo "npm is not installed; the TypeScript interop suites will skip"; \
+	fi
 	@echo "Installing the Python SDK..."
 	@if command -v python3 > /dev/null 2>&1; then \
 		[ -x $(PY_INTEROP_VENV)/bin/python ] || python3 -m venv $(PY_INTEROP_VENV); \
