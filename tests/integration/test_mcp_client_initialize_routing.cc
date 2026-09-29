@@ -805,6 +805,45 @@ TEST_F(McpClientInitializeRoutingTest,
   EXPECT_EQ(result.protocolVersion, config.protocol_version);
 }
 
+// At the endpoint that holds sessions, everything after initialize has to
+// carry the session the server issued, notifications/initialized first.
+// A server refusing what comes without one would otherwise refuse the end
+// of the handshake itself.
+TEST_F(McpClientInitializeRoutingTest, AHandshakeAtTheSessionEndpointHolds) {
+  auto arrived = std::make_shared<std::atomic<int>>(0);
+  server_->registerNotificationHandler(
+      "notifications/initialized",
+      [arrived](const jsonrpc::Notification&, server::SessionContext&) {
+        ++*arrived;
+      });
+
+  client::McpClientConfig config = namedTransportConfig();
+  config.streamable_http.enable_modern_era = false;
+  client_ = client::createMcpClient(config);
+  ASSERT_NE(client_, nullptr);
+  const std::string uri = "http://127.0.0.1:" + std::to_string(port_) + "/mcp";
+  ASSERT_TRUE(holds_alternative<std::nullptr_t>(client_->connect(uri)));
+
+  auto init_future = client_->initializeProtocol();
+  ASSERT_EQ(init_future.wait_for(5s), std::future_status::ready);
+  InitializeResult result;
+  ASSERT_NO_THROW(result = init_future.get());
+  EXPECT_EQ(result.protocolVersion, config.protocol_version);
+
+  auto ping = client_->sendRequest("ping");
+  ASSERT_EQ(ping.wait_for(5s), std::future_status::ready);
+  const auto answer = ping.get();
+  EXPECT_FALSE(answer.error.has_value())
+      << (answer.error.has_value() ? answer.error->message : std::string());
+
+  const auto deadline = std::chrono::steady_clock::now() + 5s;
+  while (arrived->load() == 0 && std::chrono::steady_clock::now() < deadline) {
+    std::this_thread::sleep_for(10ms);
+  }
+  EXPECT_EQ(arrived->load(), 1)
+      << "the server never took notifications/initialized";
+}
+
 // A server that serves only the older revisions is met through the
 // handshake, even by a client that would rather speak the newest.
 TEST_F(McpClientInitializeRoutingTest, NamingTheTransportMeetsAnOlderServer) {

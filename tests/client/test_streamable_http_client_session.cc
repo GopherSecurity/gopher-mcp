@@ -469,6 +469,44 @@ TEST_F(StreamableHttpClientSessionTest, EndingTheClientEndsTheSession) {
   }
 }
 
+// A client stopped the moment its handshake is done still finishes the
+// handshake before giving the session back. Ending the session first
+// leaves notifications/initialized to go out under no session at all,
+// which a server holding sessions refuses.
+TEST_F(StreamableHttpClientSessionTest, StoppingRightAfterTheHandshakeEndsIt) {
+  const uint16_t port = server_.start([](const Seen& seen) -> Reply {
+    if (seen.method == "DELETE") {
+      return Reply::write(
+          withBody(200, "OK", "application/json", "{}", std::string()));
+    }
+    if (seen.rpc_method == "initialize") {
+      return Reply::write(handshakeAnswer(seen, kSessionOne, "2025-06-18"));
+    }
+    return Reply::write(accepted());
+  });
+
+  startClient(port);
+  handshake();
+  client_->shutdown();
+  client_.reset();
+
+  ASSERT_TRUE(server_.waitForMethod("DELETE", 1))
+      << "the session was abandoned rather than given back";
+  bool initialized = false;
+  for (const auto& seen : server_.seen()) {
+    if (seen.rpc_method == "notifications/initialized") {
+      initialized = true;
+      EXPECT_EQ(seen.header("mcp-session-id"), kSessionOne)
+          << "the handshake was finished under no session";
+    }
+    if (seen.method == "DELETE") {
+      EXPECT_TRUE(initialized)
+          << "the session was given back before the handshake was finished";
+    }
+  }
+  EXPECT_TRUE(initialized) << "notifications/initialized never arrived";
+}
+
 }  // namespace
 
 // ── The revision that mirrors what it sends ───────────────────────────
