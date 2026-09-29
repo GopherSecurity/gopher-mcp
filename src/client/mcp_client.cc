@@ -223,7 +223,17 @@ VoidResult McpClient::connect(const std::string& uri) {
       if (detectsTransport(uri)) {
         runTransportLadder(uri);
       } else {
-        startTransport(negotiateTransport(uri));
+        const TransportType transport = negotiateTransport(uri);
+        // Naming the transport says which one, not which revision. Only
+        // the newest is found by asking, so a client that may speak it
+        // still asks, once, before starting.
+        if (transport == TransportType::StreamableHttp &&
+            config_.streamable_http.enable_modern_era &&
+            (uri.find("http://") == 0 || uri.find("https://") == 0)) {
+          discoverRevisionThenStart(uri);
+        } else {
+          startTransport(transport);
+        }
       }
 
       // On success, DON'T fulfill the promise here!
@@ -2058,17 +2068,7 @@ void McpClient::runTransportLadder(const std::string& uri) {
         // string, so it is written once, before the transport that
         // reads it exists.
         GOPHER_LOG_INFO("{} speaks {}, and so does this client", uri, settled);
-        if (!streamable_session_) {
-          // Ordinarily made with the first connection; made here because
-          // what it is about to be told has to be true before that
-          // connection sends anything.
-          streamable_session_ =
-              std::make_shared<transport::StreamableHttpClientSession>();
-        }
-        streamable_session_->setProtocolVersion(settled);
-        streamable_session_->setClientIdentity(config_.client_name,
-                                               config_.client_version);
-        streamable_session_->setClientCapabilities(declaredCapabilities());
+        enterModernRevision(settled);
         startTransport(TransportType::StreamableHttp);
         return;
       }
@@ -2113,6 +2113,44 @@ void McpClient::runTransportLadder(const std::string& uri) {
       return;
     }
     runClassicRung(uri);
+  });
+}
+
+void McpClient::enterModernRevision(const std::string& version) {
+  if (!streamable_session_) {
+    // Ordinarily made with the first connection; made here because what it
+    // is about to be told has to be true before that connection sends
+    // anything.
+    streamable_session_ =
+        std::make_shared<transport::StreamableHttpClientSession>();
+  }
+  streamable_session_->setProtocolVersion(version);
+  streamable_session_->setClientIdentity(config_.client_name,
+                                         config_.client_version);
+  streamable_session_->setClientCapabilities(declaredCapabilities());
+}
+
+void McpClient::discoverRevisionThenStart(const std::string& uri) {
+  if (!modern_probe_) {
+    modern_probe_.reset(
+        new ModernProbe(*main_dispatcher_, *socket_interface_,
+                        config_.client_name, config_.client_version,
+                        config_.streamable_http.fallback_probe_timeout));
+  }
+
+  modern_probe_->probe(uri, [this, uri](const ProbeResult& result) {
+    if (result.verdict == ProbeResult::Verdict::Modern) {
+      const std::string settled = transport::modernVersionInCommon(
+          config_.streamable_http, result.supported_versions);
+      if (!settled.empty()) {
+        GOPHER_LOG_INFO("{} speaks {}, and so does this client", uri, settled);
+        enterModernRevision(settled);
+      }
+    }
+    // Whatever the answer, the transport is the one that was named. A
+    // server with no revision in common with this one is met through the
+    // handshake, which is where it says so.
+    startTransport(TransportType::StreamableHttp);
   });
 }
 

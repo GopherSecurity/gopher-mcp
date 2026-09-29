@@ -774,6 +774,20 @@ class McpClient : public application::ApplicationBase {
   // The ladder. Each rung reports to the next; whichever one settles
   // brings up a transport or fails the connect, once. Dispatcher thread.
   void runTransportLadder(const std::string& uri);
+
+  /**
+   * Streamable HTTP was named, so no other transport is tried; but which
+   * revision to speak is still found by asking. A server that serves
+   * 2026-07-28 is spoken to in it, and any other through the handshake.
+   */
+  void discoverRevisionThenStart(const std::string& uri);
+
+  /**
+   * Adopt a revision discovery settled: every request from here on
+   * declares it, so it is set before the transport that sends them exists.
+   */
+  void enterModernRevision(const std::string& version);
+
   void runClassicRung(const std::string& uri);
   void runLegacyRung(const std::string& uri);
 
