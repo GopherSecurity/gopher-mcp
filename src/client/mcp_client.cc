@@ -2857,18 +2857,6 @@ std::future<CallToolResult> McpClient::callTool(
       http_headers);
 }
 
-std::future<CallToolResult> McpClient::callTool(
-    const std::string& name, const json::JsonValue& arguments) {
-  return callTool(name, arguments, {});
-}
-
-std::future<CallToolResult> McpClient::callTool(
-    const std::string& name,
-    const json::JsonValue& arguments,
-    const std::map<std::string, std::string>& http_headers) {
-  return callToolWith(name, mcp::make_optional(arguments), http_headers);
-}
-
 namespace {
 
 /** A call whose arguments are not an object, refused before it is sent. */
@@ -3053,11 +3041,6 @@ std::future<GetPromptResult> McpClient::getPrompt(
       arguments.has_value()
           ? mcp::make_optional(json::metadataToExactJson(arguments.value()))
           : optional<json::JsonValue>());
-}
-
-std::future<GetPromptResult> McpClient::getPrompt(
-    const std::string& name, const json::JsonValue& arguments) {
-  return getPromptWith(name, mcp::make_optional(arguments));
 }
 
 std::future<GetPromptResult> McpClient::getPromptWith(

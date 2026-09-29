@@ -33,6 +33,7 @@
 #include <random>
 #include <string>
 #include <thread>
+#include <type_traits>
 #include <unordered_map>
 #include <vector>
 
@@ -460,6 +461,11 @@ class RetryManager {
  */
 class McpClient : public application::ApplicationBase {
  public:
+  // Enables an overload for a json::JsonValue and nothing else.
+  template <typename T>
+  using OnlyJson = typename std::enable_if<
+      std::is_same<typename std::decay<T>::type, json::JsonValue>::value>::type;
+
   McpClient(const McpClientConfig& config);
   ~McpClient() override;
 
@@ -520,20 +526,33 @@ class McpClient : public application::ApplicationBase {
   // values stay nested, integers keep their width, and a string that
   // looks like JSON is still a string. The Metadata overloads send their
   // values exactly too, but cannot hold anything nested.
+  //
+  // Templates taking only a JsonValue itself, so that nothing converts to
+  // one on the way in: callTool(name, {}) still means no arguments, as it
+  // did before these existed, rather than being ambiguous between the two.
+  template <typename Json, typename = OnlyJson<Json>>
   std::future<CallToolResult> callTool(const std::string& name,
-                                       const json::JsonValue& arguments);
+                                       const Json& arguments) {
+    return callToolWith(name, mcp::make_optional(arguments), {});
+  }
+  template <typename Json, typename = OnlyJson<Json>>
   std::future<CallToolResult> callTool(
       const std::string& name,
-      const json::JsonValue& arguments,
-      const std::map<std::string, std::string>& http_headers);
+      const Json& arguments,
+      const std::map<std::string, std::string>& http_headers) {
+    return callToolWith(name, mcp::make_optional(arguments), http_headers);
+  }
 
   // Prompt operations
   std::future<ListPromptsResult> listPrompts(
       const optional<Cursor>& cursor = nullopt);
   std::future<GetPromptResult> getPrompt(
       const std::string& name, const optional<Metadata>& arguments = nullopt);
+  template <typename Json, typename = OnlyJson<Json>>
   std::future<GetPromptResult> getPrompt(const std::string& name,
-                                         const json::JsonValue& arguments);
+                                         const Json& arguments) {
+    return getPromptWith(name, mcp::make_optional(arguments));
+  }
 
   // Logging operations
   std::future<VoidResult> setLogLevel(enums::LoggingLevel::Value level);
