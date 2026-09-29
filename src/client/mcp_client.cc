@@ -478,13 +478,23 @@ void McpClient::shutdown() {
     } else {
       // Waited on, not merely posted: the close below would otherwise
       // race the write and usually win.
+      //
+      // And posted twice, because a message takes two posts to be
+      // written: one here and one in the connection manager. Anything
+      // asked for before this — notifications/initialized, sent as the
+      // handshake completes — has had its first by now but maybe not its
+      // second, and ending the session ahead of it would send it under
+      // no session at all.
       auto written = std::make_shared<std::promise<void>>();
       auto done = written->get_future();
-      main_dispatcher_->post([this, written]() {
-        if (connection_manager_) {
-          connection_manager_->sendSessionDelete();
-        }
-        written->set_value();
+      event::Dispatcher* dispatcher = main_dispatcher_;
+      dispatcher->post([this, dispatcher, written]() {
+        dispatcher->post([this, written]() {
+          if (connection_manager_) {
+            connection_manager_->sendSessionDelete();
+          }
+          written->set_value();
+        });
       });
       done.wait_for(kSessionDeleteFlushWait);
     }
