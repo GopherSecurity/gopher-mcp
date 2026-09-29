@@ -504,7 +504,152 @@ VoidResult McpConnectionManager::sendResponse(
   // serialization
   auto json_val = json::to_json(response);
 
-  return sendJsonMessage(json_val);
+  if (is_server_ || config_.transport_type != TransportType::StreamableHttp ||
+      !config_.streamable_client_session) {
+    return sendJsonMessage(json_val);
+  }
+
+  // An answer to the server goes wherever it will be read. Behind a
+  // response still arriving it may not be: that response can be the very
+  // call waiting on this answer, and a server need not read a request
+  // queued behind one it is still sending. Decided when the write runs,
+  // because that is when what is outstanding is known.
+  dispatcher_.post([this, json_str = json_val.toString()]() {
+    if (!active_connection_) {
+      return;
+    }
+    if (config_.streamable_client_session->inFlight() > 0 &&
+        sendAnswerApart(json_str)) {
+      return;
+    }
+    writeMessage(json_str, {}, optional<RequestId>());
+  });
+  return makeVoidSuccess();
+}
+
+bool McpConnectionManager::sendAnswerApart(const std::string& json_str) {
+  auto factory = createFilterChainFactory();
+  auto* http_factory =
+      dynamic_cast<filter::HttpSseFilterChainFactory*>(factory.get());
+  if (!http_factory) {
+    return false;
+  }
+  http_factory->setClientRole(filter::ClientConnectionRole::Answer);
+
+  std::string failure;
+  auto connection = createHttpClientConnection(factory, failure);
+  if (!connection) {
+    GOPHER_LOG_WARN("Could not open a connection for an answer: {}", failure);
+    return false;
+  }
+
+  // Declared and decorated exactly as on the shared connection.
+  json::JsonValue outgoing;
+  try {
+    outgoing = config_.streamable_client_session->declareSelf(
+        json::JsonValue::parse(json_str));
+  } catch (const std::exception&) {
+    return false;
+  }
+  auto headers = config_.http_headers;
+  config_.streamable_client_session->decorate(headers, outgoing);
+  headers[":method"] = "POST";
+  headers[":accept"] = "application/json, text/event-stream";
+
+  class AnswerOpener : public network::ConnectionCallbacks {
+   public:
+    AnswerOpener(McpConnectionManager& manager,
+                 network::Connection& connection,
+                 uint64_t key,
+                 std::map<std::string, std::string> headers,
+                 std::string body)
+        : manager_(manager),
+          connection_(connection),
+          key_(key),
+          headers_(std::move(headers)),
+          body_(std::move(body)) {}
+
+    void onEvent(network::ConnectionEvent event) override {
+      if (event == network::ConnectionEvent::Connected) {
+        if (manager_.config_.current_http_headers) {
+          *manager_.config_.current_http_headers = headers_;
+        }
+        OwnedBuffer out;
+        out.add(body_);
+        connection_.write(out, false);
+        if (manager_.config_.current_http_headers) {
+          *manager_.config_.current_http_headers =
+              manager_.config_.http_headers;
+        }
+        sent_ = true;
+        return;
+      }
+      if (event != network::ConnectionEvent::RemoteClose &&
+          event != network::ConnectionEvent::LocalClose) {
+        return;
+      }
+      if (!sent_) {
+        GOPHER_LOG_WARN("An answer to the server could not be delivered");
+      }
+      // Let go on a later turn: this is running inside the connection's
+      // own event dispatch, and the connection is what would be let go.
+      std::weak_ptr<int> alive = manager_.answers_alive_;
+      McpConnectionManager* manager = &manager_;
+      const uint64_t key = key_;
+      manager_.dispatcher_.post([alive, manager, key]() {
+        if (!alive.expired()) {
+          manager->retireAnswer(key);
+        }
+      });
+    }
+
+    void onAboveWriteBufferHighWatermark() override {}
+    void onBelowWriteBufferLowWatermark() override {}
+
+   private:
+    McpConnectionManager& manager_;
+    network::Connection& connection_;
+    const uint64_t key_;
+    std::map<std::string, std::string> headers_;
+    std::string body_;
+    bool sent_{false};
+  };
+
+  const uint64_t key = ++last_answer_key_;
+  network::ClientConnection* client_conn = connection.get();
+  HeldAnswer held;
+  held.connection = std::move(connection);
+  held.opener.reset(new AnswerOpener(*this, *client_conn, key,
+                                     std::move(headers), outgoing.toString()));
+  client_conn->addConnectionCallbacks(*held.opener);
+  answers_[key] = std::move(held);
+  client_conn->connect();
+
+  GOPHER_LOG_DEBUG("Answering the server on a connection of its own");
+  return true;
+}
+
+void McpConnectionManager::retireAnswer(uint64_t key) {
+  auto it = answers_.find(key);
+  if (it == answers_.end()) {
+    return;
+  }
+  auto going = std::move(it->second);
+  answers_.erase(it);
+  if (!going.connection) {
+    return;
+  }
+  if (going.opener) {
+    going.connection->removeConnectionCallbacks(*going.opener);
+  }
+  if (going.connection->state() != network::ConnectionState::Closed) {
+    going.connection->close(network::ConnectionCloseType::NoFlush);
+  }
+  if (dispatcher_.isThreadSafe()) {
+    dispatcher_.deferredDelete(std::move(going.connection));
+  } else {
+    going.connection.reset();
+  }
 }
 
 bool McpConnectionManager::sendSessionDelete() {
@@ -863,6 +1008,16 @@ void McpConnectionManager::close() {
   }
   for (const auto& id : held) {
     closeSubscription(id);
+  }
+
+  // And any answer still on its way; the conversation it belongs to is
+  // over.
+  std::vector<uint64_t> answering;
+  for (const auto& entry : answers_) {
+    answering.push_back(entry.first);
+  }
+  for (const auto key : answering) {
+    retireAnswer(key);
   }
 
   // Close POST connection first (it may reference resources from main
@@ -1577,86 +1732,93 @@ VoidResult McpConnectionManager::sendJsonMessage(
   // Post write to dispatcher thread to ensure thread safety
   // The write() call must happen on the dispatcher thread
   // We capture `this` to check if connection is still valid when callback runs
-  dispatcher_.post([this, json_str = std::move(json_str), http_headers,
-                    correlate]() {
-    // Check if connection is still valid - it may have been closed
-    if (!active_connection_) {
-      GOPHER_LOG_DEBUG(
-          "McpConnectionManager: Write skipped - connection already closed");
-      return;
-    }
-
-    GOPHER_LOG_DEBUG(
-        "McpConnectionManager write callback executing, conn={}, msg_len={}",
-        (void*)active_connection_.get(), json_str.length());
-
-    // The newest revision has no introduction, so a request states its
-    // own version, caller and capabilities every time. Added here rather
-    // than at the call site: none of it is the application's to know,
-    // and this is the layer that knows which revision is being spoken.
-    std::string body = json_str;
-    json::JsonValue outgoing;
-    bool outgoing_parsed = false;
-    if (config_.streamable_client_session) {
-      try {
-        outgoing = json::JsonValue::parse(json_str);
-        outgoing_parsed = true;
-      } catch (const std::exception&) {
-        outgoing = json::JsonValue::object();
-      }
-      if (outgoing_parsed) {
-        outgoing = config_.streamable_client_session->declareSelf(outgoing);
-        body = outgoing.toString();
-      }
-    }
-
-    bool reset_current_http_headers = false;
-    if (config_.current_http_headers) {
-      auto merged_headers = config_.http_headers;
-      // What the session is holding, which is nothing until the server
-      // has named one and nothing again once it says it has forgotten
-      // it. The initialize request carries neither header for that
-      // reason alone, without anything here asking which request this is.
-      if (config_.streamable_client_session) {
-        // Against the message as it will actually go out, so a header
-        // mirroring part of the body cannot mirror a version of it that
-        // was never sent.
-        config_.streamable_client_session->decorate(merged_headers, outgoing);
-      }
-      for (const auto& header : http_headers) {
-        merged_headers[header.first] = header.second;
-      }
-      *config_.current_http_headers = std::move(merged_headers);
-      reset_current_http_headers = true;
-    }
-
-    // Note this message against the answer it will draw, here rather
-    // than at the call site: writes posted from several threads reach
-    // the wire in the order their posts run, and that is the order the
-    // responses come back in.
-    if (config_.streamable_client_session) {
-      config_.streamable_client_session->recordSent(correlate);
-    }
-
-    // Create buffer with JSON payload
-    OwnedBuffer buffer;
-    buffer.add(body);
-
-    // Write through filter chain - each filter handles its protocol layer:
-    // - JSON-RPC filter: message framing if configured
-    // - SSE filter: SSE event formatting if applicable
-    // - HTTP filter: HTTP request/response formatting if applicable
-    // - Transport socket: raw I/O only
-    active_connection_->write(buffer, false);
-
-    if (reset_current_http_headers && config_.current_http_headers) {
-      *config_.current_http_headers = config_.http_headers;
-    }
-
-    GOPHER_LOG_DEBUG("McpConnectionManager write completed");
-  });
+  dispatcher_.post(
+      [this, json_str = std::move(json_str), http_headers, correlate]() {
+        writeMessage(json_str, http_headers, correlate);
+      });
 
   return makeVoidSuccess();
+}
+
+void McpConnectionManager::writeMessage(
+    const std::string& json_str,
+    const std::map<std::string, std::string>& http_headers,
+    const optional<RequestId>& correlate) {
+  // Check if connection is still valid - it may have been closed
+  if (!active_connection_) {
+    GOPHER_LOG_DEBUG(
+        "McpConnectionManager: Write skipped - connection already closed");
+    return;
+  }
+
+  GOPHER_LOG_DEBUG(
+      "McpConnectionManager write callback executing, conn={}, msg_len={}",
+      (void*)active_connection_.get(), json_str.length());
+
+  // The newest revision has no introduction, so a request states its
+  // own version, caller and capabilities every time. Added here rather
+  // than at the call site: none of it is the application's to know,
+  // and this is the layer that knows which revision is being spoken.
+  std::string body = json_str;
+  json::JsonValue outgoing;
+  bool outgoing_parsed = false;
+  if (config_.streamable_client_session) {
+    try {
+      outgoing = json::JsonValue::parse(json_str);
+      outgoing_parsed = true;
+    } catch (const std::exception&) {
+      outgoing = json::JsonValue::object();
+    }
+    if (outgoing_parsed) {
+      outgoing = config_.streamable_client_session->declareSelf(outgoing);
+      body = outgoing.toString();
+    }
+  }
+
+  bool reset_current_http_headers = false;
+  if (config_.current_http_headers) {
+    auto merged_headers = config_.http_headers;
+    // What the session is holding, which is nothing until the server
+    // has named one and nothing again once it says it has forgotten
+    // it. The initialize request carries neither header for that
+    // reason alone, without anything here asking which request this is.
+    if (config_.streamable_client_session) {
+      // Against the message as it will actually go out, so a header
+      // mirroring part of the body cannot mirror a version of it that
+      // was never sent.
+      config_.streamable_client_session->decorate(merged_headers, outgoing);
+    }
+    for (const auto& header : http_headers) {
+      merged_headers[header.first] = header.second;
+    }
+    *config_.current_http_headers = std::move(merged_headers);
+    reset_current_http_headers = true;
+  }
+
+  // Note this message against the answer it will draw, here rather
+  // than at the call site: writes posted from several threads reach
+  // the wire in the order their posts run, and that is the order the
+  // responses come back in.
+  if (config_.streamable_client_session) {
+    config_.streamable_client_session->recordSent(correlate);
+  }
+
+  // Create buffer with JSON payload
+  OwnedBuffer buffer;
+  buffer.add(body);
+
+  // Write through filter chain - each filter handles its protocol layer:
+  // - JSON-RPC filter: message framing if configured
+  // - SSE filter: SSE event formatting if applicable
+  // - HTTP filter: HTTP request/response formatting if applicable
+  // - Transport socket: raw I/O only
+  active_connection_->write(buffer, false);
+
+  if (reset_current_http_headers && config_.current_http_headers) {
+    *config_.current_http_headers = config_.http_headers;
+  }
+
+  GOPHER_LOG_DEBUG("McpConnectionManager write completed");
 }
 
 }  // namespace mcp

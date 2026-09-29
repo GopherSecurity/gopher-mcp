@@ -75,8 +75,16 @@ enum class StreamGatePolicy { Off, DecoderGate, SingleUseClose };
  * matters — a response on the stream is not answering any request, and
  * must not take a place in the queue that says which answer belongs to
  * which request.
+ *
+ * A third kind carries one answer to a request the server sent. It
+ * exists because the request connection may be holding a streamed
+ * response that cannot finish until that answer arrives, and a server
+ * need not read a request queued behind a response still going out.
+ * Its response names no request and takes no place in the queue, and
+ * once it has arrived the connection is closed: it was opened for that
+ * one message.
  */
-enum class ClientConnectionRole { Requests, ServerStream };
+enum class ClientConnectionRole { Requests, ServerStream, Answer };
 
 /**
  * MCP HTTP+SSE Filter Chain Factory

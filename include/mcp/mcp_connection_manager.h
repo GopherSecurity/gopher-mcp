@@ -351,6 +351,9 @@ class McpConnectionManager : public McpProtocolCallbacks,
   /** How many subscription connections are being held. */
   size_t subscriptionCount() const { return subscriptions_.size(); }
 
+  /** How many connections are carrying an answer to the server. */
+  size_t answerConnectionCount() const { return answers_.size(); }
+
   /**
    * How long a stream may say nothing at all before it is treated as
    * gone. Zero, the default, never treats silence as anything.
@@ -498,6 +501,19 @@ class McpConnectionManager : public McpProtocolCallbacks,
       const std::map<std::string, std::string>& http_headers,
       const optional<RequestId>& correlate);
 
+  // The write itself, on the request connection. Dispatcher thread.
+  void writeMessage(const std::string& json_str,
+                    const std::map<std::string, std::string>& http_headers,
+                    const optional<RequestId>& correlate);
+
+  // Streamable HTTP client: send an answer to a server request on a
+  // connection opened for it alone, which closes once the server has
+  // taken it. For when the request connection is still waiting on a
+  // response, which may be the call this answer lets finish. False when
+  // no connection could be opened. Dispatcher thread.
+  bool sendAnswerApart(const std::string& json_str);
+  void retireAnswer(uint64_t key);
+
   event::Dispatcher& dispatcher_;
   network::SocketInterface& socket_interface_;
   McpConnectionConfig config_;
@@ -541,6 +557,17 @@ class McpConnectionManager : public McpProtocolCallbacks,
     std::unique_ptr<network::ConnectionCallbacks> opener;
   };
   std::map<RequestIdKey, HeldSubscription> subscriptions_;
+
+  /** Connections each carrying one answer to the server. */
+  struct HeldAnswer {
+    std::unique_ptr<network::ClientConnection> connection;
+    std::unique_ptr<network::ConnectionCallbacks> opener;
+  };
+  std::map<uint64_t, HeldAnswer> answers_;
+  uint64_t last_answer_key_{0};
+  // Held for as long as this manager is, so a retirement posted from an
+  // answer connection's close can tell it came too late.
+  std::shared_ptr<int> answers_alive_{std::make_shared<int>(0)};
   // What the stream was asked to carry on from, which is where it still
   // is if it never said otherwise.
   std::string stream_cursor_;

@@ -1090,6 +1090,12 @@ class HttpSseJsonRpcProtocolFilter
           mcp_callbacks_.onClientStreamEvent(ClientStreamEvent::Refused,
                                              optional<RequestId>(), detail);
         }
+      } else if (role_ == ClientConnectionRole::Answer) {
+        // The answer went out on a connection of its own and this is the
+        // server taking it. Nothing was waiting on it, so there is no
+        // request to name, and nothing else will go out here.
+        mcp_callbacks_.onTransportStatus(status, optional<RequestId>(), detail);
+        closeConnectionSoon();
       } else if (sole_request_.has_value()) {
         // This connection carries one request and answers for it alone.
         // Taking from what the session recorded would attribute this
@@ -1523,7 +1529,8 @@ class HttpSseJsonRpcProtocolFilter
                          last_event_id_.empty() ? "<nowhere>" : last_event_id_);
         mcp_callbacks_.onClientStreamEvent(
             ClientStreamEvent::Closed, optional<RequestId>(), last_event_id_);
-      } else if (reading_event_stream_) {
+      } else if (reading_event_stream_ &&
+                 role_ != ClientConnectionRole::Answer) {
         // An answer was still arriving. It is neither delivered nor
         // refused, so the request it belongs to is still outstanding —
         // the queue was never popped for it, which is why the front of
