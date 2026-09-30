@@ -450,6 +450,10 @@ JsonValue serialize_Tool(const Tool& tool) {
   JsonObjectBuilder builder;
   builder.add("name", tool.name);
 
+  if (tool.title.has_value()) {
+    builder.add("title", tool.title.value());
+  }
+
   if (tool.description.has_value()) {
     builder.add("description", tool.description.value());
   }
@@ -470,6 +474,14 @@ JsonValue serialize_Tool(const Tool& tool) {
 
   if (tool.outputSchema.has_value()) {
     builder.add("outputSchema", tool.outputSchema.value());
+  }
+
+  if (tool.annotations.has_value()) {
+    builder.add("annotations", to_json(tool.annotations.value()));
+  }
+
+  if (tool._meta.has_value() && tool._meta->isObject()) {
+    builder.add("_meta", tool._meta.value());
   }
 
   return builder.build();
@@ -820,6 +832,18 @@ Tool deserialize_Tool(const JsonValue& json) {
   // here, where one malformed schema would make the whole list unreadable.
   if (json.contains("outputSchema") && json["outputSchema"].isObject()) {
     tool.outputSchema = json["outputSchema"];
+  }
+
+  // The same for what a tool says about itself: a field of the wrong type
+  // is passed over, not allowed to cost the list every other tool.
+  if (json.contains("title") && json["title"].isString()) {
+    tool.title = json["title"].getString();
+  }
+  if (json.contains("annotations") && json["annotations"].isObject()) {
+    tool.annotations = from_json<ToolAnnotations>(json["annotations"]);
+  }
+  if (json.contains("_meta") && json["_meta"].isObject()) {
+    tool._meta = json["_meta"];
   }
 
   return tool;
@@ -1937,16 +1961,24 @@ JsonValue serialize_Annotations(const Annotations& annotations) {
 }
 
 JsonValue serialize_ToolAnnotations(const ToolAnnotations& annotations) {
+  // Only what was set, so a client applies the spec's defaults rather than
+  // values nobody chose; and only what the spec defines for a tool.
   JsonObjectBuilder builder;
-
-  if (annotations.audience.has_value()) {
-    JsonArrayBuilder audience;
-    for (const auto& role : annotations.audience.value()) {
-      audience.add(enums::Role::to_string(role));
-    }
-    builder.add("audience", audience.build());
+  if (annotations.title.has_value()) {
+    builder.add("title", annotations.title.value());
   }
-
+  if (annotations.readOnlyHint.has_value()) {
+    builder.add("readOnlyHint", annotations.readOnlyHint.value());
+  }
+  if (annotations.destructiveHint.has_value()) {
+    builder.add("destructiveHint", annotations.destructiveHint.value());
+  }
+  if (annotations.idempotentHint.has_value()) {
+    builder.add("idempotentHint", annotations.idempotentHint.value());
+  }
+  if (annotations.openWorldHint.has_value()) {
+    builder.add("openWorldHint", annotations.openWorldHint.value());
+  }
   return builder.build();
 }
 
@@ -2993,21 +3025,21 @@ Annotations deserialize_Annotations(const JsonValue& json) {
 }
 
 ToolAnnotations deserialize_ToolAnnotations(const JsonValue& json) {
+  // A hint of the wrong type is as good as absent; anything the spec does
+  // not define is left alone.
   ToolAnnotations annotations;
-
-  if (json.contains("audience")) {
-    std::vector<enums::Role::Value> audience;
-    const auto& audienceArray = json["audience"];
-    size_t size = audienceArray.size();
-    for (size_t i = 0; i < size; ++i) {
-      auto role = enums::Role::from_string(audienceArray[i].getString());
-      if (role.has_value()) {
-        audience.push_back(role.value());
-      }
-    }
-    annotations.audience = audience;
+  if (json.contains("title") && json["title"].isString()) {
+    annotations.title = json["title"].getString();
   }
-
+  auto hint = [&json](const char* key, optional<bool>& out) {
+    if (json.contains(key) && json[key].isBoolean()) {
+      out = json[key].getBool();
+    }
+  };
+  hint("readOnlyHint", annotations.readOnlyHint);
+  hint("destructiveHint", annotations.destructiveHint);
+  hint("idempotentHint", annotations.idempotentHint);
+  hint("openWorldHint", annotations.openWorldHint);
   return annotations;
 }
 

@@ -81,6 +81,43 @@ class ToolBuilder : public Builder<Tool, ToolBuilder> {
     return *this;
   }
 
+  ToolBuilder& title(const std::string& title) {
+    value_.title = mcp::make_optional(title);
+    return *this;
+  }
+
+  ToolBuilder& annotations(const ToolAnnotations& annotations) {
+    value_.annotations = mcp::make_optional(annotations);
+    return *this;
+  }
+
+  // Each hint on its own, creating the annotations as needed.
+  ToolBuilder& readOnlyHint(bool value) {
+    hints().readOnlyHint = value;
+    return *this;
+  }
+  ToolBuilder& destructiveHint(bool value) {
+    hints().destructiveHint = value;
+    return *this;
+  }
+  ToolBuilder& idempotentHint(bool value) {
+    hints().idempotentHint = value;
+    return *this;
+  }
+  ToolBuilder& openWorldHint(bool value) {
+    hints().openWorldHint = value;
+    return *this;
+  }
+
+  // A JSON object; anything else is refused, as it could not be sent.
+  ToolBuilder& meta(const json::JsonValue& meta) {
+    if (!meta.isObject()) {
+      throw std::invalid_argument("a tool's _meta must be a JSON object");
+    }
+    value_._meta = mcp::make_optional(meta);
+    return *this;
+  }
+
   ToolBuilder& parameter(const std::string& name,
                          const std::string& type,
                          bool required = false) {
@@ -101,6 +138,14 @@ class ToolBuilder : public Builder<Tool, ToolBuilder> {
     value_.parameters->push_back(
         ToolParameter{name, type, mcp::make_optional(desc), required});
     return *this;
+  }
+
+ private:
+  ToolAnnotations& hints() {
+    if (!value_.annotations.has_value()) {
+      value_.annotations = mcp::make_optional(ToolAnnotations());
+    }
+    return value_.annotations.value();
   }
 };
 
@@ -1226,6 +1271,26 @@ class BaseMetadataBuilder : public Builder<BaseMetadata, BaseMetadataBuilder> {
 class ToolAnnotationsBuilder
     : public Builder<ToolAnnotations, ToolAnnotationsBuilder> {
  public:
+  ToolAnnotationsBuilder& title(const std::string& title) {
+    value_.title = mcp::make_optional(title);
+    return *this;
+  }
+  ToolAnnotationsBuilder& readOnlyHint(bool value) {
+    value_.readOnlyHint = value;
+    return *this;
+  }
+  ToolAnnotationsBuilder& destructiveHint(bool value) {
+    value_.destructiveHint = value;
+    return *this;
+  }
+  ToolAnnotationsBuilder& idempotentHint(bool value) {
+    value_.idempotentHint = value;
+    return *this;
+  }
+  ToolAnnotationsBuilder& openWorldHint(bool value) {
+    value_.openWorldHint = value;
+    return *this;
+  }
   ToolAnnotationsBuilder& audience(
       const std::vector<enums::Role::Value>& roles) {
     value_.audience = roles;
