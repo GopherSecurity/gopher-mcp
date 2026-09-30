@@ -161,6 +161,21 @@ async def run_scenarios(url: str, modern: bool, stateless: bool) -> None:
 
         await scenario("a tool is listed and called, and answers exactly", listed_and_called)
 
+        async def described():
+            listed = await client.list_tools()
+            add = next((t for t in listed.tools if t.name == "add"), None)
+            check(add is not None, "add was not listed")
+            equal(add.title, "Add", "add's title")
+            hints = add.annotations
+            check(hints is not None, "add was listed without annotations")
+            equal(hints.read_only_hint, True, "readOnlyHint")
+            equal(hints.idempotent_hint, True, "idempotentHint")
+            equal(hints.open_world_hint, False, "openWorldHint")
+            equal(hints.destructive_hint, None, "destructiveHint, left unset")
+            equal((add.meta or {}).get("interop"), {"kind": "arithmetic"}, "add's _meta")
+
+        await scenario("a tool's title, hints and _meta are listed", described)
+
         async def structured():
             listed = await client.list_tools()
             weather = next((t for t in listed.tools if t.name == "get_weather"), None)

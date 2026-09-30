@@ -203,6 +203,33 @@ TEST_P(PythonServerInteropTest, AToolIsCalledAndAnswersExactly) {
   EXPECT_EQ(firstText(result), "42");
 }
 
+// What a tool says about itself, as the official SDK writes it.
+TEST_P(PythonServerInteropTest, AToolsTitleAndHintsAreRead) {
+  ASSERT_TRUE(startServer());
+  startClient();
+  ASSERT_NO_THROW(handshake());
+
+  auto listed = client_->listTools();
+  ASSERT_EQ(listed.wait_for(15s), std::future_status::ready);
+  ListToolsResult tools;
+  ASSERT_NO_THROW(tools = listed.get());
+  const Tool* add = nullptr;
+  for (const auto& tool : tools.tools) {
+    if (tool.name == "add") {
+      add = &tool;
+    }
+  }
+  ASSERT_NE(add, nullptr) << "add was not listed";
+  EXPECT_EQ(add->displayName(), "Add");
+  ASSERT_TRUE(add->annotations.has_value());
+  EXPECT_EQ(add->annotations->readOnlyHint, mcp::make_optional(true));
+  EXPECT_EQ(add->annotations->idempotentHint, mcp::make_optional(true));
+  EXPECT_EQ(add->annotations->openWorldHint, mcp::make_optional(false));
+  EXPECT_FALSE(add->annotations->destructiveHint.has_value());
+  ASSERT_TRUE(add->_meta.has_value());
+  EXPECT_EQ((*add->_meta)["interop"]["kind"].getString(), "arithmetic");
+}
+
 // A declared result shape, from the listing, and the data, from the call;
 // in the newest revision the listing also says how long it may be cached.
 TEST_P(PythonServerInteropTest, AStructuredResultIsListedAndRead) {

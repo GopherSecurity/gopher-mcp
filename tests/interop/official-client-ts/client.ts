@@ -296,6 +296,18 @@ await scenario('an elicitation is asked in the spec shape and answered', async (
   equal(toolText(answered), 'accept:staging', 'what the server read back');
 });
 
+await scenario("a tool's title, hints and _meta are listed", async () => {
+  const listed = await main.client.listTools();
+  const add: any = listed.tools.find((tool) => tool.name === 'add');
+  check(add, 'add was not listed');
+  equal(add.title, 'Add', "add's title");
+  equal(add.annotations?.readOnlyHint, true, 'readOnlyHint');
+  equal(add.annotations?.idempotentHint, true, 'idempotentHint');
+  equal(add.annotations?.openWorldHint, false, 'openWorldHint');
+  equal(add.annotations?.destructiveHint, undefined, 'destructiveHint, left unset');
+  equal(add._meta?.interop?.kind, 'arithmetic', "add's _meta");
+});
+
 await scenario('a structured result is listed and returned in the spec shape', async () => {
   // Listed first, so the SDK knows the schema and checks the result against
   // it: a structuredContent that does not match fails the call.
