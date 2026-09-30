@@ -662,8 +662,8 @@ std::future<InitializeResult> McpClient::initializeProtocol() {
       if (response.error.has_value()) {
         GOPHER_LOG_ERROR("MCP invoke: initialize failed: {}",
                          response.error->message);
-        result_promise->set_exception(std::make_exception_ptr(
-            std::runtime_error(response.error->message)));
+        result_promise->set_exception(
+            std::make_exception_ptr(RequestError(response.error.value())));
         return;
       }
       GOPHER_LOG_FLOW_DEBUG("MCP invoke: initialize succeeded");
@@ -2552,8 +2552,8 @@ std::future<ListResourcesResult> McpClient::listResources(
 
       auto response = request_future_ptr->get();
       if (response.error.has_value()) {
-        result_promise->set_exception(std::make_exception_ptr(
-            std::runtime_error(response.error->message)));
+        result_promise->set_exception(
+            std::make_exception_ptr(RequestError(response.error.value())));
       } else if (response.result.has_value()) {
         // Extract ListResourcesResult from response
         // ResponseResult variant directly contains ListResourcesResult
@@ -2617,8 +2617,8 @@ std::future<ReadResourceResult> McpClient::readResource(
 
       auto response = request_future_ptr->get();
       if (response.error.has_value()) {
-        result_promise->set_exception(std::make_exception_ptr(
-            std::runtime_error(response.error->message)));
+        result_promise->set_exception(
+            std::make_exception_ptr(RequestError(response.error.value())));
       } else if (response.result.has_value()) {
         // The ResponseResult variant directly contains a ReadResourceResult
         // (the deserializer recognizes the "contents" array and builds one),
@@ -2797,8 +2797,8 @@ std::future<ListToolsResult> McpClient::listTools(
       if (response.error.has_value()) {
         GOPHER_LOG_ERROR("MCP invoke: tools/list failed: {}",
                          response.error->message);
-        result_promise->set_exception(std::make_exception_ptr(
-            std::runtime_error(response.error->message)));
+        result_promise->set_exception(
+            std::make_exception_ptr(RequestError(response.error.value())));
       } else if (response.result.has_value()) {
         // Extract tools from response
         // The response.result contains ListToolsResult
@@ -2927,8 +2927,8 @@ std::future<CallToolResult> McpClient::callToolWith(
       if (response.error.has_value()) {
         GOPHER_LOG_ERROR("MCP invoke: tools/call name={} failed: {}", name,
                          response.error->message);
-        result_promise->set_exception(std::make_exception_ptr(
-            std::runtime_error(response.error->message)));
+        result_promise->set_exception(
+            std::make_exception_ptr(RequestError(response.error.value())));
       } else if (response.result.has_value()) {
         // Read as the shape it is rather than picked apart by hand. What
         // a tool answers with is a list of content blocks, and reading
@@ -3018,8 +3018,8 @@ std::future<ListPromptsResult> McpClient::listPrompts(
 
       auto response = request_future_ptr->get();
       if (response.error.has_value()) {
-        result_promise->set_exception(std::make_exception_ptr(
-            std::runtime_error(response.error->message)));
+        result_promise->set_exception(
+            std::make_exception_ptr(RequestError(response.error.value())));
       } else if (response.result.has_value()) {
         result_promise->set_value(parseListPromptsResponse(response));
       } else {
@@ -3091,8 +3091,8 @@ std::future<GetPromptResult> McpClient::getPromptWith(
 
       auto response = request_future_ptr->get();
       if (response.error.has_value()) {
-        result_promise->set_exception(std::make_exception_ptr(
-            std::runtime_error(response.error->message)));
+        result_promise->set_exception(
+            std::make_exception_ptr(RequestError(response.error.value())));
       } else if (response.result.has_value()) {
         // A result that is not a GetPromptResult is an error, not an
         // empty prompt: an answer the caller cannot tell from "no
