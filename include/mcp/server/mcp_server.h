@@ -91,6 +91,23 @@ class ResourceNotFound : public std::runtime_error {
   std::string uri_;
 };
 
+/**
+ * Thrown when a call names a tool nothing registered. Kept apart from a tool
+ * that ran and failed: that is answered with a result the model can read,
+ * while a call to a tool that does not exist is the caller's mistake and is
+ * answered with a protocol error.
+ */
+class ToolNotFound : public std::runtime_error {
+ public:
+  explicit ToolNotFound(const std::string& name)
+      : std::runtime_error("Unknown tool: " + name), name_(name) {}
+
+  const std::string& name() const { return name_; }
+
+ private:
+  std::string name_;
+};
+
 // Forward declarations
 class RequestHandler;
 class ResourceManager;
@@ -682,7 +699,8 @@ class ToolRegistry {
     return result;
   }
 
-  // Execute tool
+  // Execute tool. A handler that throws is reported as a result with
+  // isError set; a name nothing registered throws ToolNotFound.
   CallToolResult callTool(const std::string& name,
                           const optional<Metadata>& arguments,
                           SessionContext& session) {
@@ -710,13 +728,8 @@ class ToolRegistry {
       }
     }
 
-    // Tool not found
     GOPHER_LOG_DEBUG("Tool not found in registry: {}", name);
-    CallToolResult error_result;
-    error_result.isError = true;
-    error_result.content.push_back(
-        ExtendedContentBlock(TextContent("Tool not found: " + name)));
-    return error_result;
+    throw ToolNotFound(name);
   }
 
  private:

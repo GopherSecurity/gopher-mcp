@@ -31,6 +31,7 @@
 #include <mutex>
 #include <queue>
 #include <random>
+#include <stdexcept>
 #include <string>
 #include <thread>
 #include <type_traits>
@@ -147,6 +148,24 @@ struct McpClientStats : public application::ApplicationStats {
   std::atomic<uint64_t> resources_read{0};
   std::atomic<uint64_t> tools_called{0};
   std::atomic<uint64_t> prompts_retrieved{0};
+};
+
+/**
+ * A request the server answered with a JSON-RPC error, as the typed calls
+ * (callTool, getPrompt, readResource, ...) report it. A runtime_error whose
+ * what() is the server's message, carrying the whole error — code and data
+ * included — so a caller can tell one refusal from another.
+ */
+class RequestError : public std::runtime_error {
+ public:
+  explicit RequestError(const Error& error)
+      : std::runtime_error(error.message), error_(error) {}
+
+  const Error& error() const { return error_; }
+  int code() const { return error_.code; }
+
+ private:
+  Error error_;
 };
 
 /**

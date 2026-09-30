@@ -2795,7 +2795,16 @@ jsonrpc::Response McpServer::handleCallTool(const jsonrpc::Request& request,
 
   // Call tool
   GOPHER_LOG_DEBUG("Calling tool_registry_->callTool for: {}", name);
-  auto result = tool_registry_->callTool(name, arguments, session);
+  CallToolResult result;
+  try {
+    result = tool_registry_->callTool(name, arguments, session);
+  } catch (const ToolNotFound& unknown) {
+    // A protocol error in every revision, not a tool that ran and failed:
+    // isError is for what the model can act on, and there is nothing here
+    // for it to read.
+    return jsonrpc::Response::make_error(
+        request.id, Error(jsonrpc::INVALID_PARAMS, unknown.what()));
+  }
   GOPHER_LOG_DEBUG("tool_registry_->callTool returned for: {}", name);
 
   // A tool that declared the shape of its result owes one. A success
