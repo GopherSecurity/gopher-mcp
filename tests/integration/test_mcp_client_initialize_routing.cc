@@ -894,6 +894,24 @@ TEST_F(McpClientInitializeRoutingTest, EmptyBracesStillMeanNoArguments) {
   EXPECT_EQ(prompt.wait_for(5s), std::future_status::ready);
 }
 
+// A call to a tool the server does not have fails as an error the caller
+// can read the code of, not as a result from a tool that ran.
+TEST_F(McpClientInitializeRoutingTest, AnUnknownToolIsReportedAsAnError) {
+  connectInitializedClient();
+
+  auto call = client_->callTool("no_such_tool");
+  ASSERT_EQ(call.wait_for(5s), std::future_status::ready);
+  try {
+    call.get();
+    FAIL() << "a call to an unknown tool succeeded";
+  } catch (const client::RequestError& refused) {
+    EXPECT_EQ(refused.code(), jsonrpc::INVALID_PARAMS);
+    EXPECT_NE(std::string(refused.what()).find("no_such_tool"),
+              std::string::npos)
+        << refused.what();
+  }
+}
+
 // Arguments are an object or nothing; anything else is refused before it
 // is sent rather than left for the server to make sense of.
 TEST_F(McpClientInitializeRoutingTest, ArgumentsThatAreNoObjectAreRefused) {
