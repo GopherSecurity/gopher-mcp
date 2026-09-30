@@ -246,8 +246,22 @@ struct BaseMetadata {
   BaseMetadata() = default;
 };
 
-// Tool-specific annotations
+// What a tool says about itself, for whoever decides whether to run it.
+// Every field is a hint: unset means the spec's default applies, and none
+// of them can be trusted from a server that is not.
 struct ToolAnnotations {
+  optional<std::string> title;
+  // Does not change its environment. Default false.
+  optional<bool> readOnlyHint;
+  // May make destructive changes, when not read-only. Default true.
+  optional<bool> destructiveHint;
+  // Calling again with the same arguments has no further effect, when not
+  // read-only. Default false.
+  optional<bool> idempotentHint;
+  // Reaches entities outside a closed world, such as the web. Default true.
+  optional<bool> openWorldHint;
+  // Not a spec field for tools: kept for source compatibility, never sent
+  // and never read.
   optional<std::vector<enums::Role::Value>> audience;
 
   ToolAnnotations() = default;
@@ -358,13 +372,30 @@ struct ToolParameter {
 
 struct Tool {
   std::string name;
+  // For people to read; name is for programs.
+  optional<std::string> title;
   optional<std::string> description;
   optional<ToolInputSchema> inputSchema;
   optional<ToolOutputSchema> outputSchema;
+  optional<ToolAnnotations> annotations;
+  // A JSON object, kept as nested JSON.
+  optional<mcp::json::JsonValue> _meta;
   optional<std::vector<ToolParameter>> parameters;  // Legacy support
 
   Tool() = default;
   explicit Tool(const std::string& n) : name(n) {}
+
+  /** The name to show people: title, then annotations.title, then name. */
+  std::string displayName() const {
+    if (title.has_value() && !title->empty()) {
+      return title.value();
+    }
+    if (annotations.has_value() && annotations->title.has_value() &&
+        !annotations->title->empty()) {
+      return annotations->title.value();
+    }
+    return name;
+  }
 };
 
 // Prompt definitions
