@@ -180,6 +180,93 @@ TEST_F(MCPSerializationTest, ToolWithoutASchemaStillDeclaresOne) {
       << "a declared schema must survive: " << declared_json.toString();
 }
 
+// What a tool says about itself goes out as set, and nothing more.
+TEST_F(MCPSerializationTest, ToolTitleHintsAndMetaAreWritten) {
+  Tool tool = make<Tool>("delete_file")
+                  .title("Delete a file")
+                  .destructiveHint(true)
+                  .idempotentHint(true)
+                  .meta(JsonValue::parse(R"({"vendor":{"tier":2}})"))
+                  .build();
+  const JsonValue json = to_json(tool);
+
+  EXPECT_EQ(json["title"].getString(), "Delete a file");
+  ASSERT_TRUE(json.contains("annotations")) << json.toString();
+  EXPECT_TRUE(json["annotations"]["destructiveHint"].getBool());
+  EXPECT_TRUE(json["annotations"]["idempotentHint"].getBool());
+  // Unset hints are left to the spec's defaults, not written as false.
+  EXPECT_FALSE(json["annotations"].contains("readOnlyHint"));
+  EXPECT_FALSE(json["annotations"].contains("openWorldHint"));
+  EXPECT_FALSE(json["annotations"].contains("title"));
+  EXPECT_EQ(json["_meta"]["vendor"]["tier"].getInt(), 2);
+
+  // And read back as they were.
+  Tool back = from_json<Tool>(json);
+  ASSERT_TRUE(back.title.has_value());
+  EXPECT_EQ(back.title.value(), "Delete a file");
+  ASSERT_TRUE(back.annotations.has_value());
+  EXPECT_EQ(back.annotations->destructiveHint, mcp::make_optional(true));
+  EXPECT_EQ(back.annotations->idempotentHint, mcp::make_optional(true));
+  EXPECT_FALSE(back.annotations->readOnlyHint.has_value());
+  EXPECT_FALSE(back.annotations->openWorldHint.has_value());
+  ASSERT_TRUE(back._meta.has_value());
+  EXPECT_EQ(back._meta->toString(), json["_meta"].toString());
+}
+
+// A tool that says nothing about itself writes none of it.
+TEST_F(MCPSerializationTest, APlainToolWritesNoneOfIt) {
+  const JsonValue json = to_json(make<Tool>("plain").build());
+  EXPECT_FALSE(json.contains("title"));
+  EXPECT_FALSE(json.contains("annotations"));
+  EXPECT_FALSE(json.contains("_meta"));
+}
+
+// audience is not a field the spec gives a tool's annotations.
+TEST_F(MCPSerializationTest, OnlyTheSpecsHintsAreWritten) {
+  ToolAnnotations annotations;
+  annotations.audience = std::vector<enums::Role::Value>{enums::Role::USER};
+  annotations.readOnlyHint = true;
+  const JsonValue json = to_json(annotations);
+  EXPECT_FALSE(json.contains("audience")) << json.toString();
+  EXPECT_TRUE(json["readOnlyHint"].getBool());
+}
+
+// Read from any server: a field of the wrong type is passed over, and one
+// the spec does not define is ignored, without losing the tool.
+TEST_F(MCPSerializationTest, AToolsHintsAreReadForgivingly) {
+  const JsonValue json = JsonValue::parse(R"({
+    "name": "search", "title": 42,
+    "inputSchema": {"type": "object"},
+    "annotations": {"title": "Search", "readOnlyHint": "yes",
+                    "openWorldHint": true, "futureHint": 1},
+    "_meta": "not an object"})");
+  Tool tool;
+  ASSERT_NO_THROW(tool = from_json<Tool>(json));
+  EXPECT_EQ(tool.name, "search");
+  EXPECT_FALSE(tool.title.has_value());
+  ASSERT_TRUE(tool.annotations.has_value());
+  EXPECT_EQ(tool.annotations->title, mcp::make_optional(std::string("Search")));
+  EXPECT_FALSE(tool.annotations->readOnlyHint.has_value());
+  EXPECT_EQ(tool.annotations->openWorldHint, mcp::make_optional(true));
+  EXPECT_FALSE(tool._meta.has_value());
+}
+
+// The name to show people: title, then annotations.title, then name.
+TEST_F(MCPSerializationTest, AToolsDisplayNameFollowsTheSpecsOrder) {
+  Tool tool("get_weather");
+  EXPECT_EQ(tool.displayName(), "get_weather");
+  tool.annotations = ToolAnnotations();
+  tool.annotations->title = std::string("Weather (annotations)");
+  EXPECT_EQ(tool.displayName(), "Weather (annotations)");
+  tool.title = std::string("Weather");
+  EXPECT_EQ(tool.displayName(), "Weather");
+}
+
+// A _meta that is not an object could not be sent, so it is refused.
+TEST_F(MCPSerializationTest, AToolsMetaMustBeAnObject) {
+  EXPECT_THROW(make<Tool>("t").meta(JsonValue("text")), std::invalid_argument);
+}
+
 TEST_F(MCPSerializationTest, Prompt) {
   Prompt simple_prompt("greeting");
   testRoundTrip(simple_prompt);

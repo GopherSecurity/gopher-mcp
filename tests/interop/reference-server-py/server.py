@@ -31,6 +31,7 @@ from mcp.server import CacheHint
 from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.mcpserver.resolve import Elicit, ElicitationResult, Resolve
 from mcp.server.transport_security import TransportSecuritySettings
+from mcp.types import ToolAnnotations
 
 GREETING = "interop://greeting"
 
@@ -52,7 +53,14 @@ def build_server() -> MCPServer:
         cache_hints={"tools/list": CacheHint(ttl_ms=60000, scope="public")},
     )
 
-    @server.tool(description="Add two numbers")
+    @server.tool(
+        title="Add",
+        description="Add two numbers",
+        annotations=ToolAnnotations(
+            read_only_hint=True, idempotent_hint=True, open_world_hint=False
+        ),
+        meta={"interop": {"kind": "arithmetic"}},
+    )
     def add(a: float, b: float) -> str:
         total = a + b
         return str(int(total)) if total == int(total) else str(total)

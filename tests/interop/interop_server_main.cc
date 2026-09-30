@@ -244,7 +244,16 @@ std::vector<Tool> interopTools() {
   std::vector<Tool> tools;
 
   Tool add("add");
+  add.title = mcp::make_optional(std::string("Add"));
   add.description = mcp::make_optional(std::string("Add two numbers"));
+  // What it says about itself: harmless, repeatable, and self-contained.
+  ToolAnnotations add_hints;
+  add_hints.readOnlyHint = true;
+  add_hints.idempotentHint = true;
+  add_hints.openWorldHint = false;
+  add.annotations = mcp::make_optional(add_hints);
+  add._meta = mcp::make_optional(
+      json::JsonValue::parse(R"({"interop":{"kind":"arithmetic"}})"));
   add.inputSchema = mcp::make_optional(json::JsonValue::parse(
       R"({"type":"object","properties":{"a":{"type":"number"},)"
       R"("b":{"type":"number"}},"required":["a","b"]})"));

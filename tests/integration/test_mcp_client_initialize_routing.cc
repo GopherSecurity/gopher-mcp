@@ -894,6 +894,38 @@ TEST_F(McpClientInitializeRoutingTest, EmptyBracesStillMeanNoArguments) {
   EXPECT_EQ(prompt.wait_for(5s), std::future_status::ready);
 }
 
+// What a tool says about itself reaches the client that lists it.
+TEST_F(McpClientInitializeRoutingTest, AToolsTitleAndHintsAreListed) {
+  Tool tool = make<Tool>("drop_table")
+                  .title("Drop a table")
+                  .destructiveHint(true)
+                  .openWorldHint(false)
+                  .meta(json::JsonValue::parse(R"({"owner":{"team":"db"}})"))
+                  .build();
+  ASSERT_TRUE(server_->registerTool(
+      tool, [](const std::string&, const optional<Metadata>&,
+               server::SessionContext&) { return CallToolResult(); }));
+  connectInitializedClient();
+
+  auto listed = client_->listTools();
+  ASSERT_EQ(listed.wait_for(5s), std::future_status::ready);
+  ListToolsResult result = listed.get();
+  const Tool* found = nullptr;
+  for (const auto& each : result.tools) {
+    if (each.name == "drop_table") {
+      found = &each;
+    }
+  }
+  ASSERT_NE(found, nullptr);
+  EXPECT_EQ(found->displayName(), "Drop a table");
+  ASSERT_TRUE(found->annotations.has_value());
+  EXPECT_EQ(found->annotations->destructiveHint, mcp::make_optional(true));
+  EXPECT_EQ(found->annotations->openWorldHint, mcp::make_optional(false));
+  EXPECT_FALSE(found->annotations->readOnlyHint.has_value());
+  ASSERT_TRUE(found->_meta.has_value());
+  EXPECT_EQ((*found->_meta)["owner"]["team"].getString(), "db");
+}
+
 // A call to a tool the server does not have fails as an error the caller
 // can read the code of, not as a result from a tool that ran.
 TEST_F(McpClientInitializeRoutingTest, AnUnknownToolIsReportedAsAnError) {
