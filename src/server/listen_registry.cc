@@ -8,6 +8,7 @@
 #include "mcp/server/listen_registry.h"
 
 #include <algorithm>
+#include <limits>
 #include <memory>
 #include <utility>
 
@@ -41,6 +42,18 @@ json::JsonValue idAsJson(const RequestId& id) {
  */
 void tagWithSubscription(Metadata& params, const RequestId& id) {
   json::JsonValue meta = json::JsonValue::object();
+  auto existing = params.find("_meta");
+  if (existing != params.end() &&
+      holds_alternative<std::string>(existing->second)) {
+    try {
+      json::JsonValue parsed =
+          json::JsonValue::parse(get<std::string>(existing->second));
+      if (parsed.isObject()) {
+        meta = parsed;
+      }
+    } catch (const json::JsonException&) {
+    }
+  }
   meta.set(modern::kMetaSubscriptionId, idAsJson(id));
   params["_meta"] = MetadataValue(meta.toString());
 }
@@ -168,6 +181,43 @@ size_t ListenRegistry::publish(const std::string& method,
   }
 
   return delivered;
+}
+
+VoidResult ListenRegistry::sendRequest(const std::string& caller,
+                                       const jsonrpc::Request& request) const {
+  SubscriptionKey first_for_caller;
+  first_for_caller.caller = caller;
+  first_for_caller.id.number = std::numeric_limits<int64_t>::min();
+  optional<Error> last_error;
+
+  for (auto it = subscriptions_.lower_bound(first_for_caller);
+       it != subscriptions_.end() && it->first.caller == caller; ++it) {
+    const auto& entry = *it;
+    const Subscription& subscription = entry.second;
+    if (!subscription.stream || !subscription.stream->alive()) {
+      continue;
+    }
+
+    jsonrpc::Request tagged = request;
+    Metadata params;
+    if (tagged.params.has_value()) {
+      params = tagged.params.value();
+    }
+    tagWithSubscription(params, subscription.id);
+    tagged.params = mcp::make_optional(params);
+    auto sent = subscription.stream->sendRequest(tagged);
+    if (holds_alternative<std::nullptr_t>(sent)) {
+      return sent;
+    }
+    last_error = mcp::make_optional(get<Error>(sent));
+  }
+
+  if (last_error.has_value()) {
+    return makeVoidError(last_error.value());
+  }
+  return makeVoidError(
+      Error(jsonrpc::INTERNAL_ERROR,
+            "no live subscription stream for caller " + caller));
 }
 
 bool ListenRegistry::close(const std::string& caller, const RequestId& id) {
