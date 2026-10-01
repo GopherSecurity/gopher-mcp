@@ -62,6 +62,26 @@ json::JsonValue paramsOf(const jsonrpc::Request& request) {
   return json::JsonValue::object();
 }
 
+// The cursor a list request carries, exactly as sent. False when it
+// carries one that is not a string, which no server could have issued.
+bool cursorOf(const jsonrpc::Request& request, optional<Cursor>* cursor) {
+  const json::JsonValue params = paramsOf(request);
+  if (!params.isObject() || !params.contains("cursor") ||
+      params["cursor"].isNull()) {
+    return true;
+  }
+  if (!params["cursor"].isString()) {
+    return false;
+  }
+  *cursor = params["cursor"].getString();
+  return true;
+}
+
+jsonrpc::Response invalidCursor(const jsonrpc::Request& request) {
+  return jsonrpc::Response::make_error(
+      request.id, Error(jsonrpc::INVALID_PARAMS, "Invalid cursor"));
+}
+
 // A tool's or a prompt's arguments, for handlers that take the flat map.
 // Present-but-not-an-object reads as no arguments, as it always has.
 optional<Metadata> argumentsOf(const json::JsonValue& params) {
@@ -2617,20 +2637,17 @@ jsonrpc::Response McpServer::handlePing(const jsonrpc::Request& request,
 
 jsonrpc::Response McpServer::handleListResources(
     const jsonrpc::Request& request, SessionContext& session) {
-  // Extract cursor if provided
   optional<Cursor> cursor;
-  if (request.params.has_value()) {
-    auto params = request.params.value();
-    auto cursor_it = params.find("cursor");
-    if (cursor_it != params.end() &&
-        holds_alternative<std::string>(cursor_it->second)) {
-      cursor = mcp::make_optional(get<std::string>(cursor_it->second));
-    }
+  if (!cursorOf(request, &cursor)) {
+    return invalidCursor(request);
   }
-
-  // Get resources from resource manager and return directly
-  // ResponseResult variant supports ListResourcesResult
-  auto result = resource_manager_->listResources(cursor);
+  ListResourcesResult result;
+  try {
+    result = resource_manager_->listResources(
+        cursor, config_.list_page_sizes.resources);
+  } catch (const InvalidCursor&) {
+    return invalidCursor(request);
+  }
   return jsonrpc::Response::success(request.id,
                                     jsonrpc::ResponseResult(result));
 }
@@ -2734,8 +2751,16 @@ jsonrpc::Response McpServer::handleUnsubscribe(const jsonrpc::Request& request,
 
 jsonrpc::Response McpServer::handleListTools(const jsonrpc::Request& request,
                                              SessionContext& session) {
-  // Get tools from tool registry
-  auto result = tool_registry_->listTools();
+  optional<Cursor> cursor;
+  if (!cursorOf(request, &cursor)) {
+    return invalidCursor(request);
+  }
+  ListToolsResult result;
+  try {
+    result = tool_registry_->listTools(cursor, config_.list_page_sizes.tools);
+  } catch (const InvalidCursor&) {
+    return invalidCursor(request);
+  }
 
   // Build response as JsonValue with "tools" key per MCP spec. An output
   // schema goes only to a caller whose revision has one it can read; a tool
@@ -2756,6 +2781,9 @@ jsonrpc::Response McpServer::handleListTools(const jsonrpc::Request& request,
 
   json::JsonValue response_obj = json::JsonValue::object();
   response_obj["tools"] = std::move(tools_array);
+  if (result.nextCursor.has_value()) {
+    response_obj["nextCursor"] = json::JsonValue(result.nextCursor.value());
+  }
 
   return jsonrpc::Response::success(request.id,
                                     jsonrpc::ResponseResult(response_obj));
@@ -2872,19 +2900,17 @@ jsonrpc::Response McpServer::handleCallTool(const jsonrpc::Request& request,
 
 jsonrpc::Response McpServer::handleListPrompts(const jsonrpc::Request& request,
                                                SessionContext& session) {
-  // Extract cursor if provided
   optional<Cursor> cursor;
-  if (request.params.has_value()) {
-    auto params = request.params.value();
-    auto cursor_it = params.find("cursor");
-    if (cursor_it != params.end() &&
-        holds_alternative<std::string>(cursor_it->second)) {
-      cursor = mcp::make_optional(get<std::string>(cursor_it->second));
-    }
+  if (!cursorOf(request, &cursor)) {
+    return invalidCursor(request);
   }
-
-  // Get prompts from prompt registry
-  auto result = prompt_registry_->listPrompts(cursor);
+  ListPromptsResult result;
+  try {
+    result =
+        prompt_registry_->listPrompts(cursor, config_.list_page_sizes.prompts);
+  } catch (const InvalidCursor&) {
+    return invalidCursor(request);
+  }
 
   // Build response as JsonValue with "prompts" key per MCP spec
   json::JsonValue prompts_array = json::JsonValue::array();
@@ -2894,6 +2920,9 @@ jsonrpc::Response McpServer::handleListPrompts(const jsonrpc::Request& request,
 
   json::JsonValue response_obj = json::JsonValue::object();
   response_obj["prompts"] = std::move(prompts_array);
+  if (result.nextCursor.has_value()) {
+    response_obj["nextCursor"] = json::JsonValue(result.nextCursor.value());
+  }
 
   return jsonrpc::Response::success(request.id,
                                     jsonrpc::ResponseResult(response_obj));

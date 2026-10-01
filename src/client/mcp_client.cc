@@ -2526,11 +2526,13 @@ std::future<ListResourcesResult> McpClient::listResources(
   auto request_future_ptr = std::make_shared<std::future<Response>>();
 
   // Prepare params before posting to dispatcher
-  auto params = make_metadata();
+  // The cursor goes back exactly as the server gave it. Through the flat
+  // map a cursor that happens to look like JSON would be sent as JSON.
+  json::JsonValue params = json::JsonValue::object();
   if (cursor.has_value()) {
-    params["cursor"] = cursor.value();
+    params.set("cursor", json::JsonValue(cursor.value()));
   }
-  auto params_ptr = std::make_shared<Metadata>(std::move(params));
+  auto params_ptr = std::make_shared<json::JsonValue>(std::move(params));
 
   GOPHER_LOG_FLOW_DEBUG("MCP invoke: resources/list (cursor={})",
                         cursor.has_value() ? cursor.value() : "<none>");
@@ -2538,7 +2540,7 @@ std::future<ListResourcesResult> McpClient::listResources(
   // Step 1: Post to dispatcher to send the request (non-blocking)
   main_dispatcher_->post([this, request_future_ptr, params_ptr]() {
     *request_future_ptr =
-        sendRequest("resources/list", mcp::make_optional(*params_ptr));
+        sendRequestWithParams("resources/list", *params_ptr, {});
   });
 
   // Step 2: Use std::thread to wait for response on a worker thread (not
@@ -2767,11 +2769,13 @@ std::future<ListToolsResult> McpClient::listTools(
   auto request_future_ptr = std::make_shared<std::future<Response>>();
 
   // Prepare params before posting to dispatcher
-  auto params = make_metadata();
+  // The cursor goes back exactly as the server gave it. Through the flat
+  // map a cursor that happens to look like JSON would be sent as JSON.
+  json::JsonValue params = json::JsonValue::object();
   if (cursor.has_value()) {
-    params["cursor"] = cursor.value();
+    params.set("cursor", json::JsonValue(cursor.value()));
   }
-  auto params_ptr = std::make_shared<Metadata>(std::move(params));
+  auto params_ptr = std::make_shared<json::JsonValue>(std::move(params));
 
   GOPHER_LOG_FLOW_DEBUG("MCP invoke: tools/list (cursor={})",
                         cursor.has_value() ? cursor.value() : "<none>");
@@ -2779,8 +2783,8 @@ std::future<ListToolsResult> McpClient::listTools(
   // Step 1: Post to dispatcher to send the request (non-blocking)
   main_dispatcher_->post(
       [this, request_future_ptr, params_ptr, http_headers]() {
-        *request_future_ptr = sendRequest(
-            "tools/list", mcp::make_optional(*params_ptr), http_headers);
+        *request_future_ptr =
+            sendRequestWithParams("tools/list", *params_ptr, http_headers);
       });
 
   // Step 2: Use std::thread to wait for response on a worker thread (not
@@ -2992,11 +2996,13 @@ std::future<ListPromptsResult> McpClient::listPrompts(
   auto request_future_ptr = std::make_shared<std::future<Response>>();
 
   // Prepare params before posting to dispatcher
-  auto params = make_metadata();
+  // The cursor goes back exactly as the server gave it. Through the flat
+  // map a cursor that happens to look like JSON would be sent as JSON.
+  json::JsonValue params = json::JsonValue::object();
   if (cursor.has_value()) {
-    params["cursor"] = cursor.value();
+    params.set("cursor", json::JsonValue(cursor.value()));
   }
-  auto params_ptr = std::make_shared<Metadata>(std::move(params));
+  auto params_ptr = std::make_shared<json::JsonValue>(std::move(params));
 
   GOPHER_LOG_FLOW_DEBUG("MCP invoke: prompts/list (cursor={})",
                         cursor.has_value() ? cursor.value() : "<none>");
@@ -3004,7 +3010,7 @@ std::future<ListPromptsResult> McpClient::listPrompts(
   // Step 1: Post to dispatcher to send the request (non-blocking)
   main_dispatcher_->post([this, request_future_ptr, params_ptr]() {
     *request_future_ptr =
-        sendRequest("prompts/list", mcp::make_optional(*params_ptr));
+        sendRequestWithParams("prompts/list", *params_ptr, {});
   });
 
   // Step 2: Use std::thread to wait for response on a worker thread (not

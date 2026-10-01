@@ -585,7 +585,7 @@ struct ListResourcesResult : PaginatedResultBase, CacheableResult {
   ListResourcesResult() = default;
 };
 
-struct ListToolsResult : CacheableResult {
+struct ListToolsResult : PaginatedResultBase, CacheableResult {
   std::vector<Tool> tools;
   ListToolsResult() = default;
 };

@@ -52,6 +52,7 @@
 #include "mcp/network/filter.h"
 #include "mcp/protocol/designated_params.h"
 #include "mcp/protocol/mrtr.h"
+#include "mcp/server/list_paging.h"
 #include "mcp/server/listen_registry.h"
 #include "mcp/transport/streamable_http_config.h"
 #include "mcp/types.h"
@@ -152,6 +153,17 @@ struct McpServerConfig : public application::ApplicationBase::Config {
     CacheScope scope = CacheScope::Private;
   };
   std::map<std::string, CacheHint> cache_hints;
+
+  // How many items each page of a list holds. 0 puts the whole list on one
+  // page. Past the first page a client follows the nextCursor it was given,
+  // which names where the last page ended rather than a position, so items
+  // registered or removed meanwhile do not shift what comes next.
+  struct ListPageSizes {
+    size_t tools = 0;
+    size_t prompts = 0;
+    size_t resources = 100;
+  };
+  ListPageSizes list_page_sizes;
 
   // Transport configuration
   std::vector<TransportType> supported_transports = {TransportType::Stdio,
@@ -511,34 +523,14 @@ class ResourceManager {
   }
 
   // List resources with pagination
-  ListResourcesResult listResources(const optional<Cursor>& cursor = nullopt) {
+  // One page of the resources, in URI order. Throws InvalidCursor for a
+  // cursor this list did not issue.
+  ListResourcesResult listResources(const optional<Cursor>& cursor = nullopt,
+                                    size_t page_size = 100) {
     std::lock_guard<std::mutex> lock(mutex_);
     ListResourcesResult result;
-
-    // Simple pagination implementation
-    size_t start = 0;
-    if (cursor.has_value()) {
-      start = std::stoull(cursor.value());
-    }
-
-    size_t count = 0;
-    const size_t page_size = 100;
-
-    for (auto it = resources_.begin();
-         it != resources_.end() && count < page_size; ++it) {
-      if (start > 0) {
-        start--;
-        continue;
-      }
-      result.resources.push_back(it->second);
-      count++;
-    }
-
-    // Set next cursor if more resources available
-    if (count == page_size && resources_.size() > (start + count)) {
-      result.nextCursor = std::to_string(start + count);
-    }
-
+    result.resources = paging::pageOf(resources_, "resources", cursor,
+                                      page_size, &result.nextCursor);
     return result;
   }
 
@@ -689,13 +681,14 @@ class ToolRegistry {
     return true;
   }
 
-  // List all tools
-  ListToolsResult listTools() {
+  // One page of the tools, in name order; by default all of them. Throws
+  // InvalidCursor for a cursor this list did not issue.
+  ListToolsResult listTools(const optional<Cursor>& cursor = nullopt,
+                            size_t page_size = 0) {
     std::lock_guard<std::mutex> lock(mutex_);
     ListToolsResult result;
-    for (const auto& pair : tools_) {
-      result.tools.push_back(pair.second);
-    }
+    result.tools =
+        paging::pageOf(tools_, "tools", cursor, page_size, &result.nextCursor);
     return result;
   }
 
@@ -765,12 +758,14 @@ class PromptRegistry {
   }
 
   // List all prompts
-  ListPromptsResult listPrompts(const optional<Cursor>& cursor = nullopt) {
+  // One page of the prompts, in name order; by default all of them. Throws
+  // InvalidCursor for a cursor this list did not issue.
+  ListPromptsResult listPrompts(const optional<Cursor>& cursor = nullopt,
+                                size_t page_size = 0) {
     std::lock_guard<std::mutex> lock(mutex_);
     ListPromptsResult result;
-    for (const auto& pair : prompts_) {
-      result.prompts.push_back(pair.second);
-    }
+    result.prompts = paging::pageOf(prompts_, "prompts", cursor, page_size,
+                                    &result.nextCursor);
     return result;
   }
 
