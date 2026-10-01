@@ -22,6 +22,7 @@
 #include <future>
 #include <memory>
 #include <mutex>
+#include <set>
 #include <string>
 #include <thread>
 #include <vector>
@@ -386,9 +387,37 @@ TEST_P(PythonServerInteropTest, AServerKeepingNoSessionsStillWorks) {
 }
 
 // Listed so it is not forgotten: nothing pages yet on either side.
+// A server listing a page at a time, read to the end by following its
+// cursors. Its cursors look like JSON, so they only work if they go back
+// exactly as given.
 TEST_P(PythonServerInteropTest, AToolListingIsPaged) {
-  GTEST_SKIP() << "tools/list paging is not implemented yet, and the reference "
-                  "server does not page";
+  ASSERT_TRUE(startServer({"--page-size", "2"}));
+  startClient();
+  ASSERT_NO_THROW(handshake());
+
+  std::vector<std::string> names;
+  optional<Cursor> cursor;
+  size_t pages = 0;
+  do {
+    auto listed = client_->listTools(cursor);
+    ASSERT_EQ(listed.wait_for(15s), std::future_status::ready);
+    ListToolsResult page;
+    ASSERT_NO_THROW(page = listed.get());
+    EXPECT_LE(page.tools.size(), 2u);
+    for (const auto& tool : page.tools) {
+      names.push_back(tool.name);
+    }
+    cursor = page.nextCursor;
+    ASSERT_LT(++pages, 20u) << "the cursors never reached the end";
+  } while (cursor.has_value());
+
+  EXPECT_GT(pages, 1u) << "the server never paged";
+  std::set<std::string> distinct(names.begin(), names.end());
+  EXPECT_EQ(distinct.size(), names.size()) << "a tool was listed twice";
+  for (const char* expected :
+       {"add", "get_weather", "elicit_prompt", "touch_greeting"}) {
+    EXPECT_TRUE(distinct.count(expected)) << expected << " was never listed";
+  }
 }
 
 INSTANTIATE_TEST_SUITE_P(BothRevisions,

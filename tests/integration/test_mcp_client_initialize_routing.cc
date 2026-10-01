@@ -926,6 +926,49 @@ TEST_F(McpClientInitializeRoutingTest, AToolsTitleAndHintsAreListed) {
   EXPECT_EQ((*found->_meta)["owner"]["team"].getString(), "db");
 }
 
+// A cursor is opaque: whatever the server gave, the client hands back
+// exactly, even one that looks like JSON. Each handler here answers with
+// the cursor it received, so what comes back is what went out.
+TEST_F(McpClientInitializeRoutingTest, ACursorGoesBackExactlyAsGiven) {
+  auto echoCursor = [](const char* items) {
+    return [items](const jsonrpc::Request& request, server::SessionContext&) {
+      json::JsonValue result = json::JsonValue::object();
+      result.set(items, json::JsonValue::array());
+      const bool carried = request.params_json.has_value() &&
+                           request.params_json->contains("cursor");
+      result.set("nextCursor", carried ? (*request.params_json)["cursor"]
+                                       : json::JsonValue("<none>"));
+      return jsonrpc::Response::success(request.id,
+                                        jsonrpc::ResponseResult(result));
+    };
+  };
+  server_->registerRequestHandler("tools/list", echoCursor("tools"));
+  server_->registerRequestHandler("prompts/list", echoCursor("prompts"));
+  server_->registerRequestHandler("resources/list", echoCursor("resources"));
+  connectInitializedClient();
+
+  const std::string looks_like_json = R"({"offset":2})";
+  for (const std::string& cursor : {looks_like_json, std::string("")}) {
+    SCOPED_TRACE(cursor);
+    auto tools = client_->listTools(mcp::make_optional(cursor));
+    ASSERT_EQ(tools.wait_for(5s), std::future_status::ready);
+    EXPECT_EQ(tools.get().nextCursor, mcp::make_optional(cursor));
+
+    auto prompts = client_->listPrompts(mcp::make_optional(cursor));
+    ASSERT_EQ(prompts.wait_for(5s), std::future_status::ready);
+    EXPECT_EQ(prompts.get().nextCursor, mcp::make_optional(cursor));
+
+    auto resources = client_->listResources(mcp::make_optional(cursor));
+    ASSERT_EQ(resources.wait_for(5s), std::future_status::ready);
+    EXPECT_EQ(resources.get().nextCursor, mcp::make_optional(cursor));
+  }
+
+  // And none at all is no cursor, not an empty one.
+  auto first = client_->listTools();
+  ASSERT_EQ(first.wait_for(5s), std::future_status::ready);
+  EXPECT_EQ(first.get().nextCursor, mcp::make_optional(std::string("<none>")));
+}
+
 // A call to a tool the server does not have fails as an error the caller
 // can read the code of, not as a result from a tool that ran.
 TEST_F(McpClientInitializeRoutingTest, AnUnknownToolIsReportedAsAnError) {

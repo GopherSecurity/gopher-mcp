@@ -25,6 +25,7 @@
  * well as calling.
  *
  *   gopher_interop_server --port 8931 [--stateless] [--no-resume]
+ *                         [--page-size N]
  *                         [--no-get-stream]
  *
  * All five tools are served by one handler that answers when it can
@@ -63,6 +64,7 @@ struct Options {
   bool stateful{true};
   bool resumable{true};
   bool get_stream{true};
+  size_t page_size{0};
 };
 
 bool parseArgs(int argc, char** argv, Options* options) {
@@ -80,6 +82,10 @@ bool parseArgs(int argc, char** argv, Options* options) {
       // Nothing is retained for replay, so a client that comes back
       // asking where it was gets a fresh stream instead.
       options->resumable = false;
+    } else if (arg == "--page-size" && i + 1 < argc) {
+      // Lists come back a page at a time, so a client has to follow the
+      // cursors to see everything.
+      options->page_size = static_cast<size_t>(std::atoi(argv[++i]));
     } else if (arg == "--no-get-stream") {
       // No standalone stream at all, which a client has to cope with by
       // going without anything said unprompted.
@@ -724,13 +730,32 @@ class ToolCalls {
 
 // ── Everything else the client can reach ───────────────────────────────
 
-void registerSurface(InteropServer& server) {
-  const std::vector<Tool> tools = interopTools();
+void registerSurface(InteropServer& server, size_t page_size) {
+  // Keyed by name, which is the order pages come in.
+  std::map<std::string, Tool> tools;
+  for (const auto& tool : interopTools()) {
+    tools[tool.name] = tool;
+  }
 
+  // Answered here rather than from the registry, since tools/call is too;
+  // paged the same way the registry pages, with the same cursors.
   server.registerRequestHandler(
-      "tools/list", [tools](const jsonrpc::Request& request, SessionContext&) {
+      "tools/list",
+      [tools, page_size](const jsonrpc::Request& request, SessionContext&) {
+        optional<std::string> cursor;
+        if (request.params_json.has_value() &&
+            request.params_json->contains("cursor") &&
+            (*request.params_json)["cursor"].isString()) {
+          cursor = (*request.params_json)["cursor"].getString();
+        }
         ListToolsResult result;
-        result.tools = tools;
+        try {
+          result.tools = mcp::server::paging::pageOf(
+              tools, "tools", cursor, page_size, &result.nextCursor);
+        } catch (const mcp::server::InvalidCursor&) {
+          return jsonrpc::Response::make_error(
+              request.id, Error(jsonrpc::INVALID_PARAMS, "Invalid cursor"));
+        }
         return jsonrpc::Response::success(
             request.id, jsonrpc::ResponseResult(json::to_json(result)));
       });
@@ -805,13 +830,18 @@ int main(int argc, char** argv) {
   tools_hint.ttl = std::chrono::milliseconds(60000);
   tools_hint.scope = McpServerConfig::CacheScope::Public;
   config.cache_hints["tools/list"] = tools_hint;
+  if (options.page_size != 0) {
+    config.list_page_sizes.tools = options.page_size;
+    config.list_page_sizes.prompts = options.page_size;
+    config.list_page_sizes.resources = options.page_size;
+  }
   ResourcesCapability resources;
   resources.subscribe = mcp::make_optional(true);
   config.capabilities.resources =
       mcp::make_optional(variant<bool, ResourcesCapability>(resources));
 
   InteropServer server(config);
-  registerSurface(server);
+  registerSurface(server, options.page_size);
 
   // No signal handler on purpose. This server runs until it is stopped
   // from outside, and a handler that only set a flag nothing read would
