@@ -260,6 +260,14 @@ TEST_F(MCPSerializationTest, AToolsDisplayNameFollowsTheSpecsOrder) {
   EXPECT_EQ(tool.displayName(), "Weather (annotations)");
   tool.title = std::string("Weather");
   EXPECT_EQ(tool.displayName(), "Weather");
+
+  // Falling back is for a field that is not provided, not one that is
+  // provided empty.
+  tool.title = std::string();
+  EXPECT_EQ(tool.displayName(), "");
+  tool.title = nullopt;
+  tool.annotations->title = std::string();
+  EXPECT_EQ(tool.displayName(), "");
 }
 
 // A _meta that is not an object could not be sent, so it is refused.
