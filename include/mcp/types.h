@@ -385,13 +385,16 @@ struct Tool {
   Tool() = default;
   explicit Tool(const std::string& n) : name(n) {}
 
-  /** The name to show people: title, then annotations.title, then name. */
+  /**
+   * The name to show people: title, then annotations.title, then name. Each
+   * gives way only when it is not provided; one that is provided is used as
+   * it is, even empty.
+   */
   std::string displayName() const {
-    if (title.has_value() && !title->empty()) {
+    if (title.has_value()) {
       return title.value();
     }
-    if (annotations.has_value() && annotations->title.has_value() &&
-        !annotations->title->empty()) {
+    if (annotations.has_value() && annotations->title.has_value()) {
       return annotations->title.value();
     }
     return name;
