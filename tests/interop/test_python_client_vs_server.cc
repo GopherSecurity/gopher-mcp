@@ -170,5 +170,12 @@ TEST_F(PythonClientVsServer, AServerKeepingNoSessionsIsStillServed) {
   expectClean(driveServer("legacy", {"--stateless"}));
 }
 
+// A server listing a page at a time is read in full by a client following
+// its cursors, and the other scenarios still find every tool they need.
+TEST_F(PythonClientVsServer, AServerThatPagesIsReadInFull) {
+  expectClean(driveServer("modern", {"--page-size", "2"}));
+  expectClean(driveServer("legacy", {"--page-size", "2"}));
+}
+
 }  // namespace
 }  // namespace mcp

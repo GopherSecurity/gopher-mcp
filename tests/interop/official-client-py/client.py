@@ -117,7 +117,19 @@ async def answer_elicitation(context, params):
     return types.ElicitResult(action="accept", content={"env": "staging"})
 
 
-async def run_scenarios(url: str, modern: bool, stateless: bool) -> None:
+async def all_tools(client) -> list:
+    """Every tool, following nextCursor to the end as the spec says to."""
+    tools = []
+    cursor = None
+    while True:
+        page = await client.list_tools(cursor=cursor)
+        tools.extend(page.tools)
+        cursor = page.next_cursor
+        if cursor is None:
+            return tools
+
+
+async def run_scenarios(url: str, modern: bool, stateless: bool, page_size: int) -> None:
     mode = "2026-07-28" if modern else "legacy"
     async with mcp.Client(
         url, mode=mode, elicitation_callback=answer_elicitation
@@ -153,8 +165,7 @@ async def run_scenarios(url: str, modern: bool, stateless: bool) -> None:
         )
 
         async def listed_and_called():
-            listed = await client.list_tools()
-            names = sorted(tool.name for tool in listed.tools)
+            names = sorted(tool.name for tool in await all_tools(client))
             check("add" in names, f"add is missing from {names}")
             answered = await client.call_tool("add", {"a": 20, "b": 22})
             equal(text_of(answered), "42", "add answered")
@@ -162,8 +173,7 @@ async def run_scenarios(url: str, modern: bool, stateless: bool) -> None:
         await scenario("a tool is listed and called, and answers exactly", listed_and_called)
 
         async def described():
-            listed = await client.list_tools()
-            add = next((t for t in listed.tools if t.name == "add"), None)
+            add = next((t for t in await all_tools(client) if t.name == "add"), None)
             check(add is not None, "add was not listed")
             equal(add.title, "Add", "add's title")
             hints = add.annotations
@@ -177,8 +187,7 @@ async def run_scenarios(url: str, modern: bool, stateless: bool) -> None:
         await scenario("a tool's title, hints and _meta are listed", described)
 
         async def structured():
-            listed = await client.list_tools()
-            weather = next((t for t in listed.tools if t.name == "get_weather"), None)
+            weather = next((t for t in await all_tools(client) if t.name == "get_weather"), None)
             check(weather is not None, "get_weather was not listed")
             schema = weather.output_schema or {}
             equal(schema.get("type"), "object", "the listed outputSchema type")
@@ -246,11 +255,26 @@ async def run_scenarios(url: str, modern: bool, stateless: bool) -> None:
 
         await scenario("reading a resource that does not exist is refused", refused)
 
-        await scenario(
-            "a tool listing is paged",
-            None,
-            "tools/list paging is not implemented yet",
-        )
+        async def paged():
+            first = await client.list_tools()
+            check(first.next_cursor is not None, "the first page carried no nextCursor")
+            check(
+                len(first.tools) <= page_size,
+                f"a page of {len(first.tools)} tools from a page size of {page_size}",
+            )
+            names = [tool.name for tool in await all_tools(client)]
+            equal(len(names), len(set(names)), "tools seen more than once")
+            for expected in ("add", "get_weather", "elicit_prompt", "long_task"):
+                check(expected in names, f"{expected} is missing from {sorted(names)}")
+
+        if page_size:
+            await scenario("a tool listing is paged", paged)
+        else:
+            await scenario(
+                "a tool listing is paged",
+                None,
+                "this run's server lists everything on one page",
+            )
         await scenario(
             "each modern-era error code is sent where it applies",
             None,
@@ -263,10 +287,17 @@ def main() -> int:
     parser.add_argument("--url", required=True)
     parser.add_argument("--mode", choices=["modern", "legacy"], default="modern")
     parser.add_argument("--stateless", action="store_true")
+    parser.add_argument("--page-size", type=int, default=0)
     options = parser.parse_args()
 
     try:
-        anyio.run(run_scenarios, options.url, options.mode == "modern", options.stateless)
+        anyio.run(
+            run_scenarios,
+            options.url,
+            options.mode == "modern",
+            options.stateless,
+            options.page_size,
+        )
     except Exception as e:  # noqa: BLE001 - a connection that never opened
         failed("the client connects", f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
 

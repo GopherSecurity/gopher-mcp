@@ -22,6 +22,7 @@ plus a resource and a prompt, and caching hints on tools/list.
 """
 
 import argparse
+import json
 import sys
 from typing import Annotated, Literal
 
@@ -31,7 +32,7 @@ from mcp.server import CacheHint
 from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.mcpserver.resolve import Elicit, ElicitationResult, Resolve
 from mcp.server.transport_security import TransportSecuritySettings
-from mcp.types import ToolAnnotations
+from mcp.types import ListToolsResult, ToolAnnotations
 
 GREETING = "interop://greeting"
 
@@ -46,11 +47,36 @@ class Environment(BaseModel):
     env: Literal["staging", "production"]
 
 
-def build_server() -> MCPServer:
-    server = MCPServer(
+class PagingServer(MCPServer):
+    """MCPServer listing its tools a page at a time when given a page size.
+
+    Its cursors look like JSON on purpose: a client has to hand them back
+    exactly as given, as strings, for paging to work at all.
+    """
+
+    def __init__(self, *args, page_size: int = 0, **kwargs):
+        self._page_size = page_size
+        super().__init__(*args, **kwargs)
+
+    async def _handle_list_tools(self, ctx, params):
+        tools = await self.list_tools()
+        if not self._page_size:
+            return ListToolsResult(tools=tools)
+        start = 0
+        cursor = getattr(params, "cursor", None) if params else None
+        if cursor is not None:
+            start = json.loads(cursor)["offset"]
+        end = start + self._page_size
+        next_cursor = json.dumps({"offset": end}) if end < len(tools) else None
+        return ListToolsResult(tools=tools[start:end], next_cursor=next_cursor)
+
+
+def build_server(page_size: int = 0) -> MCPServer:
+    server = PagingServer(
         "gopher-interop-python-reference",
         version="1.0.0",
         cache_hints={"tools/list": CacheHint(ttl_ms=60000, scope="public")},
+        page_size=page_size,
     )
 
     @server.tool(
@@ -103,9 +129,10 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, required=True)
     parser.add_argument("--stateless", action="store_true")
+    parser.add_argument("--page-size", type=int, default=0)
     options = parser.parse_args()
 
-    server = build_server()
+    server = build_server(options.page_size)
     print(
         f"[python-reference-server] listening on "
         f"http://127.0.0.1:{options.port}/mcp",
