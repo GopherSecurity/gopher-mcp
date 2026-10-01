@@ -1561,6 +1561,10 @@ JsonValue serialize_ListToolsResult(const ListToolsResult& result) {
   }
   builder.add("tools", tools.build());
 
+  if (result.nextCursor.has_value()) {
+    builder.add("nextCursor", result.nextCursor.value());
+  }
+
   addCacheHints(builder, result);
 
   return builder.build();
@@ -2591,6 +2595,11 @@ ListToolsResult deserialize_ListToolsResult(const JsonValue& json) {
     result.tools.push_back(from_json<Tool>(tools[i]));
   }
 
+  // Opaque, and passed back exactly: an empty one is still a cursor.
+  if (json.contains("nextCursor") && json["nextCursor"].isString()) {
+    result.nextCursor = json["nextCursor"].getString();
+  }
+
   readCacheHints(json, result);
 
   return result;
@@ -2621,7 +2630,7 @@ ListPromptsResult deserialize_ListPromptsResult(const JsonValue& json) {
     result.prompts.push_back(from_json<Prompt>(prompts[i]));
   }
 
-  if (json.contains("nextCursor")) {
+  if (json.contains("nextCursor") && json["nextCursor"].isString()) {
     result.nextCursor = json["nextCursor"].getString();
   }
 
@@ -2697,7 +2706,7 @@ ListResourcesResult deserialize_ListResourcesResult(const JsonValue& json) {
     result.resources.push_back(from_json<Resource>(resources[i]));
   }
 
-  if (json.contains("nextCursor")) {
+  if (json.contains("nextCursor") && json["nextCursor"].isString()) {
     result.nextCursor = json["nextCursor"].getString();
   }
 
@@ -2717,7 +2726,7 @@ ListResourceTemplatesResult deserialize_ListResourceTemplatesResult(
         from_json<ResourceTemplate>(templates[i]));
   }
 
-  if (json.contains("nextCursor")) {
+  if (json.contains("nextCursor") && json["nextCursor"].isString()) {
     result.nextCursor = json["nextCursor"].getString();
   }
 
