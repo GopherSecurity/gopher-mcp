@@ -500,6 +500,76 @@ network::Connection* fakeConnection(int which) {
   return reinterpret_cast<network::Connection*>(0x1000 + which);
 }
 
+TEST_F(StreamableSessionManagerTest, ALiveGetStreamKeepsSessionFromExpiring) {
+  const std::string id = createSession();
+
+  owner_->run([&]() {
+    SessionCtx* session = manager_->find(id);
+    ASSERT_NE(session, nullptr);
+    FakeStream stream(*manager_, *session, owner_->dispatcher(),
+                      fakeConnection(1));
+    session->last_activity -= 1h;
+
+    std::vector<std::string> expired;
+    manager_->forEachExpired(0ms, [&expired](SessionCtx& expired_session) {
+      expired.push_back(expired_session.id);
+    });
+
+    EXPECT_TRUE(expired.empty())
+        << "a live standalone stream was treated as an idle session";
+  });
+}
+
+TEST_F(StreamableSessionManagerTest, ADetachedGetStreamStartsANewIdleWindow) {
+  const std::string id = createSession();
+
+  owner_->run([&]() {
+    SessionCtx* session = manager_->find(id);
+    ASSERT_NE(session, nullptr);
+    FakeStream stream(*manager_, *session, owner_->dispatcher(),
+                      fakeConnection(1));
+    session->last_activity -= 1h;
+
+    StreamableSessionManager::detachConnection(*session, fakeConnection(1));
+
+    std::vector<std::string> expired;
+    manager_->forEachExpired(25ms, [&expired](SessionCtx& expired_session) {
+      expired.push_back(expired_session.id);
+    });
+
+    EXPECT_TRUE(expired.empty())
+        << "the reconnect window started before the stream disconnected";
+  });
+}
+
+TEST_F(StreamableSessionManagerTest,
+       AnOpenAnsweringStreamKeepsSessionFromExpiring) {
+  const std::string id = createSession();
+
+  owner_->run([&]() {
+    SessionCtx* session = manager_->find(id);
+    ASSERT_NE(session, nullptr);
+
+    std::unique_ptr<RetainedExchangeSink> sink(new RetainedExchangeSink());
+    auto exchange =
+        RequestExchange::create(owner_->dispatcher(), std::move(sink), nullopt);
+    exchange->beginStream();
+    ASSERT_NE(manager_->openStream(*session, StreamCtx::Kind::PostResponse,
+                                   exchange, fakeConnection(1),
+                                   owner_->dispatcher()),
+              nullptr);
+    session->last_activity -= 1h;
+
+    std::vector<std::string> expired;
+    manager_->forEachExpired(0ms, [&expired](SessionCtx& expired_session) {
+      expired.push_back(expired_session.id);
+    });
+
+    EXPECT_TRUE(expired.empty())
+        << "an in-flight streamed response was treated as abandoned";
+  });
+}
+
 TEST_F(StreamableSessionManagerTest, TheNewestStreamIsWhereAMessageGoes) {
   const std::string id = createSession();
 

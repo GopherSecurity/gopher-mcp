@@ -45,6 +45,22 @@ std::string toHex(const unsigned char* bytes, size_t length) {
   return out;
 }
 
+bool streamKeepsSessionActive(const StreamCtx& stream) {
+  if (stream.kind == StreamCtx::Kind::Get) {
+    return stream.live();
+  }
+  return stream.open();
+}
+
+bool hasActiveStream(const SessionCtx& session) {
+  for (const auto& stream : session.streams) {
+    if (stream && streamKeepsSessionActive(*stream)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 }  // namespace
 
 StreamableSessionManager::StreamableSessionManager(
@@ -230,6 +246,7 @@ StreamCtx* StreamableSessionManager::openStream(
   // Appended, so the collection stays in the order the streams opened —
   // which is what makes "the most recently opened" a thing that can be
   // asked for.
+  session.last_activity = std::chrono::steady_clock::now();
   session.streams.push_back(std::move(stream));
   session.stream_index[stream_id] = opened;
   GOPHER_LOG_DEBUG("session {} opened stream {}", session.id, stream_id);
@@ -303,6 +320,7 @@ bool StreamableSessionManager::endStream(SessionCtx& session,
     });
   }
 
+  session.last_activity = std::chrono::steady_clock::now();
   GOPHER_LOG_DEBUG("session {} ended stream {}", session.id, stream.id);
   return true;
 }
@@ -493,6 +511,7 @@ void StreamableSessionManager::detachConnection(SessionCtx& session,
       // Only the connection goes. The stream stays on the session, which
       // is what a client that reconnects comes back to.
       stream->conn = nullptr;
+      session.last_activity = std::chrono::steady_clock::now();
       GOPHER_LOG_DEBUG("session {} stream {} detached from its connection",
                        session.id, stream->id);
     }
@@ -560,6 +579,9 @@ void StreamableSessionManager::forEachExpired(
           !entry.second.owner->isThreadSafe()) {
         // Another dispatcher's session. Its own sweep judges it; reading
         // last_activity from here would be reading state we do not own.
+        continue;
+      }
+      if (hasActiveStream(*entry.second.ctx)) {
         continue;
       }
       if (now - entry.second.ctx->last_activity >= timeout) {
