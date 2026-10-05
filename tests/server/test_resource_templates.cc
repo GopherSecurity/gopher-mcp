@@ -195,6 +195,31 @@ TEST(ResourceTemplates, ATemplateIsReadForgivingly) {
   EXPECT_FALSE(tmpl._meta.has_value());
 }
 
+// One bad annotation costs only itself: the fields beside it are kept.
+TEST(ResourceTemplates, OneBadAnnotationKeepsTheRest) {
+  const JsonValue json = JsonValue::parse(R"({
+    "uriTemplate": "db://{table}", "name": "tables",
+    "annotations": {"priority": "high",
+                    "lastModified": "2026-01-12T15:00:58Z",
+                    "audience": ["user", 7, "assistant"]}})");
+  ResourceTemplate tmpl;
+  ASSERT_NO_THROW(tmpl = from_json<ResourceTemplate>(json));
+  ASSERT_TRUE(tmpl.annotations.has_value());
+  EXPECT_FALSE(tmpl.annotations->priority.has_value());
+  EXPECT_EQ(tmpl.annotations->lastModified,
+            mcp::make_optional(std::string("2026-01-12T15:00:58Z")));
+  ASSERT_TRUE(tmpl.annotations->audience.has_value());
+  EXPECT_EQ(tmpl.annotations->audience->size(), 2u);
+
+  // And a priority written as a whole number is still a priority.
+  const JsonValue whole = JsonValue::parse(R"({
+    "uriTemplate": "db://{table}", "name": "tables",
+    "annotations": {"priority": 1}})");
+  const ResourceTemplate back = from_json<ResourceTemplate>(whole);
+  ASSERT_TRUE(back.annotations.has_value());
+  EXPECT_EQ(back.annotations->priority, mcp::make_optional(1.0));
+}
+
 // _meta must be an object to be sent; the string-entry setter still works.
 TEST(ResourceTemplates, TheBuilderKeepsMetaAnObject) {
   EXPECT_THROW(make<ResourceTemplate>("a://{b}", "a").meta(JsonValue(3)),
