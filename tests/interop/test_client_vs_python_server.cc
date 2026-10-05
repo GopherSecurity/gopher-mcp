@@ -283,6 +283,30 @@ TEST_P(PythonServerInteropTest, AnElicitationIsAnsweredInEitherRevision) {
   EXPECT_EQ(firstText(result), "accept:staging");
 }
 
+// The resource templates the official SDK serves, as our client reads them.
+TEST_P(PythonServerInteropTest, ResourceTemplatesAreListed) {
+  ASSERT_TRUE(startServer());
+  startClient();
+  ASSERT_NO_THROW(handshake());
+
+  auto listed = client_->listResourceTemplates();
+  ASSERT_EQ(listed.wait_for(15s), std::future_status::ready);
+  ListResourceTemplatesResult result;
+  ASSERT_NO_THROW(result = listed.get());
+  const ResourceTemplate* notes = nullptr;
+  for (const auto& tmpl : result.resourceTemplates) {
+    if (tmpl.uriTemplate == "interop://notes/{name}") {
+      notes = &tmpl;
+    }
+  }
+  ASSERT_NE(notes, nullptr) << "the notes template was not listed";
+  EXPECT_EQ(notes->name, "notes");
+  EXPECT_EQ(notes->title, mcp::make_optional(std::string("Notes")));
+  EXPECT_EQ(notes->mimeType, mcp::make_optional(std::string("text/plain")));
+  ASSERT_TRUE(notes->_meta.has_value());
+  EXPECT_EQ((*notes->_meta)["interop"]["kind"].getString(), "notes");
+}
+
 TEST_P(PythonServerInteropTest, AResourceIsReadAndAMissingOneRefused) {
   ASSERT_TRUE(startServer());
   startClient();

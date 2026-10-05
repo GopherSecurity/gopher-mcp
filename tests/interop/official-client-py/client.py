@@ -255,6 +255,20 @@ async def run_scenarios(url: str, modern: bool, stateless: bool, page_size: int)
 
         await scenario("reading a resource that does not exist is refused", refused)
 
+        async def templates():
+            listed = await client.list_resource_templates()
+            notes = next(
+                (t for t in listed.resource_templates if t.uri_template == "interop://notes/{name}"),
+                None,
+            )
+            check(notes is not None, f"the notes template is missing from {listed}")
+            equal(notes.name, "notes", "the template's name")
+            equal(notes.title, "Notes", "the template's title")
+            equal(notes.mime_type, "text/plain", "the template's mimeType")
+            equal((notes.meta or {}).get("interop"), {"kind": "notes"}, "the template's _meta")
+
+        await scenario("resource templates are listed", templates)
+
         async def paged():
             first = await client.list_tools()
             check(first.next_cursor is not None, "the first page carried no nextCursor")
