@@ -738,10 +738,11 @@ void registerSurface(InteropServer& server, size_t page_size) {
   }
 
   // Answered here rather than from the registry, since tools/call is too;
-  // paged the same way the registry pages, with the same cursors.
+  // paged the same way the registry pages, with cursors of its own.
+  auto signer = std::make_shared<mcp::server::paging::CursorSigner>();
   server.registerRequestHandler(
-      "tools/list",
-      [tools, page_size](const jsonrpc::Request& request, SessionContext&) {
+      "tools/list", [tools, page_size, signer](const jsonrpc::Request& request,
+                                               SessionContext&) {
         optional<std::string> cursor;
         if (request.params_json.has_value() &&
             request.params_json->contains("cursor")) {
@@ -754,7 +755,7 @@ void registerSurface(InteropServer& server, size_t page_size) {
         ListToolsResult result;
         try {
           result.tools = mcp::server::paging::pageOf(
-              tools, "tools", cursor, page_size, &result.nextCursor);
+              tools, *signer, "tools", cursor, page_size, &result.nextCursor);
         } catch (const mcp::server::InvalidCursor&) {
           return jsonrpc::Response::make_error(
               request.id, Error(jsonrpc::INVALID_PARAMS, "Invalid cursor"));
