@@ -29,6 +29,12 @@ using namespace mcp::server;
 
 namespace {
 
+/** One signer for the helper tests, as one list of one server has. */
+const paging::CursorSigner& signer() {
+  static const paging::CursorSigner the_signer;
+  return the_signer;
+}
+
 std::map<std::string, int> numbered(int count) {
   std::map<std::string, int> items;
   for (int i = 0; i < count; ++i) {
@@ -44,7 +50,8 @@ std::vector<std::vector<int>> allPages(const std::map<std::string, int>& items,
   optional<std::string> cursor;
   do {
     optional<std::string> next;
-    pages.push_back(paging::pageOf(items, "items", cursor, page_size, &next));
+    pages.push_back(
+        paging::pageOf(items, signer(), "items", cursor, page_size, &next));
     cursor = next;
   } while (cursor.has_value() && pages.size() < 100);
   return pages;
@@ -71,7 +78,8 @@ TEST(ListPaging, AFullLastPageCarriesNoCursor) {
 // Page size 0 is one page holding everything, and no cursor.
 TEST(ListPaging, NoPageSizeIsOnePage) {
   optional<std::string> next;
-  const auto page = paging::pageOf(numbered(250), "items", nullopt, 0, &next);
+  const auto page =
+      paging::pageOf(numbered(250), signer(), "items", nullopt, 0, &next);
   EXPECT_EQ(page.size(), 250u);
   EXPECT_FALSE(next.has_value());
 }
@@ -81,57 +89,73 @@ TEST(ListPaging, NoPageSizeIsOnePage) {
 TEST(ListPaging, ChangesBetweenPagesSkipAndRepeatNothing) {
   auto items = numbered(6);
   optional<std::string> next;
-  const auto first = paging::pageOf(items, "items", nullopt, 3, &next);
+  const auto first =
+      paging::pageOf(items, signer(), "items", nullopt, 3, &next);
   ASSERT_TRUE(next.has_value());
 
   items.erase("item-10");   // already seen
   items["item-00"] = 100;   // sorts before the cursor: not this pass
   items["item-125"] = 200;  // sorts after it: picked up in turn
   optional<std::string> after;
-  const auto second = paging::pageOf(items, "items", next, 10, &after);
+  const auto second =
+      paging::pageOf(items, signer(), "items", next, 10, &after);
   EXPECT_EQ(second, (std::vector<int>{200, 3, 4, 5}));
   EXPECT_FALSE(after.has_value());
 }
 
-// An empty cursor reads as the first page, the same as none.
-TEST(ListPaging, AnEmptyCursorIsTheFirstPage) {
+// An empty cursor is not one this server issued: no cursor at all is how
+// the first page is asked for.
+TEST(ListPaging, AnEmptyCursorIsRefused) {
   optional<std::string> next;
-  const auto page = paging::pageOf(numbered(5), "items",
-                                   mcp::make_optional(std::string()), 2, &next);
-  EXPECT_EQ(page, (std::vector<int>{0, 1}));
+  EXPECT_THROW(paging::pageOf(numbered(5), signer(), "items",
+                              mcp::make_optional(std::string()), 2, &next),
+               InvalidCursor);
+}
+
+// A cursor is good only to the signer that issued it: another server's
+// list, though it has the same name and the same items, refuses it.
+TEST(ListPaging, AnotherSignersCursorIsRefused) {
+  const auto items = numbered(5);
+  const paging::CursorSigner other;
+  optional<std::string> next;
+  paging::pageOf(items, other, "items", nullopt, 2, &next);
+  ASSERT_TRUE(next.has_value());
+  optional<std::string> ignored;
+  EXPECT_THROW(paging::pageOf(items, signer(), "items", next, 2, &ignored),
+               InvalidCursor);
 }
 
 // Cursors this list did not issue are refused, however they are wrong.
 TEST(ListPaging, ACursorFromElsewhereIsRefused) {
   const auto items = numbered(5);
   optional<std::string> next;
-  paging::pageOf(items, "items", nullopt, 2, &next);
+  paging::pageOf(items, signer(), "items", nullopt, 2, &next);
   ASSERT_TRUE(next.has_value());
 
   // Well formed but not issued here: the key's hex swapped for another
   // item's, or a tag made up, or the format before cursors were signed.
   const std::string issued = next.value();
   const size_t tag_at = issued.rfind('.');
-  std::string other_key = paging::makeCursor("items", "item-13");
+  std::string other_key = signer().make("items", "item-13");
   std::string forged_key =
       other_key.substr(0, other_key.rfind('.')) + issued.substr(tag_at);
   std::string made_up_tag = issued.substr(0, tag_at + 1) + std::string(32, '0');
 
   const std::vector<std::string> wrong = {
-      "3",                                     // an offset, as before
-      "not a cursor",                          // nothing at all
-      paging::makeCursor("other", "item-11"),  // another list's
-      issued.substr(0, issued.size() - 1),     // cut short
-      forged_key,                              // a key it was not issued for
-      made_up_tag,                             // a tag nobody computed
-      "c1.items.6974656d2d3131",               // unsigned, as cursors were
+      "3",                                  // an offset, as before
+      "not a cursor",                       // nothing at all
+      signer().make("other", "item-11"),    // another list's
+      issued.substr(0, issued.size() - 1),  // cut short
+      forged_key,                           // a key it was not issued for
+      made_up_tag,                          // a tag nobody computed
+      "c1.items.6974656d2d3131",            // unsigned, as cursors were
   };
   for (const auto& cursor : wrong) {
     SCOPED_TRACE(cursor);
     optional<std::string> ignored;
-    EXPECT_THROW(
-        paging::pageOf(items, "items", mcp::make_optional(cursor), 2, &ignored),
-        InvalidCursor);
+    EXPECT_THROW(paging::pageOf(items, signer(), "items",
+                                mcp::make_optional(cursor), 2, &ignored),
+                 InvalidCursor);
   }
 }
 
@@ -141,8 +165,7 @@ TEST(ListPaging, AnyKeyRoundTripsThroughACursor) {
        {std::string(""), std::string("file:///a b?c=d#e"),
         std::string("\xe2\x9c\x93 \x01\xff")}) {
     std::string back;
-    ASSERT_TRUE(
-        paging::readCursor(paging::makeCursor("items", key), "items", &back));
+    ASSERT_TRUE(signer().read(signer().make("items", key), "items", &back));
     EXPECT_EQ(back, key);
   }
 }
@@ -262,15 +285,16 @@ TEST(ListPagingOnTheWire, EachListIsReadInFullThroughItsCursors) {
 }
 
 // A cursor the server did not issue is -32602 on every list, as is one that
-// is not even a string, null included.
+// is not even a string, null included, and an empty one.
 TEST(ListPagingOnTheWire, AnInvalidCursorIsInvalidParams) {
   DispatchTestServer server(pagedConfig(2));
   registerFive(server);
 
   for (const auto& list : kLists) {
     SCOPED_TRACE(list.method);
-    for (const JsonValue& cursor : {JsonValue("garbage"), JsonValue("3"),
-                                    JsonValue(7), JsonValue::null()}) {
+    for (const JsonValue& cursor :
+         {JsonValue("garbage"), JsonValue("3"), JsonValue(7), JsonValue::null(),
+          JsonValue("")}) {
       JsonValue params = JsonValue::object();
       params.set("cursor", cursor);
       const JsonValue answer = answerTo(server, list.method, params);
@@ -278,6 +302,26 @@ TEST(ListPagingOnTheWire, AnInvalidCursorIsInvalidParams) {
       ASSERT_TRUE(answer.contains("error")) << answer.toString();
       EXPECT_EQ(answer["error"]["code"].getInt(), -32602);
     }
+  }
+}
+
+// One server's cursor means nothing to another, even one in the same
+// process serving the same list.
+TEST(ListPagingOnTheWire, AnotherServersCursorIsInvalidParams) {
+  DispatchTestServer first(pagedConfig(2));
+  DispatchTestServer second(pagedConfig(2));
+  registerFive(first);
+  registerFive(second);
+
+  for (const auto& list : kLists) {
+    SCOPED_TRACE(list.method);
+    const JsonValue page = answerTo(first, list.method, JsonValue::object());
+    ASSERT_TRUE(page["result"].contains("nextCursor")) << page.toString();
+    JsonValue params = JsonValue::object();
+    params.set("cursor", page["result"]["nextCursor"]);
+    const JsonValue answer = answerTo(second, list.method, params);
+    ASSERT_TRUE(answer.contains("error")) << answer.toString();
+    EXPECT_EQ(answer["error"]["code"].getInt(), -32602);
   }
 }
 
