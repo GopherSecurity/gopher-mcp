@@ -162,6 +162,7 @@ struct McpServerConfig : public application::ApplicationBase::Config {
     size_t tools = 0;
     size_t prompts = 0;
     size_t resources = 100;
+    size_t resource_templates = 0;
   };
   ListPageSizes list_page_sizes;
 
@@ -517,9 +518,23 @@ class ResourceManager {
   }
 
   // Register resource template
+  // Register a resource template. One registered again under the same
+  // uriTemplate replaces the first.
   void registerResourceTemplate(const ResourceTemplate& template_) {
     std::lock_guard<std::mutex> lock(mutex_);
-    resource_templates_.push_back(template_);
+    resource_templates_[template_.uriTemplate] = template_;
+  }
+
+  // One page of the resource templates, in uriTemplate order; by default
+  // all of them. Throws InvalidCursor for a cursor this list did not issue.
+  ListResourceTemplatesResult listResourceTemplates(
+      const optional<Cursor>& cursor = nullopt, size_t page_size = 0) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    ListResourceTemplatesResult result;
+    result.resourceTemplates =
+        paging::pageOf(resource_templates_, cursor_signer_, "resourceTemplates",
+                       cursor, page_size, &result.nextCursor);
+    return result;
   }
 
   // List resources with pagination
@@ -606,7 +621,7 @@ class ResourceManager {
   // Signs this list's cursors, so they are good only here.
   paging::CursorSigner cursor_signer_;
   std::map<std::string, ResourceReadHandler> resource_handlers_;
-  std::vector<ResourceTemplate> resource_templates_;
+  std::map<std::string, ResourceTemplate> resource_templates_;
   std::map<std::string, std::set<std::string>>
       subscriptions_;  // uri -> session_ids
   McpServerStats& stats_;
@@ -1495,6 +1510,8 @@ class McpServer : public application::ApplicationBase,
                                SessionContext& session);
   jsonrpc::Response handleListResources(const jsonrpc::Request& request,
                                         SessionContext& session);
+  jsonrpc::Response handleListResourceTemplates(const jsonrpc::Request& request,
+                                                SessionContext& session);
   jsonrpc::Response handleReadResource(const jsonrpc::Request& request,
                                        SessionContext& session);
   jsonrpc::Response handleSubscribe(const jsonrpc::Request& request,

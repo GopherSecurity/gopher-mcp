@@ -2577,6 +2577,69 @@ std::future<ListResourcesResult> McpClient::listResources(
   return result_promise->get_future();
 }
 
+std::future<ListResourceTemplatesResult> McpClient::listResourceTemplates(
+    const optional<Cursor>& cursor) {
+  auto result_promise =
+      std::make_shared<std::promise<ListResourceTemplatesResult>>();
+
+  if (!main_dispatcher_) {
+    result_promise->set_exception(
+        std::make_exception_ptr(std::runtime_error("No dispatcher")));
+    return result_promise->get_future();
+  }
+
+  // The cursor goes back exactly as the server gave it.
+  json::JsonValue params = json::JsonValue::object();
+  if (cursor.has_value()) {
+    params.set("cursor", json::JsonValue(cursor.value()));
+  }
+  auto params_ptr = std::make_shared<json::JsonValue>(std::move(params));
+  auto request_future_ptr = std::make_shared<std::future<Response>>();
+
+  GOPHER_LOG_FLOW_DEBUG("MCP invoke: resources/templates/list (cursor={})",
+                        cursor.has_value() ? cursor.value() : "<none>");
+
+  main_dispatcher_->post([this, request_future_ptr, params_ptr]() {
+    *request_future_ptr =
+        sendRequestWithParams("resources/templates/list", *params_ptr, {});
+  });
+
+  // Waited on off the dispatcher, which is what delivers the answer.
+  std::thread([result_promise, request_future_ptr]() {
+    try {
+      while (!request_future_ptr->valid()) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+      }
+      auto response = request_future_ptr->get();
+      if (response.error.has_value()) {
+        result_promise->set_exception(
+            std::make_exception_ptr(RequestError(response.error.value())));
+        return;
+      }
+      if (!response.result.has_value()) {
+        result_promise->set_value(ListResourceTemplatesResult());
+        return;
+      }
+      // No alternative of its own in the result variant: it arrives as
+      // the JSON it is, and is read as a listing here.
+      const json::JsonValue body = json::to_json(response.result.value());
+      if (!body.isObject() || !body.contains("resourceTemplates") ||
+          !body["resourceTemplates"].isArray()) {
+        result_promise->set_exception(std::make_exception_ptr(
+            std::runtime_error("resources/templates/list answered with "
+                               "something that is not a listing")));
+        return;
+      }
+      result_promise->set_value(
+          json::from_json<ListResourceTemplatesResult>(body));
+    } catch (...) {
+      result_promise->set_exception(std::current_exception());
+    }
+  }).detach();
+
+  return result_promise->get_future();
+}
+
 // Read resource content
 std::future<ReadResourceResult> McpClient::readResource(
     const std::string& uri) {

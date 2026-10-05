@@ -664,12 +664,33 @@ class ResourceTemplateBuilder
     return *this;
   }
 
+  ResourceTemplateBuilder& title(const std::string& t) {
+    value_.title = mcp::make_optional(t);
+    return *this;
+  }
+
+  ResourceTemplateBuilder& annotations(const Annotations& a) {
+    value_.annotations = mcp::make_optional(a);
+    return *this;
+  }
+
+  // A JSON object; anything else is refused, as it could not be sent.
+  ResourceTemplateBuilder& meta(const json::JsonValue& meta) {
+    if (!meta.isObject()) {
+      throw std::invalid_argument(
+          "a resource template's _meta must be a JSON object");
+    }
+    value_._meta = mcp::make_optional(meta);
+    return *this;
+  }
+
+  // One string entry in _meta, as before _meta could hold any JSON.
   ResourceTemplateBuilder& metadata(const std::string& key,
                                     const std::string& val) {
     if (!value_._meta) {
-      value_._meta = mcp::make_optional(Metadata());
+      value_._meta = mcp::make_optional(json::JsonValue::object());
     }
-    add_metadata(*value_._meta, key, val);
+    value_._meta->set(key, json::JsonValue(val));
     return *this;
   }
 };
