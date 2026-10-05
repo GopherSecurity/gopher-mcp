@@ -529,6 +529,7 @@ set(MCP_CLIENT_SERVER_SOURCES
     src/client/mcp_client.cc
     src/client/transport_probe.cc            # Which era a server speaks
     src/server/mcp_server.cc
+    src/server/list_paging.cc                # Signed cursors for list paging
 )
 
 # HTTP parser sources (some conditional on llhttp)
