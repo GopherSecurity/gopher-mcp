@@ -108,12 +108,23 @@ TEST(ListPaging, ACursorFromElsewhereIsRefused) {
   paging::pageOf(items, "items", nullopt, 2, &next);
   ASSERT_TRUE(next.has_value());
 
+  // Well formed but not issued here: the key's hex swapped for another
+  // item's, or a tag made up, or the format before cursors were signed.
+  const std::string issued = next.value();
+  const size_t tag_at = issued.rfind('.');
+  std::string other_key = paging::makeCursor("items", "item-13");
+  std::string forged_key =
+      other_key.substr(0, other_key.rfind('.')) + issued.substr(tag_at);
+  std::string made_up_tag = issued.substr(0, tag_at + 1) + std::string(32, '0');
+
   const std::vector<std::string> wrong = {
       "3",                                     // an offset, as before
       "not a cursor",                          // nothing at all
       paging::makeCursor("other", "item-11"),  // another list's
-      next->substr(0, next->size() - 1),       // cut short
-      std::string(paging::kCursorVersion) + ".items.zz",  // not hex
+      issued.substr(0, issued.size() - 1),     // cut short
+      forged_key,                              // a key it was not issued for
+      made_up_tag,                             // a tag nobody computed
+      "c1.items.6974656d2d3131",               // unsigned, as cursors were
   };
   for (const auto& cursor : wrong) {
     SCOPED_TRACE(cursor);
@@ -251,15 +262,15 @@ TEST(ListPagingOnTheWire, EachListIsReadInFullThroughItsCursors) {
 }
 
 // A cursor the server did not issue is -32602 on every list, as is one that
-// is not even a string.
+// is not even a string, null included.
 TEST(ListPagingOnTheWire, AnInvalidCursorIsInvalidParams) {
   DispatchTestServer server(pagedConfig(2));
   registerFive(server);
 
   for (const auto& list : kLists) {
     SCOPED_TRACE(list.method);
-    for (const JsonValue& cursor :
-         {JsonValue("garbage"), JsonValue("3"), JsonValue(7)}) {
+    for (const JsonValue& cursor : {JsonValue("garbage"), JsonValue("3"),
+                                    JsonValue(7), JsonValue::null()}) {
       JsonValue params = JsonValue::object();
       params.set("cursor", cursor);
       const JsonValue answer = answerTo(server, list.method, params);

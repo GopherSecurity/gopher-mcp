@@ -744,8 +744,11 @@ void registerSurface(InteropServer& server, size_t page_size) {
       [tools, page_size](const jsonrpc::Request& request, SessionContext&) {
         optional<std::string> cursor;
         if (request.params_json.has_value() &&
-            request.params_json->contains("cursor") &&
-            (*request.params_json)["cursor"].isString()) {
+            request.params_json->contains("cursor")) {
+          if (!(*request.params_json)["cursor"].isString()) {
+            return jsonrpc::Response::make_error(
+                request.id, Error(jsonrpc::INVALID_PARAMS, "Invalid cursor"));
+          }
           cursor = (*request.params_json)["cursor"].getString();
         }
         ListToolsResult result;
