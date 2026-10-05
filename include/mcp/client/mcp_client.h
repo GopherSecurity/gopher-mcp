@@ -525,6 +525,10 @@ class McpClient : public application::ApplicationBase {
   // Resource operations
   std::future<ListResourcesResult> listResources(
       const optional<Cursor>& cursor = nullopt);
+  // The templates naming families of resources the server can read. Pass
+  // back the nextCursor of one page, exactly as given, for the next.
+  std::future<ListResourceTemplatesResult> listResourceTemplates(
+      const optional<Cursor>& cursor = nullopt);
   std::future<ReadResourceResult> readResource(const std::string& uri);
   std::future<VoidResult> subscribeResource(const std::string& uri);
   std::future<VoidResult> unsubscribeResource(const std::string& uri);

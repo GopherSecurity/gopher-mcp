@@ -1106,11 +1106,18 @@ struct ListResourceTemplatesRequest : PaginatedRequest {
   }
 };
 
-struct ResourceTemplate : BaseMetadata {
+// A family of resources a server can read, named by an RFC 6570 URI
+// template such as file:///{path}.
+struct ResourceTemplate {
   std::string uriTemplate;
   std::string name;
+  // For people to read; name is for programs.
+  optional<std::string> title;
   optional<std::string> description;
   optional<std::string> mimeType;
+  optional<Annotations> annotations;
+  // A JSON object, kept as nested JSON.
+  optional<mcp::json::JsonValue> _meta;
 
   ResourceTemplate() = default;
 };

@@ -1294,8 +1294,21 @@ JsonValue serialize_ResourceTemplate(const ResourceTemplate& resourceTemplate) {
     builder.add("description", resourceTemplate.description.value());
   }
 
+  if (resourceTemplate.title.has_value()) {
+    builder.add("title", resourceTemplate.title.value());
+  }
+
   if (resourceTemplate.mimeType.has_value()) {
     builder.add("mimeType", resourceTemplate.mimeType.value());
+  }
+
+  if (resourceTemplate.annotations.has_value()) {
+    builder.add("annotations", to_json(resourceTemplate.annotations.value()));
+  }
+
+  if (resourceTemplate._meta.has_value() &&
+      resourceTemplate._meta->isObject()) {
+    builder.add("_meta", resourceTemplate._meta.value());
   }
 
   return builder.build();
@@ -2322,12 +2335,27 @@ ResourceTemplate deserialize_ResourceTemplate(const JsonValue& json) {
   tmpl.uriTemplate = json.at("uriTemplate").getString();
   tmpl.name = json.at("name").getString();
 
-  if (json.contains("description")) {
+  if (json.contains("description") && json["description"].isString()) {
     tmpl.description = json["description"].getString();
   }
 
-  if (json.contains("mimeType")) {
+  if (json.contains("mimeType") && json["mimeType"].isString()) {
     tmpl.mimeType = json["mimeType"].getString();
+  }
+
+  // What a template says about itself is read forgivingly: a field of the
+  // wrong type is passed over rather than allowed to cost the whole list.
+  if (json.contains("title") && json["title"].isString()) {
+    tmpl.title = json["title"].getString();
+  }
+  if (json.contains("annotations") && json["annotations"].isObject()) {
+    try {
+      tmpl.annotations = from_json<Annotations>(json["annotations"]);
+    } catch (const std::exception&) {
+    }
+  }
+  if (json.contains("_meta") && json["_meta"].isObject()) {
+    tmpl._meta = json["_meta"];
   }
 
   return tmpl;

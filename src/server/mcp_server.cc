@@ -1100,6 +1100,7 @@ bool McpServer::knowsMethod(const std::string& method) const {
       "initialize",
       "ping",
       "resources/list",
+      "resources/templates/list",
       "resources/read",
       "resources/subscribe",
       "resources/unsubscribe",
@@ -2157,6 +2158,8 @@ void McpServer::onRequestWithContext(const jsonrpc::Request& request,
         response = handlePing(request, *session);
       } else if (request.method == "resources/list") {
         response = handleListResources(request, *session);
+      } else if (request.method == "resources/templates/list") {
+        response = handleListResourceTemplates(request, *session);
       } else if (request.method == "resources/read") {
         response = handleReadResource(request, *session);
       } else if (protocol::modern::isReplacedInModernEra(request.method) &&
@@ -2651,6 +2654,24 @@ jsonrpc::Response McpServer::handleListResources(
   }
   return jsonrpc::Response::success(request.id,
                                     jsonrpc::ResponseResult(result));
+}
+
+jsonrpc::Response McpServer::handleListResourceTemplates(
+    const jsonrpc::Request& request, SessionContext& session) {
+  (void)session;
+  optional<Cursor> cursor;
+  if (!cursorOf(request, &cursor)) {
+    return invalidCursor(request);
+  }
+  ListResourceTemplatesResult result;
+  try {
+    result = resource_manager_->listResourceTemplates(
+        cursor, config_.list_page_sizes.resource_templates);
+  } catch (const InvalidCursor&) {
+    return invalidCursor(request);
+  }
+  return jsonrpc::Response::success(
+      request.id, jsonrpc::ResponseResult(json::to_json(result)));
 }
 
 jsonrpc::Response McpServer::handleReadResource(const jsonrpc::Request& request,
