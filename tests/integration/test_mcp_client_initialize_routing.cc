@@ -945,6 +945,8 @@ TEST_F(McpClientInitializeRoutingTest, ACursorGoesBackExactlyAsGiven) {
   server_->registerRequestHandler("tools/list", echoCursor("tools"));
   server_->registerRequestHandler("prompts/list", echoCursor("prompts"));
   server_->registerRequestHandler("resources/list", echoCursor("resources"));
+  server_->registerRequestHandler("resources/templates/list",
+                                  echoCursor("resourceTemplates"));
   connectInitializedClient();
 
   const std::string looks_like_json = R"({"offset":2})";
@@ -961,12 +963,45 @@ TEST_F(McpClientInitializeRoutingTest, ACursorGoesBackExactlyAsGiven) {
     auto resources = client_->listResources(mcp::make_optional(cursor));
     ASSERT_EQ(resources.wait_for(5s), std::future_status::ready);
     EXPECT_EQ(resources.get().nextCursor, mcp::make_optional(cursor));
+
+    auto templates = client_->listResourceTemplates(mcp::make_optional(cursor));
+    ASSERT_EQ(templates.wait_for(5s), std::future_status::ready);
+    EXPECT_EQ(templates.get().nextCursor, mcp::make_optional(cursor));
   }
 
   // And none at all is no cursor, not an empty one.
   auto first = client_->listTools();
   ASSERT_EQ(first.wait_for(5s), std::future_status::ready);
   EXPECT_EQ(first.get().nextCursor, mcp::make_optional(std::string("<none>")));
+}
+
+// A server's resource templates reach the client that lists them, with
+// what each says about itself.
+TEST_F(McpClientInitializeRoutingTest, ResourceTemplatesAreListed) {
+  server_->registerResourceTemplate(
+      make<ResourceTemplate>("file:///{path}", "files")
+          .title("Project files")
+          .mimeType("text/plain")
+          .meta(json::JsonValue::parse(R"({"vendor":{"indexed":true}})"))
+          .build());
+  server_->registerResourceTemplate(
+      make<ResourceTemplate>("db://{table}", "tables").build());
+  connectInitializedClient();
+
+  auto listed = client_->listResourceTemplates();
+  ASSERT_EQ(listed.wait_for(5s), std::future_status::ready);
+  ListResourceTemplatesResult result;
+  ASSERT_NO_THROW(result = listed.get());
+  ASSERT_EQ(result.resourceTemplates.size(), 2u);
+  // In uriTemplate order.
+  EXPECT_EQ(result.resourceTemplates[0].uriTemplate, "db://{table}");
+  const ResourceTemplate& files = result.resourceTemplates[1];
+  EXPECT_EQ(files.uriTemplate, "file:///{path}");
+  EXPECT_EQ(files.title, mcp::make_optional(std::string("Project files")));
+  EXPECT_EQ(files.mimeType, mcp::make_optional(std::string("text/plain")));
+  ASSERT_TRUE(files._meta.has_value());
+  EXPECT_TRUE((*files._meta)["vendor"]["indexed"].getBool());
+  EXPECT_FALSE(result.nextCursor.has_value());
 }
 
 // A call to a tool the server does not have fails as an error the caller

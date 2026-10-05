@@ -118,6 +118,16 @@ def build_server(page_size: int = 0) -> MCPServer:
     def greeting() -> str:
         return "hello from the python reference server"
 
+    @server.resource(
+        "interop://notes/{name}",
+        name="notes",
+        title="Notes",
+        mime_type="text/plain",
+        meta={"interop": {"kind": "notes"}},
+    )
+    def note(name: str) -> str:
+        return f"a note called {name}"
+
     @server.prompt(description="Greet somebody by name")
     def greet(name: str) -> str:
         return f"Say hello to {name}"

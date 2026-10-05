@@ -328,8 +328,7 @@ TEST_F(MCPTypesTest, JSONRPCErrorCodes) {
 
 // Test base metadata
 TEST_F(MCPTypesTest, BaseMetadata) {
-  ResourceTemplate tmpl;
-  tmpl.uriTemplate = "file:///{path}";
+  Implementation tmpl;
   tmpl.name = "file-template";
 
   // Add metadata

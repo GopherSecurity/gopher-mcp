@@ -218,6 +218,7 @@ McpServerConfig pagedConfig(size_t page_size) {
   config.list_page_sizes.tools = page_size;
   config.list_page_sizes.prompts = page_size;
   config.list_page_sizes.resources = page_size;
+  config.list_page_sizes.resource_templates = page_size;
   return config;
 }
 
@@ -236,6 +237,10 @@ void registerFive(DispatchTestServer& server) {
     server.registerResource(resource, [](const std::string&, SessionContext&) {
       return ReadResourceResult();
     });
+    ResourceTemplate family;
+    family.uriTemplate = "test://" + name + "/{part}";
+    family.name = name;
+    server.registerResourceTemplate(family);
   }
 }
 
@@ -244,9 +249,11 @@ struct ListMethod {
   const char* items;
   const char* key;
 };
-const std::vector<ListMethod> kLists = {{"tools/list", "tools", "name"},
-                                        {"prompts/list", "prompts", "name"},
-                                        {"resources/list", "resources", "uri"}};
+const std::vector<ListMethod> kLists = {
+    {"tools/list", "tools", "name"},
+    {"prompts/list", "prompts", "name"},
+    {"resources/list", "resources", "uri"},
+    {"resources/templates/list", "resourceTemplates", "uriTemplate"}};
 
 }  // namespace
 
@@ -325,7 +332,7 @@ TEST(ListPagingOnTheWire, AnotherServersCursorIsInvalidParams) {
   }
 }
 
-// Unconfigured, tools and prompts are listed whole, as they always were.
+// Unconfigured, tools, prompts and resource templates are listed whole.
 TEST(ListPagingOnTheWire, ToolsAndPromptsAreOnePageByDefault) {
   McpServerConfig config;
   config.server_name = "list-paging-test";
@@ -333,7 +340,8 @@ TEST(ListPagingOnTheWire, ToolsAndPromptsAreOnePageByDefault) {
   DispatchTestServer server(config);
   registerFive(server);
 
-  for (const char* method : {"tools/list", "prompts/list"}) {
+  for (const char* method :
+       {"tools/list", "prompts/list", "resources/templates/list"}) {
     SCOPED_TRACE(method);
     const JsonValue answer = answerTo(server, method, JsonValue::object());
     ASSERT_TRUE(answer.contains("result")) << answer.toString();

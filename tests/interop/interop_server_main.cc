@@ -784,6 +784,16 @@ void registerSurface(InteropServer& server, size_t page_size) {
         return result;
       });
 
+  // A family of resources, listed for clients to discover.
+  ResourceTemplate notes;
+  notes.uriTemplate = "interop://notes/{name}";
+  notes.name = "notes";
+  notes.title = mcp::make_optional(std::string("Notes"));
+  notes.mimeType = mcp::make_optional(std::string("text/plain"));
+  notes._meta = mcp::make_optional(
+      json::JsonValue::parse(R"({"interop":{"kind":"notes"}})"));
+  server.registerResourceTemplate(notes);
+
   Prompt greet("greet");
   greet.description = mcp::make_optional(std::string("Greet somebody by name"));
   std::vector<PromptArgument> arguments;
