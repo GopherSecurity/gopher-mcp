@@ -21,18 +21,6 @@ constexpr const char* kCursorVersion = "c2";
 // Half of an HMAC-SHA256, which is still far beyond guessing.
 constexpr size_t kTagBytes = 16;
 
-/** Made once per process, never written down anywhere. */
-const std::array<unsigned char, 32>& cursorKey() {
-  static const std::array<unsigned char, 32> key = []() {
-    std::array<unsigned char, 32> made{};
-    if (RAND_bytes(made.data(), static_cast<int>(made.size())) != 1) {
-      throw std::runtime_error("could not make a key for list cursors");
-    }
-    return made;
-  }();
-  return key;
-}
-
 std::string toHex(const unsigned char* bytes, size_t length) {
   static const char* digits = "0123456789abcdef";
   std::string hex;
@@ -71,12 +59,20 @@ bool fromHex(const std::string& hex, std::string* bytes) {
   return true;
 }
 
-/** The tag over everything a cursor says, before the tag itself. */
-std::string tagOf(const std::string& body) {
-  const auto& key = cursorKey();
+}  // namespace
+
+CursorSigner::CursorSigner() {
+  // Made here and never written down: a cursor is only good to the signer
+  // that issued it, for as long as that signer lives.
+  if (RAND_bytes(key_.data(), static_cast<int>(key_.size())) != 1) {
+    throw std::runtime_error("could not make a key for list cursors");
+  }
+}
+
+std::string CursorSigner::tagOf(const std::string& body) const {
   unsigned char mac[EVP_MAX_MD_SIZE];
   unsigned int mac_length = 0;
-  if (HMAC(EVP_sha256(), key.data(), static_cast<int>(key.size()),
+  if (HMAC(EVP_sha256(), key_.data(), static_cast<int>(key_.size()),
            reinterpret_cast<const unsigned char*>(body.data()), body.size(),
            mac, &mac_length) == nullptr ||
       mac_length < kTagBytes) {
@@ -85,9 +81,8 @@ std::string tagOf(const std::string& body) {
   return toHex(mac, kTagBytes);
 }
 
-}  // namespace
-
-std::string makeCursor(const std::string& list, const std::string& last_key) {
+std::string CursorSigner::make(const std::string& list,
+                               const std::string& last_key) const {
   const std::string body =
       std::string(kCursorVersion) + "." + list + "." +
       toHex(reinterpret_cast<const unsigned char*>(last_key.data()),
@@ -95,9 +90,9 @@ std::string makeCursor(const std::string& list, const std::string& last_key) {
   return body + "." + tagOf(body);
 }
 
-bool readCursor(const std::string& cursor,
-                const std::string& list,
-                std::string* last_key) {
+bool CursorSigner::read(const std::string& cursor,
+                        const std::string& list,
+                        std::string* last_key) const {
   const std::string prefix = std::string(kCursorVersion) + "." + list + ".";
   if (cursor.size() < prefix.size() + 1 + kTagBytes * 2 ||
       cursor.compare(0, prefix.size(), prefix) != 0) {

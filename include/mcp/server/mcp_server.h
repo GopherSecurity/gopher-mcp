@@ -529,8 +529,8 @@ class ResourceManager {
                                     size_t page_size = 100) {
     std::lock_guard<std::mutex> lock(mutex_);
     ListResourcesResult result;
-    result.resources = paging::pageOf(resources_, "resources", cursor,
-                                      page_size, &result.nextCursor);
+    result.resources = paging::pageOf(resources_, cursor_signer_, "resources",
+                                      cursor, page_size, &result.nextCursor);
     return result;
   }
 
@@ -603,6 +603,8 @@ class ResourceManager {
  private:
   mutable std::mutex mutex_;
   std::map<std::string, Resource> resources_;
+  // Signs this list's cursors, so they are good only here.
+  paging::CursorSigner cursor_signer_;
   std::map<std::string, ResourceReadHandler> resource_handlers_;
   std::vector<ResourceTemplate> resource_templates_;
   std::map<std::string, std::set<std::string>>
@@ -687,8 +689,8 @@ class ToolRegistry {
                             size_t page_size = 0) {
     std::lock_guard<std::mutex> lock(mutex_);
     ListToolsResult result;
-    result.tools =
-        paging::pageOf(tools_, "tools", cursor, page_size, &result.nextCursor);
+    result.tools = paging::pageOf(tools_, cursor_signer_, "tools", cursor,
+                                  page_size, &result.nextCursor);
     return result;
   }
 
@@ -728,6 +730,8 @@ class ToolRegistry {
  private:
   mutable std::mutex mutex_;
   std::map<std::string, Tool> tools_;
+  // Signs this list's cursors, so they are good only here.
+  paging::CursorSigner cursor_signer_;
   std::map<std::string, ToolHandler> tool_handlers_;
   // Derived once at registration rather than at each call: the schema
   // does not change, and a call is not the moment to discover that a tool
@@ -764,8 +768,8 @@ class PromptRegistry {
                                 size_t page_size = 0) {
     std::lock_guard<std::mutex> lock(mutex_);
     ListPromptsResult result;
-    result.prompts = paging::pageOf(prompts_, "prompts", cursor, page_size,
-                                    &result.nextCursor);
+    result.prompts = paging::pageOf(prompts_, cursor_signer_, "prompts", cursor,
+                                    page_size, &result.nextCursor);
     return result;
   }
 
@@ -788,6 +792,8 @@ class PromptRegistry {
  private:
   mutable std::mutex mutex_;
   std::map<std::string, Prompt> prompts_;
+  // Signs this list's cursors, so they are good only here.
+  paging::CursorSigner cursor_signer_;
   std::map<std::string, PromptHandler> prompt_handlers_;
   McpServerStats& stats_;
 };
