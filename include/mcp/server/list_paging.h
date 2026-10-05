@@ -34,54 +34,19 @@ namespace paging {
  * that key: one registered or removed between pages moves nothing else,
  * and no item is skipped or seen twice.
  *
- * Opaque to clients, as the spec requires. It says which list it belongs
- * to, so a cursor from one list is refused by another, and the key is hex
- * so any key travels safely.
+ * Opaque to clients, as the spec requires, and only ever accepted from
+ * this process: each carries an HMAC-SHA256 tag under a key made when the
+ * process starts, over the list it belongs to and the key it names. A
+ * client cannot write one naming an item of its choosing, a cursor from
+ * one list is refused by another, and one from before a restart is
+ * refused as no longer usable.
  */
-constexpr const char* kCursorVersion = "c1";
+std::string makeCursor(const std::string& list, const std::string& last_key);
 
-inline std::string makeCursor(const std::string& list,
-                              const std::string& last_key) {
-  static const char* digits = "0123456789abcdef";
-  std::string cursor = std::string(kCursorVersion) + "." + list + ".";
-  for (unsigned char byte : last_key) {
-    cursor += digits[byte >> 4];
-    cursor += digits[byte & 0x0f];
-  }
-  return cursor;
-}
-
-/** The key a cursor names, if this server issued it for this list. */
-inline bool readCursor(const std::string& cursor,
-                       const std::string& list,
-                       std::string* last_key) {
-  const std::string prefix = std::string(kCursorVersion) + "." + list + ".";
-  if (cursor.compare(0, prefix.size(), prefix) != 0) {
-    return false;
-  }
-  const std::string hex = cursor.substr(prefix.size());
-  if (hex.size() % 2 != 0) {
-    return false;
-  }
-  auto nibble = [](char c) -> int {
-    if (c >= '0' && c <= '9')
-      return c - '0';
-    if (c >= 'a' && c <= 'f')
-      return c - 'a' + 10;
-    return -1;
-  };
-  std::string key;
-  for (size_t i = 0; i < hex.size(); i += 2) {
-    const int high = nibble(hex[i]);
-    const int low = nibble(hex[i + 1]);
-    if (high < 0 || low < 0) {
-      return false;
-    }
-    key += static_cast<char>((high << 4) | low);
-  }
-  *last_key = key;
-  return true;
-}
+/** The key a cursor names, if this process issued it for this list. */
+bool readCursor(const std::string& cursor,
+                const std::string& list,
+                std::string* last_key);
 
 /**
  * One page of a sorted map. A page size of 0 puts everything on one page.

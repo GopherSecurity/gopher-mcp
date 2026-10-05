@@ -63,13 +63,14 @@ json::JsonValue paramsOf(const jsonrpc::Request& request) {
 }
 
 // The cursor a list request carries, exactly as sent. False when it
-// carries one that is not a string, which no server could have issued.
+// carries one that is not a string, null included, which no server could
+// have issued.
 bool cursorOf(const jsonrpc::Request& request, optional<Cursor>* cursor) {
   const json::JsonValue params = paramsOf(request);
-  if (!params.isObject() || !params.contains("cursor") ||
-      params["cursor"].isNull()) {
+  if (!params.isObject() || !params.contains("cursor")) {
     return true;
   }
+  // Null included: a cursor that is sent is a string or it is invalid.
   if (!params["cursor"].isString()) {
     return false;
   }
