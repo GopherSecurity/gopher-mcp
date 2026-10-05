@@ -2330,6 +2330,38 @@ ListPromptsRequest deserialize_ListPromptsRequest(const JsonValue& json) {
   return request;
 }
 
+// Annotations read one field at a time, each kept if it is usable and
+// passed over if it is not, so one bad field costs only itself. For lists
+// read from any server; content blocks keep refusing malformed annotations.
+static Annotations readAnnotationsForgivingly(const JsonValue& json) {
+  Annotations annotations;
+  if (json.contains("audience") && json["audience"].isArray()) {
+    std::vector<enums::Role::Value> audience;
+    const auto& roles = json["audience"];
+    for (size_t i = 0; i < roles.size(); ++i) {
+      if (!roles[i].isString()) {
+        continue;
+      }
+      auto role = enums::Role::from_string(roles[i].getString());
+      if (role.has_value()) {
+        audience.push_back(role.value());
+      }
+    }
+    annotations.audience = audience;
+  }
+  if (json.contains("priority") &&
+      (json["priority"].isFloat() || json["priority"].isInteger())) {
+    annotations.priority =
+        json["priority"].isFloat()
+            ? json["priority"].getFloat()
+            : static_cast<double>(json["priority"].getInt64());
+  }
+  if (json.contains("lastModified") && json["lastModified"].isString()) {
+    annotations.lastModified = json["lastModified"].getString();
+  }
+  return annotations;
+}
+
 ResourceTemplate deserialize_ResourceTemplate(const JsonValue& json) {
   ResourceTemplate tmpl;
   tmpl.uriTemplate = json.at("uriTemplate").getString();
@@ -2349,10 +2381,7 @@ ResourceTemplate deserialize_ResourceTemplate(const JsonValue& json) {
     tmpl.title = json["title"].getString();
   }
   if (json.contains("annotations") && json["annotations"].isObject()) {
-    try {
-      tmpl.annotations = from_json<Annotations>(json["annotations"]);
-    } catch (const std::exception&) {
-    }
+    tmpl.annotations = readAnnotationsForgivingly(json["annotations"]);
   }
   if (json.contains("_meta") && json["_meta"].isObject()) {
     tmpl._meta = json["_meta"];
