@@ -97,6 +97,18 @@ class ResponseStream {
   virtual bool alive() const = 0;
 
   /**
+   * Who asked the request this stream answers, as the transport had
+   * established it when the request arrived. Kept with the stream rather
+   * than the session because an answer may come long after, when the
+   * session has moved on to other requests from other callers. Empty when
+   * the transport authenticates no one.
+   */
+  const std::string& requestPrincipal() const { return request_principal_; }
+  void setRequestPrincipal(const std::string& principal) {
+    request_principal_ = principal;
+  }
+
+  /**
    * Be told, once, when the work behind this request is no longer wanted.
    *
    * The distinction from `alive` is the whole point. A client that goes
@@ -119,6 +131,9 @@ class ResponseStream {
     (void)observer;
     return false;
   }
+
+ private:
+  std::string request_principal_;
 };
 
 using ResponseStreamPtr = std::shared_ptr<ResponseStream>;
