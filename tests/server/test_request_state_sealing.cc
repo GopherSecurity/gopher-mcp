@@ -307,6 +307,54 @@ TEST(RequestStateSealing, AHandlersOwnStreamIsSealedToTheCaller) {
       << "a handler's own stream sealed the state to no one";
 }
 
+// The number 1 and the string "1" are different requests. Two callers
+// with one each outstanding on the same session each have their own
+// record, so neither one's state is sealed to the other.
+TEST(RequestStateSealing, NumberAndStringIdsAreDifferentRequests) {
+  SealingServer server(sealingConfig());
+  std::vector<jsonrpc::Request> held;
+  SessionContext* held_session = nullptr;
+  server.registerAsyncRequestHandler(
+      "prompts/get", [&](const jsonrpc::Request& request,
+                         SessionContext& session, const ResponseStreamPtr&) {
+        held.push_back(request);
+        held_session = &session;
+      });
+
+  jsonrpc::Request from_alice = deploy();
+  from_alice.method = "prompts/get";
+  from_alice.id = RequestId(static_cast<int64_t>(1));
+  jsonrpc::Request from_mallory = from_alice;
+  from_mallory.id = RequestId(std::string("1"));
+
+  CallerContext alice("alice");
+  server.onRequestWithContext(from_alice, alice);
+  CallerContext mallory("mallory");
+  server.onRequestWithContext(from_mallory, mallory);
+  ASSERT_EQ(held.size(), 2u) << "both calls should be held open";
+
+  // Alice's answer, through a stream of the handler's own that knows no
+  // one, so only the request's record can say who asked.
+  auto own = std::make_shared<RecordingStream>();
+  NeedsInput needed;
+  needed.request_state = mcp::make_optional(std::string("approved:deploy"));
+  ASSERT_TRUE(holds_alternative<std::nullptr_t>(
+      server.answerWithInput(own, held[0], *held_session, needed)));
+  ASSERT_EQ(own->answered.size(), 1u);
+  const std::string sealed =
+      json::to_json(
+          own->answered[0].result.value())[protocol::modern::kRequestStateField]
+          .getString();
+
+  RequestStateSealer sealer({kKey});
+  protocol::modern::RequestStateContext as_alice;
+  as_alice.principal = "alice";
+  as_alice.method = "prompts/get";
+  as_alice.params = from_alice.params_json.value();
+  EXPECT_TRUE(sealer.open(sealed, as_alice).has_value())
+      << "alice's state was sealed to the caller of the request \"1\"";
+}
+
 // A request carrying no state is untouched by sealing.
 TEST(RequestStateSealing, ARequestWithoutStateIsServedAsBefore) {
   SealingServer server(sealingConfig());
