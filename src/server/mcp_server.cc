@@ -1077,6 +1077,30 @@ void McpServer::registerAsyncRequestHandler(const std::string& method,
       streaming == StreamingMode::None ? StreamingMode::Optional : streaming;
 }
 
+std::string McpServer::principalOf(const jsonrpc::Request& request,
+                                   const SessionContext& session,
+                                   const ResponseStreamPtr& stream) const {
+  // The record made when the request arrived names its caller whatever a
+  // handler does with streams afterwards: wraps them, replaces them, or
+  // answers long after the session has served others. Matched on the
+  // session as well, since ids are only unique within one.
+  const std::string key = holds_alternative<std::string>(request.id)
+                              ? get<std::string>(request.id)
+                              : std::to_string(get<int64_t>(request.id));
+  {
+    std::lock_guard<std::mutex> lock(pending_requests_mutex_);
+    auto it = pending_requests_.find(key);
+    if (it != pending_requests_.end() &&
+        it->second->session_id == session.getId()) {
+      return it->second->principal;
+    }
+  }
+  if (stream && !stream->requestPrincipal().empty()) {
+    return stream->requestPrincipal();
+  }
+  return session.getPrincipal();
+}
+
 void McpServer::forgetPendingRequest(const std::string& key) {
   std::lock_guard<std::mutex> lock(pending_requests_mutex_);
   pending_requests_.erase(key);
@@ -1687,9 +1711,10 @@ VoidResult McpServer::answerWithInput(
   protocol::modern::NeedsInput outgoing = needed;
   if (request_state_sealer_ && outgoing.request_state.has_value()) {
     protocol::modern::RequestStateContext bound;
-    // From the stream, which belongs to this request, not from the session,
-    // which a later request from another caller may since have taken over.
-    bound.principal = stream->requestPrincipal();
+    // The caller of this request, not whoever the session or the stream
+    // last saw: a later request from another caller may since have taken
+    // over the session, and a handler's own stream knows no one.
+    bound.principal = principalOf(request, session, stream);
     bound.method = request.method;
     bound.params = paramsOf(request);
     outgoing.request_state =
@@ -2052,6 +2077,7 @@ void McpServer::dispatchRequest(const jsonrpc::Request& request,
   // Track this request for potential cancellation
   auto pending_req = std::make_shared<PendingRequest>();
   pending_req->id = request.id;
+  pending_req->principal = context.principal();
   pending_req->start_time = std::chrono::steady_clock::now();
 
   {

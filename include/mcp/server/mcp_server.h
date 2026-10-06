@@ -1457,6 +1457,11 @@ class McpServer : public application::ApplicationBase,
    * there is no scope left to unwind.
    */
   void forgetPendingRequest(const std::string& key);
+  // Who asked this request: its in-flight record when there is one, else
+  // the stream answering it, else the session.
+  std::string principalOf(const jsonrpc::Request& request,
+                          const SessionContext& session,
+                          const ResponseStreamPtr& stream) const;
 
   // Request tracking helpers
   bool isRequestCancelled(const RequestId& id) const {
@@ -1701,6 +1706,10 @@ class McpServer : public application::ApplicationBase,
   struct PendingRequest {
     RequestId id;
     std::string session_id;
+    // Who asked, as the transport established it when the request arrived.
+    // Kept here, with the request, so an answer sent later is attributed to
+    // its own caller whatever stream it is sent through.
+    std::string principal;
     std::chrono::steady_clock::time_point start_time;
     std::atomic<bool> cancelled{false};
   };
