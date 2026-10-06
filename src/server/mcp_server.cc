@@ -1687,7 +1687,9 @@ VoidResult McpServer::answerWithInput(
   protocol::modern::NeedsInput outgoing = needed;
   if (request_state_sealer_ && outgoing.request_state.has_value()) {
     protocol::modern::RequestStateContext bound;
-    bound.principal = session.getPrincipal();
+    // From the stream, which belongs to this request, not from the session,
+    // which a later request from another caller may since have taken over.
+    bound.principal = stream->requestPrincipal();
     bound.method = request.method;
     bound.params = paramsOf(request);
     outgoing.request_state =
@@ -2113,6 +2115,9 @@ void McpServer::dispatchRequest(const jsonrpc::Request& request,
   ResponseStreamPtr stream;
   if (streamingFor(request) != StreamingMode::None) {
     stream = context.beginResponseStream();
+    if (stream) {
+      stream->setRequestPrincipal(context.principal());
+    }
     session->setResponseStream(stream);
   }
 
@@ -2187,6 +2192,9 @@ void McpServer::dispatchRequest(const jsonrpc::Request& request,
     auto answer = std::make_shared<DeferredAnswer>(
         stream, [this, pending_key]() { forgetPendingRequest(pending_key); },
         cache_hints);
+    // The caller of this request, kept with its answer: the session will
+    // have served others by the time a deferred answer comes.
+    answer->setRequestPrincipal(context.principal());
 
     try {
       async_handler(request, *session, answer);
