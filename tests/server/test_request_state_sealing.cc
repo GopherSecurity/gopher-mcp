@@ -57,8 +57,11 @@ class CallerContext : public NullMessageDispatchContext {
     return makeVoidSuccess();
   }
   const std::string& principal() const override { return principal_; }
+  // Somewhere a deferred answer can go, as a streaming transport offers.
+  ResponseStreamPtr beginResponseStream() override { return stream; }
 
   optional<jsonrpc::Response> captured;
+  std::shared_ptr<RecordingStream> stream = std::make_shared<RecordingStream>();
 
  private:
   std::string principal_;
@@ -126,7 +129,8 @@ std::string stateSentTo(SealingServer& server,
                         const std::string& state) {
   auto stream = std::make_shared<RecordingStream>();
   SessionContext session("s-1", nullptr);
-  session.setPrincipal(principal);
+  // As dispatch records it: the stream answering a request knows whose.
+  stream->setRequestPrincipal(principal);
   NeedsInput needed;
   needed.request_state = mcp::make_optional(state);
   auto sent = server.answerWithInput(stream, deploy(), session, needed);
@@ -206,6 +210,58 @@ TEST(RequestStateSealing, AStateThatDoesNotOpenIsRefusedBeforeAnyHandler) {
     EXPECT_EQ(refused->message, "Invalid requestState")
         << "the refusal said why, which helps whoever is guessing";
   }
+}
+
+// A deferred answer is sealed to the caller of its own request, even when
+// the session has served someone else in the meantime: the state follows
+// the request, not whoever the session saw last.
+TEST(RequestStateSealing, ADeferredAnswerIsSealedToItsOwnCaller) {
+  SealingServer server(sealingConfig());
+  // Holds the first call open, as a handler waiting on something would.
+  jsonrpc::Request held_request;
+  SessionContext* held_session = nullptr;
+  ResponseStreamPtr held_answer;
+  server.registerAsyncRequestHandler(
+      "prompts/get",
+      [&](const jsonrpc::Request& request, SessionContext& session,
+          const ResponseStreamPtr& answer) {
+        if (!held_answer) {
+          held_request = request;
+          held_session = &session;
+          held_answer = answer;
+        }
+      });
+
+  jsonrpc::Request asked = deploy();
+  asked.method = "prompts/get";
+  CallerContext alice("alice");
+  server.onRequestWithContext(asked, alice);
+  ASSERT_TRUE(held_answer) << "the call was not held open";
+
+  // Someone else is served on the same session before the answer comes.
+  ASSERT_TRUE(retried(server, deploy(), "mallory"));
+
+  NeedsInput needed;
+  needed.request_state = mcp::make_optional(std::string("approved:deploy"));
+  auto sent =
+      server.answerWithInput(held_answer, held_request, *held_session, needed);
+  ASSERT_TRUE(holds_alternative<std::nullptr_t>(sent));
+  ASSERT_EQ(alice.stream->answered.size(), 1u);
+  const std::string sealed =
+      json::to_json(alice.stream->answered[0]
+                        .result.value())[protocol::modern::kRequestStateField]
+          .getString();
+
+  // Alice's retry opens; the later caller's does not.
+  RequestStateSealer sealer({kKey});
+  protocol::modern::RequestStateContext as_alice;
+  as_alice.principal = "alice";
+  as_alice.method = "prompts/get";
+  as_alice.params = asked.params_json.value();
+  EXPECT_TRUE(sealer.open(sealed, as_alice).has_value())
+      << "the answer was sealed to whoever the session served last";
+  as_alice.principal = "mallory";
+  EXPECT_FALSE(sealer.open(sealed, as_alice).has_value());
 }
 
 // A request carrying no state is untouched by sealing.
