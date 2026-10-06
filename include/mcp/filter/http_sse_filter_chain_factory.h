@@ -292,10 +292,12 @@ class HttpSseFilterChainFactory : public network::FilterChainFactory {
     streamable_options_.replay_buffer_events = config.replay_buffer_events;
     pending_limit_ = config.replay_buffer_events;
     closed_stream_retention_ = config.closed_stream_retention;
+    reconnect_retry_ = config.stream_reconnect_retry;
     if (session_manager_) {
       session_manager_->setTimeout(session_timeout_);
       session_manager_->setPendingLimit(pending_limit_);
       session_manager_->setClosedStreamRetention(closed_stream_retention_);
+      session_manager_->setReconnectRetry(reconnect_retry_);
     }
     if (retained_exchanges_) {
       // The same window under one setting. A stream kept past the
@@ -515,6 +517,7 @@ class HttpSseFilterChainFactory : public network::FilterChainFactory {
   bool sessions_enabled_{true};
   std::chrono::milliseconds session_timeout_{300000};
   std::chrono::milliseconds closed_stream_retention_{60000};
+  std::chrono::milliseconds reconnect_retry_{1000};
   size_t pending_limit_{256};
 
   // What the MCP endpoint serves besides requests. Its session manager is

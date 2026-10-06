@@ -2235,6 +2235,7 @@ transport::StreamableSessionManager* HttpSseFilterChainFactory::sessionManager()
     session_manager_->setTimeout(session_timeout_);
     session_manager_->setPendingLimit(pending_limit_);
     session_manager_->setClosedStreamRetention(closed_stream_retention_);
+    session_manager_->setReconnectRetry(reconnect_retry_);
   }
   return session_manager_.get();
 }

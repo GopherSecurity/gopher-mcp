@@ -123,6 +123,9 @@ class ResponseWriter {
   /** Append a comment to an open stream — keeps idle connections alive. */
   bool writeComment(const std::string& comment);
 
+  /** Tell the client how long to wait before reconnecting, in ms. */
+  bool writeRetry(uint32_t retry_ms);
+
   /**
    * End the exchange, emitting the terminating chunk when chunked. Releases
    * the connection for reuse; it does not close the socket. Idempotent.

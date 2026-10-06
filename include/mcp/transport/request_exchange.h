@@ -5,6 +5,7 @@
 #define MCP_TRANSPORT_REQUEST_EXCHANGE_H
 
 #include <atomic>
+#include <chrono>
 #include <cstddef>
 #include <deque>
 #include <functional>
@@ -488,6 +489,13 @@ class RequestExchange : public std::enable_shared_from_this<RequestExchange> {
    * retains them and no client sees them as data.
    */
   bool writeComment(const std::string& comment);
+
+  /**
+   * Tell the client how long to wait before reconnecting, for a stream
+   * whose connection is about to end without the stream ending. Like a
+   * comment, it is not an event: nothing retains it or replays it.
+   */
+  bool writeRetry(std::chrono::milliseconds retry);
 
   /** Finish the exchange. Idempotent. */
   bool complete();
