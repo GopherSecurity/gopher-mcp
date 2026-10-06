@@ -432,6 +432,15 @@ class StreamableSessionManager
     closed_stream_retention_ = retention;
   }
 
+  /**
+   * How long a client is told to wait before reconnecting, sent as an SSE
+   * retry field when a stream's connection is ended with the stream still
+   * going. Zero sends none.
+   */
+  void setReconnectRetry(std::chrono::milliseconds retry) {
+    reconnect_retry_ = retry;
+  }
+
   /** Where every resumable stream reports what it is holding. */
   const ReplayAccountingPtr& accounting() const { return accounting_; }
 
@@ -549,6 +558,7 @@ class StreamableSessionManager
   SessionRemovedCallback session_removed_callback_;
   std::chrono::milliseconds timeout_{300000};
   std::chrono::milliseconds closed_stream_retention_{60000};
+  std::chrono::milliseconds reconnect_retry_{1000};
   size_t pending_limit_{256};
   ReplayAccountingPtr accounting_{std::make_shared<ReplayAccounting>()};
   bool running_{true};

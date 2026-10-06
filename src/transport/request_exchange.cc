@@ -476,6 +476,28 @@ bool RequestExchange::writeComment(const std::string& comment) {
   return sink_->write(framed);
 }
 
+bool RequestExchange::writeRetry(std::chrono::milliseconds retry) {
+  assertOnDispatcher();
+  auto self = shared_from_this();
+
+  if (mode_ != Mode::Stream || !stream_writer_ || detached_ ||
+      retry.count() <= 0) {
+    return false;
+  }
+  const uint32_t ms = retry.count() > 0xffffffffLL
+                          ? 0xffffffffu
+                          : static_cast<uint32_t>(retry.count());
+  if (!stream_writer_->writeRetry(ms)) {
+    return false;
+  }
+  OwnedBuffer framed;
+  stream_writer_->drainTo(framed);
+  if (framed.length() == 0) {
+    return true;
+  }
+  return sink_->write(framed);
+}
+
 bool RequestExchange::complete() {
   assertOnDispatcher();
   auto self = shared_from_this();

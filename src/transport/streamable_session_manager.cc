@@ -287,12 +287,20 @@ bool StreamableSessionManager::endStream(SessionCtx& session,
   // nothing and closes that window.
   stream.conn = nullptr;
 
+  // The connection ends but the stream does not, so the client is told
+  // how long to wait before coming back for the rest, as the spec asks of
+  // a server that closes a stream's connection early.
+  const std::chrono::milliseconds retry = reconnect_retry_;
   if (stream.dispatcher->isThreadSafe()) {
+    exchange->writeRetry(retry);
     exchange->complete();
   } else {
     // Decided on the session's thread; the bytes belong on the
     // connection's. Carried by value so it cannot go away in between.
-    stream.dispatcher->post([exchange]() { exchange->complete(); });
+    stream.dispatcher->post([exchange, retry]() {
+      exchange->writeRetry(retry);
+      exchange->complete();
+    });
   }
 
   GOPHER_LOG_DEBUG("session {} ended stream {}", session.id, stream.id);

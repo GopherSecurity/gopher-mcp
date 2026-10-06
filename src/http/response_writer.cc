@@ -216,6 +216,12 @@ bool ResponseWriter::writeComment(const std::string& comment) {
   return appendSsePayload(payload);
 }
 
+bool ResponseWriter::writeRetry(uint32_t retry_ms) {
+  OwnedBuffer payload;
+  formatSseRetry(payload, retry_ms);
+  return appendSsePayload(payload);
+}
+
 bool ResponseWriter::finish() {
   if (mode_ == Mode::Finished) {
     return true;

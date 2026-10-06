@@ -56,6 +56,11 @@ struct StreamableHttpConfig {
   // How long a disconnected stream's state stays replayable.
   std::chrono::milliseconds closed_stream_retention{60000};
 
+  // How long a client is told to wait before reconnecting when the server
+  // ends a stream's connection while the stream goes on, sent as the SSE
+  // retry field. Zero sends none.
+  std::chrono::milliseconds stream_reconnect_retry{1000};
+
   // Interval between SSE comment keep-alives on an idle stream.
   std::chrono::milliseconds keepalive_interval{30000};
 
