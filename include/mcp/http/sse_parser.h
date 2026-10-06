@@ -64,6 +64,13 @@ class SseParserCallbacks {
   virtual void onSseEvent(const SseEvent& event) = 0;
 
   /**
+   * A retry field was read: how long to wait before reconnecting, in ms.
+   * Reported as soon as the field is read, as the SSE spec has it take
+   * effect, whether or not an event follows it.
+   */
+  virtual void onSseRetry(uint64_t retry_ms) { (void)retry_ms; }
+
+  /**
    * Called when a comment is encountered
    */
   virtual void onSseComment(const std::string& comment) = 0;
