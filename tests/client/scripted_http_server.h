@@ -219,6 +219,14 @@ inline std::string streamEvent(const std::string& id,
   return chunk.str();
 }
 
+/** A stream saying how long to wait before reconnecting to it. */
+inline std::string streamRetry(uint64_t retry_ms) {
+  const std::string frame = "retry: " + std::to_string(retry_ms) + "\r\n\r\n";
+  std::ostringstream chunk;
+  chunk << std::hex << frame.size() << "\r\n" << frame << "\r\n";
+  return chunk.str();
+}
+
 /** The end of a chunked body, which is what ends a stream cleanly. */
 inline std::string streamEnd() { return "0\r\n\r\n"; }
 

@@ -46,6 +46,7 @@ using test::Seen;
 using test::streamEnd;
 using test::streamEvent;
 using test::streamPrelude;
+using test::streamRetry;
 
 constexpr const char* kSession = "stream-session";
 
@@ -132,6 +133,9 @@ class StreamableHttpClientStreamTest : public ::testing::Test {
     // also have to prove it is patient.
     config.streamable_http.stream_reconnect_min = 30ms;
     config.streamable_http.stream_reconnect_max = 120ms;
+    if (retry_max_.count() > 0) {
+      config.streamable_http.stream_retry_max = retry_max_;
+    }
 
     client_ = client::createMcpClient(config);
     ASSERT_NE(client_, nullptr);
@@ -158,6 +162,8 @@ class StreamableHttpClientStreamTest : public ::testing::Test {
 
   ScriptedServer server_;
   Arrivals arrivals_;
+  // Overrides the client's ceiling on a server's retry, when set.
+  std::chrono::milliseconds retry_max_{0};
   std::unique_ptr<client::McpClient> client_;
 };
 
@@ -324,6 +330,119 @@ TEST_F(StreamableHttpClientStreamTest, AnAnswerDoesNotWaitBehindTheCall) {
   EXPECT_FALSE(called.get().error.has_value());
   EXPECT_NE(answer_connection.load(), call_connection.load())
       << "the answer went out behind the call it was answering";
+}
+
+/** How long until the client has asked for the stream this many times. */
+std::chrono::milliseconds untilStreamAsked(ScriptedServer& server,
+                                           size_t times) {
+  const auto start = std::chrono::steady_clock::now();
+  server.waitFor([&]() { return server.allOfMethod("GET").size() >= times; },
+                 10s);
+  return std::chrono::duration_cast<std::chrono::milliseconds>(
+      std::chrono::steady_clock::now() - start);
+}
+
+// A server that says how long to wait is waited for, in place of the
+// client's own window, which in these tests is tens of milliseconds.
+TEST_F(StreamableHttpClientStreamTest, AStreamsRetryIsWaitedFor) {
+  const uint16_t port = server_.start([](const Seen& seen) -> Reply {
+    if (seen.rpc_method == "initialize") {
+      return Reply::write(handshakeAnswer(seen, kSession, "2025-06-18"));
+    }
+    if (seen.method == "GET") {
+      return Reply::stream(streamPrelude());
+    }
+    return Reply::write(accepted());
+  });
+
+  startClient(port);
+  handshake();
+  ASSERT_TRUE(server_.waitForStream());
+
+  server_.pushToStream(
+      streamEvent("s:1", notification("notifications/pushed")) +
+      streamRetry(400));
+  ASSERT_TRUE(arrivals_.waitFor(1));
+  server_.cutStream();
+
+  const auto waited = untilStreamAsked(server_, 2);
+  ASSERT_GE(server_.allOfMethod("GET").size(), 2u)
+      << "the stream was never asked for again";
+  EXPECT_GE(waited.count(), 350) << "came back before the server said to";
+  EXPECT_EQ(server_.allOfMethod("GET")[1].header("last-event-id"), "s:1");
+}
+
+// A retry beyond the client's ceiling is brought down to it: a server
+// cannot keep a client away for as long as it likes.
+TEST_F(StreamableHttpClientStreamTest, ARetryBeyondTheCeilingIsCapped) {
+  retry_max_ = 200ms;
+  const uint16_t port = server_.start([](const Seen& seen) -> Reply {
+    if (seen.rpc_method == "initialize") {
+      return Reply::write(handshakeAnswer(seen, kSession, "2025-06-18"));
+    }
+    if (seen.method == "GET") {
+      return Reply::stream(streamPrelude());
+    }
+    return Reply::write(accepted());
+  });
+
+  startClient(port);
+  handshake();
+  ASSERT_TRUE(server_.waitForStream());
+
+  server_.pushToStream(streamRetry(3600000));
+  // Given time to arrive before the cut, so the cut is what it applies to.
+  std::this_thread::sleep_for(50ms);
+  server_.cutStream();
+
+  const auto waited = untilStreamAsked(server_, 2);
+  ASSERT_GE(server_.allOfMethod("GET").size(), 2u)
+      << "an hour's retry kept the client away";
+  EXPECT_GE(waited.count(), 150);
+  EXPECT_LT(waited.count(), 3000);
+}
+
+// The stream an answer arrives on can say when to come back for the rest,
+// and the client waits that long before picking the answer up.
+TEST_F(StreamableHttpClientStreamTest, AnAnswersRetryIsWaitedFor) {
+  std::atomic<int64_t> cut_at{0};
+  const uint16_t port = server_.start([&cut_at](const Seen& seen) -> Reply {
+    if (seen.rpc_method == "initialize") {
+      return Reply::write(handshakeAnswer(seen, kSession, "2025-06-18"));
+    }
+    if (seen.method == "GET") {
+      if (seen.header("last-event-id") == "a:1") {
+        return Reply::stream(streamPrelude() +
+                             streamEvent("a:2", streamedAnswer("2")));
+      }
+      return Reply::stream(streamPrelude());
+    }
+    if (seen.rpc_id.empty()) {
+      return Reply::write(accepted());
+    }
+    cut_at = std::chrono::duration_cast<std::chrono::milliseconds>(
+                 std::chrono::steady_clock::now().time_since_epoch())
+                 .count();
+    return Reply::writeThenCut(
+        streamPrelude() +
+        streamEvent("a:1", notification("notifications/progress")) +
+        streamRetry(400));
+  });
+
+  startClient(port);
+  handshake();
+  ASSERT_TRUE(server_.waitForStream());
+
+  auto slow = client_->sendRequest("slow");
+  ASSERT_EQ(slow.wait_for(5s), std::future_status::ready)
+      << "the interrupted answer was never picked up";
+  EXPECT_FALSE(slow.get().error.has_value());
+  const int64_t answered_at =
+      std::chrono::duration_cast<std::chrono::milliseconds>(
+          std::chrono::steady_clock::now().time_since_epoch())
+          .count();
+  EXPECT_GE(answered_at - cut_at.load(), 350)
+      << "picked the answer up before the server said to come back";
 }
 
 // The one this is all for: a stream that is cut is picked up where it
