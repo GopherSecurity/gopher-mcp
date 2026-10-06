@@ -42,6 +42,7 @@ add_executable(test_deferred_handler server/test_deferred_handler.cc)
 add_executable(test_drop_session_stream server/test_drop_session_stream.cc)
 add_executable(test_prompt_arguments server/test_prompt_arguments.cc)
 add_executable(test_answer_with_input server/test_answer_with_input.cc)
+add_executable(test_request_state_sealing server/test_request_state_sealing.cc)
 add_executable(test_listen_registry server/test_listen_registry.cc)
 # CORS tests
 # Event tests
@@ -1640,7 +1641,17 @@ target_link_libraries(test_answer_with_input
     Threads::Threads
     fmt::fmt
 )
+
+target_link_libraries(test_request_state_sealing
+    gopher-mcp
+    gopher-mcp-logging
+    gtest
+    gtest_main
+    Threads::Threads
+    fmt::fmt
+)
 add_test(NAME AnswerWithInputTest COMMAND test_answer_with_input)
+add_test(NAME RequestStateSealingTest COMMAND test_request_state_sealing)
 
 target_link_libraries(test_listen_registry
     gopher-mcp
@@ -2042,6 +2053,7 @@ add_executable(test_mcp_protocol_state_machine protocol/test_mcp_protocol_state_
 add_executable(test_header_sentinel protocol/test_header_sentinel.cc)
 add_executable(test_designated_params protocol/test_designated_params.cc)
 add_executable(test_mrtr protocol/test_mrtr.cc)
+add_executable(test_request_state_sealer protocol/test_request_state_sealer.cc)
 add_executable(test_elicitation protocol/test_elicitation.cc)
 target_link_libraries(test_mcp_protocol_state_machine 
     gopher-mcp
@@ -2075,7 +2087,15 @@ target_link_libraries(test_mrtr
     gtest_main
     Threads::Threads
 )
+
+target_link_libraries(test_request_state_sealer
+    gopher-mcp
+    gtest
+    gtest_main
+    Threads::Threads
+)
 add_test(NAME MrtrTest COMMAND test_mrtr)
+add_test(NAME RequestStateSealerTest COMMAND test_request_state_sealer)
 
 target_link_libraries(test_elicitation
     gopher-mcp

@@ -562,6 +562,14 @@ class ToolCalls {
     const auto carried = protocol::modern::carriedInputOf(
         request.params_json.value_or(json::JsonValue::object()));
     if (carried.responses.isObject() && carried.responses.contains("env")) {
+      // The state went out sealed; what comes back has been opened and
+      // checked before this handler runs, so it is exactly what was sent.
+      if (carried.request_state.value_or(std::string()) != "elicit_prompt") {
+        answer->sendResponse(toolError(
+            request.id, "the request state came back as '" +
+                            carried.request_state.value_or("<none>") + "'"));
+        return;
+      }
       std::string told;
       try {
         told = describeAnswer(
@@ -844,6 +852,10 @@ int main(int argc, char** argv) {
   tools_hint.ttl = std::chrono::milliseconds(60000);
   tools_hint.scope = McpServerConfig::CacheScope::Public;
   config.cache_hints["tools/list"] = tools_hint;
+  // Sealed, so a client has to hand the state back exactly as it was given
+  // for a question asked through input_required to be answered at all.
+  config.request_state_keys = {
+      {"interop", "an interop test key, not a secret, 48 bytes long"}};
   if (options.page_size != 0) {
     config.list_page_sizes.tools = options.page_size;
     config.list_page_sizes.prompts = options.page_size;
