@@ -1077,11 +1077,14 @@ void McpClient::handleClientStreamRetry(const optional<RequestId>& request_id,
   const auto clamped = std::max(bounds.stream_retry_min,
                                 std::min(retry, bounds.stream_retry_max));
   if (request_id.has_value()) {
+    // Said by the stream carrying this answer, and about that stream only.
+    // A request no longer tracked has no stream left to come back to, and
+    // what its stream said is no guide to any other.
     auto context = request_tracker_->getRequest(request_id.value());
     if (context) {
       context->stream_retry = clamped;
-      return;
     }
+    return;
   }
   // The standalone stream, which is also what carries an answer being
   // picked up again.
