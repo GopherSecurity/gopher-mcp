@@ -264,6 +264,49 @@ TEST(RequestStateSealing, ADeferredAnswerIsSealedToItsOwnCaller) {
   EXPECT_FALSE(sealer.open(sealed, as_alice).has_value());
 }
 
+// A handler may answer through a stream of its own, which knows nothing of
+// the caller. The state is still sealed to the caller of the request.
+TEST(RequestStateSealing, AHandlersOwnStreamIsSealedToTheCaller) {
+  SealingServer server(sealingConfig());
+  auto own = std::make_shared<RecordingStream>();  // no principal on it
+  jsonrpc::Request held_request;
+  SessionContext* held_session = nullptr;
+  server.registerAsyncRequestHandler(
+      "prompts/get", [&](const jsonrpc::Request& request,
+                         SessionContext& session, const ResponseStreamPtr&) {
+        held_request = request;
+        held_session = &session;
+      });
+
+  jsonrpc::Request asked = deploy();
+  asked.method = "prompts/get";
+  CallerContext alice("alice");
+  server.onRequestWithContext(asked, alice);
+  ASSERT_NE(held_session, nullptr);
+  // Another caller, served meanwhile; a request of its own, with its own id.
+  jsonrpc::Request other = deploy();
+  other.id = make_request_id(2);
+  ASSERT_TRUE(retried(server, other, "mallory"));
+
+  NeedsInput needed;
+  needed.request_state = mcp::make_optional(std::string("approved:deploy"));
+  ASSERT_TRUE(holds_alternative<std::nullptr_t>(
+      server.answerWithInput(own, held_request, *held_session, needed)));
+  ASSERT_EQ(own->answered.size(), 1u);
+  const std::string sealed =
+      json::to_json(
+          own->answered[0].result.value())[protocol::modern::kRequestStateField]
+          .getString();
+
+  RequestStateSealer sealer({kKey});
+  protocol::modern::RequestStateContext as_alice;
+  as_alice.principal = "alice";
+  as_alice.method = "prompts/get";
+  as_alice.params = asked.params_json.value();
+  EXPECT_TRUE(sealer.open(sealed, as_alice).has_value())
+      << "a handler's own stream sealed the state to no one";
+}
+
 // A request carrying no state is untouched by sealing.
 TEST(RequestStateSealing, ARequestWithoutStateIsServedAsBefore) {
   SealingServer server(sealingConfig());
