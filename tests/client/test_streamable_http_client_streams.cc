@@ -402,6 +402,43 @@ TEST_F(StreamableHttpClientStreamTest, ARetryBeyondTheCeilingIsCapped) {
   EXPECT_LT(waited.count(), 3000);
 }
 
+// A retry from a stream whose answer is already in belongs to that
+// finished stream. It is no guide to the standalone stream, which keeps its
+// own window.
+TEST_F(StreamableHttpClientStreamTest, AFinishedAnswersRetryIsNotTheStreams) {
+  const uint16_t port = server_.start([](const Seen& seen) -> Reply {
+    if (seen.rpc_method == "initialize") {
+      return Reply::write(handshakeAnswer(seen, kSession, "2025-06-18"));
+    }
+    if (seen.method == "GET") {
+      return Reply::stream(streamPrelude());
+    }
+    if (seen.rpc_id.empty()) {
+      return Reply::write(accepted());
+    }
+    // The answer, and then a retry, on the answer's own stream.
+    return Reply::write(streamPrelude() +
+                        streamEvent("a:1", streamedAnswer(seen.rpc_id)) +
+                        streamRetry(3000) + test::streamEnd());
+  });
+
+  startClient(port);
+  handshake();
+  ASSERT_TRUE(server_.waitForStream());
+
+  auto done = client_->sendRequest("quick");
+  ASSERT_EQ(done.wait_for(5s), std::future_status::ready);
+  EXPECT_FALSE(done.get().error.has_value());
+  // Given time to arrive, so it has been seen before the cut.
+  std::this_thread::sleep_for(50ms);
+
+  server_.cutStream();
+  const auto waited = untilStreamAsked(server_, 2);
+  ASSERT_GE(server_.allOfMethod("GET").size(), 2u);
+  EXPECT_LT(waited.count(), 1500)
+      << "the standalone stream waited on another stream's retry";
+}
+
 // The stream an answer arrives on can say when to come back for the rest,
 // and the client waits that long before picking the answer up.
 TEST_F(StreamableHttpClientStreamTest, AnAnswersRetryIsWaitedFor) {
