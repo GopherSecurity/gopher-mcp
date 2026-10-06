@@ -36,6 +36,7 @@
 #include "mcp/json/json_bridge.h"
 #include "mcp/json/json_serialization.h"
 #include "mcp/protocol/mrtr.h"
+#include "mcp/protocol/subscriptions.h"
 #include "mcp/types.h"
 
 namespace mcp {
@@ -225,14 +226,29 @@ RoundTrip notificationWith() {
 }
 
 /**
- * For the messages with no typed params struct in the SDK, whose params are
- * read where they are used (server/discover reads only _meta,
- * subscriptions/listen reads its filter through NotificationFilter, and the
- * list-changed notifications carry none): the envelope, as read off the
- * wire.
+ * A subscriptions/listen request or its acknowledgement: the envelope as
+ * read off the wire, and the notifications filter through the parser the
+ * server reads it with and the renderer the acknowledgement is written
+ * with. The _meta beside it is the request metadata every request carries,
+ * which no typed struct models (see the typed-request gaps).
  */
-RoundTrip request() { return as<jsonrpc::Request>(); }
-RoundTrip notification() { return as<jsonrpc::Notification>(); }
+RoundTrip withFilter(bool is_request) {
+  return [is_request](const JsonValue& fixture) {
+    JsonValue back =
+        is_request
+            ? json::to_json(json::from_json<jsonrpc::Request>(fixture))
+            : json::to_json(json::from_json<jsonrpc::Notification>(fixture));
+    if (fixture.contains("params") &&
+        fixture["params"].contains("notifications")) {
+      JsonValue params = back["params"];
+      params.set("notifications",
+                 protocol::modern::NotificationFilter::parse(fixture["params"])
+                     .render());
+      back.set("params", params);
+    }
+    return back;
+  };
+}
 
 /** Params on their own, read through the typed struct for them. */
 template <typename Typed>
@@ -362,7 +378,6 @@ const std::map<std::string, RoundTrip>& checked() {
       {"CallToolRequest", requestWith<CallToolRequest>()},
       {"CompleteRequest", requestWith<CompleteRequest>()},
       {"CreateMessageRequest", inputRequest<CreateMessageRequest>()},
-      {"DiscoverRequest", request()},
       {"ElicitRequest", inputRequest<ElicitRequest>()},
       {"GetPromptRequest", requestWith<GetPromptRequest>()},
       {"ListPromptsRequest", requestWith<ListPromptsRequest>()},
@@ -372,7 +387,7 @@ const std::map<std::string, RoundTrip>& checked() {
       {"ListRootsRequest", inputRequest<ListRootsRequest>()},
       {"ListToolsRequest", requestWith<ListToolsRequest>()},
       {"ReadResourceRequest", requestWith<ReadResourceRequest>()},
-      {"SubscriptionsListenRequest", request()},
+      {"SubscriptionsListenRequest", withFilter(true)},
       // Params on their own
       {"CallToolRequestParams", paramsAs<CallToolRequest>()},
       {"CompleteRequestParams", paramsAs<CompleteRequest>()},
@@ -392,12 +407,9 @@ const std::map<std::string, RoundTrip>& checked() {
       {"LoggingMessageNotification",
        notificationWith<LoggingMessageNotification>()},
       {"ProgressNotification", notificationWith<ProgressNotification>()},
-      {"PromptListChangedNotification", notification()},
-      {"ResourceListChangedNotification", notification()},
       {"ResourceUpdatedNotification",
        notificationWith<ResourceUpdatedNotification>()},
-      {"SubscriptionsAcknowledgedNotification", notification()},
-      {"ToolListChangedNotification", notification()},
+      {"SubscriptionsAcknowledgedNotification", withFilter(false)},
       // Results
       {"CallToolResult", as<CallToolResult>()},
       {"CompleteResult", as<CompleteResult>()},
@@ -549,6 +561,25 @@ const std::map<std::string, std::string>& kKnownGaps() {
       {"ToolUseContent", "tool_use is not a content block the SDK knows"},
       {"ToolResultContent", "tool_result is not a content block the SDK knows"},
       // Examples the SDK has no public type for
+      {"DiscoverRequest",
+       "its params are only the request _meta, which the SDK reads piecemeal "
+       "(version, capabilities, client info) with no typed struct to "
+       "round-trip"},
+      {"PromptListChangedNotification",
+       "its only param is _meta.subscriptionId, which the server writes inside "
+       "the listen registry and the client reads inside McpClient, as an "
+       "integer only, while the examples use a string; no public reader or "
+       "writer to check"},
+      {"ResourceListChangedNotification",
+       "its only param is _meta.subscriptionId, which the server writes inside "
+       "the listen registry and the client reads inside McpClient, as an "
+       "integer only, while the examples use a string; no public reader or "
+       "writer to check"},
+      {"ToolListChangedNotification",
+       "its only param is _meta.subscriptionId, which the server writes inside "
+       "the listen registry and the client reads inside McpClient, as an "
+       "integer only, while the examples use a string; no public reader or "
+       "writer to check"},
       {"DiscoverResult",
        "no public type: the server/discover result is built inside McpServer "
        "and read inside McpClient"},
