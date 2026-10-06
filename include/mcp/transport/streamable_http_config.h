@@ -200,6 +200,13 @@ struct StreamableHttpClientConfig {
   std::chrono::milliseconds stream_reconnect_min{250};
   std::chrono::milliseconds stream_reconnect_max{30000};
 
+  // A server may say how long to wait before reconnecting to a stream
+  // (the SSE retry field), and that wait is used in place of the window
+  // above; brought within these bounds, so a server can neither have the
+  // client reconnect in a tight loop nor keep it away indefinitely.
+  std::chrono::milliseconds stream_retry_min{100};
+  std::chrono::milliseconds stream_retry_max{300000};
+
   // How many times an answer cut off mid-stream is asked for again
   // before the request it belongs to is failed. A server that cannot
   // finish an answer must not be able to keep one request alive forever.

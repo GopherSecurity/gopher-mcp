@@ -66,6 +66,12 @@ class SseCodecFilter : public network::Filter {
      * Called on SSE protocol error
      */
     virtual void onError(const std::string& error) = 0;
+
+    /**
+     * Called when the stream says how long to wait before reconnecting
+     * (the SSE retry field), in milliseconds.
+     */
+    virtual void onRetry(uint64_t retry_ms) { (void)retry_ms; }
   };
 
   /**
@@ -179,6 +185,7 @@ class SseCodecFilter : public network::Filter {
     ParserCallbacks(SseCodecFilter& parent) : parent_(parent) {}
 
     void onSseEvent(const http::SseEvent& event) override;
+    void onSseRetry(uint64_t retry_ms) override;
     void onSseComment(const std::string& comment) override;
     void onSseError(const std::string& error) override;
 

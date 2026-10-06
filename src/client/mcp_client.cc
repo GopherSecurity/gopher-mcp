@@ -1040,21 +1040,52 @@ void McpClient::scheduleServerStreamReopen(const std::string& last_event_id) {
         /*backoff_multiplier=*/2.0, stream_config.stream_reconnect_max));
   }
 
-  const auto delay = server_stream_backoff_->getRetryDelay(
+  // What the stream said to wait, when it said, in place of the window:
+  // the server is the one that knows when it wants this client back.
+  auto delay = server_stream_backoff_->getRetryDelay(
       server_stream_attempts_ == 0 ? 0 : server_stream_attempts_ - 1);
+  if (server_stream_retry_.has_value()) {
+    delay = server_stream_retry_.value();
+  }
   ++server_stream_attempts_;
 
   GOPHER_LOG_DEBUG(
       "Asking for the server stream again in {}ms{}", delay.count(),
       last_event_id.empty() ? std::string()
                             : std::string(", from ") + last_event_id);
+  reopenServerStreamAfter(delay, last_event_id);
+}
 
+void McpClient::reopenServerStreamAfter(std::chrono::milliseconds delay,
+                                        const std::string& last_event_id) {
+  if (!main_dispatcher_) {
+    return;
+  }
   if (!server_stream_timer_) {
     server_stream_timer_ = main_dispatcher_->createTimer(
         [this]() { openServerStream(pending_stream_cursor_); });
   }
   pending_stream_cursor_ = last_event_id;
   server_stream_timer_->enableTimer(delay);
+}
+
+void McpClient::handleClientStreamRetry(const optional<RequestId>& request_id,
+                                        std::chrono::milliseconds retry) {
+  // Within bounds: a server must not have this client reconnect in a tight
+  // loop, nor keep it away for good.
+  const auto& bounds = config_.streamable_http;
+  const auto clamped = std::max(bounds.stream_retry_min,
+                                std::min(retry, bounds.stream_retry_max));
+  if (request_id.has_value()) {
+    auto context = request_tracker_->getRequest(request_id.value());
+    if (context) {
+      context->stream_retry = clamped;
+      return;
+    }
+  }
+  // The standalone stream, which is also what carries an answer being
+  // picked up again.
+  server_stream_retry_ = clamped;
 }
 
 void McpClient::handleClientStreamEvent(ClientStreamEvent event,
@@ -1064,8 +1095,10 @@ void McpClient::handleClientStreamEvent(ClientStreamEvent event,
     case ClientStreamEvent::Opened:
       // A stream that opened is the evidence that the waiting worked, so
       // the next one that closes starts the window again from the floor.
+      // And a new stream has said nothing yet about when to come back.
       GOPHER_LOG_DEBUG("Server stream open");
       server_stream_attempts_ = 0;
+      server_stream_retry_.reset();
       server_stream_open_ = true;
       return;
 
@@ -1159,13 +1192,24 @@ void McpClient::resumeAnswer(const std::shared_ptr<RequestContext>& context,
   }
 
   ++context->resume_attempts;
+  const bool was_recovering = stream_recovering_.has_value();
   stream_recovering_ = mcp::make_optional(context->id);
   GOPHER_LOG_DEBUG(
       "Picking up the answer to {} from {}", context->method,
       last_event_id.empty() ? "<the beginning>" : last_event_id.c_str());
-  // Straight away rather than after a wait: this is not a server that
-  // went away, it is one still working on an answer a caller is being
-  // held for.
+
+  // After the wait the stream that was cut said to take, when it said:
+  // the answer's own stream the first time, the stream picking it up
+  // after that.
+  const optional<std::chrono::milliseconds> said =
+      was_recovering ? server_stream_retry_ : context->stream_retry;
+  if (said.has_value()) {
+    reopenServerStreamAfter(said.value(), last_event_id);
+    return;
+  }
+  // Otherwise straight away rather than after a wait: this is not a
+  // server that went away, it is one still working on an answer a caller
+  // is being held for.
   openServerStream(last_event_id);
 }
 
