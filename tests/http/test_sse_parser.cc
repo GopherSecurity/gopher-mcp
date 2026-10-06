@@ -261,6 +261,43 @@ TEST_F(SseParserTest, LargeRetryValueIsRead) {
   parser_->parse(sse_stream, strlen(sse_stream));
 }
 
+// Leading zeros don't count against the value: this is 100 ms.
+TEST_F(SseParserTest, RetryWithLeadingZerosIsRead) {
+  const char* sse_stream =
+      "retry: 00000000000000000000000100\n"
+      "data: Test\n"
+      "\n";
+
+  EXPECT_CALL(*callbacks_, onSseEvent(_)).WillOnce([](const SseEvent& event) {
+    ASSERT_TRUE(event.retry.has_value());
+    EXPECT_EQ(100u, event.retry.value());
+  });
+
+  parser_->parse(sse_stream, strlen(sse_stream));
+}
+
+// The largest value that fits is read; one more is not.
+TEST_F(SseParserTest, RetryOneBeyondTheLargestIsIgnored) {
+  const char* largest =
+      "retry: 18446744073709551615\n"
+      "data: A\n"
+      "\n";
+  EXPECT_CALL(*callbacks_, onSseEvent(_)).WillOnce([](const SseEvent& event) {
+    ASSERT_TRUE(event.retry.has_value());
+    EXPECT_EQ(18446744073709551615ull, event.retry.value());
+  });
+  parser_->parse(largest, strlen(largest));
+
+  const char* beyond =
+      "retry: 18446744073709551616\n"
+      "data: B\n"
+      "\n";
+  EXPECT_CALL(*callbacks_, onSseEvent(_)).WillOnce([](const SseEvent& event) {
+    EXPECT_FALSE(event.retry.has_value());
+  });
+  EXPECT_NO_THROW(parser_->parse(beyond, strlen(beyond)));
+}
+
 // Test very long data
 TEST_F(SseParserTest, LongData) {
   std::string long_data(8192, 'X');  // 8KB of data
