@@ -1084,9 +1084,7 @@ std::string McpServer::principalOf(const jsonrpc::Request& request,
   // handler does with streams afterwards: wraps them, replaces them, or
   // answers long after the session has served others. Matched on the
   // session as well, since ids are only unique within one.
-  const std::string key = holds_alternative<std::string>(request.id)
-                              ? get<std::string>(request.id)
-                              : std::to_string(get<int64_t>(request.id));
+  const std::string key = pendingKeyOf(request.id);
   {
     std::lock_guard<std::mutex> lock(pending_requests_mutex_);
     auto it = pending_requests_.find(key);
@@ -2082,11 +2080,7 @@ void McpServer::dispatchRequest(const jsonrpc::Request& request,
 
   {
     std::lock_guard<std::mutex> lock(pending_requests_mutex_);
-    // Convert RequestId to string key
-    std::string key = holds_alternative<std::string>(request.id)
-                          ? get<std::string>(request.id)
-                          : std::to_string(get<int64_t>(request.id));
-    pending_requests_[key] = pending_req;
+    pending_requests_[pendingKeyOf(request.id)] = pending_req;
   }
 
   // Resolve the session for this request: transport session id first
@@ -2187,9 +2181,7 @@ void McpServer::dispatchRequest(const jsonrpc::Request& request,
       GOPHER_LOG_ERROR("Failed to refuse '{}': {}", request.method,
                        get<Error>(sent).message);
     }
-    forgetPendingRequest(holds_alternative<std::string>(request.id)
-                             ? get<std::string>(request.id)
-                             : std::to_string(get<int64_t>(request.id)));
+    forgetPendingRequest(pendingKeyOf(request.id));
     return;
   }
 
@@ -2211,10 +2203,7 @@ void McpServer::dispatchRequest(const jsonrpc::Request& request,
     // attached: it belongs to this request, and this request is not over.
     session->setResponseStream(nullptr);
 
-    const std::string pending_key =
-        holds_alternative<std::string>(request.id)
-            ? get<std::string>(request.id)
-            : std::to_string(get<int64_t>(request.id));
+    const std::string pending_key = pendingKeyOf(request.id);
     auto answer = std::make_shared<DeferredAnswer>(
         stream, [this, pending_key]() { forgetPendingRequest(pending_key); },
         cache_hints);
@@ -2330,11 +2319,7 @@ void McpServer::dispatchRequest(const jsonrpc::Request& request,
   // Remove request from pending list
   {
     std::lock_guard<std::mutex> lock(pending_requests_mutex_);
-    // Convert RequestId to string key
-    std::string key = holds_alternative<std::string>(request.id)
-                          ? get<std::string>(request.id)
-                          : std::to_string(get<int64_t>(request.id));
-    pending_requests_.erase(key);
+    pending_requests_.erase(pendingKeyOf(request.id));
   }
 }
 
@@ -2410,9 +2395,11 @@ void McpServer::onNotificationWithContext(
         // int64_t
         std::string key_to_cancel;
         if (holds_alternative<std::string>(req_id_it->second)) {
-          key_to_cancel = get<std::string>(req_id_it->second);
+          key_to_cancel =
+              pendingKeyOf(RequestId(get<std::string>(req_id_it->second)));
         } else if (holds_alternative<int64_t>(req_id_it->second)) {
-          key_to_cancel = std::to_string(get<int64_t>(req_id_it->second));
+          key_to_cancel =
+              pendingKeyOf(RequestId(get<int64_t>(req_id_it->second)));
         } else {
           // Not a valid request ID type
           return;

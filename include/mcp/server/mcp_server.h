@@ -1463,14 +1463,19 @@ class McpServer : public application::ApplicationBase,
                           const SessionContext& session,
                           const ResponseStreamPtr& stream) const;
 
+  // The key an in-flight request is kept under. Its type is part of it:
+  // the number 1 and the string "1" are different requests, and keyed the
+  // same they would overwrite each other's record, caller included.
+  static std::string pendingKeyOf(const RequestId& id) {
+    return holds_alternative<std::string>(id)
+               ? "s:" + get<std::string>(id)
+               : "n:" + std::to_string(get<int64_t>(id));
+  }
+
   // Request tracking helpers
   bool isRequestCancelled(const RequestId& id) const {
     std::lock_guard<std::mutex> lock(pending_requests_mutex_);
-    // Convert RequestId to string key
-    std::string key = holds_alternative<std::string>(id)
-                          ? get<std::string>(id)
-                          : std::to_string(get<int64_t>(id));
-    auto it = pending_requests_.find(key);
+    auto it = pending_requests_.find(pendingKeyOf(id));
     return (it != pending_requests_.end() && it->second->cancelled.load());
   }
 
