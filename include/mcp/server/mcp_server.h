@@ -1463,19 +1463,23 @@ class McpServer : public application::ApplicationBase,
                           const SessionContext& session,
                           const ResponseStreamPtr& stream) const;
 
-  // The key an in-flight request is kept under. Its type is part of it:
-  // the number 1 and the string "1" are different requests, and keyed the
-  // same they would overwrite each other's record, caller included.
-  static std::string pendingKeyOf(const RequestId& id) {
-    return holds_alternative<std::string>(id)
-               ? "s:" + get<std::string>(id)
-               : "n:" + std::to_string(get<int64_t>(id));
+  // The key an in-flight request is kept under. An id is unique only
+  // within its session, so the session is part of it, and so is the id's
+  // type: the number 1 and the string "1" are different requests. Keyed any
+  // less, two requests would overwrite each other's record, caller included.
+  static std::string pendingKeyOf(const std::string& session_id,
+                                  const RequestId& id) {
+    return std::to_string(session_id.size()) + ":" + session_id +
+           (holds_alternative<std::string>(id)
+                ? "s:" + get<std::string>(id)
+                : "n:" + std::to_string(get<int64_t>(id)));
   }
 
   // Request tracking helpers
-  bool isRequestCancelled(const RequestId& id) const {
+  bool isRequestCancelled(const std::string& session_id,
+                          const RequestId& id) const {
     std::lock_guard<std::mutex> lock(pending_requests_mutex_);
-    auto it = pending_requests_.find(pendingKeyOf(id));
+    auto it = pending_requests_.find(pendingKeyOf(session_id, id));
     return (it != pending_requests_.end() && it->second->cancelled.load());
   }
 

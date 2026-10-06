@@ -1084,7 +1084,7 @@ std::string McpServer::principalOf(const jsonrpc::Request& request,
   // handler does with streams afterwards: wraps them, replaces them, or
   // answers long after the session has served others. Matched on the
   // session as well, since ids are only unique within one.
-  const std::string key = pendingKeyOf(request.id);
+  const std::string key = pendingKeyOf(session.getId(), request.id);
   {
     std::lock_guard<std::mutex> lock(pending_requests_mutex_);
     auto it = pending_requests_.find(key);
@@ -2072,25 +2072,10 @@ void McpServer::dispatchRequest(const jsonrpc::Request& request,
   // Handle request in dispatcher context - already in dispatcher
   server_stats_.requests_total++;
 
-  // Track this request for potential cancellation
-  auto pending_req = std::make_shared<PendingRequest>();
-  pending_req->id = request.id;
-  pending_req->principal = context.principal();
-  pending_req->start_time = std::chrono::steady_clock::now();
-
-  {
-    std::lock_guard<std::mutex> lock(pending_requests_mutex_);
-    pending_requests_[pendingKeyOf(request.id)] = pending_req;
-  }
-
   // Resolve the session for this request: transport session id first
   // (durable across HTTP+SSE POST connections), origin connection as
   // fallback.
   auto session = getOrCreateSessionFor(context);
-
-  if (session) {
-    pending_req->session_id = session->getId();
-  }
 
   if (!session) {
     // Max sessions reached. Reply on the requester's own return path —
@@ -2108,6 +2093,18 @@ void McpServer::dispatchRequest(const jsonrpc::Request& request,
   }
 
   session->updateActivity();
+
+  // Track this request for potential cancellation, under its session: an
+  // id is unique only within one.
+  auto pending_req = std::make_shared<PendingRequest>();
+  pending_req->id = request.id;
+  pending_req->session_id = session->getId();
+  pending_req->principal = context.principal();
+  pending_req->start_time = std::chrono::steady_clock::now();
+  {
+    std::lock_guard<std::mutex> lock(pending_requests_mutex_);
+    pending_requests_[pendingKeyOf(session->getId(), request.id)] = pending_req;
+  }
 
   // What the request said about itself, for every method rather than for
   // tool calls alone: in the era with no introduction this is where a
@@ -2181,7 +2178,7 @@ void McpServer::dispatchRequest(const jsonrpc::Request& request,
       GOPHER_LOG_ERROR("Failed to refuse '{}': {}", request.method,
                        get<Error>(sent).message);
     }
-    forgetPendingRequest(pendingKeyOf(request.id));
+    forgetPendingRequest(pendingKeyOf(session->getId(), request.id));
     return;
   }
 
@@ -2203,7 +2200,7 @@ void McpServer::dispatchRequest(const jsonrpc::Request& request,
     // attached: it belongs to this request, and this request is not over.
     session->setResponseStream(nullptr);
 
-    const std::string pending_key = pendingKeyOf(request.id);
+    const std::string pending_key = pendingKeyOf(session->getId(), request.id);
     auto answer = std::make_shared<DeferredAnswer>(
         stream, [this, pending_key]() { forgetPendingRequest(pending_key); },
         cache_hints);
@@ -2319,7 +2316,7 @@ void McpServer::dispatchRequest(const jsonrpc::Request& request,
   // Remove request from pending list
   {
     std::lock_guard<std::mutex> lock(pending_requests_mutex_);
-    pending_requests_.erase(pendingKeyOf(request.id));
+    pending_requests_.erase(pendingKeyOf(session->getId(), request.id));
   }
 }
 
@@ -2395,11 +2392,11 @@ void McpServer::onNotificationWithContext(
         // int64_t
         std::string key_to_cancel;
         if (holds_alternative<std::string>(req_id_it->second)) {
-          key_to_cancel =
-              pendingKeyOf(RequestId(get<std::string>(req_id_it->second)));
+          key_to_cancel = pendingKeyOf(
+              session->getId(), RequestId(get<std::string>(req_id_it->second)));
         } else if (holds_alternative<int64_t>(req_id_it->second)) {
-          key_to_cancel =
-              pendingKeyOf(RequestId(get<int64_t>(req_id_it->second)));
+          key_to_cancel = pendingKeyOf(
+              session->getId(), RequestId(get<int64_t>(req_id_it->second)));
         } else {
           // Not a valid request ID type
           return;
