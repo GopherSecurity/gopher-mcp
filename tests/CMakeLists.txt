@@ -29,6 +29,7 @@ add_executable(test_resource_read server/test_resource_read.cc)
 add_executable(test_unknown_tool server/test_unknown_tool.cc)
 add_executable(test_list_paging server/test_list_paging.cc)
 add_executable(test_resource_templates server/test_resource_templates.cc)
+add_executable(test_schema_examples conformance/test_schema_examples.cc)
 add_executable(test_session_manager_capacity server/test_session_manager_capacity.cc)
 add_executable(test_session_transport_binding server/test_session_transport_binding.cc)
 add_executable(test_legacy_dispatch_session server/test_legacy_dispatch_session.cc)
@@ -345,6 +346,18 @@ target_link_libraries(test_resource_templates
     gtest_main
     Threads::Threads
     fmt::fmt
+)
+
+target_link_libraries(test_schema_examples
+    gopher-mcp
+    gopher-mcp-logging
+    gtest
+    gtest_main
+    Threads::Threads
+    fmt::fmt
+)
+target_compile_definitions(test_schema_examples PRIVATE
+    GOPHER_SCHEMA_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/conformance/fixtures/2026-07-28"
 )
 
 target_link_libraries(test_session_manager_capacity
@@ -1620,6 +1633,7 @@ add_test(NAME ResourceReadTest COMMAND test_resource_read)
 add_test(NAME UnknownToolTest COMMAND test_unknown_tool)
 add_test(NAME ListPagingTest COMMAND test_list_paging)
 add_test(NAME ResourceTemplatesTest COMMAND test_resource_templates)
+add_test(NAME SchemaExamplesTest COMMAND test_schema_examples)
 add_test(NAME SessionManagerCapacityTest COMMAND test_session_manager_capacity)
 add_test(NAME SessionTransportBindingTest COMMAND test_session_transport_binding)
 add_test(NAME LegacyDispatchSessionTest COMMAND test_legacy_dispatch_session)
