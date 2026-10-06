@@ -231,6 +231,36 @@ TEST_F(SseParserTest, InvalidRetryValue) {
   parser_->parse(sse_stream, strlen(sse_stream));
 }
 
+// A retry too large to hold is ignored, not thrown out of the parser.
+TEST_F(SseParserTest, OversizedRetryValueIsIgnored) {
+  const char* sse_stream =
+      "retry: 99999999999999999999999999\n"
+      "data: Test\n"
+      "\n";
+
+  EXPECT_CALL(*callbacks_, onSseEvent(_)).WillOnce([](const SseEvent& event) {
+    EXPECT_EQ("Test", event.data);
+    EXPECT_FALSE(event.retry.has_value());
+  });
+
+  EXPECT_NO_THROW(parser_->parse(sse_stream, strlen(sse_stream)));
+}
+
+// The largest value the field can hold is still read.
+TEST_F(SseParserTest, LargeRetryValueIsRead) {
+  const char* sse_stream =
+      "retry: 9999999999999999999\n"
+      "data: Test\n"
+      "\n";
+
+  EXPECT_CALL(*callbacks_, onSseEvent(_)).WillOnce([](const SseEvent& event) {
+    ASSERT_TRUE(event.retry.has_value());
+    EXPECT_EQ(9999999999999999999ull, event.retry.value());
+  });
+
+  parser_->parse(sse_stream, strlen(sse_stream));
+}
+
 // Test very long data
 TEST_F(SseParserTest, LongData) {
   std::string long_data(8192, 'X');  // 8KB of data
