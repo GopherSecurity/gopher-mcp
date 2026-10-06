@@ -283,6 +283,12 @@ void SseCodecFilter::ParserCallbacks::onSseEvent(const http::SseEvent& event) {
   }
 }
 
+void SseCodecFilter::ParserCallbacks::onSseRetry(uint64_t retry_ms) {
+  if (parent_.event_callbacks_) {
+    parent_.event_callbacks_->onRetry(retry_ms);
+  }
+}
+
 void SseCodecFilter::ParserCallbacks::onSseComment(const std::string& comment) {
   if (parent_.event_callbacks_) {
     parent_.event_callbacks_->onComment(comment);

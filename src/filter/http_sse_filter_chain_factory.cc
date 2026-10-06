@@ -1214,6 +1214,25 @@ class HttpSseJsonRpcProtocolFilter
     (void)comment;
   }
 
+  void onRetry(uint64_t retry_ms) override {
+    // How long the server wants this client to wait before coming back to
+    // this stream. Said about this stream, so it is reported against what
+    // the stream carries: nothing for the standalone stream, the request
+    // being answered for an answer stream.
+    if (is_server_ || !client_session_) {
+      return;
+    }
+    const optional<RequestId> carrying =
+        role_ == ClientConnectionRole::ServerStream
+            ? optional<RequestId>()
+            : (sole_request_.has_value() ? sole_request_
+                                         : client_session_->peekAnswered());
+    mcp_callbacks_.onClientStreamRetry(
+        carrying,
+        std::chrono::milliseconds(static_cast<int64_t>(
+            std::min<uint64_t>(retry_ms, static_cast<uint64_t>(INT64_MAX)))));
+  }
+
   // ===== JsonRpcProtocolFilter::MessageHandler =====
 
   /**

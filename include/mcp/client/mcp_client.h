@@ -203,6 +203,10 @@ struct RequestContext {
   // that cannot finish an answer cannot keep one request alive forever.
   size_t resume_attempts{0};
 
+  // How long the server said to wait before coming back to the stream
+  // carrying this answer, if it said.
+  optional<std::chrono::milliseconds> stream_retry;
+
   // Called on the dispatcher thread when the response arrives, for work
   // that has to continue there. The future is how a caller waits; this
   // is how the client itself carries on, without the blocking get()
@@ -704,6 +708,10 @@ class McpClient : public application::ApplicationBase {
                              const std::string& last_event_id) override {
       client_.handleClientStreamEvent(event, request_id, last_event_id);
     }
+    void onClientStreamRetry(const optional<RequestId>& request_id,
+                             std::chrono::milliseconds retry) override {
+      client_.handleClientStreamRetry(request_id, retry);
+    }
     void onMessageEndpoint(const std::string& endpoint) override {
       client_.handleMessageEndpoint(endpoint);
     }
@@ -729,6 +737,15 @@ class McpClient : public application::ApplicationBase {
   // See McpProtocolCallbacks::onClientStreamEvent.
   void handleClientStreamEvent(ClientStreamEvent event,
                                const optional<RequestId>& request_id,
+                               const std::string& last_event_id);
+
+  // A stream said how long to wait before reconnecting to it. Dispatcher
+  // thread. See McpProtocolCallbacks::onClientStreamRetry.
+  void handleClientStreamRetry(const optional<RequestId>& request_id,
+                               std::chrono::milliseconds retry);
+
+  // Ask for the stream back from this cursor after this long.
+  void reopenServerStreamAfter(std::chrono::milliseconds delay,
                                const std::string& last_event_id);
 
   // The older transport has said where to post, which is the only proof
@@ -960,6 +977,10 @@ class McpClient : public application::ApplicationBase {
   // which is what decides how long to wait before the next one. Reset
   // by a stream that opens.
   size_t server_stream_attempts_{0};
+  // How long the standalone stream said to wait before coming back to it,
+  // if it said. Belongs to the stream that said it, so a new stream starts
+  // without one.
+  optional<std::chrono::milliseconds> server_stream_retry_;
   event::TimerPtr server_stream_timer_;
   // Where the stream that is being waited for should carry on from.
   std::string pending_stream_cursor_;

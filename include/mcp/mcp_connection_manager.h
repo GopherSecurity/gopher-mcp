@@ -255,6 +255,19 @@ class McpProtocolCallbacks {
   }
 
   /**
+   * A stream said how long to wait before reconnecting to it (the SSE
+   * retry field; Streamable HTTP client only).
+   *
+   * @param request_id The request whose answer the stream carries; empty
+   *        for the standalone stream
+   */
+  virtual void onClientStreamRetry(const optional<RequestId>& request_id,
+                                   std::chrono::milliseconds retry) {
+    (void)request_id;
+    (void)retry;
+  }
+
+  /**
    * Send a POST request to the message endpoint
    * Used by HTTP/SSE transport to send messages on a separate connection
    * Returns true if the POST was initiated successfully
@@ -450,6 +463,12 @@ class McpConnectionManager : public McpProtocolCallbacks,
   void onClientStreamEvent(ClientStreamEvent event,
                            const optional<RequestId>& request_id,
                            const std::string& last_event_id) override;
+  void onClientStreamRetry(const optional<RequestId>& request_id,
+                           std::chrono::milliseconds retry) override {
+    if (protocol_callbacks_) {
+      protocol_callbacks_->onClientStreamRetry(request_id, retry);
+    }
+  }
   bool sendHttpPost(const std::string& json_body) override;
   bool sendHttpPost(const std::string& json_body,
                     const std::map<std::string, std::string>& http_headers);
