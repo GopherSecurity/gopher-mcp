@@ -554,6 +554,45 @@ TEST_F(StreamableSessionManagerTest, AnEndedStreamIsOneWithNoClient) {
   });
 }
 
+// Ending a stream's connection while the stream goes on tells the client
+// how long to wait before coming back for the rest.
+TEST_F(StreamableSessionManagerTest, AnEndedStreamSaysWhenToComeBack) {
+  const std::string id = createSession();
+
+  owner_->run([&]() {
+    SessionCtx* session = manager_->find(id);
+    ASSERT_NE(session, nullptr);
+    FakeStream held(*manager_, *session, owner_->dispatcher(),
+                    fakeConnection(1));
+    manager_->setReconnectRetry(std::chrono::milliseconds(2500));
+
+    EXPECT_TRUE(manager_->endStream(*session, *held.ctx()));
+    const std::string bytes = held.bytes();
+    const size_t retry = bytes.find("retry: 2500");
+    ASSERT_NE(retry, std::string::npos) << bytes;
+    // Before the end of the response, where the client still reads it.
+    const size_t end = bytes.rfind("0\r\n\r\n");
+    ASSERT_NE(end, std::string::npos) << bytes;
+    EXPECT_LT(retry, end);
+  });
+}
+
+// A server configured not to say sends no retry at all.
+TEST_F(StreamableSessionManagerTest, ARetryOfZeroIsNotSent) {
+  const std::string id = createSession();
+
+  owner_->run([&]() {
+    SessionCtx* session = manager_->find(id);
+    ASSERT_NE(session, nullptr);
+    FakeStream held(*manager_, *session, owner_->dispatcher(),
+                    fakeConnection(1));
+    manager_->setReconnectRetry(std::chrono::milliseconds(0));
+
+    EXPECT_TRUE(manager_->endStream(*session, *held.ctx()));
+    EXPECT_EQ(held.bytes().find("retry:"), std::string::npos) << held.bytes();
+  });
+}
+
 TEST_F(StreamableSessionManagerTest, WhatIsSaidAfterAnEndingWaits) {
   const std::string id = createSession();
 
