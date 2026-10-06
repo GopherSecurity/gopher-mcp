@@ -220,10 +220,15 @@ void SseParser::processField(const std::string& name,
 
   } else if (name == kRetryField) {
     // Set retry time if value is all digits
-    if (isAllDigits(value)) {
-      uint64_t retry_ms = std::stoull(value);
+    // A value too large to hold is ignored like any other the field cannot
+    // use, rather than allowed to throw out of the parser.
+    if (isAllDigits(value) && !value.empty() && value.size() <= 19) {
+      const uint64_t retry_ms = std::stoull(value);
       current_event_.retry = retry_ms;
       retry_time_ = retry_ms;
+      if (callbacks_) {
+        callbacks_->onSseRetry(retry_ms);
+      }
     }
   }
   // Ignore unknown fields per SSE spec
