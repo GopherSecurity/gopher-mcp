@@ -45,22 +45,29 @@ fi
 date="$(git -C "${spec_repo}" show -s --format=%cs "${commit}")"
 origin="$(git -C "${spec_repo}" remote get-url origin 2>/dev/null || echo unknown)"
 
-# Out of the commit itself, into a scratch directory first, so a failure
-# part way leaves the existing fixtures as they were.
-scratch="$(mktemp -d)"
-trap 'rm -rf "${scratch}"' EXIT
+# The complete replacement, SOURCE.md included, is built beside the target
+# and only then swapped in, so a failure at any point before the swap leaves
+# the existing fixtures exactly as they were.
+staging="$(mktemp -d "${fixtures_root}/.staging.XXXXXX")"
+previous="${fixtures_root}/.previous.${revision}"
+trap 'rm -rf "${staging}" "${previous}"' EXIT
+
+archive="${staging}/archive"
+built="${staging}/${revision}"
+mkdir -p "${archive}" "${built}"
 git -C "${spec_repo}" archive "${commit}" "${examples}" LICENSE |
-  tar -x -C "${scratch}"
+  tar -x -C "${archive}"
+cp -R "${archive}/${examples}/." "${built}/"
+cp "${archive}/LICENSE" "${built}/LICENSE"
 
-rm -rf "${target}"
-mkdir -p "${target}"
-cp -R "${scratch}/${examples}/." "${target}/"
-cp "${scratch}/LICENSE" "${target}/LICENSE"
+types="$(find "${built}" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')"
+files="$(find "${built}" -name '*.json' | wc -l | tr -d ' ')"
+if [ "${files}" -eq 0 ]; then
+  echo "no fixtures found at ${commit}:${examples}" >&2
+  exit 1
+fi
 
-types="$(find "${target}" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')"
-files="$(find "${target}" -name '*.json' | wc -l | tr -d ' ')"
-
-cat > "${target}/SOURCE.md" <<SOURCE
+cat > "${built}/SOURCE.md" <<SOURCE
 # Source of these fixtures
 
 Copied unchanged from the official Model Context Protocol specification by
@@ -77,5 +84,17 @@ this file (the project is moving from MIT to Apache-2.0; see that file for
 which applies). To refresh them from a newer commit, run the script again
 against an updated checkout.
 SOURCE
+
+# The swap: two renames within one directory. The old set is moved aside
+# rather than deleted until the new one is in place.
+rm -rf "${previous}"
+if [ -e "${target}" ]; then
+  mv "${target}" "${previous}"
+fi
+if ! mv "${built}" "${target}"; then
+  [ -e "${previous}" ] && mv "${previous}" "${target}"
+  echo "could not put the new fixtures in place; the old ones are kept" >&2
+  exit 1
+fi
 
 echo "copied ${files} fixtures across ${types} types from ${commit}"
