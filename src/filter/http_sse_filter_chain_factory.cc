@@ -1291,6 +1291,10 @@ class HttpSseJsonRpcProtocolFilter
       return makeVoidSuccess();
     }
 
+    const std::string& principal() const override {
+      return parent_.security_.principal;
+    }
+
    private:
     HttpSseJsonRpcProtocolFilter& parent_;
     transport::RequestExchangePtr exchange_;

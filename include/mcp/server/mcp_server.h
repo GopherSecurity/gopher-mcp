@@ -52,6 +52,7 @@
 #include "mcp/network/filter.h"
 #include "mcp/protocol/designated_params.h"
 #include "mcp/protocol/mrtr.h"
+#include "mcp/protocol/request_state_sealer.h"
 #include "mcp/server/list_paging.h"
 #include "mcp/server/listen_registry.h"
 #include "mcp/transport/streamable_http_config.h"
@@ -153,6 +154,16 @@ struct McpServerConfig : public application::ApplicationBase::Config {
     CacheScope scope = CacheScope::Private;
   };
   std::map<std::string, CacheHint> cache_hints;
+
+  // Keys for sealing the requestState a handler sends with answerWithInput.
+  // With any configured, every such state is sealed to the caller, the
+  // request and an expiry, and a retry whose state does not open is
+  // refused with -32602 before any handler runs. The first key seals and
+  // all of them verify, so a new key goes first and an old one is removed
+  // once its states have expired. Empty passes requestState through
+  // unsealed, as handlers that protect it themselves need.
+  std::vector<protocol::modern::RequestStateSealer::Key> request_state_keys;
+  std::chrono::seconds request_state_lifetime{300};
 
   // How many items each page of a list holds. 0 puts the whole list on one
   // page. Past the first page a client follows the nextCursor it was given,
@@ -422,6 +433,12 @@ class SessionContext {
   }
   const optional<std::string>& getRequestMeta() const { return request_meta_; }
 
+  // Who the transport established the in-flight request's caller to be.
+  // Set per request, like the metadata above; empty when the transport
+  // authenticates no one.
+  void setPrincipal(const std::string& principal) { principal_ = principal; }
+  const std::string& getPrincipal() const { return principal_; }
+
   // Subscription management
   void addSubscription(const std::string& uri) {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -455,6 +472,7 @@ class SessionContext {
   ClientCapabilities client_capabilities_;
   bool initialized_{false};             // notifications/initialized received
   optional<std::string> request_meta_;  // params._meta of the in-flight request
+  std::string principal_;  // the in-flight request's authenticated caller
 
   mutable std::mutex mutex_;
   std::set<std::string> subscriptions_;
@@ -1416,6 +1434,11 @@ class McpServer : public application::ApplicationBase,
   // do not supply origin information.
   void onRequestWithContext(const jsonrpc::Request& request,
                             MessageDispatchContext& context);
+
+  // Everything onRequestWithContext does once any sealed requestState has
+  // been opened: the request here carries the verified state.
+  void dispatchRequest(const jsonrpc::Request& request,
+                       MessageDispatchContext& context);
   void onNotificationWithContext(const jsonrpc::Notification& notification,
                                  MessageDispatchContext& context);
   void onConnectionEvent(network::ConnectionEvent event);
@@ -1720,6 +1743,9 @@ class McpServer : public application::ApplicationBase,
   // The subscriptions this server is holding open. Dispatcher-confined,
   // like the streams inside it.
   ListenRegistry subscriptions_;
+
+  // Seals and opens requestState; null when no keys are configured.
+  std::unique_ptr<protocol::modern::RequestStateSealer> request_state_sealer_;
 
   // Resource, tool, and prompt management
   std::unique_ptr<ResourceManager> resource_manager_;

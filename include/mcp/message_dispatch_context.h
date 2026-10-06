@@ -175,6 +175,15 @@ class MessageDispatchContext {
    * null has to answer through sendResponse and cannot report progress.
    */
   virtual ResponseStreamPtr beginResponseStream() { return nullptr; }
+
+  /**
+   * Who the transport established the caller to be. Empty when it
+   * authenticates no one, which is every transport without an auth hook.
+   */
+  virtual const std::string& principal() const {
+    static const std::string none;
+    return none;
+  }
 };
 
 /**

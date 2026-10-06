@@ -508,6 +508,14 @@ VoidResult McpServer::resolveBindAddress(const std::string& url) {
 // Constructor
 McpServer::McpServer(const McpServerConfig& config)
     : ApplicationBase(config), config_(config), server_stats_() {
+  // Built once, from keys checked here: a bad key is a configuration
+  // mistake, and better found at startup than on the first retry.
+  if (!config_.request_state_keys.empty()) {
+    request_state_sealer_ =
+        std::make_unique<protocol::modern::RequestStateSealer>(
+            config_.request_state_keys, config_.request_state_lifetime);
+  }
+
   // Initialize session manager for client connection tracking
   session_manager_ = std::make_unique<SessionManager>(config_, server_stats_);
 
@@ -1674,9 +1682,21 @@ VoidResult McpServer::answerWithInput(
         protocol::modern::requiredCapabilitiesData(missing));
   }
 
+  // Sealed on the way out when the server holds keys, bound to who is
+  // asking and what they asked, so it can be trusted when it comes back.
+  protocol::modern::NeedsInput outgoing = needed;
+  if (request_state_sealer_ && outgoing.request_state.has_value()) {
+    protocol::modern::RequestStateContext bound;
+    bound.principal = session.getPrincipal();
+    bound.method = request.method;
+    bound.params = paramsOf(request);
+    outgoing.request_state =
+        request_state_sealer_->seal(outgoing.request_state.value(), bound);
+  }
+
   jsonrpc::Response response = jsonrpc::Response::success(
       request.id,
-      jsonrpc::ResponseResult(protocol::modern::renderInputRequired(needed)));
+      jsonrpc::ResponseResult(protocol::modern::renderInputRequired(outgoing)));
   return stream->sendResponse(response);
 }
 
@@ -1970,6 +1990,52 @@ void McpServer::onRequest(const jsonrpc::Request& request) {
 
 void McpServer::onRequestWithContext(const jsonrpc::Request& request,
                                      MessageDispatchContext& context) {
+  // A retry bringing back a sealed requestState. It is opened here, before
+  // anything else sees the request, and a handler is only ever shown the
+  // state it sealed: one that does not open was edited, expired, issued to
+  // someone else or for another request, and none of those is told apart
+  // to the caller.
+  if (request_state_sealer_) {
+    const json::JsonValue params = paramsOf(request);
+    if (params.isObject() && params.contains("requestState")) {
+      optional<std::string> opened;
+      if (params["requestState"].isString()) {
+        protocol::modern::RequestStateContext bound;
+        bound.principal = context.principal();
+        bound.method = request.method;
+        bound.params = params;
+        opened = request_state_sealer_->open(params["requestState"].getString(),
+                                             bound);
+      }
+      if (!opened.has_value()) {
+        server_stats_.requests_failed++;
+        GOPHER_LOG_DEBUG("refusing a {} retry whose requestState did not open",
+                         request.method);
+        auto sent = context.sendResponse(jsonrpc::Response::make_error(
+            request.id,
+            Error(jsonrpc::INVALID_PARAMS, "Invalid requestState")));
+        if (holds_alternative<Error>(sent)) {
+          GOPHER_LOG_ERROR("Failed to refuse '{}': {}", request.method,
+                           get<Error>(sent).message);
+        }
+        return;
+      }
+      jsonrpc::Request verified = request;
+      json::JsonValue verified_params = params;
+      verified_params.set("requestState", json::JsonValue(opened.value()));
+      verified.params_json = mcp::make_optional(verified_params);
+      if (verified.params.has_value()) {
+        (*verified.params)["requestState"] = opened.value();
+      }
+      dispatchRequest(verified, context);
+      return;
+    }
+  }
+  dispatchRequest(request, context);
+}
+
+void McpServer::dispatchRequest(const jsonrpc::Request& request,
+                                MessageDispatchContext& context) {
   GOPHER_LOG_DEBUG("McpServer::onRequest called with method: {}",
                    request.method);
   GOPHER_LOG_FLOW_DEBUG(
@@ -2038,6 +2104,7 @@ void McpServer::onRequestWithContext(const jsonrpc::Request& request,
   } else {
     session->setRequestMeta(nullopt);
   }
+  session->setPrincipal(context.principal());
 
   // A handler registered as streaming gets somewhere to report progress on
   // its way to an answer. Attached to the session only for the length of
