@@ -4,6 +4,7 @@
 #include "mcp/http/sse_parser.h"
 
 #include <algorithm>
+#include <cstdint>
 #include <cstdlib>
 #include <sstream>
 
@@ -219,11 +220,20 @@ void SseParser::processField(const std::string& name,
     }
 
   } else if (name == kRetryField) {
-    // Set retry time if value is all digits
-    // A value too large to hold is ignored like any other the field cannot
-    // use, rather than allowed to throw out of the parser.
-    if (isAllDigits(value) && !value.empty() && value.size() <= 19) {
-      const uint64_t retry_ms = std::stoull(value);
+    // Read by value, so leading zeros cost nothing; a value too large to
+    // hold is ignored like any other the field cannot use, rather than
+    // allowed to throw out of the parser.
+    uint64_t retry_ms = 0;
+    bool fits = !value.empty() && isAllDigits(value);
+    for (size_t i = 0; fits && i < value.size(); ++i) {
+      const uint64_t digit = static_cast<uint64_t>(value[i] - '0');
+      if (retry_ms > (UINT64_MAX - digit) / 10) {
+        fits = false;
+      } else {
+        retry_ms = retry_ms * 10 + digit;
+      }
+    }
+    if (fits) {
       current_event_.retry = retry_ms;
       retry_time_ = retry_ms;
       if (callbacks_) {
