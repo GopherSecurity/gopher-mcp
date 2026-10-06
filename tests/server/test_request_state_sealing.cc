@@ -50,8 +50,15 @@ class RecordingStream : public ResponseStream {
 /** A return path that keeps the answer, from a caller the transport named. */
 class CallerContext : public NullMessageDispatchContext {
  public:
-  explicit CallerContext(std::string principal)
-      : principal_(std::move(principal)) {}
+  explicit CallerContext(std::string principal,
+                         std::string transport_session = std::string())
+      : principal_(std::move(principal)),
+        transport_session_(std::move(transport_session)) {}
+  // The session the request belongs to; empty shares the one session kept
+  // for requests that name none.
+  const std::string& transportSessionId() const override {
+    return transport_session_;
+  }
   VoidResult sendResponse(const jsonrpc::Response& response) override {
     captured = mcp::make_optional(response);
     return makeVoidSuccess();
@@ -65,6 +72,7 @@ class CallerContext : public NullMessageDispatchContext {
 
  private:
   std::string principal_;
+  std::string transport_session_;
 };
 
 class SealingServer : public McpServer {
@@ -353,6 +361,55 @@ TEST(RequestStateSealing, NumberAndStringIdsAreDifferentRequests) {
   as_alice.params = from_alice.params_json.value();
   EXPECT_TRUE(sealer.open(sealed, as_alice).has_value())
       << "alice's state was sealed to the caller of the request \"1\"";
+}
+
+// An id is unique only within its session. The same id outstanding in
+// another session is another request, with its own caller, and must not
+// stand in for the first one's.
+TEST(RequestStateSealing, TheSameIdInAnotherSessionIsAnotherRequest) {
+  SealingServer server(sealingConfig());
+  std::vector<jsonrpc::Request> held;
+  std::vector<SessionContext*> sessions;
+  server.registerAsyncRequestHandler(
+      "prompts/get", [&](const jsonrpc::Request& request,
+                         SessionContext& session, const ResponseStreamPtr&) {
+        held.push_back(request);
+        sessions.push_back(&session);
+      });
+
+  jsonrpc::Request asked = deploy();
+  asked.method = "prompts/get";
+  CallerContext alice("alice", "session-a");
+  server.onRequestWithContext(asked, alice);
+  CallerContext bob("bob", "session-b");
+  server.onRequestWithContext(asked, bob);
+  ASSERT_EQ(held.size(), 2u);
+  ASSERT_NE(sessions[0], sessions[1]) << "the two callers shared a session";
+
+  // Someone else is served in alice's session meanwhile.
+  jsonrpc::Request other = deploy();
+  other.id = make_request_id(2);
+  CallerContext mallory("mallory", "session-a");
+  server.onRequestWithContext(other, mallory);
+
+  auto own = std::make_shared<RecordingStream>();
+  NeedsInput needed;
+  needed.request_state = mcp::make_optional(std::string("approved:deploy"));
+  ASSERT_TRUE(holds_alternative<std::nullptr_t>(
+      server.answerWithInput(own, held[0], *sessions[0], needed)));
+  ASSERT_EQ(own->answered.size(), 1u);
+  const std::string sealed =
+      json::to_json(
+          own->answered[0].result.value())[protocol::modern::kRequestStateField]
+          .getString();
+
+  RequestStateSealer sealer({kKey});
+  protocol::modern::RequestStateContext as_alice;
+  as_alice.principal = "alice";
+  as_alice.method = "prompts/get";
+  as_alice.params = asked.params_json.value();
+  EXPECT_TRUE(sealer.open(sealed, as_alice).has_value())
+      << "alice's state was sealed to another session's caller";
 }
 
 // A request carrying no state is untouched by sealing.
