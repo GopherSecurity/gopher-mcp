@@ -328,8 +328,7 @@ TEST_F(MCPTypesTest, JSONRPCErrorCodes) {
 
 // Test base metadata
 TEST_F(MCPTypesTest, BaseMetadata) {
-  Implementation tmpl;
-  tmpl.name = "file-template";
+  BaseMetadata tmpl;
 
   // Add metadata
   tmpl._meta = mcp::make_optional(make_metadata());

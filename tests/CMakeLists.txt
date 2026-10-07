@@ -2141,6 +2141,16 @@ target_link_libraries(test_elicitation
 )
 add_test(NAME ElicitationTest COMMAND test_elicitation)
 
+# Titles, icons and display metadata
+add_executable(test_display_metadata json/test_display_metadata.cc)
+target_link_libraries(test_display_metadata
+    gopher-mcp
+    gtest
+    gtest_main
+    Threads::Threads
+)
+add_test(NAME DisplayMetadataTest COMMAND test_display_metadata)
+
 # Stdio Filter Chain Factory Tests
 add_executable(test_stdio_filter_chain_factory filter/test_stdio_filter_chain_factory.cc)
 target_link_libraries(test_stdio_filter_chain_factory 
