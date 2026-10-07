@@ -355,11 +355,11 @@ void demonstrateFeatures(McpClient& client, bool verbose) {
     try {
       auto ping_future = client.sendRequest("ping");
       auto ping_response = ping_future.get();
-      if (!ping_response.error.has_value() &&
-          extractMetadataBool(ping_response, "pong")) {
-        results.pass("ping handler - returns pong=true");
+      // A ping is answered with an empty result; succeeding is the test.
+      if (!ping_response.error.has_value()) {
+        results.pass("ping - answered");
       } else {
-        results.fail("ping handler", "Missing pong=true");
+        results.fail("ping", ping_response.error->message);
       }
     } catch (const std::exception& e) {
       results.fail("ping handler", e.what());
