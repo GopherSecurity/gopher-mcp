@@ -50,6 +50,37 @@ origin="$(git -C "${spec_repo}" remote get-url origin 2>/dev/null || echo unknow
 # the existing fixtures exactly as they were.
 previous="${fixtures_root}/.previous.${revision}"
 
+# One refresh of a revision at a time: the backup path and the swap are
+# shared, so two runs at once could move one's backup over the other's
+# target, or delete a backup the other still needs. mkdir either creates the
+# lock or fails, atomically. A lock left by a run that was killed has to be
+# removed by hand, once no refresh is running.
+lock="${fixtures_root}/.lock.${revision}"
+if ! mkdir "${lock}" 2>/dev/null; then
+  holder="$(cat "${lock}/pid" 2>/dev/null || echo unknown)"
+  echo "another refresh of ${revision} holds ${lock} (pid ${holder});" >&2
+  echo "if none is running, remove ${lock} and try again" >&2
+  exit 1
+fi
+echo "$$" > "${lock}/pid"
+staging=""
+swapped=0
+cleanup() {
+  if [ -n "${staging}" ]; then
+    rm -rf "${staging}"
+  fi
+  # The backup goes only once the new fixtures are safely in place. Until
+  # then it may be the only copy there is.
+  if [ "${swapped}" -eq 1 ]; then
+    rm -rf "${previous}"
+  elif [ -e "${previous}" ]; then
+    echo "the previous fixtures are kept at ${previous}" >&2
+  fi
+  # Released last, once nothing more is done to the backup or the target.
+  rm -rf "${lock}"
+}
+trap cleanup EXIT
+
 # A backup with no fixtures beside it is all that is left of an earlier
 # refresh that failed part way; it is the only copy, so it is never touched
 # here. One beside fixtures that are in place is stale.
@@ -61,18 +92,6 @@ fi
 rm -rf "${previous}"
 
 staging="$(mktemp -d "${fixtures_root}/.staging.XXXXXX")"
-swapped=0
-cleanup() {
-  rm -rf "${staging}"
-  # The backup goes only once the new fixtures are safely in place. Until
-  # then it may be the only copy there is.
-  if [ "${swapped}" -eq 1 ]; then
-    rm -rf "${previous}"
-  elif [ -e "${previous}" ]; then
-    echo "the previous fixtures are kept at ${previous}" >&2
-  fi
-}
-trap cleanup EXIT
 
 archive="${staging}/archive"
 built="${staging}/${revision}"
