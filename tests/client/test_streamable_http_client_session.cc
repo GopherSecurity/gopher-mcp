@@ -69,6 +69,9 @@ class StreamableHttpClientSessionTest : public ::testing::Test {
     // Declining the newest keeps its discovery out of the counts too: a
     // client that may speak it asks first, even with the transport named.
     config.streamable_http.enable_modern_era = false;
+    if (!offer_.empty()) {
+      config.protocol_version = offer_;
+    }
     config.request_timeout = 5000ms;
     config.protocol_initialization_timeout = 5000ms;
     config.protocol_connection_timeout = 5000ms;
@@ -121,6 +124,8 @@ class StreamableHttpClientSessionTest : public ::testing::Test {
 
   ScriptedServer server_;
   std::unique_ptr<client::McpClient> client_;
+  // The version the client offers in initialize, when not its default.
+  std::string offer_;
 };
 
 constexpr const char* kSessionOne = "session-one";
@@ -648,6 +653,22 @@ TEST_F(StreamableHttpClientSessionTest, AnUnacceptedVersionFailsTheHandshake) {
 TEST_F(StreamableHttpClientSessionTest, TheNewestEraFailsTheHandshake) {
   EXPECT_HANDSHAKE_REFUSED(
       R"({"protocolVersion":"2026-07-28","capabilities":{}})", "2026-07-28");
+}
+
+// Offering a version says it is the newest the client will speak, so a
+// server answering with a newer one is refused, though the client knows it.
+TEST_F(StreamableHttpClientSessionTest, ANewerVersionThanOfferedFails) {
+  offer_ = "2025-06-18";
+  EXPECT_HANDSHAKE_REFUSED(
+      R"({"protocolVersion":"2025-11-25","capabilities":{}})", "2025-11-25");
+}
+
+// An older one it speaks is still accepted.
+TEST_F(StreamableHttpClientSessionTest, AnOlderVersionThanOfferedIsSpoken) {
+  offer_ = "2025-06-18";
+  startClient(answeringInitializeWith(
+      server_, R"({"protocolVersion":"2025-03-26","capabilities":{}})"));
+  EXPECT_EQ(settled(*client_), "2025-03-26");
 }
 
 TEST_F(StreamableHttpClientSessionTest, NoVersionAtAllFailsTheHandshake) {
