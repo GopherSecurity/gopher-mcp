@@ -363,7 +363,6 @@ const std::map<std::string, RoundTrip>& checked() {
       {"BlobResourceContents", as<BlobResourceContents>()},
       {"Resource", as<Resource>()},
       {"TextResourceContents", as<TextResourceContents>()},
-      // Elicitation form fields
       {"BooleanSchema", as<BooleanSchema>()},
       {"NumberSchema", as<NumberSchema>()},
       {"StringSchema", as<StringSchema>()},
@@ -501,11 +500,6 @@ const std::map<std::string, std::string>& kKnownGaps() {
        "the typed request misreads ref and fails: Value is not a string"},
       {"CreateMessageRequestParams",
        "toolChoice and tool-result message content are not modelled"},
-      {"ElicitRequest",
-       "title and format on form fields are not modelled, so dropped"},
-      {"ElicitRequestFormParams",
-       "title and format on form fields are not modelled, so dropped"},
-      {"ElicitRequestURLParams", "URL-mode elicitation is not supported"},
       {"ProgressNotification",
        "the progress message is not modelled, so dropped"},
       {"ProgressNotificationParams",
@@ -540,18 +534,6 @@ const std::map<std::string, std::string>& kKnownGaps() {
        "extensions, sampling.context and sampling.tools are dropped, and an "
        "elicitation capability given as {} is written back as {form: {}}"},
       {"ServerCapabilities", "completions and extensions are dropped"},
-      // Elicitation form fields
-      {"BooleanSchema", "default is not modelled, so dropped"},
-      {"NumberSchema", "default is not modelled, so dropped"},
-      {"StringSchema", "default is not modelled, so dropped"},
-      {"TitledMultiSelectEnumSchema",
-       "multi-select and titled enum fields are not modelled; default is "
-       "dropped"},
-      {"TitledSingleSelectEnumSchema",
-       "titled enum options are not modelled; default is dropped"},
-      {"UntitledMultiSelectEnumSchema",
-       "multi-select enum fields are not modelled; default is dropped"},
-      {"UntitledSingleSelectEnumSchema", "default is not modelled, so dropped"},
       // Sampling with tools
       {"CreateMessageResult",
        "content holding an array of blocks, as tool use returns, is not "
