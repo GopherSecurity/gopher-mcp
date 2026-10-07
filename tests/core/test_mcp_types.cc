@@ -218,9 +218,9 @@ TEST_F(MCPTypesTest, ResourceContents) {
 
 // Test reference types
 TEST_F(MCPTypesTest, ReferenceTypes) {
-  auto template_ref = make_resource_template_ref("template", "my-template");
-  EXPECT_EQ(template_ref.type, "template");
-  EXPECT_EQ(template_ref.name, "my-template");
+  auto template_ref = make_resource_template_ref("ref/resource", "a://{b}");
+  EXPECT_EQ(template_ref.type, "ref/resource");
+  EXPECT_EQ(template_ref.uri, "a://{b}");
 
   auto prompt_ref = make_prompt_ref("system", "math-tutor");
   EXPECT_EQ(prompt_ref.type, "system");
@@ -684,9 +684,9 @@ TEST_F(MCPTypesTest, PromptMessageReferences) {
   EXPECT_EQ(promptRef.name, "greeting-prompt");
 
   // Test resource template reference
-  auto resourceRef = make_resource_template_ref("template", "file-template");
-  EXPECT_EQ(resourceRef.type, "template");
-  EXPECT_EQ(resourceRef.name, "file-template");
+  auto resourceRef = make_resource_template_ref("ref/resource", "file:///{p}");
+  EXPECT_EQ(resourceRef.type, "ref/resource");
+  EXPECT_EQ(resourceRef.uri, "file:///{p}");
 
   // Test PromptMessage with text content
   PromptMessage msg;

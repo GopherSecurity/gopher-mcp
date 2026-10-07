@@ -254,14 +254,25 @@ TEST(BuildersTest, ReadResourceResultBuilder) {
 }
 
 TEST(BuildersTest, CompleteRequestBuilder) {
-  auto request = make<CompleteRequest>("prompt", "greeting")
-                     .argument("partial-input")
+  auto request = make<CompleteRequest>("ref/prompt", "greeting")
+                     .argument("name", "partial-input")
+                     .chosen("language", "en")
                      .build();
 
-  EXPECT_EQ(request.ref.type, "prompt");
-  EXPECT_EQ(request.ref.name, "greeting");
-  ASSERT_TRUE(request.argument.has_value());
-  EXPECT_EQ(request.argument.value(), "partial-input");
+  ASSERT_TRUE(holds_alternative<PromptReference>(request.ref));
+  EXPECT_EQ(get<PromptReference>(request.ref).type, "ref/prompt");
+  EXPECT_EQ(get<PromptReference>(request.ref).name, "greeting");
+  EXPECT_EQ(request.argument.name, "name");
+  EXPECT_EQ(request.argument.value, "partial-input");
+  ASSERT_TRUE(request.context.has_value());
+  EXPECT_EQ(request.context->arguments->at("language"), "en");
+
+  auto templated = make<CompleteRequest>("ref/resource", "file:///{path}")
+                       .argument("path")
+                       .build();
+  ASSERT_TRUE(holds_alternative<ResourceTemplateReference>(templated.ref));
+  EXPECT_EQ(get<ResourceTemplateReference>(templated.ref).uri,
+            "file:///{path}");
 }
 
 TEST(BuildersTest, CompleteResultBuilder) {
