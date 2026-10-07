@@ -2718,10 +2718,10 @@ jsonrpc::Response McpServer::handleDiscover(const jsonrpc::Request& request,
 
 jsonrpc::Response McpServer::handlePing(const jsonrpc::Request& request,
                                         SessionContext& session) {
-  // Simple ping response
+  // An empty result and nothing else, as the spec requires of a ping.
+  (void)session;
   return jsonrpc::Response::success(
-      request.id,
-      jsonrpc::ResponseResult(make<Metadata>().add("pong", true).build()));
+      request.id, jsonrpc::ResponseResult(json::JsonValue::object()));
 }
 
 jsonrpc::Response McpServer::handleListResources(
