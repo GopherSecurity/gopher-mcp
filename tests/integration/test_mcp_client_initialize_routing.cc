@@ -1055,6 +1055,76 @@ TEST_F(McpClientInitializeRoutingTest, TheClientKnowsWhoAnswered) {
   EXPECT_EQ(who->version, "0.0.1");
 }
 
+// A client asks for completions of a prompt's argument or a resource
+// template's parameter, in either revision, and gets the server's values.
+TEST_F(McpClientInitializeRoutingTest, ArgumentsAreCompleted) {
+  for (const bool newest : {true, false}) {
+    SCOPED_TRACE(newest ? "2026-07-28" : "earlier");
+    if (!newest) {
+      client_->shutdown();
+      client_.reset();
+      stopServer();
+      startServer(/*serve_newest=*/false);
+    }
+    server_->registerPromptCompletion(
+        "code_review", [](const server::McpServer::CompletionQuery& query) {
+          CompleteResult::Completion completion;
+          const auto language = query.arguments.find("language");
+          if (query.argument == "framework" &&
+              language != query.arguments.end() &&
+              language->second == "python") {
+            for (const char* framework : {"flask", "fastapi", "django"}) {
+              if (std::string(framework).compare(0, query.value.size(),
+                                                 query.value) == 0) {
+                completion.values.push_back(framework);
+              }
+            }
+          }
+          completion.total = static_cast<double>(completion.values.size());
+          return completion;
+        });
+    server_->registerResourceTemplateCompletion(
+        "file:///{path}", [](const server::McpServer::CompletionQuery& query) {
+          CompleteResult::Completion completion;
+          completion.values = {query.value + "main.rs"};
+          completion.hasMore = true;
+          return completion;
+        });
+    connectInitializedClient();
+
+    auto prompt = client_->completePromptArgument(
+        "code_review", "framework", "f", {{"language", "python"}});
+    ASSERT_EQ(prompt.wait_for(5s), std::future_status::ready);
+    const CompleteResult frameworks = prompt.get();
+    EXPECT_EQ(frameworks.completion.values,
+              (std::vector<std::string>{"flask", "fastapi"}));
+    EXPECT_EQ(frameworks.completion.total, mcp::make_optional(2.0));
+    EXPECT_FALSE(frameworks.completion.hasMore);
+
+    auto templated = client_->completeResourceTemplateArgument("file:///{path}",
+                                                               "path", "src/");
+    ASSERT_EQ(templated.wait_for(5s), std::future_status::ready);
+    const CompleteResult paths = templated.get();
+    EXPECT_EQ(paths.completion.values,
+              (std::vector<std::string>{"src/main.rs"}));
+    EXPECT_TRUE(paths.completion.hasMore);
+  }
+}
+
+// A server that offers no completions refuses, and the call fails with
+// what it said.
+TEST_F(McpClientInitializeRoutingTest, NoCompletionsIsARefusal) {
+  connectInitializedClient();
+  auto call = client_->completePromptArgument("code_review", "language", "p");
+  ASSERT_EQ(call.wait_for(5s), std::future_status::ready);
+  try {
+    call.get();
+    FAIL() << "a server with no completions answered";
+  } catch (const client::RequestError& e) {
+    EXPECT_EQ(e.error().code, jsonrpc::METHOD_NOT_FOUND);
+  }
+}
+
 // A client of an earlier revision hears a list change through its own
 // notification handlers, and only from a server that said it announces them.
 TEST_F(McpClientInitializeRoutingTest, AnEarlierRevisionHearsListChanges) {
