@@ -126,6 +126,13 @@ struct McpServerConfig : public application::ApplicationBase::Config {
   std::string protocol_version = protocol::kDefaultProtocolVersion;
   std::string server_name = "mcp-cpp-server";
   std::string server_version = "1.0.0";
+  // How this server describes itself to people, sent beside its name and
+  // version wherever it names itself: initialize, server/discover and
+  // _meta. Each is left out when empty.
+  std::string server_title;
+  std::string server_description;
+  std::string server_website_url;
+  std::vector<Icon> server_icons;
   std::string instructions;  // Optional server instructions
   std::function<std::string(const jsonrpc::Request&, SessionContext&)>
       instructions_provider;

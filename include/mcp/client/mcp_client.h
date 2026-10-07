@@ -75,6 +75,13 @@ struct McpClientConfig : public application::ApplicationBase::Config {
   std::string protocol_version = protocol::kLatestHandshakeVersion;
   std::string client_name = "mcp-cpp-client";
   std::string client_version = "1.0.0";
+  // How this client describes itself to people, sent beside its name and
+  // version wherever it introduces itself: initialize, and _meta in
+  // 2026-07-28. Each is left out when empty.
+  std::string client_title;
+  std::string client_description;
+  std::string client_website_url;
+  std::vector<Icon> client_icons;
 
   // Transport configuration
   TransportType preferred_transport = TransportType::Stdio;

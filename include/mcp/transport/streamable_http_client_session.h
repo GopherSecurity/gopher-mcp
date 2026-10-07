@@ -146,8 +146,22 @@ class StreamableHttpClientSession {
 
   /** Who this client says it is, for the requests that have to say. */
   void setClientIdentity(const std::string& name, const std::string& version) {
-    client_name_ = name;
-    client_version_ = version;
+    json::JsonValue who = json::JsonValue::object();
+    who.set("name", json::JsonValue(name));
+    who.set("version", json::JsonValue(version));
+    setClientInfo(who);
+  }
+
+  /**
+   * Who this client says it is, as a clientInfo object: name and version,
+   * and anything it says about itself for people. Anything without a
+   * name leaves it unsaid.
+   */
+  void setClientInfo(const json::JsonValue& info) {
+    const bool named = info.isObject() && info.contains("name") &&
+                       info["name"].isString() &&
+                       !info["name"].getString().empty();
+    client_info_ = named ? info : json::JsonValue();
   }
 
   /** What this client says it can do, as a capabilities object. */
@@ -277,8 +291,7 @@ class StreamableHttpClientSession {
   std::string session_id_;
   // What this client says about itself on every modern request, there
   // being no introduction in which to have said it once.
-  std::string client_name_;
-  std::string client_version_;
+  json::JsonValue client_info_;
   json::JsonValue client_capabilities_;
   // What each tool asks to have mirrored, as its listing said. Kept per
   // session because a server may change its tools and a client is

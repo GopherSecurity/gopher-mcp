@@ -94,6 +94,24 @@ optional<Metadata> argumentsOf(const json::JsonValue& params) {
       arguments.isObject() ? json::jsonToMetadata(arguments) : Metadata());
 }
 
+// Who this server says it is, as configured.
+json::JsonValue serverInfoOf(const McpServerConfig& config) {
+  Implementation self(config.server_name, config.server_version);
+  if (!config.server_title.empty()) {
+    self.title = config.server_title;
+  }
+  if (!config.server_description.empty()) {
+    self.description = config.server_description;
+  }
+  if (!config.server_website_url.empty()) {
+    self.websiteUrl = config.server_website_url;
+  }
+  if (!config.server_icons.empty()) {
+    self.icons = config.server_icons;
+  }
+  return json::to_json(self);
+}
+
 // What this server says it can do, the same in answer to initialize and to
 // server/discover. The tools capability's listChanged comes from the server
 // setting of that name unless the capability says so itself.
@@ -2320,10 +2338,7 @@ void McpServer::dispatchRequest(const jsonrpc::Request& request,
     // With no handshake to say it in, a server of this revision names
     // itself on every result.
     if (cache_hints.modern && config_.send_server_info) {
-      json::JsonValue server_info = json::JsonValue::object();
-      server_info.set("name", json::JsonValue(config_.server_name));
-      server_info.set("version", json::JsonValue(config_.server_version));
-      cache_hints.server_info = mcp::make_optional(server_info);
+      cache_hints.server_info = mcp::make_optional(serverInfoOf(config_));
     }
   }
 
@@ -2704,8 +2719,7 @@ jsonrpc::Response McpServer::handleInitialize(const jsonrpc::Request& request,
                                               SessionContext& session) {
   std::string instructions;
   std::string protocol_version;
-  std::string server_name;
-  std::string server_version;
+  json::JsonValue server_info;
   ServerCapabilities server_capabilities;
   bool tools_list_changed = false;
   std::function<std::string(const jsonrpc::Request&, SessionContext&)>
@@ -2715,8 +2729,7 @@ jsonrpc::Response McpServer::handleInitialize(const jsonrpc::Request& request,
     tools_list_changed = config_.tools_list_changed;
     instructions = config_.instructions;
     protocol_version = config_.protocol_version;
-    server_name = config_.server_name;
-    server_version = config_.server_version;
+    server_info = serverInfoOf(config_);
     server_capabilities = config_.capabilities;
     instructions_provider = config_.instructions_provider;
   }
@@ -2782,10 +2795,6 @@ jsonrpc::Response McpServer::handleInitialize(const jsonrpc::Request& request,
   json::JsonValue result_json;
   result_json["protocolVersion"] = negotiated;
 
-  // Add serverInfo as nested object
-  json::JsonValue server_info;
-  server_info["name"] = server_name;
-  server_info["version"] = server_version;
   result_json["serverInfo"] = std::move(server_info);
 
   result_json["capabilities"] = json::to_json(advertisedCapabilities(
@@ -2840,11 +2849,8 @@ jsonrpc::Response McpServer::handleDiscover(const jsonrpc::Request& request,
 
   // Named under the metadata key rather than as a field of its own: with
   // no handshake, this is where a server says what it is.
-  json::JsonValue server_info = json::JsonValue::object();
-  server_info.set("name", json::JsonValue(config_.server_name));
-  server_info.set("version", json::JsonValue(config_.server_version));
   json::JsonValue meta = json::JsonValue::object();
-  meta.set(protocol::modern::kMetaServerInfo, server_info);
+  meta.set(protocol::modern::kMetaServerInfo, serverInfoOf(config_));
   result.set("_meta", meta);
 
   return jsonrpc::Response::success(request.id,
