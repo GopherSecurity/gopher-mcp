@@ -953,29 +953,37 @@ inline PrimitiveSchemaDefinition make_enum_schema(
 
 // Schema builders
 
-// Reference types
+// What completion/complete is completing an argument of: a resource
+// template, by its URI template, or a prompt, by its name. On the wire:
+//   {"type": "ref/resource", "uri"}
+//   {"type": "ref/prompt", "name", "title"?}
 struct ResourceTemplateReference {
-  std::string type;
-  std::string name;
+  std::string type = "ref/resource";
+  // The template's URI template, such as file:///{path}.
+  std::string uri;
 
   ResourceTemplateReference() = default;
-  ResourceTemplateReference(const std::string& t, const std::string& n)
-      : type(t), name(n) {}
+  explicit ResourceTemplateReference(const std::string& u) : uri(u) {}
+  ResourceTemplateReference(const std::string& t, const std::string& u)
+      : type(t), uri(u) {}
 };
 
 struct PromptReference : BaseMetadata {
-  std::string type;
+  std::string type = "ref/prompt";
   std::string name;
+  // For people to read; name is for programs.
+  optional<std::string> title;
 
   PromptReference() = default;
+  explicit PromptReference(const std::string& n) : name(n) {}
   PromptReference(const std::string& t, const std::string& n)
       : type(t), name(n) {}
 };
 
 // Factory functions for references
 inline ResourceTemplateReference make_resource_template_ref(
-    const std::string& type, const std::string& name) {
-  return ResourceTemplateReference(type, name);
+    const std::string& type, const std::string& uri) {
+  return ResourceTemplateReference(type, uri);
 }
 
 inline PromptReference make_prompt_ref(const std::string& type,
@@ -1077,6 +1085,8 @@ struct ServerCapabilities {
   optional<ToolsCapability> tools;
   optional<PromptsCapability> prompts;
   optional<LoggingCapability> logging;
+  // Offers completion/complete for prompt and resource-template arguments.
+  optional<EmptyCapability> completions;
 
   ServerCapabilities() = default;
 };
@@ -1356,17 +1366,40 @@ struct LoggingMessageNotification : jsonrpc::Notification {
   }
 };
 
-// Completion types
+// Completion: suggestions for an argument while a user fills it in. On the
+// wire:
+//   params  {"ref": {...}, "argument": {"name", "value"},
+//            "context"?: {"arguments"?: {"<name>": "<value>", ...}},
+//            "_meta"?}
+//   result  {"completion": {"values": [...], "total"?, "hasMore"?}}
 struct CompleteRequest : jsonrpc::Request {
-  PromptReference ref;
-  optional<std::string> argument;
+  struct Argument {
+    std::string name;
+    // What has been typed so far.
+    std::string value;
+  };
+  struct Context {
+    // The other arguments already chosen, by name.
+    optional<std::map<std::string, std::string>> arguments;
+  };
+
+  // What the argument belongs to.
+  variant<PromptReference, ResourceTemplateReference> ref;
+  Argument argument;
+  optional<Context> context;
+  // The request's metadata, a JSON object, kept as nested JSON.
+  optional<mcp::json::JsonValue> _meta;
 
   CompleteRequest() : jsonrpc::Request() { method = "completion/complete"; }
 };
 
 struct CompleteResult {
+  // At most this many values in one result.
+  static constexpr size_t kMaxValues = 100;
+
   struct Completion {
     std::vector<std::string> values;
+    // How many there are in all, which may be more than are sent.
     optional<double> total;
     bool hasMore = false;
 
