@@ -133,6 +133,33 @@ optional<Error> jsonRpcErrorIn(const std::string& body, const RequestId& id) {
   }
 }
 
+// Who this client says it is, as configured.
+json::JsonValue clientInfoOf(const McpClientConfig& config) {
+  Implementation self(config.client_name, config.client_version);
+  if (!config.client_title.empty()) {
+    self.title = config.client_title;
+  }
+  if (!config.client_description.empty()) {
+    self.description = config.client_description;
+  }
+  if (!config.client_website_url.empty()) {
+    self.websiteUrl = config.client_website_url;
+  }
+  if (!config.client_icons.empty()) {
+    self.icons = config.client_icons;
+  }
+  return json::to_json(self);
+}
+
+// Who a server says it is, if it names itself. Only a string name is
+// needed; anything else malformed is passed over.
+optional<Implementation> implementationIn(const json::JsonValue& who) {
+  if (!who.isObject() || !who.contains("name") || !who["name"].isString()) {
+    return nullopt;
+  }
+  return mcp::make_optional(json::from_json<Implementation>(who));
+}
+
 }  // namespace
 
 // Out-of-class definition for static constexpr member (required for C++14)
@@ -790,16 +817,8 @@ InitializeResult McpClient::parseInitializeResponse(
         json::from_json<ServerCapabilities>(result["capabilities"]);
   }
 
-  if (result.contains("serverInfo") && result["serverInfo"].isObject()) {
-    const auto& who = result["serverInfo"];
-    if (who.contains("name") && who["name"].isString()) {
-      Implementation server_info(
-          who["name"].getString(),
-          who.contains("version") && who["version"].isString()
-              ? who["version"].getString()
-              : std::string());
-      init_result.serverInfo = mcp::make_optional(server_info);
-    }
+  if (result.contains("serverInfo")) {
+    init_result.serverInfo = implementationIn(result["serverInfo"]);
   }
 
   if (result.contains("instructions") && result["instructions"].isString()) {
@@ -840,15 +859,8 @@ InitializeResult McpClient::parseDiscoverResponse(
   if (result.isObject() && result.contains("_meta") &&
       result["_meta"].isObject() &&
       result["_meta"].contains(protocol::modern::kMetaServerInfo)) {
-    const auto& who = result["_meta"][protocol::modern::kMetaServerInfo];
-    if (who.isObject() && who.contains("name") && who["name"].isString()) {
-      Implementation server_info(
-          who["name"].getString(),
-          who.contains("version") && who["version"].isString()
-              ? who["version"].getString()
-              : std::string());
-      init_result.serverInfo = mcp::make_optional(server_info);
-    }
+    init_result.serverInfo =
+        implementationIn(result["_meta"][protocol::modern::kMetaServerInfo]);
   }
 
   if (result.isObject() && result.contains("instructions") &&
@@ -921,10 +933,7 @@ Metadata McpClient::buildInitializeParams() const {
   // as their JSON text, and the serializer puts them back on the wire as
   // the objects they are. Built as JSON so a name with a quote in it
   // cannot break the text.
-  json::JsonValue client_info = json::JsonValue::object();
-  client_info.set("name", json::JsonValue(config_.client_name));
-  client_info.set("version", json::JsonValue(config_.client_version));
-  init_params["clientInfo"] = client_info.toString();
+  init_params["clientInfo"] = clientInfoOf(config_).toString();
 
   // What this client can do, derived the same way the newer era declares
   // it on every request: what was configured, plus what the registered
@@ -1552,12 +1561,11 @@ void McpClient::handleResponse(const Response& response) {
     if (resultAsJson(response, &result) && result.isObject() &&
         result.contains("_meta") && result["_meta"].isObject() &&
         result["_meta"].contains(protocol::modern::kMetaServerInfo)) {
-      const auto& who = result["_meta"][protocol::modern::kMetaServerInfo];
-      if (who.isObject() && who.contains("name") && who["name"].isString() &&
-          who.contains("version") && who["version"].isString()) {
+      auto who =
+          implementationIn(result["_meta"][protocol::modern::kMetaServerInfo]);
+      if (who.has_value()) {
         std::lock_guard<std::mutex> lock(server_info_mutex_);
-        last_server_info_ =
-            Implementation(who["name"].getString(), who["version"].getString());
+        last_server_info_ = std::move(who);
       }
     }
   }
@@ -2330,8 +2338,7 @@ void McpClient::enterModernRevision(const std::string& version) {
         std::make_shared<transport::StreamableHttpClientSession>();
   }
   streamable_session_->setProtocolVersion(version);
-  streamable_session_->setClientIdentity(config_.client_name,
-                                         config_.client_version);
+  streamable_session_->setClientInfo(clientInfoOf(config_));
   streamable_session_->setClientCapabilities(declaredCapabilities());
 }
 

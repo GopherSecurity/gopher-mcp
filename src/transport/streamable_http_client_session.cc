@@ -125,11 +125,8 @@ json::JsonValue StreamableHttpClientSession::declareSelf(
   // Optional, and left out rather than filled with a placeholder: a
   // server must serve a request that never says who is calling, and a
   // made-up name would be worse than none.
-  if (!client_name_.empty()) {
-    json::JsonValue who = json::JsonValue::object();
-    who.set("name", json::JsonValue(client_name_));
-    who.set("version", json::JsonValue(client_version_));
-    meta.set(protocol::modern::kMetaClientInfo, who);
+  if (client_info_.isObject()) {
+    meta.set(protocol::modern::kMetaClientInfo, client_info_);
   }
 
   params.set("_meta", meta);
