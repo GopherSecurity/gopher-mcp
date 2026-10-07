@@ -88,7 +88,8 @@ TEST_F(StreamableHttpConfigTest, ServerAndClientConfigsCarryStreamableHttp) {
   EXPECT_EQ(server_config.streamable_http.mcp_path, "/mcp");
   EXPECT_EQ(client_config.streamable_http.mcp_path, "/mcp");
   EXPECT_EQ(server_config.protocol_version, kDefaultProtocolVersion);
-  EXPECT_EQ(client_config.protocol_version, kDefaultProtocolVersion);
+  // A client offers the newest version the handshake can settle.
+  EXPECT_EQ(client_config.protocol_version, kLatestHandshakeVersion);
 }
 
 TEST_F(StreamableHttpConfigTest, VersionConstants) {
