@@ -269,6 +269,26 @@ TEST(Elicitation, ChoiceFieldsInEveryForm) {
   }
 }
 
+// A bound too large for an integer is written as the number it is, and
+// read back unchanged; whole ones that fit are written as integers.
+TEST(Elicitation, LargeNumberBoundsAreKept) {
+  for (const double bound : {1e100, -1e100, 9223372036854775808.0, 1.5}) {
+    SCOPED_TRACE(bound);
+    const JsonValue wire = json::to_json(PrimitiveSchemaDefinition(
+        make<NumberSchema>().minimum(-bound).maximum(bound).build()));
+    ASSERT_TRUE(wire["maximum"].isNumber()) << wire.toString();
+    EXPECT_FALSE(wire["maximum"].isInteger()) << wire.toString();
+    const auto back = json::from_json<PrimitiveSchemaDefinition>(wire);
+    const auto* number = get_if<NumberSchema>(&back);
+    ASSERT_NE(number, nullptr);
+    EXPECT_EQ(number->maximum, mcp::make_optional(bound));
+    EXPECT_EQ(number->minimum, mcp::make_optional(-bound));
+  }
+  const JsonValue whole = json::to_json(PrimitiveSchemaDefinition(
+      make<NumberSchema>().maximum(-9223372036854775808.0).build()));
+  EXPECT_TRUE(whole["maximum"].isInteger()) << whole.toString();
+}
+
 // A keyword of the wrong type is passed over, not allowed to cost the form.
 TEST(Elicitation, FieldsAreReadForgivingly) {
   const auto field = json::from_json<PrimitiveSchemaDefinition>(
