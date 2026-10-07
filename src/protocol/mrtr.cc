@@ -107,6 +107,24 @@ std::vector<std::string> capabilitiesMissingFor(const InputRequests& requests,
       }
       continue;
     }
+    // A URL is a different thing to be asked: a client that can show a form
+    // may still not send its user somewhere else, and says so separately.
+    if (needed == "elicitation" && entry.second.params.isObject() &&
+        entry.second.params.contains("mode") &&
+        entry.second.params["mode"].isString() &&
+        entry.second.params["mode"].getString() == "url") {
+      const bool url_declared = declares(capabilities, "elicitation") &&
+                                capabilities["elicitation"].isObject() &&
+                                declares(capabilities["elicitation"], "url");
+      if (!url_declared) {
+        const std::string url_needed = "elicitation.url";
+        if (std::find(missing.begin(), missing.end(), url_needed) ==
+            missing.end()) {
+          missing.push_back(url_needed);
+        }
+      }
+      continue;
+    }
     if (declares(capabilities, needed)) {
       continue;
     }

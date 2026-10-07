@@ -38,7 +38,7 @@ namespace mcp {
 namespace server {
 namespace {
 
-constexpr const char* kMcpProtocolVersion2025_03_26 = "2025-03-26";
+constexpr const char* kMcpProtocolVersion2025_06_18 = "2025-06-18";
 constexpr const char* kMcpProtocolVersion2025_11_25 = "2025-11-25";
 
 std::string stringMetadataValue(const Metadata& metadata,
@@ -241,10 +241,11 @@ ClientCapabilities clientCapabilitiesFromInitializeParams(
 
 bool protocolSupportsElicitationMode(const std::string& protocol_version,
                                      const std::string& mode) {
+  // Elicitation first appears in 2025-06-18, and URL mode in 2025-11-25.
   if (mode == "url") {
     return protocol_version >= kMcpProtocolVersion2025_11_25;
   }
-  return protocol_version >= kMcpProtocolVersion2025_03_26;
+  return protocol_version >= kMcpProtocolVersion2025_06_18;
 }
 
 std::future<jsonrpc::Response> makeReadyResponseFuture(

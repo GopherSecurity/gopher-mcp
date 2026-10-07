@@ -274,8 +274,26 @@ class StringSchemaBuilder : public Builder<StringSchema, StringSchemaBuilder> {
     return *this;
   }
 
+  // Kept so existing code compiles; the spec allows no pattern in a form
+  // field, so it is never written.
   StringSchemaBuilder& pattern(const std::string& regex) {
     value_.pattern = mcp::make_optional(regex);
+    return *this;
+  }
+
+  StringSchemaBuilder& title(const std::string& title) {
+    value_.title = mcp::make_optional(title);
+    return *this;
+  }
+
+  // "email", "uri", "date" or "date-time".
+  StringSchemaBuilder& format(const std::string& format) {
+    value_.format = mcp::make_optional(format);
+    return *this;
+  }
+
+  StringSchemaBuilder& defaultValue(const std::string& value) {
+    value_.defaultValue = mcp::make_optional(value);
     return *this;
   }
 
@@ -1157,8 +1175,20 @@ class NumberSchemaBuilder : public Builder<NumberSchema, NumberSchemaBuilder> {
     return *this;
   }
 
+  // Kept so existing code compiles; the spec allows no multipleOf in a form
+  // field, so it is never written.
   NumberSchemaBuilder& multipleOf(double multiple) {
     value_.multipleOf = mcp::make_optional(multiple);
+    return *this;
+  }
+
+  NumberSchemaBuilder& title(const std::string& title) {
+    value_.title = mcp::make_optional(title);
+    return *this;
+  }
+
+  NumberSchemaBuilder& defaultValue(double value) {
+    value_.defaultValue = mcp::make_optional(value);
     return *this;
   }
 };
@@ -1168,6 +1198,16 @@ class BooleanSchemaBuilder
  public:
   BooleanSchemaBuilder& description(const std::string& desc) {
     value_.description = mcp::make_optional(desc);
+    return *this;
+  }
+
+  BooleanSchemaBuilder& title(const std::string& title) {
+    value_.title = mcp::make_optional(title);
+    return *this;
+  }
+
+  BooleanSchemaBuilder& defaultValue(bool value) {
+    value_.defaultValue = mcp::make_optional(value);
     return *this;
   }
 };
@@ -1185,6 +1225,51 @@ class EnumSchemaBuilder : public Builder<EnumSchema, EnumSchemaBuilder> {
 
   EnumSchemaBuilder& addValue(const std::string& val) {
     value_.values.push_back(val);
+    return *this;
+  }
+
+  // A value with a title to show for it, making this a titled choice.
+  EnumSchemaBuilder& option(const std::string& val, const std::string& title) {
+    if (!value_.titles.has_value()) {
+      // Values added earlier are titled with themselves.
+      value_.titles = mcp::make_optional(value_.values);
+    }
+    value_.values.push_back(val);
+    value_.titles->push_back(title);
+    return *this;
+  }
+
+  EnumSchemaBuilder& title(const std::string& title) {
+    value_.title = mcp::make_optional(title);
+    return *this;
+  }
+
+  // Several values may be chosen, between these limits when given.
+  EnumSchemaBuilder& multiple() {
+    value_.multiple = true;
+    return *this;
+  }
+  EnumSchemaBuilder& minItems(int count) {
+    value_.minItems = mcp::make_optional(count);
+    return *this;
+  }
+  EnumSchemaBuilder& maxItems(int count) {
+    value_.maxItems = mcp::make_optional(count);
+    return *this;
+  }
+
+  // Titles written as the older enumNames, for a single choice.
+  EnumSchemaBuilder& enumNames() {
+    value_.enumNames = true;
+    return *this;
+  }
+
+  EnumSchemaBuilder& defaultValue(const std::string& value) {
+    value_.defaultValue = mcp::make_optional(value);
+    return *this;
+  }
+  EnumSchemaBuilder& defaultValues(const std::vector<std::string>& values) {
+    value_.defaultValues = mcp::make_optional(values);
     return *this;
   }
 };
@@ -1206,6 +1291,14 @@ class ElicitRequestBuilder
   // it out means the same thing.
   ElicitRequestBuilder& formMode() {
     value_.mode = mcp::make_optional(std::string("form"));
+    return *this;
+  }
+
+  // Sends the user to a URL instead of showing a form, for anything that
+  // must not pass through the client.
+  ElicitRequestBuilder& urlMode(const std::string& url) {
+    value_.mode = mcp::make_optional(std::string("url"));
+    value_.url = mcp::make_optional(url);
     return *this;
   }
 
