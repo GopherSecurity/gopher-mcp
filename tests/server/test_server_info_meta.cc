@@ -196,6 +196,52 @@ TEST(ServerInfoMeta, ADeferredAnswerNamesTheServer) {
   EXPECT_TRUE(namesTheServer(answer)) << answer.toString();
 }
 
+// A server that describes itself for people says so wherever it names
+// itself: initialize, server/discover and each result's _meta.
+TEST(ServerInfoMeta, TheServerSaysEverythingItIs) {
+  McpServerConfig config = testConfig();
+  config.server_title = "Server Info Test";
+  config.server_description = "Answers tests";
+  config.server_website_url = "https://example.com";
+  config.server_icons.push_back(Icon("https://example.com/s.png"));
+  DispatchTestServer server(config);
+
+  const std::string expected =
+      JsonValue::parse(R"({"name":"server-info-test","version":"4.2.0",
+          "title":"Server Info Test","description":"Answers tests",
+          "websiteUrl":"https://example.com",
+          "icons":[{"src":"https://example.com/s.png"}]})")
+          .toString();
+
+  const JsonValue listed = answerTo(server, requestFor("tools/list", true));
+  ASSERT_TRUE(namesTheServer(listed)) << listed.toString();
+  EXPECT_EQ(
+      listed["result"]["_meta"][protocol::modern::kMetaServerInfo].toString(),
+      expected);
+
+  const JsonValue discovered =
+      answerTo(server, requestFor("server/discover", true));
+  ASSERT_TRUE(namesTheServer(discovered)) << discovered.toString();
+  EXPECT_EQ(discovered["result"]["_meta"][protocol::modern::kMetaServerInfo]
+                .toString(),
+            expected);
+
+  const JsonValue initialized =
+      answerTo(server, requestFor("initialize", false));
+  ASSERT_TRUE(initialized.contains("result")) << initialized.toString();
+  EXPECT_EQ(initialized["result"]["serverInfo"].toString(), expected);
+}
+
+// Unset, none of it is sent: only the name and version.
+TEST(ServerInfoMeta, NothingUnsetIsSent) {
+  DispatchTestServer server(testConfig());
+  const JsonValue answer = answerTo(server, requestFor("tools/list", true));
+  EXPECT_EQ(
+      answer["result"]["_meta"][protocol::modern::kMetaServerInfo].toString(),
+      JsonValue::parse(R"({"name":"server-info-test","version":"4.2.0"})")
+          .toString());
+}
+
 // A server configured not to name itself sends none of it.
 TEST(ServerInfoMeta, ItCanBeTurnedOff) {
   McpServerConfig config = testConfig();
