@@ -33,6 +33,10 @@ constexpr const char* kProtocolVersion20260728 = "2026-07-28";
 // when it has no supported-version list configured at all.
 constexpr const char* kDefaultProtocolVersion = kProtocolVersion20250618;
 
+// The newest version the initialize handshake can settle, which is what a
+// client offers by default: the newest revision has no handshake at all.
+constexpr const char* kLatestHandshakeVersion = kProtocolVersion20251125;
+
 // Version an HTTP server assumes for a request that carries no protocol
 // version header. The header only became mandatory after this revision, so
 // its absence identifies a peer speaking this one.
