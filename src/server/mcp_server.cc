@@ -119,7 +119,11 @@ ServerCapabilities advertisedCapabilities(ServerCapabilities capabilities,
                                           bool tools_list_changed,
                                           bool prompts_list_changed = false,
                                           bool resources_list_changed = false,
-                                          bool resources_subscribe = false) {
+                                          bool resources_subscribe = false,
+                                          bool completions = false) {
+  if (completions && !capabilities.completions.has_value()) {
+    capabilities.completions = mcp::make_optional(EmptyCapability());
+  }
   if (capabilities.tools.has_value() &&
       static_cast<bool>(capabilities.tools.value()) &&
       !capabilities.tools->listChanged.has_value()) {
@@ -1219,6 +1223,7 @@ bool McpServer::knowsMethod(const std::string& method) const {
       "tools/call",
       "prompts/list",
       "prompts/get",
+      "completion/complete",
       protocol::modern::kMethodServerDiscover};
   for (const char* known : kBuiltIn) {
     if (method == known) {
@@ -2420,6 +2425,8 @@ void McpServer::dispatchRequest(const jsonrpc::Request& request,
         response = handleListPrompts(request, *session);
       } else if (request.method == "prompts/get") {
         response = handleGetPrompt(request, *session);
+      } else if (request.method == "completion/complete") {
+        response = handleComplete(request, *session);
       } else if (request.method == protocol::modern::kMethodServerDiscover) {
         response = handleDiscover(request, *session);
       } else {
@@ -2799,7 +2806,8 @@ jsonrpc::Response McpServer::handleInitialize(const jsonrpc::Request& request,
 
   result_json["capabilities"] = json::to_json(advertisedCapabilities(
       server_capabilities, tools_list_changed, config_.prompts_list_changed,
-      config_.resources_list_changed, config_.resources_subscribe));
+      config_.resources_list_changed, config_.resources_subscribe,
+      offersCompletions()));
 
   // Add instructions if present
   if (!instructions.empty()) {
@@ -2816,13 +2824,14 @@ jsonrpc::Response McpServer::handleDiscover(const jsonrpc::Request& request,
   (void)session;
   std::string instructions;
   ServerCapabilities capabilities;
+  const bool completions = offersCompletions();
   {
     std::lock_guard<std::mutex> lock(config_mutex_);
     instructions = config_.instructions;
     capabilities = advertisedCapabilities(
         config_.capabilities, config_.tools_list_changed,
         config_.prompts_list_changed, config_.resources_list_changed,
-        config_.resources_subscribe);
+        config_.resources_subscribe, completions);
   }
 
   // What a client would otherwise have learned from an introduction. In
@@ -3174,6 +3183,77 @@ jsonrpc::Response McpServer::handleListPrompts(const jsonrpc::Request& request,
 
   return jsonrpc::Response::success(request.id,
                                     jsonrpc::ResponseResult(response_obj));
+}
+
+jsonrpc::Response McpServer::handleComplete(const jsonrpc::Request& request,
+                                            SessionContext& session) {
+  (void)session;
+  if (!offersCompletions()) {
+    return jsonrpc::Response::make_error(
+        request.id, Error(jsonrpc::METHOD_NOT_FOUND,
+                          "Method not found: completion/complete"));
+  }
+
+  // A request that names nothing to complete, or no argument of it, asks
+  // nothing that can be answered.
+  CompleteRequest asked;
+  try {
+    asked = json::from_json<CompleteRequest>(paramsOf(request));
+  } catch (const std::exception& e) {
+    return jsonrpc::Response::make_error(
+        request.id,
+        Error(jsonrpc::INVALID_PARAMS,
+              std::string("Invalid completion request: ") + e.what()));
+  }
+
+  CompletionHandler handler;
+  {
+    std::lock_guard<std::mutex> lock(completions_mutex_);
+    const auto& handlers = holds_alternative<PromptReference>(asked.ref)
+                               ? prompt_completions_
+                               : template_completions_;
+    const std::string& key =
+        holds_alternative<PromptReference>(asked.ref)
+            ? get<PromptReference>(asked.ref).name
+            : get<ResourceTemplateReference>(asked.ref).uri;
+    auto it = handlers.find(key);
+    if (it != handlers.end()) {
+      handler = it->second;
+    }
+  }
+
+  // Something with no completions has no suggestions, which is an answer
+  // rather than an error.
+  CompleteResult result;
+  if (handler) {
+    CompletionQuery query;
+    query.argument = asked.argument.name;
+    query.value = asked.argument.value;
+    if (asked.context.has_value() && asked.context->arguments.has_value()) {
+      query.arguments = asked.context->arguments.value();
+    }
+    try {
+      result.completion = handler(query);
+    } catch (const std::exception& e) {
+      return jsonrpc::Response::make_error(
+          request.id, Error(jsonrpc::INTERNAL_ERROR,
+                            std::string("Completion failed: ") + e.what()));
+    }
+  }
+  if (result.completion.values.size() > CompleteResult::kMaxValues) {
+    result.completion.values.resize(CompleteResult::kMaxValues);
+    result.completion.hasMore = true;
+  }
+
+  try {
+    return jsonrpc::Response::success(
+        request.id, jsonrpc::ResponseResult(json::to_json(result)));
+  } catch (const json::JsonException& e) {
+    return jsonrpc::Response::make_error(
+        request.id,
+        Error(jsonrpc::INTERNAL_ERROR,
+              std::string("Completion could not be encoded: ") + e.what()));
+  }
 }
 
 jsonrpc::Response McpServer::handleGetPrompt(const jsonrpc::Request& request,
