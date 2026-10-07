@@ -494,10 +494,6 @@ const std::map<std::string, std::string>& kKnownGaps() {
       {"ResourceUpdatedNotification",
        "_meta in params is not modelled by the typed request struct, so "
        "dropped"},
-      {"CompleteRequest",
-       "the typed request misreads ref and fails: Value is not a string"},
-      {"CompleteRequestParams",
-       "the typed request misreads ref and fails: Value is not a string"},
       {"CreateMessageRequestParams",
        "toolChoice and tool-result message content are not modelled"},
       {"ProgressNotification",
@@ -527,7 +523,7 @@ const std::map<std::string, std::string>& kKnownGaps() {
       {"ClientCapabilities",
        "extensions, sampling.context and sampling.tools are dropped, and an "
        "elicitation capability given as {} is written back as {form: {}}"},
-      {"ServerCapabilities", "completions and extensions are dropped"},
+      {"ServerCapabilities", "extensions are dropped"},
       // Sampling with tools
       {"CreateMessageResult",
        "content holding an array of blocks, as tool use returns, is not "

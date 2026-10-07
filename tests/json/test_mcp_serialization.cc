@@ -1014,7 +1014,7 @@ TEST_F(MCPSerializationTest, ListResourceTemplatesResult) {
 
 TEST_F(MCPSerializationTest, ResourceTemplateReference) {
   ResourceTemplateReference ref =
-      make_resource_template_ref("file", "FileTemplate");
+      make_resource_template_ref("ref/resource", "file:///{path}");
   testRoundTrip(ref);
 }
 
@@ -1030,8 +1030,9 @@ TEST_F(MCPSerializationTest, PromptReference) {
 TEST_F(MCPSerializationTest, CompleteRequest) {
   CompleteRequest req;
   req.id = make_request_id("complete-1");
-  req.ref = make_prompt_ref("template", "MyTemplate");
-  req.argument = mcp::make_optional(std::string("user_"));
+  req.ref = make_prompt_ref("ref/prompt", "MyTemplate");
+  req.argument.name = "user";
+  req.argument.value = "user_";
   testRoundTrip(req);
 }
 
