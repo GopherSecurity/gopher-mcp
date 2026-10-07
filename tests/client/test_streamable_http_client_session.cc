@@ -542,6 +542,118 @@ TEST_F(StreamableHttpClientSessionTest, StoppingRightAfterTheHandshakeEndsIt) {
   EXPECT_TRUE(initialized) << "notifications/initialized never arrived";
 }
 
+// ── The version settled in the handshake ─────────────────────────────
+
+/** A scripted server answering initialize with this result body. */
+uint16_t answeringInitializeWith(ScriptedServer& server,
+                                 const std::string& result) {
+  return server.start([result](const Seen& seen) -> Reply {
+    if (seen.rpc_method == "initialize") {
+      return Reply::write(
+          withBody(200, "OK", "application/json",
+                   "{\"jsonrpc\":\"2.0\",\"id\":" + seen.rpc_id +
+                       ",\"result\":" + result + "}",
+                   kSessionOne));
+    }
+    if (seen.rpc_id.empty()) {
+      return Reply::write(accepted());
+    }
+    return Reply::write(answer(seen, "{}"));
+  });
+}
+
+/** What initializeProtocol made of the answer: the version, or the error. */
+std::string settled(client::McpClient& client) {
+  auto init = client.initializeProtocol();
+  if (init.wait_for(5s) != std::future_status::ready) {
+    return "<no answer>";
+  }
+  try {
+    return init.get().protocolVersion;
+  } catch (const std::exception& e) {
+    return std::string("error: ") + e.what();
+  }
+}
+
+// Left on its defaults, a client offers the newest version it can settle
+// in a handshake.
+TEST_F(StreamableHttpClientSessionTest, TheNewestHandshakeVersionIsOffered) {
+  const uint16_t port = server_.start([](const Seen& seen) -> Reply {
+    if (seen.rpc_method == "initialize") {
+      return Reply::write(handshakeAnswer(seen, kSessionOne, "2025-11-25"));
+    }
+    return Reply::write(accepted());
+  });
+  startClient(port);
+  EXPECT_EQ(settled(*client_), "2025-11-25");
+
+  const auto asked = server_.allOfMethod("POST");
+  ASSERT_FALSE(asked.empty());
+  EXPECT_NE(asked[0].body.find("\"protocolVersion\":\"2025-11-25\""),
+            std::string::npos)
+      << asked[0].body;
+}
+
+// An older version the client also speaks is accepted, and is the version
+// every request after carries.
+TEST_F(StreamableHttpClientSessionTest, AnOlderSupportedVersionIsSpoken) {
+  const uint16_t port = answeringInitializeWith(
+      server_, R"({"protocolVersion":"2025-06-18","capabilities":{},)"
+               R"("serverInfo":{"name":"s","version":"1"}})");
+  startClient(port);
+  ASSERT_EQ(settled(*client_), "2025-06-18");
+
+  auto ping = client_->sendRequest("ping");
+  ASSERT_EQ(ping.wait_for(5s), std::future_status::ready);
+  EXPECT_FALSE(ping.get().error.has_value());
+  const auto sent = server_.waitFor([this]() {
+    for (const auto& seen : server_.seen()) {
+      if (seen.rpc_method == "ping") {
+        return true;
+      }
+    }
+    return false;
+  });
+  ASSERT_TRUE(sent);
+  for (const auto& seen : server_.seen()) {
+    if (seen.rpc_method == "ping") {
+      EXPECT_EQ(seen.header("mcp-protocol-version"), "2025-06-18");
+    }
+  }
+}
+
+// A version the client does not speak fails the handshake, naming it,
+// rather than being carried on in. Neither does an answer naming none.
+#define EXPECT_HANDSHAKE_REFUSED(result, named)                   \
+  do {                                                            \
+    startClient(answeringInitializeWith(server_, result));        \
+    const std::string outcome = settled(*client_);                \
+    EXPECT_EQ(outcome.rfind("error: ", 0), 0u)                    \
+        << "the handshake carried on in " << outcome;             \
+    EXPECT_NE(outcome.find(named), std::string::npos) << outcome; \
+  } while (0)
+
+TEST_F(StreamableHttpClientSessionTest, AnUnknownVersionFailsTheHandshake) {
+  EXPECT_HANDSHAKE_REFUSED(
+      R"({"protocolVersion":"1999-01-01","capabilities":{}})", "1999-01-01");
+}
+
+TEST_F(StreamableHttpClientSessionTest, AnUnacceptedVersionFailsTheHandshake) {
+  EXPECT_HANDSHAKE_REFUSED(
+      R"({"protocolVersion":"2024-11-05","capabilities":{}})", "2024-11-05");
+}
+
+// The newest revision has no handshake, so a server naming it in one is
+// naming something this conversation cannot be.
+TEST_F(StreamableHttpClientSessionTest, TheNewestEraFailsTheHandshake) {
+  EXPECT_HANDSHAKE_REFUSED(
+      R"({"protocolVersion":"2026-07-28","capabilities":{}})", "2026-07-28");
+}
+
+TEST_F(StreamableHttpClientSessionTest, NoVersionAtAllFailsTheHandshake) {
+  EXPECT_HANDSHAKE_REFUSED(R"({"capabilities":{}})", "no protocolVersion");
+}
+
 }  // namespace
 
 // ── The revision that mirrors what it sends ───────────────────────────
