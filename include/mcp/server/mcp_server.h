@@ -140,6 +140,15 @@ struct McpServerConfig : public application::ApplicationBase::Config {
   // notifications/tools/list_changed when its set changes.
   bool tools_list_changed = false;
 
+  // The same for prompts and resources: whether prompts.listChanged and
+  // resources.listChanged are advertised, and so whether their list
+  // changes are announced. A capability that says so itself wins.
+  bool prompts_list_changed = false;
+  bool resources_list_changed = false;
+  // Whether resources.subscribe is advertised, for a server that serves
+  // resources/subscribe.
+  bool resources_subscribe = false;
+
   // Caching hints for the results the 2026-07-28 revision lets clients cache:
   // server/discover, tools/list, prompts/list, resources/list,
   // resources/templates/list and resources/read. Keyed by method. A method
@@ -541,6 +550,13 @@ class ResourceManager {
   }
 
   // Register resource template
+  // Remove a resource. False when there was none under that URI.
+  bool unregisterResource(const std::string& uri) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    resource_handlers_.erase(uri);
+    return resources_.erase(uri) != 0;
+  }
+
   // Register a resource template. One registered again under the same
   // uriTemplate replaces the first.
   void registerResourceTemplate(const ResourceTemplate& template_) {
@@ -701,6 +717,14 @@ class ToolRegistry {
     return true;
   }
 
+  // Remove a tool. False when there was none of that name.
+  bool unregisterTool(const std::string& name) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    tool_handlers_.erase(name);
+    designated_.erase(name);
+    return tools_.erase(name) != 0;
+  }
+
   /** Whether a registered tool declares an outputSchema. */
   bool declaresOutputSchema(const std::string& tool_name) const {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -800,6 +824,13 @@ class PromptRegistry {
   }
 
   // List all prompts
+  // Remove a prompt. False when there was none of that name.
+  bool unregisterPrompt(const std::string& name) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    prompt_handlers_.erase(name);
+    return prompts_.erase(name) != 0;
+  }
+
   // One page of the prompts, in name order; by default all of them. Throws
   // InvalidCursor for a cursor this list did not issue.
   ListPromptsResult listPrompts(const optional<Cursor>& cursor = nullopt,
@@ -1266,16 +1297,43 @@ class McpServer : public application::ApplicationBase,
       std::function<ReadResourceResult(const std::string&, SessionContext&)>
           handler) {
     resource_manager_->registerResource(resource, handler);
+    announceChangeIfRunning(ListKind::Resources);
   }
 
   // Register metadata only (appears in resources/list but has no read handler)
   void registerResource(const Resource& resource) {
     resource_manager_->registerResource(resource);
+    announceChangeIfRunning(ListKind::Resources);
   }
 
   void registerResourceTemplate(const ResourceTemplate& template_) {
     resource_manager_->registerResourceTemplate(template_);
   }
+
+  // Remove a resource, announcing the change to clients if the server is
+  // running and advertises resources.listChanged. False when there was
+  // none under that URI.
+  bool unregisterResource(const std::string& uri) {
+    const bool removed = resource_manager_->unregisterResource(uri);
+    if (removed) {
+      announceChangeIfRunning(ListKind::Resources);
+    }
+    return removed;
+  }
+
+  /**
+   * Tell clients that the set of tools, prompts or resources changed, so
+   * they list it again.
+   *
+   * Sent only when the matching capability advertises listChanged, and
+   * then to every client of an earlier revision and to each 2026-07-28
+   * subscription that asked for that kind of change, with its
+   * subscription id. Nothing reaches a listener that did not ask.
+   * Callable from any thread.
+   */
+  void notifyToolsListChanged();
+  void notifyPromptsListChanged();
+  void notifyResourcesListChanged();
 
   // Push notifications/resources/updated to every session subscribed to
   // the URI. Callable from any thread; delivery happens on the dispatcher
@@ -1304,7 +1362,21 @@ class McpServer : public application::ApplicationBase,
                     std::function<CallToolResult(const std::string&,
                                                  const optional<Metadata>&,
                                                  SessionContext&)> handler) {
-    return tool_registry_->registerTool(tool, handler);
+    const bool registered = tool_registry_->registerTool(tool, handler);
+    if (registered) {
+      announceChangeIfRunning(ListKind::Tools);
+    }
+    return registered;
+  }
+
+  // Remove a tool, announcing the change as registering one does. False
+  // when there was none of that name.
+  bool unregisterTool(const std::string& name) {
+    const bool removed = tool_registry_->unregisterTool(name);
+    if (removed) {
+      announceChangeIfRunning(ListKind::Tools);
+    }
+    return removed;
   }
 
   // Prompt management
@@ -1313,6 +1385,17 @@ class McpServer : public application::ApplicationBase,
                                                     const optional<Metadata>&,
                                                     SessionContext&)> handler) {
     prompt_registry_->registerPrompt(prompt, handler);
+    announceChangeIfRunning(ListKind::Prompts);
+  }
+
+  // Remove a prompt, announcing the change as registering one does. False
+  // when there was none of that name.
+  bool unregisterPrompt(const std::string& name) {
+    const bool removed = prompt_registry_->unregisterPrompt(name);
+    if (removed) {
+      announceChangeIfRunning(ListKind::Prompts);
+    }
+    return removed;
   }
 
   // Get server statistics
@@ -1462,6 +1545,18 @@ class McpServer : public application::ApplicationBase,
    * there is no scope left to unwind.
    */
   void forgetPendingRequest(const std::string& key);
+
+  enum class ListKind { Tools, Prompts, Resources };
+  // Whether the advertised capability for this list says listChanged.
+  bool advertisesListChanged(ListKind kind) const;
+  void notifyListChanged(ListKind kind);
+  // A change made while the server runs is announced; one made while it
+  // is being set up is just part of what it starts with.
+  void announceChangeIfRunning(ListKind kind) {
+    if (server_running_) {
+      notifyListChanged(kind);
+    }
+  }
   // Who asked this request: its in-flight record when there is one, else
   // the stream answering it, else the session.
   std::string principalOf(const jsonrpc::Request& request,
