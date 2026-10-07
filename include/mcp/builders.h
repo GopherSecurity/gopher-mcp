@@ -1212,12 +1212,43 @@ class ReadResourceResultBuilder
 class CompleteRequestBuilder
     : public Builder<CompleteRequest, CompleteRequestBuilder> {
  public:
+  // A ref/resource names its resource template by URI template; any
+  // other type names a prompt.
   CompleteRequestBuilder(const std::string& type, const std::string& name) {
-    value_.ref = PromptReference(type, name);
+    if (type == "ref/resource") {
+      value_.ref = ResourceTemplateReference(type, name);
+    } else {
+      value_.ref = PromptReference(type, name);
+    }
   }
 
-  CompleteRequestBuilder& argument(const std::string& arg) {
-    value_.argument = mcp::make_optional(arg);
+  explicit CompleteRequestBuilder(const PromptReference& ref) {
+    value_.ref = ref;
+  }
+
+  explicit CompleteRequestBuilder(const ResourceTemplateReference& ref) {
+    value_.ref = ref;
+  }
+
+  // The argument being filled in, and what has been typed so far.
+  CompleteRequestBuilder& argument(const std::string& name,
+                                   const std::string& value = "") {
+    value_.argument.name = name;
+    value_.argument.value = value;
+    return *this;
+  }
+
+  // Another argument already chosen.
+  CompleteRequestBuilder& chosen(const std::string& name,
+                                 const std::string& value) {
+    if (!value_.context) {
+      value_.context = mcp::make_optional(CompleteRequest::Context());
+    }
+    if (!value_.context->arguments) {
+      value_.context->arguments =
+          mcp::make_optional(std::map<std::string, std::string>());
+    }
+    (*value_.context->arguments)[name] = value;
     return *this;
   }
 };
@@ -1670,9 +1701,9 @@ class ResourceTemplateReferenceBuilder
                      ResourceTemplateReferenceBuilder> {
  public:
   ResourceTemplateReferenceBuilder(const std::string& type,
-                                   const std::string& name) {
+                                   const std::string& uri) {
     value_.type = type;
-    value_.name = name;
+    value_.uri = uri;
   }
 };
 
@@ -1682,6 +1713,11 @@ class PromptReferenceBuilder
   PromptReferenceBuilder(const std::string& type, const std::string& name) {
     value_.type = type;
     value_.name = name;
+  }
+
+  PromptReferenceBuilder& title(const std::string& title) {
+    value_.title = mcp::make_optional(title);
+    return *this;
   }
 
   PromptReferenceBuilder& _meta(const Metadata& meta) {

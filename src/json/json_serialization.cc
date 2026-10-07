@@ -1431,10 +1431,28 @@ JsonValue serialize_CompleteRequest(const CompleteRequest& request) {
     builder.add("id", to_json(request.id));
   }
 
-  builder.add("ref", to_json(request.ref));
-  if (request.argument.has_value()) {
-    builder.add("argument", request.argument.value());
+  if (mcp::holds_alternative<PromptReference>(request.ref)) {
+    builder.add("ref", to_json(mcp::get<PromptReference>(request.ref)));
+  } else {
+    builder.add("ref",
+                to_json(mcp::get<ResourceTemplateReference>(request.ref)));
   }
+  JsonObjectBuilder argument;
+  argument.add("name", request.argument.name)
+      .add("value", request.argument.value);
+  builder.add("argument", argument.build());
+  if (request.context.has_value()) {
+    JsonObjectBuilder context;
+    if (request.context->arguments.has_value()) {
+      JsonObjectBuilder arguments;
+      for (const auto& chosen : request.context->arguments.value()) {
+        arguments.add(chosen.first, chosen.second);
+      }
+      context.add("arguments", arguments.build());
+    }
+    builder.add("context", context.build());
+  }
+  addMeta(builder, request._meta);
   return builder.build();
 }
 
@@ -1813,7 +1831,7 @@ JsonValue serialize_CompleteResult(const CompleteResult& result) {
   completionBuilder.add("values", values.build());
 
   if (result.completion.total.has_value()) {
-    completionBuilder.add("total", result.completion.total.value());
+    completionBuilder.add("total", numberJson(result.completion.total.value()));
   }
 
   completionBuilder.add("hasMore", result.completion.hasMore);
@@ -2283,13 +2301,16 @@ JsonValue serialize_ToolAnnotations(const ToolAnnotations& annotations) {
 JsonValue serialize_PromptReference(const PromptReference& ref) {
   JsonObjectBuilder builder;
   builder.add("type", ref.type).add("name", ref.name);
+  if (ref.title.has_value()) {
+    builder.add("title", ref.title.value());
+  }
   return builder.build();
 }
 
 JsonValue serialize_ResourceTemplateReference(
     const ResourceTemplateReference& ref) {
   JsonObjectBuilder builder;
-  builder.add("type", ref.type).add("name", ref.name);
+  builder.add("type", ref.type).add("uri", ref.uri);
   return builder.build();
 }
 
@@ -2331,6 +2352,10 @@ JsonValue serialize_ServerCapabilities(const ServerCapabilities& caps) {
 
   if (caps.logging.has_value() && static_cast<bool>(caps.logging.value())) {
     builder.add("logging", JsonValue::object());
+  }
+
+  if (caps.completions.has_value()) {
+    builder.add("completions", to_json(caps.completions.value()));
   }
 
   return builder.build();
@@ -2493,11 +2518,45 @@ CompleteRequest deserialize_CompleteRequest(const JsonValue& json) {
   if (json.contains("id")) {
     request.id = from_json<RequestId>(json["id"]);
   }
-  request.ref = from_json<PromptReference>(json.at("ref"));
-
-  if (json.contains("argument")) {
-    request.argument = json["argument"].getString();
+  // What is being completed, and which argument of it, are the request:
+  // without either it asks nothing, and is refused.
+  const JsonValue& ref = json.at("ref");
+  const auto type = stringField(ref, "type");
+  if (type.has_value() && *type == "ref/prompt") {
+    request.ref = from_json<PromptReference>(ref);
+  } else if (type.has_value() && *type == "ref/resource") {
+    request.ref = from_json<ResourceTemplateReference>(ref);
+  } else {
+    throw JsonException("ref must be a ref/prompt or a ref/resource");
   }
+
+  const JsonValue& argument = json.at("argument");
+  const auto name = stringField(argument, "name");
+  const auto value = stringField(argument, "value");
+  if (!name.has_value() || !value.has_value()) {
+    throw JsonException("argument needs a string name and value");
+  }
+  request.argument.name = name.value();
+  request.argument.value = value.value();
+
+  // The arguments already chosen, read forgivingly: one that isn't a
+  // string is passed over.
+  if (json.contains("context") && json["context"].isObject()) {
+    CompleteRequest::Context context;
+    const auto& given = json["context"];
+    if (given.contains("arguments") && given["arguments"].isObject()) {
+      std::map<std::string, std::string> arguments;
+      for (const auto& key : given["arguments"].keys()) {
+        const auto chosen = stringField(given["arguments"], key.c_str());
+        if (chosen.has_value()) {
+          arguments[key] = chosen.value();
+        }
+      }
+      context.arguments = arguments;
+    }
+    request.context = context;
+  }
+  request._meta = readMeta(json);
 
   return request;
 }
@@ -2905,11 +2964,9 @@ CompleteResult deserialize_CompleteResult(const JsonValue& json) {
     result.completion.values.push_back(values[i].getString());
   }
 
-  if (completion.contains("total")) {
-    result.completion.total = completion["total"].getFloat();
-  }
+  result.completion.total = numberField(completion, "total");
 
-  if (completion.contains("hasMore")) {
+  if (completion.contains("hasMore") && completion["hasMore"].isBoolean()) {
     result.completion.hasMore = completion["hasMore"].getBool();
   }
 
@@ -3408,6 +3465,7 @@ PromptReference deserialize_PromptReference(const JsonValue& json) {
   PromptReference ref;
   ref.type = json.at("type").getString();
   ref.name = json.at("name").getString();
+  ref.title = stringField(json, "title");
   return ref;
 }
 
@@ -3415,7 +3473,7 @@ ResourceTemplateReference deserialize_ResourceTemplateReference(
     const JsonValue& json) {
   ResourceTemplateReference ref;
   ref.type = json.at("type").getString();
-  ref.name = json.at("name").getString();
+  ref.uri = json.at("uri").getString();
   return ref;
 }
 
@@ -3485,6 +3543,10 @@ ServerCapabilities deserialize_ServerCapabilities(const JsonValue& json) {
     if (logging.isBoolean() || logging.isObject()) {
       caps.logging = LoggingCapability(logging.isObject() || logging.getBool());
     }
+  }
+
+  if (json.contains("completions") && json["completions"].isObject()) {
+    caps.completions = from_json<EmptyCapability>(json["completions"]);
   }
 
   return caps;
