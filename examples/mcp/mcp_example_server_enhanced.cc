@@ -162,18 +162,8 @@ void setupServer(McpServer& server) {
       make_optional(std::string("Get system and server information"));
   server.registerTool(info_tool, executeSampleTool);
 
-  // Register ping handler
-  server.registerRequestHandler(
-      "ping", [](const jsonrpc::Request& request, SessionContext& session) {
-        auto pong =
-            make<Metadata>()
-                .add("pong", true)
-                .add("timestamp", static_cast<long long>(std::time(nullptr)))
-                .build();
-
-        return jsonrpc::Response::success(request.id,
-                                          jsonrpc::ResponseResult(pong));
-      });
+  // ping is answered by the server itself, with the empty result the spec
+  // requires, so it needs no handler here.
 
   std::cerr << "[SETUP] Server configuration complete" << std::endl;
 }

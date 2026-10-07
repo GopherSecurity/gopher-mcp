@@ -145,7 +145,7 @@ $ ./build/examples/mcp/mcp_example_client --demo --verbose
   [PASS] Protocol initialization
 
 [TEST 2] Custom Request Handlers
-  [PASS] ping handler - returns pong=true
+  [PASS] ping - answered
   [PASS] echo handler
   [PASS] server/status handler
   [PASS] health handler
