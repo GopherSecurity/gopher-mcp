@@ -98,11 +98,43 @@ optional<Metadata> argumentsOf(const json::JsonValue& params) {
 // server/discover. The tools capability's listChanged comes from the server
 // setting of that name unless the capability says so itself.
 ServerCapabilities advertisedCapabilities(ServerCapabilities capabilities,
-                                          bool tools_list_changed) {
+                                          bool tools_list_changed,
+                                          bool prompts_list_changed = false,
+                                          bool resources_list_changed = false,
+                                          bool resources_subscribe = false) {
   if (capabilities.tools.has_value() &&
       static_cast<bool>(capabilities.tools.value()) &&
       !capabilities.tools->listChanged.has_value()) {
     capabilities.tools->listChanged = mcp::make_optional(tools_list_changed);
+  }
+  if (capabilities.prompts.has_value() &&
+      static_cast<bool>(capabilities.prompts.value()) &&
+      !capabilities.prompts->listChanged.has_value() && prompts_list_changed) {
+    capabilities.prompts->listChanged = mcp::make_optional(true);
+  }
+  // Resources declared as a bare true carry no flags; a flag asked for
+  // turns that into the object that can hold it.
+  if (capabilities.resources.has_value() &&
+      (resources_list_changed || resources_subscribe)) {
+    auto& declared = capabilities.resources.value();
+    ResourcesCapability resources;
+    bool present = false;
+    if (holds_alternative<ResourcesCapability>(declared)) {
+      resources = get<ResourcesCapability>(declared);
+      present = true;
+    } else {
+      present = get<bool>(declared);
+    }
+    if (present) {
+      if (resources_list_changed && !resources.listChanged.has_value()) {
+        resources.listChanged = mcp::make_optional(true);
+      }
+      if (resources_subscribe && !resources.subscribe.has_value()) {
+        resources.subscribe = mcp::make_optional(true);
+      }
+      capabilities.resources =
+          mcp::make_optional(variant<bool, ResourcesCapability>(resources));
+    }
   }
   return capabilities;
 }
@@ -1552,6 +1584,65 @@ void McpServer::notifyResourceUpdate(const std::string& uri) {
   }
 }
 
+bool McpServer::advertisesListChanged(ListKind kind) const {
+  ServerCapabilities advertised;
+  {
+    std::lock_guard<std::mutex> lock(config_mutex_);
+    advertised = advertisedCapabilities(
+        config_.capabilities, config_.tools_list_changed,
+        config_.prompts_list_changed, config_.resources_list_changed,
+        config_.resources_subscribe);
+  }
+  switch (kind) {
+    case ListKind::Tools:
+      return advertised.tools.has_value() &&
+             static_cast<bool>(advertised.tools.value()) &&
+             advertised.tools->listChanged.value_or(false);
+    case ListKind::Prompts:
+      return advertised.prompts.has_value() &&
+             static_cast<bool>(advertised.prompts.value()) &&
+             advertised.prompts->listChanged.value_or(false);
+    case ListKind::Resources:
+      return advertised.resources.has_value() &&
+             holds_alternative<ResourcesCapability>(
+                 advertised.resources.value()) &&
+             get<ResourcesCapability>(advertised.resources.value())
+                 .listChanged.value_or(false);
+  }
+  return false;
+}
+
+void McpServer::notifyListChanged(ListKind kind) {
+  // A server that never said it announces changes is not believed to by
+  // any client, so saying one would be noise.
+  if (!advertisesListChanged(kind) || !main_dispatcher_) {
+    return;
+  }
+  if (!main_dispatcher_->isThreadSafe()) {
+    main_dispatcher_->post([this, kind]() { notifyListChanged(kind); });
+    return;
+  }
+  const char* method =
+      kind == ListKind::Tools ? protocol::modern::kNotificationToolsListChanged
+      : kind == ListKind::Prompts
+          ? protocol::modern::kNotificationPromptsListChanged
+          : protocol::modern::kNotificationResourcesListChanged;
+
+  // Every subscription that asked for this kind of change; nobody else in
+  // the newest revision, where there is no other channel to hear it on.
+  subscriptions_.publish(method, json::JsonValue::object());
+  // And every client of an earlier revision, through its own channel.
+  broadcastNotification(jsonrpc::Notification(method, Metadata()));
+}
+
+void McpServer::notifyToolsListChanged() { notifyListChanged(ListKind::Tools); }
+void McpServer::notifyPromptsListChanged() {
+  notifyListChanged(ListKind::Prompts);
+}
+void McpServer::notifyResourcesListChanged() {
+  notifyListChanged(ListKind::Resources);
+}
+
 // Send notification to specific session
 VoidResult McpServer::sendNotification(
     const std::string& session_id, const jsonrpc::Notification& notification) {
@@ -2697,8 +2788,9 @@ jsonrpc::Response McpServer::handleInitialize(const jsonrpc::Request& request,
   server_info["version"] = server_version;
   result_json["serverInfo"] = std::move(server_info);
 
-  result_json["capabilities"] = json::to_json(
-      advertisedCapabilities(server_capabilities, tools_list_changed));
+  result_json["capabilities"] = json::to_json(advertisedCapabilities(
+      server_capabilities, tools_list_changed, config_.prompts_list_changed,
+      config_.resources_list_changed, config_.resources_subscribe));
 
   // Add instructions if present
   if (!instructions.empty()) {
@@ -2718,8 +2810,10 @@ jsonrpc::Response McpServer::handleDiscover(const jsonrpc::Request& request,
   {
     std::lock_guard<std::mutex> lock(config_mutex_);
     instructions = config_.instructions;
-    capabilities = advertisedCapabilities(config_.capabilities,
-                                          config_.tools_list_changed);
+    capabilities = advertisedCapabilities(
+        config_.capabilities, config_.tools_list_changed,
+        config_.prompts_list_changed, config_.resources_list_changed,
+        config_.resources_subscribe);
   }
 
   // What a client would otherwise have learned from an introduction. In
