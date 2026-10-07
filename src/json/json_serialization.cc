@@ -280,124 +280,245 @@ JsonValue serialize_EmptyResult(const EmptyResult&) {
 
 EmptyResult deserialize_EmptyResult(const JsonValue&) { return EmptyResult(); }
 
-// Schema serialization
+// Schema serialization. Each form field is written with only the spec's
+// keywords for its kind, and read forgivingly: a keyword of the wrong type
+// is passed over rather than allowed to cost the form.
+namespace {
+optional<std::string> stringField(const JsonValue& json, const char* key) {
+  if (json.contains(key) && json[key].isString()) {
+    return json[key].getString();
+  }
+  return nullopt;
+}
+optional<double> numberField(const JsonValue& json, const char* key) {
+  if (json.contains(key) && json[key].isNumber()) {
+    return json[key].isInteger() ? static_cast<double>(json[key].getInt64())
+                                 : json[key].getFloat();
+  }
+  return nullopt;
+}
+optional<int> intField(const JsonValue& json, const char* key) {
+  if (json.contains(key) && json[key].isInteger()) {
+    return static_cast<int>(json[key].getInt64());
+  }
+  return nullopt;
+}
+std::vector<std::string> stringsIn(const JsonValue& array) {
+  std::vector<std::string> out;
+  if (array.isArray()) {
+    for (size_t i = 0; i < array.size(); ++i) {
+      if (array[i].isString()) {
+        out.push_back(array[i].getString());
+      }
+    }
+  }
+  return out;
+}
+/** A number, as an integer when it is a whole one. */
+JsonValue numberJson(double value) {
+  if (value == static_cast<double>(static_cast<int64_t>(value))) {
+    return JsonValue(static_cast<int64_t>(value));
+  }
+  return JsonValue(value);
+}
+/** {"const","title"} options, as titled choices are written. */
+JsonValue titledOptions(const std::vector<std::string>& values,
+                        const std::vector<std::string>& titles) {
+  JsonValue options = JsonValue::array();
+  for (size_t i = 0; i < values.size(); ++i) {
+    JsonValue option = JsonValue::object();
+    option.set("const", JsonValue(values[i]));
+    option.set("title", JsonValue(i < titles.size() ? titles[i] : values[i]));
+    options.push_back(option);
+  }
+  return options;
+}
+void readTitledOptions(const JsonValue& options,
+                       std::vector<std::string>* values,
+                       std::vector<std::string>* titles) {
+  for (size_t i = 0; i < options.size(); ++i) {
+    const auto& option = options[i];
+    if (!option.isObject() || !option.contains("const") ||
+        !option["const"].isString()) {
+      continue;
+    }
+    values->push_back(option["const"].getString());
+    titles->push_back(option.contains("title") && option["title"].isString()
+                          ? option["title"].getString()
+                          : option["const"].getString());
+  }
+}
+JsonValue stringArray(const std::vector<std::string>& values) {
+  JsonValue array = JsonValue::array();
+  for (const auto& value : values) {
+    array.push_back(JsonValue(value));
+  }
+  return array;
+}
+}  // namespace
+
 JsonValue serialize_StringSchema(const StringSchema& schema) {
-  JsonObjectBuilder builder;
-  builder.add("type", "string");
-  if (schema.description.has_value()) {
-    builder.add("description", schema.description.value());
-  }
-  if (schema.pattern.has_value()) {
-    builder.add("pattern", schema.pattern.value());
-  }
-  if (schema.minLength.has_value()) {
-    builder.add("minLength", schema.minLength.value());
-  }
-  if (schema.maxLength.has_value()) {
-    builder.add("maxLength", schema.maxLength.value());
-  }
-  return builder.build();
+  JsonValue json = JsonValue::object();
+  json.set("type", JsonValue("string"));
+  if (schema.title.has_value())
+    json.set("title", JsonValue(*schema.title));
+  if (schema.description.has_value())
+    json.set("description", JsonValue(*schema.description));
+  if (schema.minLength.has_value())
+    json.set("minLength", JsonValue(*schema.minLength));
+  if (schema.maxLength.has_value())
+    json.set("maxLength", JsonValue(*schema.maxLength));
+  if (schema.format.has_value())
+    json.set("format", JsonValue(*schema.format));
+  if (schema.defaultValue.has_value())
+    json.set("default", JsonValue(*schema.defaultValue));
+  return json;
 }
 
 StringSchema deserialize_StringSchema(const JsonValue& json) {
   StringSchema schema;
-  schema.type = json["type"].getString();
-  if (json.contains("description")) {
-    schema.description = mcp::make_optional(json["description"].getString());
-  }
-  if (json.contains("pattern")) {
-    schema.pattern = mcp::make_optional(json["pattern"].getString());
-  }
-  if (json.contains("minLength")) {
-    schema.minLength = mcp::make_optional(json["minLength"].getInt());
-  }
-  if (json.contains("maxLength")) {
-    schema.maxLength = mcp::make_optional(json["maxLength"].getInt());
-  }
+  schema.title = stringField(json, "title");
+  schema.description = stringField(json, "description");
+  schema.minLength = intField(json, "minLength");
+  schema.maxLength = intField(json, "maxLength");
+  schema.format = stringField(json, "format");
+  schema.defaultValue = stringField(json, "default");
   return schema;
 }
 
 JsonValue serialize_NumberSchema(const NumberSchema& schema) {
-  JsonObjectBuilder builder;
-  builder.add("type", schema.type == "integer" ? "integer" : "number");
-  if (schema.description.has_value()) {
-    builder.add("description", schema.description.value());
-  }
-  if (schema.minimum.has_value()) {
-    builder.add("minimum", schema.minimum.value());
-  }
-  if (schema.maximum.has_value()) {
-    builder.add("maximum", schema.maximum.value());
-  }
-  if (schema.multipleOf.has_value()) {
-    builder.add("multipleOf", schema.multipleOf.value());
-  }
-  return builder.build();
+  JsonValue json = JsonValue::object();
+  json.set("type", JsonValue(schema.type == "integer" ? "integer" : "number"));
+  if (schema.title.has_value())
+    json.set("title", JsonValue(*schema.title));
+  if (schema.description.has_value())
+    json.set("description", JsonValue(*schema.description));
+  if (schema.minimum.has_value())
+    json.set("minimum", numberJson(*schema.minimum));
+  if (schema.maximum.has_value())
+    json.set("maximum", numberJson(*schema.maximum));
+  if (schema.defaultValue.has_value())
+    json.set("default", numberJson(*schema.defaultValue));
+  return json;
 }
 
 NumberSchema deserialize_NumberSchema(const JsonValue& json) {
   NumberSchema schema;
-  schema.type = json["type"].getString();
-  if (json.contains("description")) {
-    schema.description = mcp::make_optional(json["description"].getString());
-  }
-  if (json.contains("minimum")) {
-    schema.minimum = mcp::make_optional(json["minimum"].getFloat());
-  }
-  if (json.contains("maximum")) {
-    schema.maximum = mcp::make_optional(json["maximum"].getFloat());
-  }
-  if (json.contains("multipleOf")) {
-    schema.multipleOf = mcp::make_optional(json["multipleOf"].getFloat());
-  }
+  schema.type = stringField(json, "type").value_or("number") == "integer"
+                    ? "integer"
+                    : "number";
+  schema.title = stringField(json, "title");
+  schema.description = stringField(json, "description");
+  schema.minimum = numberField(json, "minimum");
+  schema.maximum = numberField(json, "maximum");
+  schema.defaultValue = numberField(json, "default");
   return schema;
 }
 
 JsonValue serialize_BooleanSchema(const BooleanSchema& schema) {
-  JsonObjectBuilder builder;
-  builder.add("type", "boolean");
-  if (schema.description.has_value()) {
-    builder.add("description", schema.description.value());
-  }
-  return builder.build();
+  JsonValue json = JsonValue::object();
+  json.set("type", JsonValue("boolean"));
+  if (schema.title.has_value())
+    json.set("title", JsonValue(*schema.title));
+  if (schema.description.has_value())
+    json.set("description", JsonValue(*schema.description));
+  if (schema.defaultValue.has_value())
+    json.set("default", JsonValue(*schema.defaultValue));
+  return json;
 }
 
 BooleanSchema deserialize_BooleanSchema(const JsonValue& json) {
   BooleanSchema schema;
-  schema.type = json["type"].getString();
-  if (json.contains("description")) {
-    schema.description = mcp::make_optional(json["description"].getString());
+  schema.title = stringField(json, "title");
+  schema.description = stringField(json, "description");
+  if (json.contains("default") && json["default"].isBoolean()) {
+    schema.defaultValue = json["default"].getBool();
   }
   return schema;
 }
 
 JsonValue serialize_EnumSchema(const EnumSchema& schema) {
-  JsonObjectBuilder builder;
-  builder.add("type", "string");
-  if (schema.description.has_value()) {
-    builder.add("description", schema.description.value());
+  JsonValue json = JsonValue::object();
+  const bool titled = schema.titles.has_value();
+  if (schema.multiple) {
+    json.set("type", JsonValue("array"));
+  } else {
+    json.set("type", JsonValue("string"));
   }
-  JsonArrayBuilder values;
-  for (const auto& val : schema.values) {
-    values.add(val);
+  if (schema.title.has_value())
+    json.set("title", JsonValue(*schema.title));
+  if (schema.description.has_value())
+    json.set("description", JsonValue(*schema.description));
+
+  if (schema.multiple) {
+    if (schema.minItems.has_value())
+      json.set("minItems", JsonValue(*schema.minItems));
+    if (schema.maxItems.has_value())
+      json.set("maxItems", JsonValue(*schema.maxItems));
+    JsonValue items = JsonValue::object();
+    if (titled) {
+      items.set("anyOf", titledOptions(schema.values, *schema.titles));
+    } else {
+      items.set("type", JsonValue("string"));
+      items.set("enum", stringArray(schema.values));
+    }
+    json.set("items", items);
+    if (schema.defaultValues.has_value())
+      json.set("default", stringArray(*schema.defaultValues));
+    return json;
   }
-  builder.add("enum", values.build());
-  return builder.build();
+
+  if (titled && !schema.enumNames) {
+    json.set("oneOf", titledOptions(schema.values, *schema.titles));
+  } else {
+    json.set("enum", stringArray(schema.values));
+    if (titled) {
+      json.set("enumNames", stringArray(*schema.titles));
+    }
+  }
+  if (schema.defaultValue.has_value())
+    json.set("default", JsonValue(*schema.defaultValue));
+  return json;
 }
 
 EnumSchema deserialize_EnumSchema(const JsonValue& json) {
   EnumSchema schema;
-  schema.type = "string";  // Enum type is always string
-  if (json.contains("description")) {
-    schema.description = mcp::make_optional(json["description"].getString());
+  schema.type = "string";
+  schema.title = stringField(json, "title");
+  schema.description = stringField(json, "description");
+
+  if (stringField(json, "type").value_or("") == "array") {
+    schema.multiple = true;
+    schema.minItems = intField(json, "minItems");
+    schema.maxItems = intField(json, "maxItems");
+    const JsonValue items = json.contains("items") && json["items"].isObject()
+                                ? json["items"]
+                                : JsonValue::object();
+    if (items.contains("anyOf") && items["anyOf"].isArray()) {
+      std::vector<std::string> titles;
+      readTitledOptions(items["anyOf"], &schema.values, &titles);
+      schema.titles = titles;
+    } else if (items.contains("enum")) {
+      schema.values = stringsIn(items["enum"]);
+    }
+    if (json.contains("default") && json["default"].isArray()) {
+      schema.defaultValues = stringsIn(json["default"]);
+    }
+    return schema;
   }
-  if (json.contains("enum")) {
-    auto enumArray = json["enum"];
-    size_t size = enumArray.size();
-    for (size_t i = 0; i < size; ++i) {
-      schema.values.push_back(enumArray[i].getString());
+
+  if (json.contains("oneOf") && json["oneOf"].isArray()) {
+    std::vector<std::string> titles;
+    readTitledOptions(json["oneOf"], &schema.values, &titles);
+    schema.titles = titles;
+  } else if (json.contains("enum")) {
+    schema.values = stringsIn(json["enum"]);
+    if (json.contains("enumNames") && json["enumNames"].isArray()) {
+      schema.titles = stringsIn(json["enumNames"]);
+      schema.enumNames = true;
     }
   }
+  schema.defaultValue = stringField(json, "default");
   return schema;
 }
 
@@ -412,23 +533,39 @@ JsonValue serialize_PrimitiveSchemaDefinition(
   return result;
 }
 
+/** Whether a form field is a choice: one of a set, or several. */
+static bool isChoiceField(const JsonValue& json) {
+  const std::string type = stringField(json, "type").value_or("");
+  if (type == "string") {
+    return json.contains("enum") || json.contains("oneOf");
+  }
+  if (type == "array") {
+    if (!json.contains("items") || !json["items"].isObject()) {
+      return false;
+    }
+    const auto& items = json["items"];
+    return items.contains("enum") || items.contains("anyOf");
+  }
+  return false;
+}
+
 PrimitiveSchemaDefinition deserialize_PrimitiveSchemaDefinition(
     const JsonValue& json) {
-  std::string type = json["type"].getString();
-
-  if (type == "string") {
-    if (json.contains("enum")) {
-      return from_json<EnumSchema>(json);
-    } else {
-      return from_json<StringSchema>(json);
-    }
-  } else if (type == "number" || type == "integer") {
+  const std::string type = stringField(json, "type").value_or("");
+  if (isChoiceField(json)) {
+    return from_json<EnumSchema>(json);
+  }
+  if (type == "number" || type == "integer") {
     return from_json<NumberSchema>(json);
-  } else if (type == "boolean") {
+  }
+  if (type == "boolean") {
     return from_json<BooleanSchema>(json);
   }
-
-  // Default to string schema
+  if (type == "array") {
+    throw JsonException(
+        "an array form field must hold string choices (items with enum or "
+        "anyOf)");
+  }
   return from_json<StringSchema>(json);
 }
 
@@ -1474,8 +1611,20 @@ JsonValue serialize_CreateMessageRequest(const CreateMessageRequest& request) {
 JsonValue serialize_ElicitRequest(const ElicitRequest& request) {
   JsonObjectBuilder builder;
 
-  // Only a form is written here; URL mode carries a url in its place, and
-  // naming it over a form would send a request no client could read.
+  // A URL sends the user somewhere instead of showing a form, so it carries
+  // a url in place of the form's fields.
+  if (request.mode.has_value() && request.mode.value() == "url") {
+    if (!request.url.has_value()) {
+      throw JsonException("a URL-mode elicitation needs a url");
+    }
+    builder.add("mode", "url");
+    builder.add("message", request.message);
+    builder.add("url", request.url.value());
+    if (request.elicitationId.has_value()) {
+      builder.add("elicitationId", request.elicitationId.value());
+    }
+    return builder.build();
+  }
   if (request.mode.has_value()) {
     if (request.mode.value() != "form") {
       throw JsonException("unsupported elicitation mode: " +
@@ -2531,12 +2680,24 @@ ElicitRequest deserialize_ElicitRequest(const JsonValue& json) {
     if (!json["mode"].isString()) {
       throw JsonException("an elicitation's mode must be a string");
     }
-    // URL mode carries a url instead of a form, and is not read here.
-    if (json["mode"].getString() != "form") {
-      throw JsonException("unsupported elicitation mode: " +
-                          json["mode"].getString());
+    const std::string mode = json["mode"].getString();
+    if (mode == "url") {
+      if (!json.contains("url") || !json["url"].isString() ||
+          !json.contains("message") || !json["message"].isString()) {
+        throw JsonException("a URL-mode elicitation needs a url and a message");
+      }
+      request.mode = mode;
+      request.message = json["message"].getString();
+      request.url = json["url"].getString();
+      if (json.contains("elicitationId") && json["elicitationId"].isString()) {
+        request.elicitationId = json["elicitationId"].getString();
+      }
+      return request;
     }
-    request.mode = json["mode"].getString();
+    if (mode != "form") {
+      throw JsonException("unsupported elicitation mode: " + mode);
+    }
+    request.mode = mode;
   }
 
   request.message = json.at("message").getString();
@@ -2559,10 +2720,12 @@ ElicitRequest deserialize_ElicitRequest(const JsonValue& json) {
                                      property["type"].isString()
                                  ? property["type"].getString()
                                  : std::string();
+    const bool choice_list = type == "array" && isChoiceField(property);
     if (type != "string" && type != "number" && type != "integer" &&
-        type != "boolean") {
-      throw JsonException("elicitation field " + name +
-                          " is not a string, number, integer or boolean");
+        type != "boolean" && !choice_list) {
+      throw JsonException(
+          "elicitation field " + name +
+          " is not a string, number, integer, boolean or list of choices");
     }
     request.requestedSchema.properties[name] =
         from_json<PrimitiveSchemaDefinition>(property);

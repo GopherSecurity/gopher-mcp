@@ -821,21 +821,33 @@ inline Root make_root(const std::string& uri, const std::string& name) {
 }
 
 // Schema types for elicitation
+// Elicitation form fields. Each carries the spec's keywords for its kind
+// and is written with only those that are set.
 struct StringSchema {
   std::string type = "string";
+  optional<std::string> title;
   optional<std::string> description;
-  optional<std::string> pattern;
   optional<int> minLength;
   optional<int> maxLength;
+  // "email", "uri", "date" or "date-time".
+  optional<std::string> format;
+  optional<std::string> defaultValue;
+  // Not a keyword the spec allows in a form field: kept so existing code
+  // compiles, and never written.
+  optional<std::string> pattern;
 
   StringSchema() = default;
 };
 
 struct NumberSchema {
   std::string type = "number";  // "number", or "integer" for whole numbers
+  optional<std::string> title;
   optional<std::string> description;
   optional<double> minimum;
   optional<double> maximum;
+  optional<double> defaultValue;
+  // Not a keyword the spec allows in a form field: kept so existing code
+  // compiles, and never written.
   optional<double> multipleOf;
 
   NumberSchema() = default;
@@ -843,15 +855,36 @@ struct NumberSchema {
 
 struct BooleanSchema {
   std::string type = "boolean";
+  optional<std::string> title;
   optional<std::string> description;
+  optional<bool> defaultValue;
 
   BooleanSchema() = default;
 };
 
+// A choice field: one of a set of values, or several of them.
+//
+//   single, untitled   {"type":"string","enum":[...]}
+//   single, titled     {"type":"string","oneOf":[{"const","title"},...]}
+//   single, older form {"type":"string","enum":[...],"enumNames":[...]}
+//   several, untitled  {"type":"array","items":{"type":"string","enum":[...]}}
+//   several, titled    {"type":"array","items":{"anyOf":[{"const","title"}]}}
 struct EnumSchema {
-  std::string type = "enum";
+  std::string type = "enum";  // kept for compatibility; never written
+  optional<std::string> title;
   optional<std::string> description;
   std::vector<std::string> values;
+  // A title for each value, for the titled forms.
+  optional<std::vector<std::string>> titles;
+  // Write the titles as the older enumNames beside enum, for a single
+  // choice, rather than as oneOf.
+  bool enumNames = false;
+  // Several values may be chosen.
+  bool multiple = false;
+  optional<int> minItems;
+  optional<int> maxItems;
+  optional<std::string> defaultValue;                // a single choice
+  optional<std::vector<std::string>> defaultValues;  // several
 
   EnumSchema() = default;
   explicit EnumSchema(std::vector<std::string>&& vals)
@@ -1348,9 +1381,15 @@ struct ElicitRequestedSchema {
 // older ones, an entry in inputRequests in 2026-07-28. Its params:
 //   {"mode"?: "form", "message": "...", "requestedSchema": {...}}
 struct ElicitRequest : jsonrpc::Request {
-  optional<std::string> mode;  // "form" when present
+  optional<std::string> mode;  // "form" or "url"; absent means a form
   std::string message;
-  ElicitRequestedSchema requestedSchema;
+  ElicitRequestedSchema requestedSchema;  // a form's fields
+  // URL mode: where the user is sent, for anything that must not pass
+  // through the client.
+  optional<std::string> url;
+  // URL mode, in 2025-11-25: names the elicitation the server later says
+  // has completed.
+  optional<std::string> elicitationId;
 
   ElicitRequest() : jsonrpc::Request() { method = "elicitation/create"; }
 };
