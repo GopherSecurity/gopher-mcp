@@ -275,6 +275,18 @@ TEST_F(StreamableHttpClientStreamTest, ARequestFromTheServerIsAnswered) {
     return false;
   });
   ASSERT_TRUE(found) << "the client never answered the server's request";
+
+  // Answered with an empty result, as the spec requires of a ping, and
+  // not refused for want of a handler.
+  for (const auto& seen : server_.seen()) {
+    if (seen.rpc_id == "77" && seen.rpc_method.empty()) {
+      const auto answer = json::JsonValue::parse(seen.body);
+      EXPECT_FALSE(answer.contains("error")) << seen.body;
+      ASSERT_TRUE(answer.contains("result")) << seen.body;
+      EXPECT_TRUE(answer["result"].isObject()) << seen.body;
+      EXPECT_TRUE(answer["result"].keys().empty()) << seen.body;
+    }
+  }
   size_t requests_on = 0;
   size_t answer_on = 0;
   for (const auto& seen : server_.seen()) {
