@@ -144,6 +144,12 @@ class ModernEraSubscriptionsTest : public ::testing::Test {
     config.num_workers = 1;
     config.capabilities.resources =
         mcp::make_optional(variant<bool, ResourcesCapability>(true));
+    config.capabilities.tools = mcp::make_optional(true);
+    config.capabilities.prompts = mcp::make_optional(true);
+    // Announcing list changes, so there is something to subscribe to.
+    config.tools_list_changed = true;
+    config.prompts_list_changed = true;
+    config.resources_list_changed = true;
     config.streamable_http.enable_modern_era = true;
 
     server_ = server::createMcpServer(config);
@@ -249,6 +255,94 @@ TEST_F(ModernEraSubscriptionsTest, NothingArrivesThatWasNotAskedFor) {
   std::this_thread::sleep_for(200ms);
   ASSERT_EQ(heard.count(), 2u)
       << "an update arrived for a resource nobody subscribed to";
+}
+
+/** A subscription asking about these kinds of list change. */
+modern::NotificationFilter listChanges(bool tools,
+                                       bool prompts,
+                                       bool resources) {
+  modern::NotificationFilter filter;
+  filter.tools_list_changed = tools;
+  filter.prompts_list_changed = prompts;
+  filter.resources_list_changed = resources;
+  return filter;
+}
+
+// Each kind of list change reaches the subscriptions that asked for it, with
+// their own id, and no other.
+TEST_F(ModernEraSubscriptionsTest, AListChangeReachesOnlyThoseWhoAsked) {
+  Heard tools;
+  Heard resources;
+  Heard watcher;
+  const int64_t tools_id = client_->listen(
+      listChanges(true, false, false),
+      [&tools](const jsonrpc::Notification& n) { tools.take(n); });
+  const int64_t resources_id = client_->listen(
+      listChanges(false, false, true),
+      [&resources](const jsonrpc::Notification& n) { resources.take(n); });
+  ASSERT_NE(client_->listen(about("file:///watched"),
+                            [&watcher](const jsonrpc::Notification& n) {
+                              watcher.take(n);
+                            }),
+            0);
+  ASSERT_TRUE(waitUntil([&]() {
+    return tools.count() >= 1 && resources.count() >= 1 && watcher.count() >= 1;
+  })) << "not every subscription was acknowledged";
+
+  server_->notifyToolsListChanged();
+  server_->notifyResourcesListChanged();
+  ASSERT_TRUE(waitUntil([&]() {
+    return tools.count() >= 2 && resources.count() >= 2;
+  })) << "a list change never arrived";
+  std::this_thread::sleep_for(200ms);
+
+  EXPECT_EQ(tools.methods(), (std::vector<std::string>{
+                                 modern::kNotificationSubscriptionsAcknowledged,
+                                 modern::kNotificationToolsListChanged}));
+  EXPECT_EQ(tools.subscriptionOf(1), tools_id);
+  EXPECT_EQ(
+      resources.methods(),
+      (std::vector<std::string>{modern::kNotificationSubscriptionsAcknowledged,
+                                modern::kNotificationResourcesListChanged}));
+  EXPECT_EQ(resources.subscriptionOf(1), resources_id);
+  EXPECT_EQ(watcher.count(), 1u)
+      << "a subscription to one resource heard a list change";
+}
+
+// Adding or removing a tool or prompt while the server runs is announced.
+TEST_F(ModernEraSubscriptionsTest, AChangeWhileRunningIsAnnounced) {
+  Heard heard;
+  ASSERT_NE(client_->listen(
+                listChanges(true, true, false),
+                [&heard](const jsonrpc::Notification& n) { heard.take(n); }),
+            0);
+  ASSERT_TRUE(waitUntil([&heard]() { return heard.count() >= 1; }));
+
+  Tool late("late_tool");
+  ASSERT_TRUE(server_->registerTool(
+      late, [](const std::string&, const optional<Metadata>&,
+               server::SessionContext&) { return CallToolResult(); }));
+  ASSERT_TRUE(waitUntil([&heard]() { return heard.count() >= 2; }))
+      << "registering a tool was not announced";
+  EXPECT_EQ(heard.methods()[1], modern::kNotificationToolsListChanged);
+
+  EXPECT_TRUE(server_->unregisterTool("late_tool"));
+  ASSERT_TRUE(waitUntil([&heard]() { return heard.count() >= 3; }))
+      << "removing a tool was not announced";
+  EXPECT_EQ(heard.methods()[2], modern::kNotificationToolsListChanged);
+
+  server_->registerPrompt(
+      Prompt("late_prompt"),
+      [](const std::string&, const optional<Metadata>&,
+         server::SessionContext&) { return GetPromptResult(); });
+  ASSERT_TRUE(waitUntil([&heard]() { return heard.count() >= 4; }))
+      << "registering a prompt was not announced";
+  EXPECT_EQ(heard.methods()[3], modern::kNotificationPromptsListChanged);
+
+  // Removing something that was never there changes nothing to announce.
+  EXPECT_FALSE(server_->unregisterTool("never_was"));
+  std::this_thread::sleep_for(200ms);
+  EXPECT_EQ(heard.count(), 4u);
 }
 
 // One client, two subscriptions, each on a connection of its own. Every
