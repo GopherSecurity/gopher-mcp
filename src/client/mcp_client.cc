@@ -1743,6 +1743,18 @@ void McpClient::handleRequest(const Request& request) {
     }
   }
 
+  if (!handler && request.method == "ping") {
+    // Answered by every client, with an empty result and nothing else, as
+    // the spec requires; an application's own handler still comes first.
+    Response response;
+    response.jsonrpc = "2.0";
+    response.id = request.id;
+    response.result =
+        mcp::make_optional(jsonrpc::ResponseResult(json::JsonValue::object()));
+    connection_manager_->sendResponse(response);
+    return;
+  }
+
   if (!handler) {
     // Refused, but answered: a server that asked is waiting, and an
     // unanswered question is worse for it than a refused one.
