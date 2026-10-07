@@ -735,9 +735,12 @@ std::future<InitializeResult> McpClient::initializeProtocol() {
 std::vector<std::string> McpClient::acceptedHandshakeVersions() const {
   std::vector<std::string> accepted;
   accepted.push_back(config_.protocol_version);
+  // A server may answer with an older version than the one offered, never
+  // a newer one: offering a version is saying it is the newest this client
+  // will speak. Versions are dates, so they order as strings do.
   for (const auto& version : transport::handshakeProtocolVersions(
            config_.streamable_http.protocol_versions)) {
-    if (version != config_.protocol_version) {
+    if (version < config_.protocol_version) {
       accepted.push_back(version);
     }
   }

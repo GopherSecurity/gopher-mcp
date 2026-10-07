@@ -1168,7 +1168,7 @@ class McpClient : public application::ApplicationBase {
 
   /**
    * The versions this client speaks in the initialize handshake: the one it
-   * offers, and the handshake revisions it is configured to accept.
+   * offers, and the configured handshake revisions older than that.
    */
   std::vector<std::string> acceptedHandshakeVersions() const;
 
