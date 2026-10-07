@@ -3302,6 +3302,100 @@ std::future<GetPromptResult> McpClient::getPromptWith(
   return result_promise->get_future();
 }
 
+namespace {
+CompleteRequest completionOf(
+    const variant<PromptReference, ResourceTemplateReference>& ref,
+    const std::string& argument,
+    const std::string& value,
+    const std::map<std::string, std::string>& chosen) {
+  CompleteRequest request;
+  request.ref = ref;
+  request.argument.name = argument;
+  request.argument.value = value;
+  if (!chosen.empty()) {
+    CompleteRequest::Context context;
+    context.arguments = chosen;
+    request.context = context;
+  }
+  return request;
+}
+}  // namespace
+
+std::future<CompleteResult> McpClient::completePromptArgument(
+    const std::string& prompt,
+    const std::string& argument,
+    const std::string& value,
+    const std::map<std::string, std::string>& chosen) {
+  return complete(
+      completionOf(PromptReference(prompt), argument, value, chosen));
+}
+
+std::future<CompleteResult> McpClient::completeResourceTemplateArgument(
+    const std::string& uri_template,
+    const std::string& argument,
+    const std::string& value,
+    const std::map<std::string, std::string>& chosen) {
+  return complete(completionOf(ResourceTemplateReference(uri_template),
+                               argument, value, chosen));
+}
+
+std::future<CompleteResult> McpClient::complete(
+    const CompleteRequest& request) {
+  auto result_promise = std::make_shared<std::promise<CompleteResult>>();
+
+  if (!main_dispatcher_) {
+    result_promise->set_exception(
+        std::make_exception_ptr(std::runtime_error("No dispatcher")));
+    return result_promise->get_future();
+  }
+
+  // The params as the spec shapes them. The typed request writes its id
+  // too when it has one; that belongs to the envelope, not the params.
+  const json::JsonValue written = json::to_json(request);
+  json::JsonValue params = json::JsonValue::object();
+  for (const auto& key : written.keys()) {
+    if (key != "id") {
+      params.set(key, written[key]);
+    }
+  }
+  auto params_ptr = std::make_shared<json::JsonValue>(std::move(params));
+  auto request_future_ptr = std::make_shared<std::future<Response>>();
+
+  // Sent on the dispatcher, and waited for on a worker thread: waiting on
+  // the dispatcher would block the very thread that reads the answer.
+  main_dispatcher_->post([this, request_future_ptr, params_ptr]() {
+    *request_future_ptr =
+        sendRequestWithParams("completion/complete", *params_ptr, {});
+  });
+
+  std::thread([result_promise, request_future_ptr]() {
+    try {
+      while (!request_future_ptr->valid()) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+      }
+      auto response = request_future_ptr->get();
+      if (response.error.has_value()) {
+        result_promise->set_exception(
+            std::make_exception_ptr(RequestError(response.error.value())));
+        return;
+      }
+      // An answer that is no completion is an error, not "no
+      // suggestions": the caller couldn't tell the two apart.
+      json::JsonValue body;
+      if (!response.result.has_value() || !resultAsJson(response, &body) ||
+          !body.isObject() || !body.contains("completion")) {
+        throw std::runtime_error(
+            "completion/complete answered with no completion");
+      }
+      result_promise->set_value(json::from_json<CompleteResult>(body));
+    } catch (...) {
+      result_promise->set_exception(std::current_exception());
+    }
+  }).detach();
+
+  return result_promise->get_future();
+}
+
 // Set logging level
 std::future<VoidResult> McpClient::setLogLevel(
     enums::LoggingLevel::Value level) {
