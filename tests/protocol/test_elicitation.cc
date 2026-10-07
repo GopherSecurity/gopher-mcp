@@ -26,6 +26,7 @@
 #include "mcp/json/json_bridge.h"
 #include "mcp/json/json_serialization.h"
 #include "mcp/protocol/elicitation.h"
+#include "mcp/protocol/mrtr.h"
 #include "mcp/types.h"
 
 namespace mcp {
@@ -125,10 +126,22 @@ TEST(Elicitation, ARequestItCannotReadIsRefused) {
   EXPECT_THROW(
       json::from_json<ElicitRequest>(JsonValue::parse(R"({"message": "m"})")),
       json::JsonException);
-  // URL mode, which carries a url instead of a form
+  // URL mode without the url it sends the user to
+  EXPECT_THROW(json::from_json<ElicitRequest>(
+                   JsonValue::parse(R"({"mode": "url", "message": "m"})")),
+               json::JsonException);
+  // A mode the spec does not define
   EXPECT_THROW(json::from_json<ElicitRequest>(JsonValue::parse(
-                   R"({"mode": "url", "message": "m",
-                       "url": "https://example.com"})")),
+                   R"({"mode": "carrier-pigeon", "message": "m",
+                       "requestedSchema": {"type": "object",
+                                           "properties": {}}})")),
+               json::JsonException);
+  // A list field whose items are not choices
+  EXPECT_THROW(json::from_json<ElicitRequest>(JsonValue::parse(
+                   R"({"message": "m",
+                       "requestedSchema": {"type": "object", "properties":
+                         {"tags": {"type": "array",
+                                   "items": {"type": "string"}}}}})")),
                json::JsonException);
   // A form that does not say it is an object
   EXPECT_THROW(json::from_json<ElicitRequest>(JsonValue::parse(
@@ -158,6 +171,174 @@ TEST(Elicitation, AnotherModeIsNotWritten) {
 
   request.mode = nullopt;
   EXPECT_FALSE(json::to_json(request).contains("mode"));
+}
+
+// The spec's keywords for each kind of field, written only when set, and
+// none it does not define.
+TEST(Elicitation, FieldsCarryTheSpecsKeywords) {
+  const JsonValue email = json::to_json(PrimitiveSchemaDefinition(
+      make<StringSchema>()
+          .title("Email")
+          .description("Where to write")
+          .format("email")
+          .minLength(3)
+          .defaultValue("a@b.c")
+          .pattern(".+@.+")  // kept for old code, never written
+          .build()));
+  EXPECT_EQ(email.toString(),
+            JsonValue::parse(R"({"type":"string","title":"Email",
+              "description":"Where to write","format":"email",
+              "minLength":3,"default":"a@b.c"})")
+                .toString());
+
+  const JsonValue count = json::to_json(PrimitiveSchemaDefinition(
+      make<NumberSchema>()
+          .integer()
+          .title("Count")
+          .minimum(1)
+          .defaultValue(3)
+          .multipleOf(2)  // kept for old code, never written
+          .build()));
+  EXPECT_EQ(count.toString(),
+            JsonValue::parse(R"({"type":"integer","title":"Count",
+              "minimum":1,"default":3})")
+                .toString());
+
+  const JsonValue agree = json::to_json(PrimitiveSchemaDefinition(
+      make<BooleanSchema>().title("Agree").defaultValue(false).build()));
+  EXPECT_EQ(agree.toString(),
+            JsonValue::parse(R"({"type":"boolean","title":"Agree",
+              "default":false})")
+                .toString());
+
+  // A plain field writes only its type.
+  EXPECT_EQ(json::to_json(PrimitiveSchemaDefinition(StringSchema())).toString(),
+            R"({"type":"string"})");
+}
+
+// Every choice form the spec defines is written in its own shape and read
+// back as it was.
+TEST(Elicitation, ChoiceFieldsInEveryForm) {
+  struct Form {
+    const char* what;
+    EnumSchema schema;
+    const char* wire;
+  };
+  const std::vector<Form> forms = {
+      {"untitled single",
+       make<EnumSchema>(std::vector<std::string>{"a", "b"})
+           .defaultValue("a")
+           .build(),
+       R"({"type":"string","enum":["a","b"],"default":"a"})"},
+      {"titled single",
+       make<EnumSchema>(std::vector<std::string>{})
+           .option("stg", "Staging")
+           .option("prd", "Production")
+           .build(),
+       R"({"type":"string","oneOf":[{"const":"stg","title":"Staging"},
+          {"const":"prd","title":"Production"}]})"},
+      {"older enumNames",
+       make<EnumSchema>(std::vector<std::string>{})
+           .option("stg", "Staging")
+           .enumNames()
+           .build(),
+       R"({"type":"string","enum":["stg"],"enumNames":["Staging"]})"},
+      {"untitled multi",
+       make<EnumSchema>(std::vector<std::string>{"a", "b"})
+           .multiple()
+           .minItems(1)
+           .maxItems(2)
+           .defaultValues({"a"})
+           .build(),
+       R"({"type":"array","minItems":1,"maxItems":2,
+          "items":{"type":"string","enum":["a","b"]},"default":["a"]})"},
+      {"titled multi",
+       make<EnumSchema>(std::vector<std::string>{})
+           .option("r", "Red")
+           .multiple()
+           .build(),
+       R"({"type":"array","items":{"anyOf":[{"const":"r","title":"Red"}]}})"},
+  };
+  for (const auto& form : forms) {
+    SCOPED_TRACE(form.what);
+    const JsonValue written =
+        json::to_json(PrimitiveSchemaDefinition(form.schema));
+    EXPECT_EQ(written.toString(), JsonValue::parse(form.wire).toString());
+    const auto back = json::from_json<PrimitiveSchemaDefinition>(written);
+    EXPECT_EQ(json::to_json(back).toString(), written.toString());
+  }
+}
+
+// A keyword of the wrong type is passed over, not allowed to cost the form.
+TEST(Elicitation, FieldsAreReadForgivingly) {
+  const auto field = json::from_json<PrimitiveSchemaDefinition>(
+      JsonValue::parse(R"({"type":"string","title":7,"minLength":"x",
+                           "format":"email","default":false})"));
+  const auto* text = get_if<StringSchema>(&field);
+  ASSERT_NE(text, nullptr);
+  EXPECT_FALSE(text->title.has_value());
+  EXPECT_FALSE(text->minLength.has_value());
+  EXPECT_FALSE(text->defaultValue.has_value());
+  EXPECT_EQ(text->format, mcp::make_optional(std::string("email")));
+}
+
+// A form may hold a list of choices.
+TEST(Elicitation, AFormMayHoldAListOfChoices) {
+  const ElicitRequest elicit = json::from_json<ElicitRequest>(JsonValue::parse(
+      R"({"message":"Pick tags","requestedSchema":{"type":"object",
+          "properties":{"tags":{"type":"array",
+          "items":{"type":"string","enum":["x","y"]}}},
+          "required":["tags"]}})"));
+  const auto* tags =
+      get_if<EnumSchema>(&elicit.requestedSchema.properties.at("tags"));
+  ASSERT_NE(tags, nullptr);
+  EXPECT_TRUE(tags->multiple);
+  EXPECT_EQ(tags->values.size(), 2u);
+  EXPECT_EQ(elicit.requestedSchema.required->at(0), "tags");
+}
+
+// URL mode sends the user to a URL instead of showing a form.
+TEST(Elicitation, URLModeIsReadAndWritten) {
+  const ElicitRequest asked = make<ElicitRequest>("Sign in to continue")
+                                  .urlMode("https://example.com/connect")
+                                  .build();
+  const JsonValue wire = json::to_json(asked);
+  EXPECT_EQ(wire.toString(),
+            JsonValue::parse(R"({"mode":"url","message":"Sign in to continue",
+              "url":"https://example.com/connect"})")
+                .toString());
+  EXPECT_FALSE(wire.contains("requestedSchema"));
+
+  const ElicitRequest back = json::from_json<ElicitRequest>(JsonValue::parse(
+      R"({"mode":"url","message":"m","url":"https://e.x",
+          "elicitationId":"e-1"})"));
+  EXPECT_EQ(back.url, mcp::make_optional(std::string("https://e.x")));
+  EXPECT_EQ(back.elicitationId, mcp::make_optional(std::string("e-1")));
+  EXPECT_TRUE(json::to_json(back).contains("elicitationId"));
+}
+
+// In 2026-07-28 a client is asked for a URL only when it said it can follow
+// one; declaring forms is not enough.
+TEST(Elicitation, AURLIsAskedOnlyOfAClientThatFollowsThem) {
+  protocol::modern::InputRequests asked;
+  asked["sign_in"] = elicitation::toInputRequest(
+      make<ElicitRequest>("Sign in").urlMode("https://e.x").build());
+
+  const auto forms_only = protocol::modern::capabilitiesMissingFor(
+      asked, R"({"elicitation":{"form":{}}})");
+  ASSERT_EQ(forms_only.size(), 1u);
+  EXPECT_EQ(forms_only[0], "elicitation.url");
+
+  EXPECT_TRUE(protocol::modern::capabilitiesMissingFor(
+                  asked, R"({"elicitation":{"url":{}}})")
+                  .empty());
+
+  // A form still needs only elicitation.
+  protocol::modern::InputRequests form;
+  form["who"] = elicitation::toInputRequest(deploymentQuestion());
+  EXPECT_TRUE(protocol::modern::capabilitiesMissingFor(
+                  form, R"({"elicitation":{"form":{}}})")
+                  .empty());
 }
 
 TEST(Elicitation, AnAnswerGoesBackAsActionAndContent) {

@@ -28,6 +28,7 @@ add_executable(test_mcp_server_responses server/test_mcp_server_responses.cc)
 add_executable(test_resource_read server/test_resource_read.cc)
 add_executable(test_unknown_tool server/test_unknown_tool.cc)
 add_executable(test_list_paging server/test_list_paging.cc)
+add_executable(test_elicitation_gate server/test_elicitation_gate.cc)
 add_executable(test_resource_templates server/test_resource_templates.cc)
 add_executable(test_schema_examples conformance/test_schema_examples.cc)
 add_executable(test_session_manager_capacity server/test_session_manager_capacity.cc)
@@ -331,6 +332,15 @@ target_link_libraries(test_unknown_tool
 )
 
 target_link_libraries(test_list_paging
+    gopher-mcp
+    gopher-mcp-logging
+    gtest
+    gtest_main
+    Threads::Threads
+    fmt::fmt
+)
+
+target_link_libraries(test_elicitation_gate
     gopher-mcp
     gopher-mcp-logging
     gtest
@@ -1632,6 +1642,7 @@ add_test(NAME McpServerResponsesTest COMMAND test_mcp_server_responses)
 add_test(NAME ResourceReadTest COMMAND test_resource_read)
 add_test(NAME UnknownToolTest COMMAND test_unknown_tool)
 add_test(NAME ListPagingTest COMMAND test_list_paging)
+add_test(NAME ElicitationGateTest COMMAND test_elicitation_gate)
 add_test(NAME ResourceTemplatesTest COMMAND test_resource_templates)
 add_test(NAME SchemaExamplesTest COMMAND test_schema_examples)
 add_test(NAME SessionManagerCapacityTest COMMAND test_session_manager_capacity)
