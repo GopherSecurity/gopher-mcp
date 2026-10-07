@@ -74,6 +74,12 @@ ModelPreferences deserialize_ModelPreferences(const JsonValue& json);
 JsonValue serialize_ModelHint(const ModelHint& value);
 ModelHint deserialize_ModelHint(const JsonValue& json);
 
+JsonValue serialize_Icon(const Icon& value);
+Icon deserialize_Icon(const JsonValue& json);
+
+JsonValue serialize_Implementation(const Implementation& value);
+Implementation deserialize_Implementation(const JsonValue& json);
+
 JsonValue serialize_Annotations(const Annotations& value);
 Annotations deserialize_Annotations(const JsonValue& json);
 
@@ -356,6 +362,10 @@ SERIALIZE_TRAIT(ModelPreferences)
 DESERIALIZE_TRAIT(ModelPreferences)
 SERIALIZE_TRAIT(ModelHint)
 DESERIALIZE_TRAIT(ModelHint)
+SERIALIZE_TRAIT(Icon)
+DESERIALIZE_TRAIT(Icon)
+SERIALIZE_TRAIT(Implementation)
+DESERIALIZE_TRAIT(Implementation)
 SERIALIZE_TRAIT(Annotations)
 DESERIALIZE_TRAIT(Annotations)
 SERIALIZE_TRAIT(ToolAnnotations)

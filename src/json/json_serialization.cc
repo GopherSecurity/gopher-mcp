@@ -366,6 +366,152 @@ JsonValue stringArray(const std::vector<std::string>& values) {
 }
 }  // namespace
 
+// What tools, prompts, resources, templates and implementations say about
+// themselves for people. Each field is written only when set, and read
+// forgivingly: one of the wrong type is passed over rather than allowed to
+// cost the list that holds it.
+static Annotations readAnnotationsForgivingly(const JsonValue& json);
+
+JsonValue serialize_Icon(const Icon& icon) {
+  JsonObjectBuilder builder;
+  builder.add("src", icon.src);
+  if (icon.mimeType.has_value()) {
+    builder.add("mimeType", icon.mimeType.value());
+  }
+  if (icon.sizes.has_value()) {
+    builder.add("sizes", stringArray(icon.sizes.value()));
+  }
+  if (icon.theme.has_value()) {
+    builder.add("theme", icon.theme.value());
+  }
+  return builder.build();
+}
+
+Icon deserialize_Icon(const JsonValue& json) {
+  if (!json.isObject() || !json.contains("src") || !json["src"].isString()) {
+    throw JsonException("an icon needs a string src");
+  }
+  Icon icon(json["src"].getString());
+  icon.mimeType = stringField(json, "mimeType");
+  if (json.contains("sizes") && json["sizes"].isArray()) {
+    icon.sizes = stringsIn(json["sizes"]);
+  }
+  const auto theme = stringField(json, "theme");
+  if (theme.has_value() && (*theme == "light" || *theme == "dark")) {
+    icon.theme = theme;
+  }
+  return icon;
+}
+
+namespace {
+void addIcons(JsonObjectBuilder& builder,
+              const optional<std::vector<Icon>>& icons) {
+  if (!icons.has_value()) {
+    return;
+  }
+  JsonValue array = JsonValue::array();
+  for (const auto& icon : icons.value()) {
+    array.push_back(serialize_Icon(icon));
+  }
+  builder.add("icons", array);
+}
+
+/** The icons in json, an icon without a string src passed over. */
+optional<std::vector<Icon>> readIcons(const JsonValue& json) {
+  if (!json.contains("icons") || !json["icons"].isArray()) {
+    return nullopt;
+  }
+  std::vector<Icon> icons;
+  const auto& array = json["icons"];
+  for (size_t i = 0; i < array.size(); ++i) {
+    const auto& icon = array[i];
+    if (icon.isObject() && icon.contains("src") && icon["src"].isString()) {
+      icons.push_back(deserialize_Icon(icon));
+    }
+  }
+  return icons;
+}
+
+optional<JsonValue> objectField(const JsonValue& json, const char* key) {
+  if (json.contains(key) && json[key].isObject()) {
+    return json[key];
+  }
+  return nullopt;
+}
+
+/**
+ * The fields a resource link shares with a resource, beyond uri and name.
+ * description and mimeType keep refusing a value of the wrong type, as
+ * they always have.
+ */
+void addResourceFields(JsonObjectBuilder& builder, const Resource& resource) {
+  if (resource.title.has_value()) {
+    builder.add("title", resource.title.value());
+  }
+  if (resource.description.has_value()) {
+    builder.add("description", resource.description.value());
+  }
+  if (resource.mimeType.has_value()) {
+    builder.add("mimeType", resource.mimeType.value());
+  }
+  addIcons(builder, resource.icons);
+  if (resource.size.has_value()) {
+    builder.add("size", JsonValue(resource.size.value()));
+  }
+  if (resource.annotations.has_value()) {
+    builder.add("annotations", to_json(resource.annotations.value()));
+  }
+}
+void readResourceFields(const JsonValue& json, Resource& resource) {
+  resource.title = stringField(json, "title");
+  if (json.contains("description")) {
+    resource.description = json["description"].getString();
+  }
+  if (json.contains("mimeType")) {
+    resource.mimeType = json["mimeType"].getString();
+  }
+  resource.icons = readIcons(json);
+  if (json.contains("size") && json["size"].isInteger()) {
+    resource.size = json["size"].getInt64();
+  }
+  if (json.contains("annotations") && json["annotations"].isObject()) {
+    resource.annotations = readAnnotationsForgivingly(json["annotations"]);
+  }
+}
+}  // namespace
+
+JsonValue serialize_Implementation(const Implementation& implementation) {
+  JsonObjectBuilder builder;
+  builder.add("name", implementation.name);
+  builder.add("version", implementation.version);
+  if (implementation.title.has_value()) {
+    builder.add("title", implementation.title.value());
+  }
+  if (implementation.description.has_value()) {
+    builder.add("description", implementation.description.value());
+  }
+  if (implementation.websiteUrl.has_value()) {
+    builder.add("websiteUrl", implementation.websiteUrl.value());
+  }
+  addIcons(builder, implementation.icons);
+  addMeta(builder, implementation._meta);
+  return builder.build();
+}
+
+// A name is what makes it an implementation; a peer that leaves out its
+// version, or sends one of the wrong type, is still named.
+Implementation deserialize_Implementation(const JsonValue& json) {
+  Implementation implementation;
+  implementation.name = json.at("name").getString();
+  implementation.version = stringField(json, "version").value_or("");
+  implementation.title = stringField(json, "title");
+  implementation.description = stringField(json, "description");
+  implementation.websiteUrl = stringField(json, "websiteUrl");
+  implementation.icons = readIcons(json);
+  implementation._meta = objectField(json, "_meta");
+  return implementation;
+}
+
 JsonValue serialize_StringSchema(const StringSchema& schema) {
   JsonValue json = JsonValue::object();
   json.set("type", JsonValue("string"));
@@ -626,6 +772,8 @@ JsonValue serialize_Tool(const Tool& tool) {
     builder.add("annotations", to_json(tool.annotations.value()));
   }
 
+  addIcons(builder, tool.icons);
+
   if (tool._meta.has_value() && tool._meta->isObject()) {
     builder.add("_meta", tool._meta.value());
   }
@@ -638,6 +786,10 @@ JsonValue serialize_Prompt(const Prompt& prompt) {
   JsonObjectBuilder builder;
   builder.add("name", prompt.name);
 
+  if (prompt.title.has_value()) {
+    builder.add("title", prompt.title.value());
+  }
+
   if (prompt.description.has_value()) {
     builder.add("description", prompt.description.value());
   }
@@ -647,6 +799,9 @@ JsonValue serialize_Prompt(const Prompt& prompt) {
     for (const auto& arg : prompt.arguments.value()) {
       JsonObjectBuilder argBuilder;
       argBuilder.add("name", arg.name);
+      if (arg.title.has_value()) {
+        argBuilder.add("title", arg.title.value());
+      }
       if (arg.description.has_value()) {
         argBuilder.add("description", arg.description.value());
       }
@@ -656,6 +811,9 @@ JsonValue serialize_Prompt(const Prompt& prompt) {
     builder.add("arguments", args.build());
   }
 
+  addIcons(builder, prompt.icons);
+  addMeta(builder, prompt._meta);
+
   return builder.build();
 }
 
@@ -664,15 +822,8 @@ JsonValue serialize_Resource(const Resource& resource) {
   JsonObjectBuilder builder;
   builder.add("uri", resource.uri);
   builder.add("name", resource.name);
-
-  if (resource.description.has_value()) {
-    builder.add("description", resource.description.value());
-  }
-
-  if (resource.mimeType.has_value()) {
-    builder.add("mimeType", resource.mimeType.value());
-  }
-
+  addResourceFields(builder, resource);
+  addMeta(builder, resource._meta);
   return builder.build();
 }
 
@@ -988,6 +1139,7 @@ Tool deserialize_Tool(const JsonValue& json) {
   if (json.contains("annotations") && json["annotations"].isObject()) {
     tool.annotations = from_json<ToolAnnotations>(json["annotations"]);
   }
+  tool.icons = readIcons(json);
   if (json.contains("_meta") && json["_meta"].isObject()) {
     tool._meta = json["_meta"];
   }
@@ -1004,13 +1156,8 @@ Resource deserialize_Resource(const JsonValue& json) {
     resource.name = json["name"].getString();
   }
 
-  if (json.contains("description")) {
-    resource.description = json["description"].getString();
-  }
-
-  if (json.contains("mimeType")) {
-    resource.mimeType = json["mimeType"].getString();
-  }
+  readResourceFields(json, resource);
+  resource._meta = objectField(json, "_meta");
 
   return resource;
 }
@@ -1025,6 +1172,8 @@ Prompt deserialize_Prompt(const JsonValue& json) {
   Prompt prompt;
   prompt.name = json.at("name").getString();
 
+  prompt.title = stringField(json, "title");
+
   if (json.contains("description")) {
     prompt.description = json["description"].getString();
   }
@@ -1036,6 +1185,7 @@ Prompt deserialize_Prompt(const JsonValue& json) {
     for (size_t i = 0; i < size; ++i) {
       PromptArgument arg;
       arg.name = argsArray[i].at("name").getString();
+      arg.title = stringField(argsArray[i], "title");
       if (argsArray[i].contains("description")) {
         arg.description = argsArray[i]["description"].getString();
       }
@@ -1046,6 +1196,9 @@ Prompt deserialize_Prompt(const JsonValue& json) {
     }
     prompt.arguments = args;
   }
+
+  prompt.icons = readIcons(json);
+  prompt._meta = objectField(json, "_meta");
 
   return prompt;
 }
@@ -1089,21 +1242,7 @@ JsonValue serialize_ResourceLink(const ResourceLink& link) {
   builder.add("type", "resource_link")
       .add("uri", link.uri)
       .add("name", link.name);
-  if (link.title.has_value()) {
-    builder.add("title", link.title.value());
-  }
-  if (link.description.has_value()) {
-    builder.add("description", link.description.value());
-  }
-  if (link.mimeType.has_value()) {
-    builder.add("mimeType", link.mimeType.value());
-  }
-  if (link.size.has_value()) {
-    builder.add("size", JsonValue(link.size.value()));
-  }
-  if (link.annotations.has_value()) {
-    builder.add("annotations", to_json(link.annotations.value()));
-  }
+  addResourceFields(builder, link);
   addMeta(builder, link._meta);
   return builder.build();
 }
@@ -1112,26 +1251,7 @@ ResourceLink deserialize_ResourceLink(const JsonValue& json) {
   ResourceLink link;
   link.uri = json.at("uri").getString();
   link.name = json.at("name").getString();
-
-  if (json.contains("title") && json["title"].isString()) {
-    link.title = json["title"].getString();
-  }
-
-  if (json.contains("description")) {
-    link.description = json["description"].getString();
-  }
-
-  if (json.contains("mimeType")) {
-    link.mimeType = json["mimeType"].getString();
-  }
-
-  if (json.contains("size") && json["size"].isInteger()) {
-    link.size = json["size"].getInt64();
-  }
-
-  if (json.contains("annotations") && json["annotations"].isObject()) {
-    link.annotations = from_json<Annotations>(json["annotations"]);
-  }
+  readResourceFields(json, link);
   link._meta = readMeta(json);
 
   return link;
@@ -1447,6 +1567,8 @@ JsonValue serialize_ResourceTemplate(const ResourceTemplate& resourceTemplate) {
   if (resourceTemplate.mimeType.has_value()) {
     builder.add("mimeType", resourceTemplate.mimeType.value());
   }
+
+  addIcons(builder, resourceTemplate.icons);
 
   if (resourceTemplate.annotations.has_value()) {
     builder.add("annotations", to_json(resourceTemplate.annotations.value()));
@@ -2538,6 +2660,7 @@ ResourceTemplate deserialize_ResourceTemplate(const JsonValue& json) {
   if (json.contains("title") && json["title"].isString()) {
     tmpl.title = json["title"].getString();
   }
+  tmpl.icons = readIcons(json);
   if (json.contains("annotations") && json["annotations"].isObject()) {
     tmpl.annotations = readAnnotationsForgivingly(json["annotations"]);
   }

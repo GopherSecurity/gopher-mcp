@@ -190,6 +190,23 @@ struct Annotations {
   Annotations() = default;
 };
 
+// An image a client can show for a tool, prompt, resource, resource
+// template or implementation. On the wire:
+//   {"src", "mimeType"?, "sizes"?, "theme"?}
+struct Icon {
+  // Where the image is: an https: or data: URI.
+  std::string src;
+  optional<std::string> mimeType;
+  // The sizes the image is good for, such as "48x48", or "any" for one that
+  // scales.
+  optional<std::vector<std::string>> sizes;
+  // "light" or "dark": the background the icon is meant for.
+  optional<std::string> theme;
+
+  Icon() = default;
+  explicit Icon(const std::string& s) : src(s) {}
+};
+
 // Base types
 // Every content block may carry annotations for the client and `_meta`, a
 // JSON object for extension data, kept as JSON so nested values survive.
@@ -218,12 +235,22 @@ struct ImageContent {
 struct Resource {
   std::string uri;
   std::string name;
+  // For people to read; name is for programs.
+  optional<std::string> title;
   optional<std::string> description;
   optional<std::string> mimeType;
+  optional<std::vector<Icon>> icons;
+  optional<int64_t> size;  // In bytes, before any encoding
+  optional<Annotations> annotations;
+  // A JSON object, kept as nested JSON.
+  optional<mcp::json::JsonValue> _meta;
 
   Resource() = default;
   explicit Resource(const std::string& u, const std::string& n)
       : uri(u), name(n) {}
+
+  /** The name to show people: title when provided, otherwise name. */
+  std::string displayName() const { return title.value_or(name); }
 };
 
 // A resource link in the older ContentBlock variant: a pointer to a resource
@@ -305,15 +332,11 @@ struct BlobResourceContents : ResourceContents {
 };
 
 // Resource link: a pointer to a resource, which the client fetches later
-// with resources/read. On the wire:
+// with resources/read. On the wire, a resource with a type:
 //   {"type": "resource_link", "uri", "name", "title"?, "description"?,
-//    "mimeType"?, "size"?, "annotations"?}
+//    "mimeType"?, "icons"?, "size"?, "annotations"?, "_meta"?}
 struct ResourceLink : Resource {
   std::string type = "resource_link";
-  optional<std::string> title;
-  optional<int64_t> size;  // In bytes, before any encoding
-  optional<Annotations> annotations;
-  optional<mcp::json::JsonValue> _meta;
 
   ResourceLink() = default;
   explicit ResourceLink(const Resource& r) : Resource(r) {}
@@ -378,6 +401,7 @@ struct Tool {
   optional<ToolInputSchema> inputSchema;
   optional<ToolOutputSchema> outputSchema;
   optional<ToolAnnotations> annotations;
+  optional<std::vector<Icon>> icons;
   // A JSON object, kept as nested JSON.
   optional<mcp::json::JsonValue> _meta;
   optional<std::vector<ToolParameter>> parameters;  // Legacy support
@@ -406,15 +430,29 @@ struct PromptArgument {
   std::string name;
   optional<std::string> description;
   bool required = false;
+  // For people to read; name is for programs. Last, so an argument written
+  // as {name, description, required} still means what it did.
+  optional<std::string> title;
+
+  /** The name to show people: title when provided, otherwise name. */
+  std::string displayName() const { return title.value_or(name); }
 };
 
 struct Prompt {
   std::string name;
+  // For people to read; name is for programs.
+  optional<std::string> title;
   optional<std::string> description;
   optional<std::vector<PromptArgument>> arguments;
+  optional<std::vector<Icon>> icons;
+  // A JSON object, kept as nested JSON.
+  optional<mcp::json::JsonValue> _meta;
 
   Prompt() = default;
   explicit Prompt(const std::string& n) : name(n) {}
+
+  /** The name to show people: title when provided, otherwise name. */
+  std::string displayName() const { return title.value_or(name); }
 };
 
 // Error data type. A server may put any JSON value in an error's data.
@@ -1052,14 +1090,25 @@ struct EmptyResult {
   EmptyResult() = default;
 };
 
-// Implementation info
-struct Implementation : BaseMetadata {
+// Who a server or client is: serverInfo and clientInfo. name and version are
+// for programs; the rest describe it to people.
+struct Implementation {
   std::string name;
   std::string version;
+  // For people to read; name is for programs.
+  optional<std::string> title;
+  optional<std::string> description;
+  optional<std::string> websiteUrl;
+  optional<std::vector<Icon>> icons;
+  // A JSON object, kept as nested JSON.
+  optional<mcp::json::JsonValue> _meta;
 
   Implementation() = default;
   Implementation(const std::string& n, const std::string& v)
       : name(n), version(v) {}
+
+  /** The name to show people: title when provided, otherwise name. */
+  std::string displayName() const { return title.value_or(name); }
 };
 
 // Factory for implementation
@@ -1148,11 +1197,15 @@ struct ResourceTemplate {
   optional<std::string> title;
   optional<std::string> description;
   optional<std::string> mimeType;
+  optional<std::vector<Icon>> icons;
   optional<Annotations> annotations;
   // A JSON object, kept as nested JSON.
   optional<mcp::json::JsonValue> _meta;
 
   ResourceTemplate() = default;
+
+  /** The name to show people: title when provided, otherwise name. */
+  std::string displayName() const { return title.value_or(name); }
 };
 
 struct ListResourceTemplatesResult : PaginatedResult, CacheableResult {

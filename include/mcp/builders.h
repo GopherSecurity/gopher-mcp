@@ -32,6 +32,32 @@ class Builder {
   operator T() const& { return value_; }
 };
 
+// Icon Builder
+class IconBuilder : public Builder<Icon, IconBuilder> {
+ public:
+  explicit IconBuilder(const std::string& src) { value_.src = src; }
+
+  IconBuilder& mimeType(const std::string& mime) {
+    value_.mimeType = mcp::make_optional(mime);
+    return *this;
+  }
+
+  // One size more, such as "48x48", or "any" for an image that scales.
+  IconBuilder& size(const std::string& size) {
+    if (!value_.sizes) {
+      value_.sizes = mcp::make_optional(std::vector<std::string>());
+    }
+    value_.sizes->push_back(size);
+    return *this;
+  }
+
+  // "light" or "dark": the background the icon is meant for.
+  IconBuilder& theme(const std::string& theme) {
+    value_.theme = mcp::make_optional(theme);
+    return *this;
+  }
+};
+
 // Resource Builder (moved from types.h)
 class ResourceBuilder : public Builder<Resource, ResourceBuilder> {
  public:
@@ -57,6 +83,40 @@ class ResourceBuilder : public Builder<Resource, ResourceBuilder> {
 
   ResourceBuilder& mimeType(const std::string& mime) {
     value_.mimeType = mcp::make_optional(mime);
+    return *this;
+  }
+
+  ResourceBuilder& title(const std::string& title) {
+    value_.title = mcp::make_optional(title);
+    return *this;
+  }
+
+  // In bytes, before any encoding.
+  ResourceBuilder& size(int64_t bytes) {
+    value_.size = mcp::make_optional(bytes);
+    return *this;
+  }
+
+  ResourceBuilder& annotations(const Annotations& annotations) {
+    value_.annotations = mcp::make_optional(annotations);
+    return *this;
+  }
+
+  // One icon more, after any already given.
+  ResourceBuilder& icon(const Icon& icon) {
+    if (!value_.icons) {
+      value_.icons = mcp::make_optional(std::vector<Icon>());
+    }
+    value_.icons->push_back(icon);
+    return *this;
+  }
+
+  // A JSON object; anything else is refused, as it could not be sent.
+  ResourceBuilder& meta(const json::JsonValue& meta) {
+    if (!meta.isObject()) {
+      throw std::invalid_argument("a resource's _meta must be a JSON object");
+    }
+    value_._meta = mcp::make_optional(meta);
     return *this;
   }
 };
@@ -88,6 +148,15 @@ class ToolBuilder : public Builder<Tool, ToolBuilder> {
 
   ToolBuilder& annotations(const ToolAnnotations& annotations) {
     value_.annotations = mcp::make_optional(annotations);
+    return *this;
+  }
+
+  // One icon more, after any already given.
+  ToolBuilder& icon(const Icon& icon) {
+    if (!value_.icons) {
+      value_.icons = mcp::make_optional(std::vector<Icon>());
+    }
+    value_.icons->push_back(icon);
     return *this;
   }
 
@@ -645,6 +714,38 @@ class PromptBuilder : public Builder<Prompt, PromptBuilder> {
     return *this;
   }
 
+  PromptBuilder& title(const std::string& t) {
+    value_.title = mcp::make_optional(t);
+    return *this;
+  }
+
+  // One icon more, after any already given.
+  PromptBuilder& icon(const Icon& icon) {
+    if (!value_.icons) {
+      value_.icons = mcp::make_optional(std::vector<Icon>());
+    }
+    value_.icons->push_back(icon);
+    return *this;
+  }
+
+  // A JSON object; anything else is refused, as it could not be sent.
+  PromptBuilder& meta(const json::JsonValue& meta) {
+    if (!meta.isObject()) {
+      throw std::invalid_argument("a prompt's _meta must be a JSON object");
+    }
+    value_._meta = mcp::make_optional(meta);
+    return *this;
+  }
+
+  // An argument as given, its title included.
+  PromptBuilder& argument(const PromptArgument& arg) {
+    if (!value_.arguments) {
+      value_.arguments = mcp::make_optional(std::vector<PromptArgument>());
+    }
+    value_.arguments->push_back(arg);
+    return *this;
+  }
+
   PromptBuilder& argument(const std::string& name,
                           const std::string& desc = "",
                           bool required = false) {
@@ -692,6 +793,15 @@ class ResourceTemplateBuilder
     return *this;
   }
 
+  // One icon more, after any already given.
+  ResourceTemplateBuilder& icon(const Icon& icon) {
+    if (!value_.icons) {
+      value_.icons = mcp::make_optional(std::vector<Icon>());
+    }
+    value_.icons->push_back(icon);
+    return *this;
+  }
+
   // A JSON object; anything else is refused, as it could not be sent.
   ResourceTemplateBuilder& meta(const json::JsonValue& meta) {
     if (!meta.isObject()) {
@@ -722,12 +832,47 @@ class ImplementationBuilder
     value_.version = version;
   }
 
+  ImplementationBuilder& title(const std::string& title) {
+    value_.title = mcp::make_optional(title);
+    return *this;
+  }
+
+  ImplementationBuilder& description(const std::string& description) {
+    value_.description = mcp::make_optional(description);
+    return *this;
+  }
+
+  ImplementationBuilder& websiteUrl(const std::string& url) {
+    value_.websiteUrl = mcp::make_optional(url);
+    return *this;
+  }
+
+  // One icon more, after any already given.
+  ImplementationBuilder& icon(const Icon& icon) {
+    if (!value_.icons) {
+      value_.icons = mcp::make_optional(std::vector<Icon>());
+    }
+    value_.icons->push_back(icon);
+    return *this;
+  }
+
+  // A JSON object; anything else is refused, as it could not be sent.
+  ImplementationBuilder& meta(const json::JsonValue& meta) {
+    if (!meta.isObject()) {
+      throw std::invalid_argument(
+          "an implementation's _meta must be a JSON object");
+    }
+    value_._meta = mcp::make_optional(meta);
+    return *this;
+  }
+
+  // One string entry in _meta, as before _meta could hold any JSON.
   ImplementationBuilder& metadata(const std::string& key,
                                   const std::string& val) {
     if (!value_._meta) {
-      value_._meta = mcp::make_optional(Metadata());
+      value_._meta = mcp::make_optional(json::JsonValue::object());
     }
-    add_metadata(*value_._meta, key, val);
+    value_._meta->set(key, json::JsonValue(val));
     return *this;
   }
 };
@@ -1444,6 +1589,15 @@ class ResourceLinkBuilder : public Builder<ResourceLink, ResourceLinkBuilder> {
     return *this;
   }
 
+  // One icon more, after any already given.
+  ResourceLinkBuilder& icon(const Icon& icon) {
+    if (!value_.icons) {
+      value_.icons = mcp::make_optional(std::vector<Icon>());
+    }
+    value_.icons->push_back(icon);
+    return *this;
+  }
+
   ResourceLinkBuilder& meta(const json::JsonValue& meta) {
     value_._meta = mcp::make_optional(meta);
     return *this;
@@ -1877,6 +2031,14 @@ struct MakeHelper<ResourceTemplate> {
   template <typename... Args>
   static auto make(Args&&... args) {
     return ResourceTemplateBuilder(std::forward<Args>(args)...);
+  }
+};
+
+template <>
+struct MakeHelper<Icon> {
+  template <typename... Args>
+  static auto make(Args&&... args) {
+    return IconBuilder(std::forward<Args>(args)...);
   }
 };
 
