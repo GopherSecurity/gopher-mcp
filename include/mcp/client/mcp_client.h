@@ -601,6 +601,23 @@ class McpClient : public application::ApplicationBase {
     return getPromptWith(name, mcp::make_optional(arguments));
   }
 
+  // Completion: suggestions for an argument of a prompt or a resource
+  // template while a user fills it in. The result carries the values, and
+  // optionally how many there are in all and whether there are more. A
+  // server that offers no completions refuses, which fails the future
+  // with a RequestError.
+  std::future<CompleteResult> complete(const CompleteRequest& request);
+  std::future<CompleteResult> completePromptArgument(
+      const std::string& prompt,
+      const std::string& argument,
+      const std::string& value,
+      const std::map<std::string, std::string>& chosen = {});
+  std::future<CompleteResult> completeResourceTemplateArgument(
+      const std::string& uri_template,
+      const std::string& argument,
+      const std::string& value,
+      const std::map<std::string, std::string>& chosen = {});
+
   // Logging operations
   std::future<VoidResult> setLogLevel(enums::LoggingLevel::Value level);
 
