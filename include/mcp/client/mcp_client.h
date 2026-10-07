@@ -499,6 +499,17 @@ class McpClient : public application::ApplicationBase {
   VoidResult reconnect();  // Reconnect using stored URI
   void disconnect();
   bool isConnected() const { return connected_; }
+
+  /**
+   * The server as the most recent result named it, in 2026-07-28's
+   * _meta["io.modelcontextprotocol/serverInfo"]. Self-reported, for display
+   * and logging only; nothing in this client acts on it. Empty until a
+   * result has named one.
+   */
+  optional<Implementation> serverInfo() const {
+    std::lock_guard<std::mutex> lock(server_info_mutex_);
+    return last_server_info_;
+  }
   bool isConnectionOpen() const;  // Check actual connection state
   static std::chrono::milliseconds reconnectWaitBudgetForRequestTimeout(
       std::chrono::milliseconds request_timeout);
@@ -947,6 +958,9 @@ class McpClient : public application::ApplicationBase {
   // Protocol state
   bool initialized_{false};
   ServerCapabilities server_capabilities_;
+  // The server as the latest result named it, for display and logging.
+  optional<Implementation> last_server_info_;
+  mutable std::mutex server_info_mutex_;
 
   // Streamable HTTP only: what this client holds between requests — the
   // session id the server minted, the revision the handshake settled on,

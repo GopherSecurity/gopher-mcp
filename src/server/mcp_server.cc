@@ -166,19 +166,49 @@ void stripCacheHints(jsonrpc::Response& response) {
 // What a cacheable method's answer says about caching, settled once for the
 // request it answers: hints for a caller of the newest revision, none for
 // anyone else.
+// Put the server's name on a complete result, in _meta where this revision
+// keeps it. Never on an error. What a handler put in _meta is kept, a
+// serverInfo of its own included.
+void stampServerInfo(const json::JsonValue& server_info,
+                     jsonrpc::Response& response) {
+  if (response.error.has_value() || !response.result.has_value()) {
+    return;
+  }
+  json::JsonValue result = json::to_json(response.result.value());
+  if (!result.isObject()) {
+    return;
+  }
+  json::JsonValue meta = result.contains("_meta") && result["_meta"].isObject()
+                             ? result["_meta"]
+                             : json::JsonValue::object();
+  if (meta.contains(protocol::modern::kMetaServerInfo)) {
+    return;
+  }
+  meta.set(protocol::modern::kMetaServerInfo, server_info);
+  result.set("_meta", meta);
+  response.result = mcp::make_optional(jsonrpc::ResponseResult(result));
+}
+
+// What every result to one request is stamped with on its way out: the
+// caching hints of the newest revision for the results it lets a client
+// cache, and the server's name for a caller of that revision.
 struct CacheHintPolicy {
   bool cacheable = false;
   bool modern = false;
   McpServerConfig::CacheHint hint;
+  // Set only for a 2026-07-28 caller of a server that names itself.
+  optional<json::JsonValue> server_info;
 
   void apply(jsonrpc::Response& response) const {
-    if (!cacheable) {
-      return;
+    if (cacheable) {
+      if (modern) {
+        stampCacheHints(hint, response);
+      } else {
+        stripCacheHints(response);
+      }
     }
-    if (modern) {
-      stampCacheHints(hint, response);
-    } else {
-      stripCacheHints(response);
+    if (server_info.has_value()) {
+      stampServerInfo(server_info.value(), response);
     }
   }
 };
@@ -2187,12 +2217,22 @@ void McpServer::dispatchRequest(const jsonrpc::Request& request,
   // Settled for this request whichever way it is answered.
   CacheHintPolicy cache_hints;
   cache_hints.cacheable = isCacheableMethod(request.method);
-  if (cache_hints.cacheable) {
-    cache_hints.modern = isModernRequest(request);
+  cache_hints.modern = isModernRequest(request);
+  {
     std::lock_guard<std::mutex> lock(config_mutex_);
-    auto it = config_.cache_hints.find(request.method);
-    if (it != config_.cache_hints.end()) {
-      cache_hints.hint = it->second;
+    if (cache_hints.cacheable) {
+      auto it = config_.cache_hints.find(request.method);
+      if (it != config_.cache_hints.end()) {
+        cache_hints.hint = it->second;
+      }
+    }
+    // With no handshake to say it in, a server of this revision names
+    // itself on every result.
+    if (cache_hints.modern && config_.send_server_info) {
+      json::JsonValue server_info = json::JsonValue::object();
+      server_info.set("name", json::JsonValue(config_.server_name));
+      server_info.set("version", json::JsonValue(config_.server_version));
+      cache_hints.server_info = mcp::make_optional(server_info);
     }
   }
 

@@ -155,6 +155,11 @@ struct McpServerConfig : public application::ApplicationBase::Config {
   };
   std::map<std::string, CacheHint> cache_hints;
 
+  // Name this server, as _meta["io.modelcontextprotocol/serverInfo"], on
+  // every successful result to a 2026-07-28 caller, as the spec asks of a
+  // server unless it is configured not to. Earlier revisions never get it.
+  bool send_server_info = true;
+
   // Keys for sealing the requestState a handler sends with answerWithInput.
   // With any configured, every such state is sealed to the caller, the
   // request and an expiry, and a retry whose state does not open is
