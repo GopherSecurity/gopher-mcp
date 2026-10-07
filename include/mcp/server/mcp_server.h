@@ -1405,6 +1405,38 @@ class McpServer : public application::ApplicationBase,
     return removed;
   }
 
+  // Completion: suggestions for a prompt's arguments or a resource
+  // template's parameters while a user fills them in, as an IDE completes
+  // a name. Registering any handler advertises the completions capability.
+  struct CompletionQuery {
+    // The argument being filled in, and what has been typed so far.
+    std::string argument;
+    std::string value;
+    // The other arguments already chosen, by name.
+    std::map<std::string, std::string> arguments;
+  };
+  // Returns the suggestions, and optionally how many there are in all and
+  // whether there are more. Only the first 100 values are sent; when there
+  // are more, hasMore is set. An argument the handler doesn't know is
+  // answered with no values.
+  using CompletionHandler =
+      std::function<CompleteResult::Completion(const CompletionQuery&)>;
+
+  // Completes the arguments of the prompt of this name.
+  void registerPromptCompletion(const std::string& prompt,
+                                CompletionHandler handler) {
+    std::lock_guard<std::mutex> lock(completions_mutex_);
+    prompt_completions_[prompt] = std::move(handler);
+  }
+
+  // Completes the parameters of the resource template with this URI
+  // template, such as file:///{path}.
+  void registerResourceTemplateCompletion(const std::string& uri_template,
+                                          CompletionHandler handler) {
+    std::lock_guard<std::mutex> lock(completions_mutex_);
+    template_completions_[uri_template] = std::move(handler);
+  }
+
   // Get server statistics
   const McpServerStats& getServerStats() const { return server_stats_; }
 
@@ -1668,6 +1700,14 @@ class McpServer : public application::ApplicationBase,
                                    SessionContext& session);
   jsonrpc::Response handleListPrompts(const jsonrpc::Request& request,
                                       SessionContext& session);
+  jsonrpc::Response handleComplete(const jsonrpc::Request& request,
+                                   SessionContext& session);
+  // Whether any completion handler is registered, and so whether the
+  // completions capability is advertised.
+  bool offersCompletions() const {
+    std::lock_guard<std::mutex> lock(completions_mutex_);
+    return !prompt_completions_.empty() || !template_completions_.empty();
+  }
   jsonrpc::Response handleGetPrompt(const jsonrpc::Request& request,
                                     SessionContext& session);
 
@@ -1876,6 +1916,10 @@ class McpServer : public application::ApplicationBase,
   std::unique_ptr<ResourceManager> resource_manager_;
   std::unique_ptr<ToolRegistry> tool_registry_;
   std::unique_ptr<PromptRegistry> prompt_registry_;
+  // Completion handlers, by prompt name and by URI template.
+  std::map<std::string, CompletionHandler> prompt_completions_;
+  std::map<std::string, CompletionHandler> template_completions_;
+  mutable std::mutex completions_mutex_;
 
   // Request and notification handlers
   std::map<std::string,
