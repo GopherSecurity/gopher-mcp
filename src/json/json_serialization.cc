@@ -3,6 +3,7 @@
 
 #include "mcp/json/json_serialization.h"
 
+#include <cmath>
 #include <limits>
 #include <sstream>
 
@@ -314,9 +315,17 @@ std::vector<std::string> stringsIn(const JsonValue& array) {
   }
   return out;
 }
-/** A number, as an integer when it is a whole one. */
+/**
+ * A number, as an integer when it is a whole one an integer can hold. The
+ * range is checked before converting: converting a double outside it, such
+ * as 1e100, is undefined.
+ */
 JsonValue numberJson(double value) {
-  if (value == static_cast<double>(static_cast<int64_t>(value))) {
+  // 2^63, exactly representable as a double; the integers that fit are
+  // those in [-2^63, 2^63).
+  constexpr double kLimit = 9223372036854775808.0;
+  if (std::isfinite(value) && value >= -kLimit && value < kLimit &&
+      std::trunc(value) == value) {
     return JsonValue(static_cast<int64_t>(value));
   }
   return JsonValue(value);
