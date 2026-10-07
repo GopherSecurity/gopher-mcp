@@ -1542,6 +1542,23 @@ void McpClient::handleResponse(const Response& response) {
   // Update last activity time - we received data from the server
   last_activity_time_ = std::chrono::steady_clock::now();
 
+  // Who answered, when the result says. Kept for display and logging, and
+  // never acted on; one that is missing or malformed changes nothing.
+  if (response.result.has_value()) {
+    json::JsonValue result;
+    if (resultAsJson(response, &result) && result.isObject() &&
+        result.contains("_meta") && result["_meta"].isObject() &&
+        result["_meta"].contains(protocol::modern::kMetaServerInfo)) {
+      const auto& who = result["_meta"][protocol::modern::kMetaServerInfo];
+      if (who.isObject() && who.contains("name") && who["name"].isString() &&
+          who.contains("version") && who["version"].isString()) {
+        std::lock_guard<std::mutex> lock(server_info_mutex_);
+        last_server_info_ =
+            Implementation(who["name"].getString(), who["version"].getString());
+      }
+    }
+  }
+
   // Find corresponding request
   auto request = request_tracker_->getRequest(response.id);
   if (!request) {
