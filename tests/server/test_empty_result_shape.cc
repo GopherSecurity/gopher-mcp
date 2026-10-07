@@ -87,6 +87,38 @@ TEST(EmptyResultShape, SubscribingAnswersWithAnEmptyObject) {
       << "a null result is not a result: " << wire;
 }
 
+// A ping is answered with an empty result and nothing in it, in an earlier
+// revision and in the newest.
+TEST(EmptyResultShape, APingIsAnsweredWithAnEmptyObject) {
+  DispatchTestServer server(testConfig());
+  for (const std::string revision :
+       {std::string(), std::string("2026-07-28")}) {
+    SCOPED_TRACE(revision.empty() ? "no revision declared" : revision);
+    jsonrpc::Request ping;
+    ping.jsonrpc = "2.0";
+    ping.id = make_request_id(7);
+    ping.method = "ping";
+    if (!revision.empty()) {
+      json::JsonValue meta = json::JsonValue::object();
+      meta.set(protocol::modern::kMetaProtocolVersion,
+               json::JsonValue(revision));
+      Metadata params;
+      params["_meta"] = MetadataValue(meta.toString());
+      ping.params = mcp::make_optional(params);
+    }
+    CapturingContext context;
+    server.onRequestWithContext(ping, context);
+
+    ASSERT_TRUE(context.captured.has_value()) << "ping went unanswered";
+    const json::JsonValue answer = json::JsonValue::parse(context.wire());
+    ASSERT_TRUE(answer.contains("result")) << context.wire();
+    EXPECT_TRUE(answer["result"].isObject()) << context.wire();
+    EXPECT_TRUE(answer["result"].keys().empty())
+        << "a ping's result is empty: " << context.wire();
+    EXPECT_FALSE(answer.contains("error")) << context.wire();
+  }
+}
+
 TEST(EmptyResultShape, UnsubscribingAnswersWithAnEmptyObject) {
   DispatchTestServer server(testConfig());
   CapturingContext context;
