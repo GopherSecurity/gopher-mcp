@@ -595,6 +595,10 @@ std::future<InitializeResult> McpClient::initializeProtocol() {
       protocol::modern::isModernVersion(streamable_session_->protocolVersion());
   std::string protocol_version = modern ? streamable_session_->protocolVersion()
                                         : config_.protocol_version;
+  // Read here, on the caller's thread, so the worker below reads nothing of
+  // the client's.
+  const std::vector<std::string> accepted_versions =
+      acceptedHandshakeVersions();
 
   // Step 1: Post to dispatcher to send the request (non-blocking)
   dispatcher->post([this, alive, request_future_ptr, modern]() {
@@ -642,8 +646,8 @@ std::future<InitializeResult> McpClient::initializeProtocol() {
   // from the dispatcher elsewhere, so writing them from this worker thread
   // would be a data race. Only the final promise resolution runs on whichever
   // thread (dispatcher or worker) completes parsing.
-  std::thread([alive, dispatcher, protocol_version, client, result_promise,
-               request_future_ptr, modern]() {
+  std::thread([alive, dispatcher, protocol_version, accepted_versions, client,
+               result_promise, request_future_ptr, modern]() {
     try {
       // Wait for dispatcher to publish the request future.
       while (!request_future_ptr->valid()) {
@@ -671,7 +675,8 @@ std::future<InitializeResult> McpClient::initializeProtocol() {
       // Parse InitializeResult from response (pure parsing — no shared state).
       InitializeResult init_result =
           modern ? parseDiscoverResponse(response, protocol_version)
-                 : parseInitializeResponse(response, protocol_version);
+                 : parseInitializeResponse(response, protocol_version,
+                                           accepted_versions);
 
       // Commit state on the dispatcher thread, then fulfill the promise.
       // The promise is fulfilled after the post completes so callers who
@@ -727,27 +732,55 @@ std::future<InitializeResult> McpClient::initializeProtocol() {
   return result_promise->get_future();
 }
 
+std::vector<std::string> McpClient::acceptedHandshakeVersions() const {
+  std::vector<std::string> accepted;
+  accepted.push_back(config_.protocol_version);
+  for (const auto& version : transport::handshakeProtocolVersions(
+           config_.streamable_http.protocol_versions)) {
+    if (version != config_.protocol_version) {
+      accepted.push_back(version);
+    }
+  }
+  return accepted;
+}
+
 InitializeResult McpClient::parseInitializeResponse(
-    const jsonrpc::Response& response, const std::string& protocol_version) {
+    const jsonrpc::Response& response,
+    const std::string& protocol_version,
+    const std::vector<std::string>& accepted) {
   if (!response.result.has_value()) {
     throw std::runtime_error("Initialize response missing result");
   }
 
-  // What the client asked for stands in for anything the answer leaves
-  // out, so a sparse answer still leaves a usable result.
   InitializeResult init_result;
-  init_result.protocolVersion = protocol_version;
   init_result.capabilities = ServerCapabilities();
 
   json::JsonValue result;
   if (!resultAsJson(response, &result) || !result.isObject()) {
-    return init_result;
+    throw std::runtime_error(
+        "The server's answer to initialize is not an object");
   }
 
-  if (result.contains("protocolVersion") &&
-      result["protocolVersion"].isString()) {
-    init_result.protocolVersion = result["protocolVersion"].getString();
+  // The version the server will speak. One this client does not speak, or
+  // none at all, is not carried on in: the conversation would be in a
+  // revision neither side can rely on the other to follow.
+  if (!result.contains("protocolVersion") ||
+      !result["protocolVersion"].isString()) {
+    throw std::runtime_error(
+        "The server's answer to initialize names no protocolVersion");
   }
+  const std::string offered = result["protocolVersion"].getString();
+  const bool supported = accepted.empty()
+                             ? offered == protocol_version
+                             : std::find(accepted.begin(), accepted.end(),
+                                         offered) != accepted.end();
+  if (!supported) {
+    throw std::runtime_error(
+        "The server answered initialize with protocol "
+        "version '" +
+        offered + "', which this client does not support");
+  }
+  init_result.protocolVersion = offered;
 
   if (result.contains("capabilities") && result["capabilities"].isObject()) {
     init_result.capabilities =
@@ -981,8 +1014,8 @@ void McpClient::startReinitialize() {
         }
 
         try {
-          InitializeResult init_result =
-              parseInitializeResponse(response, config_.protocol_version);
+          InitializeResult init_result = parseInitializeResponse(
+              response, config_.protocol_version, acceptedHandshakeVersions());
           server_capabilities_ = init_result.capabilities;
           initialized_ = true;
           if (streamable_session_) {

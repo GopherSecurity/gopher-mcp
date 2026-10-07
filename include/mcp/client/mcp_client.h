@@ -70,7 +70,9 @@ class MetricsCollector;
  */
 struct McpClientConfig : public application::ApplicationBase::Config {
   // Protocol configuration
-  std::string protocol_version = protocol::kDefaultProtocolVersion;
+  // Offered in the initialize handshake: by default the newest version that
+  // handshake can settle.
+  std::string protocol_version = protocol::kLatestHandshakeVersion;
   std::string client_name = "mcp-cpp-client";
   std::string client_version = "1.0.0";
 
@@ -1137,8 +1139,24 @@ class McpClient : public application::ApplicationBase {
   void completeRequest(const std::shared_ptr<RequestContext>& request,
                        const jsonrpc::Response& response);
 
+  /**
+   * The server's answer to initialize.
+   *
+   * @param protocol_version What this client offered.
+   * @param accepted The versions this client speaks in the handshake; empty
+   *        accepts only the one offered. An answer naming a version outside
+   *        them, or naming none, fails rather than being carried on in.
+   */
   static InitializeResult parseInitializeResponse(
-      const jsonrpc::Response& response, const std::string& protocol_version);
+      const jsonrpc::Response& response,
+      const std::string& protocol_version,
+      const std::vector<std::string>& accepted = {});
+
+  /**
+   * The versions this client speaks in the initialize handshake: the one it
+   * offers, and the handshake revisions it is configured to accept.
+   */
+  std::vector<std::string> acceptedHandshakeVersions() const;
 
   /**
    * The same, from the answer an era without a handshake gives instead.
