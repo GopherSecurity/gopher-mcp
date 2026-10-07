@@ -49,6 +49,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <functional>
 #include <future>
 #include <memory>
 #include <stdexcept>
@@ -115,6 +116,9 @@ class McpClientInitializeRoutingTest : public ::testing::Test {
  protected:
   void SetUp() override { startServer(/*serve_newest=*/true); }
 
+  // Applied to the server's config by the next startServer.
+  std::function<void(server::McpServerConfig&)> tweak_config_;
+
   /**
    * Bring up the server on a fresh port. With serve_newest false it serves
    * only the revisions before 2026-07-28, as an older server would.
@@ -134,6 +138,9 @@ class McpClientInitializeRoutingTest : public ::testing::Test {
     server_config.capabilities.prompts = mcp::make_optional(true);
     server_config.capabilities.logging = mcp::make_optional(true);
     server_config.streamable_http.enable_modern_era = serve_newest;
+    if (tweak_config_) {
+      tweak_config_(server_config);
+    }
 
     server_ = server::createMcpServer(server_config);
     ASSERT_NE(server_, nullptr);
@@ -1046,6 +1053,96 @@ TEST_F(McpClientInitializeRoutingTest, TheClientKnowsWhoAnswered) {
   ASSERT_TRUE(who.has_value()) << "no result named the server";
   EXPECT_EQ(who->name, "init-routing-test-server");
   EXPECT_EQ(who->version, "0.0.1");
+}
+
+// A client of an earlier revision hears a list change through its own
+// notification handlers, and only from a server that said it announces them.
+TEST_F(McpClientInitializeRoutingTest, AnEarlierRevisionHearsListChanges) {
+  for (const bool announces : {true, false}) {
+    SCOPED_TRACE(announces ? "announced" : "not announced");
+    stopServer();
+    tweak_config_ = [announces](server::McpServerConfig& config) {
+      config.tools_list_changed = announces;
+    };
+    startServer(/*serve_newest=*/false);
+
+    auto heard = std::make_shared<std::atomic<int>>(0);
+    client::McpClientConfig config = namedTransportConfig();
+    config.streamable_http.enable_modern_era = false;
+    client_ = client::createMcpClient(config);
+    ASSERT_NE(client_, nullptr);
+    client_->registerNotificationHandler(
+        "notifications/tools/list_changed",
+        [heard](const jsonrpc::Notification&) { ++*heard; });
+    const std::string uri =
+        "http://127.0.0.1:" + std::to_string(port_) + "/mcp";
+    ASSERT_TRUE(holds_alternative<std::nullptr_t>(client_->connect(uri)));
+    auto init = client_->initializeProtocol();
+    ASSERT_EQ(init.wait_for(5s), std::future_status::ready);
+    ASSERT_NO_THROW(init.get());
+    // The stream it is told on, which opens once the handshake is done.
+    std::this_thread::sleep_for(300ms);
+
+    server_->notifyToolsListChanged();
+    const auto deadline = std::chrono::steady_clock::now() +
+                          (announces ? std::chrono::milliseconds(5000)
+                                     : std::chrono::milliseconds(500));
+    while (heard->load() == 0 && std::chrono::steady_clock::now() < deadline) {
+      std::this_thread::sleep_for(10ms);
+    }
+    EXPECT_EQ(heard->load(), announces ? 1 : 0);
+
+    client_->shutdown();
+    client_.reset();
+  }
+}
+
+// The flags are advertised, in the handshake and in discovery alike, and a
+// capability that says so itself wins.
+TEST_F(McpClientInitializeRoutingTest, ListChangeFlagsAreAdvertised) {
+  stopServer();
+  tweak_config_ = [](server::McpServerConfig& config) {
+    config.prompts_list_changed = true;
+    config.resources_list_changed = true;
+    config.resources_subscribe = true;
+    config.capabilities.resources =
+        mcp::make_optional(variant<bool, ResourcesCapability>(true));
+    config.tools_list_changed = true;
+    ToolsCapability tools;
+    tools.listChanged = mcp::make_optional(false);
+    config.capabilities.tools = mcp::make_optional(tools);
+  };
+  startServer(/*serve_newest=*/true);
+
+  for (const bool newest : {true, false}) {
+    SCOPED_TRACE(newest ? "server/discover" : "initialize");
+    client::McpClientConfig config = namedTransportConfig();
+    config.streamable_http.enable_modern_era = newest;
+    client_ = client::createMcpClient(config);
+    ASSERT_NE(client_, nullptr);
+    const std::string uri =
+        "http://127.0.0.1:" + std::to_string(port_) + "/rpc";
+    ASSERT_TRUE(holds_alternative<std::nullptr_t>(client_->connect(uri)));
+    auto init = client_->initializeProtocol();
+    ASSERT_EQ(init.wait_for(5s), std::future_status::ready);
+    InitializeResult result;
+    ASSERT_NO_THROW(result = init.get());
+
+    const ServerCapabilities& caps = result.capabilities;
+    ASSERT_TRUE(caps.prompts.has_value());
+    EXPECT_EQ(caps.prompts->listChanged, mcp::make_optional(true));
+    ASSERT_TRUE(caps.resources.has_value());
+    ASSERT_TRUE(holds_alternative<ResourcesCapability>(caps.resources.value()));
+    const auto& resources = get<ResourcesCapability>(caps.resources.value());
+    EXPECT_EQ(resources.listChanged, mcp::make_optional(true));
+    EXPECT_EQ(resources.subscribe, mcp::make_optional(true));
+    ASSERT_TRUE(caps.tools.has_value());
+    EXPECT_EQ(caps.tools->listChanged, mcp::make_optional(false))
+        << "the capability's own listChanged was overridden";
+
+    client_->shutdown();
+    client_.reset();
+  }
 }
 
 // Naming the transport says which transport, not which revision: the
