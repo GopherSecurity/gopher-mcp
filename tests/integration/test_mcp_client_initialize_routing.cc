@@ -1034,6 +1034,20 @@ TEST_F(McpClientInitializeRoutingTest, ArgumentsThatAreNoObjectAreRefused) {
   EXPECT_THROW(prompt.get(), std::invalid_argument);
 }
 
+// In the newest revision the server names itself on every result, and the
+// client keeps the latest for display and logging.
+TEST_F(McpClientInitializeRoutingTest, TheClientKnowsWhoAnswered) {
+  connectInitializedClient();
+  auto ping = client_->sendRequest("ping");
+  ASSERT_EQ(ping.wait_for(5s), std::future_status::ready);
+  ASSERT_FALSE(ping.get().error.has_value());
+
+  const auto who = client_->serverInfo();
+  ASSERT_TRUE(who.has_value()) << "no result named the server";
+  EXPECT_EQ(who->name, "init-routing-test-server");
+  EXPECT_EQ(who->version, "0.0.1");
+}
+
 // Naming the transport says which transport, not which revision: the
 // client still asks, and speaks the newest revision to a server serving it.
 TEST_F(McpClientInitializeRoutingTest, NamingTheTransportStillFindsTheNewest) {

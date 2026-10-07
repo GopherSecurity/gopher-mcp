@@ -113,8 +113,20 @@ TEST(EmptyResultShape, APingIsAnsweredWithAnEmptyObject) {
     const json::JsonValue answer = json::JsonValue::parse(context.wire());
     ASSERT_TRUE(answer.contains("result")) << context.wire();
     EXPECT_TRUE(answer["result"].isObject()) << context.wire();
-    EXPECT_TRUE(answer["result"].keys().empty())
-        << "a ping's result is empty: " << context.wire();
+    // Empty, but for what the newest revision puts on every result: the
+    // server's name in _meta.
+    for (const auto& key : answer["result"].keys()) {
+      EXPECT_TRUE(!revision.empty() && key == "_meta")
+          << "a ping's result is empty: " << context.wire();
+    }
+    if (!revision.empty()) {
+      ASSERT_TRUE(answer["result"].contains("_meta")) << context.wire();
+      const auto meta_keys = answer["result"]["_meta"].keys();
+      EXPECT_EQ(meta_keys.size(), 1u) << context.wire();
+      EXPECT_TRUE(
+          answer["result"]["_meta"].contains(protocol::modern::kMetaServerInfo))
+          << context.wire();
+    }
     EXPECT_FALSE(answer.contains("error")) << context.wire();
   }
 }
