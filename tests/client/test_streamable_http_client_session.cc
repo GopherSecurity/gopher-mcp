@@ -810,6 +810,28 @@ TEST(ModernDecoration, EveryRequestDeclaresItself) {
             "ExampleClient");
 }
 
+// A client that describes itself for people says all of it, as given.
+TEST(ModernDecoration, AClientSaysEverythingItIs) {
+  transport::StreamableHttpClientSession session;
+  session.setProtocolVersion(protocol::kProtocolVersion20260728);
+  const auto info = json::JsonValue::parse(
+      R"({"name":"ExampleClient","version":"1.0.0","title":"Example",
+          "websiteUrl":"https://example.com",
+          "icons":[{"src":"https://example.com/c.png"}]})");
+  session.setClientInfo(info);
+
+  const auto declared = session.declareSelf(outgoing("tools/list"));
+  EXPECT_EQ(
+      declared["params"]["_meta"][protocol::modern::kMetaClientInfo].toString(),
+      info.toString());
+
+  // One with no name is not an introduction, and is left unsaid.
+  session.setClientInfo(json::JsonValue::parse(R"({"title":"Nameless"})"));
+  EXPECT_FALSE(
+      session.declareSelf(outgoing("tools/list"))["params"]["_meta"].contains(
+          protocol::modern::kMetaClientInfo));
+}
+
 // Saying who you are is optional, and a made-up name would be worse than
 // none — so a client that was told nothing about itself says nothing.
 TEST(ModernDecoration, ANamelessClientStaysNameless) {
