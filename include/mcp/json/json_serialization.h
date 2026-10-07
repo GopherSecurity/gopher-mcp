@@ -220,27 +220,6 @@ struct JsonDeserializeTraits<enums::LoggingLevel::Value> {
 
 // ============ SPECIAL TYPE TRAITS ============
 
-// Implementation type
-template <>
-struct JsonSerializeTraits<Implementation> {
-  static JsonValue serialize(const Implementation& impl) {
-    JsonObjectBuilder builder;
-    builder.add("name", impl.name);
-    builder.add("version", impl.version);
-    return builder.build();
-  }
-};
-
-template <>
-struct JsonDeserializeTraits<Implementation> {
-  static Implementation deserialize(const JsonValue& json) {
-    Implementation impl;
-    impl.name = json.at("name").getString();
-    impl.version = json.at("version").getString();
-    return impl;
-  }
-};
-
 // Metadata type
 template <>
 struct JsonSerializeTraits<Metadata> {
