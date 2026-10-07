@@ -48,9 +48,31 @@ origin="$(git -C "${spec_repo}" remote get-url origin 2>/dev/null || echo unknow
 # The complete replacement, SOURCE.md included, is built beside the target
 # and only then swapped in, so a failure at any point before the swap leaves
 # the existing fixtures exactly as they were.
-staging="$(mktemp -d "${fixtures_root}/.staging.XXXXXX")"
 previous="${fixtures_root}/.previous.${revision}"
-trap 'rm -rf "${staging}" "${previous}"' EXIT
+
+# A backup with no fixtures beside it is all that is left of an earlier
+# refresh that failed part way; it is the only copy, so it is never touched
+# here. One beside fixtures that are in place is stale.
+if [ -e "${previous}" ] && [ ! -e "${target}" ]; then
+  echo "${previous} holds the only copy of the ${revision} fixtures, left" >&2
+  echo "by an earlier failed refresh; move it back to ${target} first" >&2
+  exit 1
+fi
+rm -rf "${previous}"
+
+staging="$(mktemp -d "${fixtures_root}/.staging.XXXXXX")"
+swapped=0
+cleanup() {
+  rm -rf "${staging}"
+  # The backup goes only once the new fixtures are safely in place. Until
+  # then it may be the only copy there is.
+  if [ "${swapped}" -eq 1 ]; then
+    rm -rf "${previous}"
+  elif [ -e "${previous}" ]; then
+    echo "the previous fixtures are kept at ${previous}" >&2
+  fi
+}
+trap cleanup EXIT
 
 archive="${staging}/archive"
 built="${staging}/${revision}"
@@ -86,15 +108,18 @@ against an updated checkout.
 SOURCE
 
 # The swap: two renames within one directory. The old set is moved aside
-# rather than deleted until the new one is in place.
-rm -rf "${previous}"
+# rather than deleted, and stays until the new one is in place.
 if [ -e "${target}" ]; then
   mv "${target}" "${previous}"
 fi
 if ! mv "${built}" "${target}"; then
-  [ -e "${previous}" ] && mv "${previous}" "${target}"
-  echo "could not put the new fixtures in place; the old ones are kept" >&2
+  if [ -e "${previous}" ] && mv "${previous}" "${target}"; then
+    echo "could not put the new fixtures in place; the old ones are back" >&2
+  else
+    echo "could not put the new fixtures in place" >&2
+  fi
   exit 1
 fi
+swapped=1
 
 echo "copied ${files} fixtures across ${types} types from ${commit}"
