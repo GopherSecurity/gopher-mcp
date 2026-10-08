@@ -7,6 +7,8 @@
 #include <limits>
 #include <sstream>
 
+#include "mcp/protocol/extensions.h"
+
 namespace mcp {
 namespace json {
 namespace impl {
@@ -2320,14 +2322,55 @@ JsonValue serialize_ResourceTemplateReference(
 
 // ===== Capability Types Serialization =====
 
+namespace {
+/** The entries of a map whose values are objects; anything else, none. */
+JsonValue objectEntries(const JsonValue& map) {
+  JsonValue kept = JsonValue::object();
+  if (map.isObject()) {
+    for (const auto& name : map.keys()) {
+      if (map[name].isObject()) {
+        kept.set(name, map[name]);
+      }
+    }
+  }
+  return kept;
+}
+}  // namespace
+
+// experimental and extensions: maps to objects of settings, each written
+// when set and read from any peer, an entry of the wrong shape passed over
+// rather than allowed to cost the handshake.
+static void addCapabilityMaps(JsonObjectBuilder& builder,
+                              const optional<JsonValue>& experimental,
+                              const optional<JsonValue>& extensions) {
+  if (experimental.has_value()) {
+    builder.add("experimental", objectEntries(experimental.value()));
+  }
+  if (extensions.has_value()) {
+    builder.add(protocol::extensions::kField,
+                protocol::extensions::sanitized(extensions.value()));
+  }
+}
+
+static void readCapabilityMaps(const JsonValue& json,
+                               optional<JsonValue>& experimental,
+                               optional<JsonValue>& extensions) {
+  if (json.contains("experimental") && json["experimental"].isObject()) {
+    experimental = objectEntries(json["experimental"]);
+  }
+  if (json.contains(protocol::extensions::kField) &&
+      json[protocol::extensions::kField].isObject()) {
+    extensions =
+        protocol::extensions::sanitized(json[protocol::extensions::kField]);
+  }
+}
+
 JsonValue serialize_ServerCapabilities(const ServerCapabilities& caps) {
   // Every capability goes out as an object with boolean flags inside, and
   // one that is not declared is left out rather than written as false.
   JsonObjectBuilder builder;
 
-  if (caps.experimental.has_value()) {
-    builder.add("experimental", to_json(caps.experimental.value()));
-  }
+  addCapabilityMaps(builder, caps.experimental, caps.extensions);
 
   if (caps.resources.has_value()) {
     mcp::match(
@@ -2368,9 +2411,7 @@ JsonValue serialize_ServerCapabilities(const ServerCapabilities& caps) {
 JsonValue serialize_ClientCapabilities(const ClientCapabilities& caps) {
   JsonObjectBuilder builder;
 
-  if (caps.experimental.has_value()) {
-    builder.add("experimental", to_json(caps.experimental.value()));
-  }
+  addCapabilityMaps(builder, caps.experimental, caps.extensions);
 
   if (caps.sampling.has_value()) {
     builder.add("sampling", to_json(caps.sampling.value()));
@@ -3509,9 +3550,7 @@ optional<bool> capabilityFlag(const JsonValue& capability,
 ServerCapabilities deserialize_ServerCapabilities(const JsonValue& json) {
   ServerCapabilities caps;
 
-  if (json.contains("experimental")) {
-    caps.experimental = from_json<Metadata>(json["experimental"]);
-  }
+  readCapabilityMaps(json, caps.experimental, caps.extensions);
 
   // A capability is declared by an object, `{}` or `{"listChanged": true}`,
   // and older servers sent a bare bool instead. A bool false, or anything
@@ -3561,9 +3600,7 @@ ServerCapabilities deserialize_ServerCapabilities(const JsonValue& json) {
 ClientCapabilities deserialize_ClientCapabilities(const JsonValue& json) {
   ClientCapabilities caps;
 
-  if (json.contains("experimental")) {
-    caps.experimental = from_json<Metadata>(json["experimental"]);
-  }
+  readCapabilityMaps(json, caps.experimental, caps.extensions);
 
   if (json.contains("sampling")) {
     caps.sampling = from_json<SamplingParams>(json["sampling"]);

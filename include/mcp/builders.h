@@ -32,6 +32,29 @@ class Builder {
   operator T() const& { return value_; }
 };
 
+namespace detail {
+// experimental capabilities from a flat map: each entry an object of
+// settings, which a flat map carries as JSON text. Anything else isn't an
+// object of settings, and is left out.
+inline json::JsonValue experimentalFrom(const Metadata& metadata) {
+  json::JsonValue map = json::JsonValue::object();
+  for (const auto& entry : metadata) {
+    if (!holds_alternative<std::string>(entry.second)) {
+      continue;
+    }
+    try {
+      json::JsonValue settings =
+          json::JsonValue::parse(get<std::string>(entry.second));
+      if (settings.isObject()) {
+        map.set(entry.first, settings);
+      }
+    } catch (const std::exception&) {
+    }
+  }
+  return map;
+}
+}  // namespace detail
+
 // Icon Builder
 class IconBuilder : public Builder<Icon, IconBuilder> {
  public:
@@ -393,8 +416,26 @@ class ClientCapabilitiesBuilder
  public:
   ClientCapabilitiesBuilder() = default;
 
+  // Each entry as the JSON it holds: a string of JSON text is read as the
+  // object it spells, as a flat map has always carried one.
   ClientCapabilitiesBuilder& experimental(const Metadata& metadata) {
-    value_.experimental = mcp::make_optional(metadata);
+    value_.experimental = mcp::make_optional(detail::experimentalFrom(metadata));
+    return *this;
+  }
+
+  ClientCapabilitiesBuilder& experimental(const json::JsonValue& map) {
+    value_.experimental = mcp::make_optional(map);
+    return *this;
+  }
+
+  // One extension, by identifier, with its settings.
+  ClientCapabilitiesBuilder& extension(
+      const std::string& id,
+      const json::JsonValue& settings = json::JsonValue::object()) {
+    if (!value_.extensions) {
+      value_.extensions = mcp::make_optional(json::JsonValue::object());
+    }
+    value_.extensions->set(id, settings);
     return *this;
   }
 
@@ -426,20 +467,34 @@ class ClientCapabilitiesBuilder
     return *this;
   }
 
+  // Not spec capabilities of a client: kept as experimental entries for
+  // source compatibility, {} when enabled.
   ClientCapabilitiesBuilder& resources(bool enabled) {
-    if (!value_.experimental) {
-      value_.experimental = mcp::make_optional(Metadata());
-    }
-    add_metadata(*value_.experimental, "resources", enabled);
+    experimentalEntry("resources", enabled);
     return *this;
   }
 
   ClientCapabilitiesBuilder& tools(bool enabled) {
-    if (!value_.experimental) {
-      value_.experimental = mcp::make_optional(Metadata());
-    }
-    add_metadata(*value_.experimental, "tools", enabled);
+    experimentalEntry("tools", enabled);
     return *this;
+  }
+
+ private:
+  void experimentalEntry(const std::string& name, bool enabled) {
+    if (!value_.experimental) {
+      value_.experimental = mcp::make_optional(json::JsonValue::object());
+    }
+    if (enabled) {
+      value_.experimental->set(name, json::JsonValue::object());
+    } else {
+      json::JsonValue kept = json::JsonValue::object();
+      for (const auto& key : value_.experimental->keys()) {
+        if (key != name) {
+          kept.set(key, (*value_.experimental)[key]);
+        }
+      }
+      value_.experimental = mcp::make_optional(kept);
+    }
   }
 };
 
@@ -449,8 +504,26 @@ class ServerCapabilitiesBuilder
  public:
   ServerCapabilitiesBuilder() = default;
 
+  // Each entry as the JSON it holds: a string of JSON text is read as the
+  // object it spells, as a flat map has always carried one.
   ServerCapabilitiesBuilder& experimental(const Metadata& metadata) {
-    value_.experimental = mcp::make_optional(metadata);
+    value_.experimental = mcp::make_optional(detail::experimentalFrom(metadata));
+    return *this;
+  }
+
+  ServerCapabilitiesBuilder& experimental(const json::JsonValue& map) {
+    value_.experimental = mcp::make_optional(map);
+    return *this;
+  }
+
+  // One extension, by identifier, with its settings.
+  ServerCapabilitiesBuilder& extension(
+      const std::string& id,
+      const json::JsonValue& settings = json::JsonValue::object()) {
+    if (!value_.extensions) {
+      value_.extensions = mcp::make_optional(json::JsonValue::object());
+    }
+    value_.extensions->set(id, settings);
     return *this;
   }
 
