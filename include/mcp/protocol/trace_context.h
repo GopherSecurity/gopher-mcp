@@ -74,9 +74,11 @@ TraceContext fromRequest(const jsonrpc::Request& request);
 
 /**
  * params with the context added to their _meta. Only keys that are set
- * are written, and a key _meta already has is left as it is: what the
- * application put there itself wins. Anything but an object, or no params
- * at all, becomes an object holding just _meta.
+ * are written. A well-formed key the application already put in _meta
+ * wins, its traceparent bringing its own tracestate with it; one that is
+ * not well formed is replaced by the context's, or removed, so the
+ * reserved keys never go out in any other format. Anything but an object,
+ * or no params at all, becomes an object holding just _meta.
  */
 json::JsonValue withContext(const json::JsonValue& params,
                             const TraceContext& context);
