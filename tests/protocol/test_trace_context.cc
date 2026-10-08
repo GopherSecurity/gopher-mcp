@@ -111,6 +111,8 @@ TEST(TraceContext, BaggageFollowsTheW3CFormat) {
            "key1=value1;property1;property2, key2 = value2",
            "key=value;prop=1",
            "empty=",
+           "user=100%25",
+           "name=%C3%A9t%c3%a9",
        }) {
     EXPECT_TRUE(isValidBaggage(good)) << good;
   }
@@ -129,6 +131,10 @@ TEST(TraceContext, BaggageFollowsTheW3CFormat) {
            std::string("k(ey)=v"),
            std::string("a=1,"),
            std::string("key=value;=p"),
+           std::string("user=100%"),
+           std::string("user=%GG"),
+           std::string("user=%2"),
+           std::string("key=v;prop=%zz"),
            too_long,
            too_many,
        }) {
