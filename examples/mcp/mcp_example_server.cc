@@ -1069,7 +1069,8 @@ int main(int argc, char* argv[]) {
       mcp::make_optional(variant<bool, ResourcesCapability>(res_cap));
 
   // Experimental capabilities
-  config.capabilities.experimental = mcp::make_optional(Metadata());
+  config.capabilities.experimental =
+      mcp::make_optional(mcp::json::JsonValue::object());
 
   // Parse configuration file if provided
   if (!options.config_file.empty()) {

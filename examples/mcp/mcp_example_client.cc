@@ -940,7 +940,8 @@ int main(int argc, char* argv[]) {
 
   // Client capabilities
   config.capabilities = ClientCapabilities();
-  config.capabilities.experimental = mcp::make_optional(Metadata());
+  config.capabilities.experimental =
+      mcp::make_optional(mcp::json::JsonValue::object());
 
   // Add HTTP/SSE specific configuration if using HTTP transport
   if (options.transport == "http") {

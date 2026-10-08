@@ -1075,7 +1075,12 @@ struct ElicitationCapability {
 
 // Capability types
 struct ClientCapabilities {
-  optional<Metadata> experimental;
+  // Name to an object of settings, for features not yet in the spec,
+  // kept as nested JSON. Entries that aren't objects aren't sent.
+  optional<mcp::json::JsonValue> experimental;
+  // Extension identifier, such as io.modelcontextprotocol/tasks, to an
+  // object of its settings, kept as nested JSON.
+  optional<mcp::json::JsonValue> extensions;
   optional<SamplingParams> sampling;
   optional<RootsCapability> roots;
   optional<ElicitationCapability> elicitation;
@@ -1084,7 +1089,12 @@ struct ClientCapabilities {
 };
 
 struct ServerCapabilities {
-  optional<Metadata> experimental;
+  // Name to an object of settings, for features not yet in the spec,
+  // kept as nested JSON. Entries that aren't objects aren't sent.
+  optional<mcp::json::JsonValue> experimental;
+  // Extension identifier, such as io.modelcontextprotocol/tasks, to an
+  // object of its settings, kept as nested JSON.
+  optional<mcp::json::JsonValue> extensions;
   // true declares resources with no flags; false leaves them undeclared.
   optional<variant<bool, ResourcesCapability>> resources;
   optional<ToolsCapability> tools;

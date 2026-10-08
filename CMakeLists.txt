@@ -515,6 +515,7 @@ set(MCP_CORE_SOURCES
     src/protocol/elicitation.cc             # Elicitation, typed, in either revision
     src/protocol/subscriptions.cc           # What a subscription asks to hear
     src/protocol/trace_context.cc           # W3C trace context in _meta
+    src/protocol/extensions.cc              # Extensions in capabilities
     src/server/listen_registry.cc           # Long-lived notification streams
     src/config/config_manager.cc
     src/config/file_config_source.cc
