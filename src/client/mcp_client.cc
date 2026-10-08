@@ -170,6 +170,19 @@ constexpr int McpClient::kConnectionIdleTimeoutSec;
 // Constructor
 McpClient::McpClient(const McpClientConfig& config)
     : ApplicationBase(config), config_(config) {
+  // An extension identifier that breaks the rules would be sent to every
+  // server and recognised by none: refused here, when the client is made.
+  protocol::extensions::checkConfigured(config_.extensions);
+  if (config_.capabilities.extensions.has_value()) {
+    if (!config_.capabilities.extensions->isObject()) {
+      throw std::invalid_argument("capabilities.extensions must be an object");
+    }
+    std::map<std::string, json::JsonValue> declared;
+    for (const auto& id : config_.capabilities.extensions->keys()) {
+      declared[id] = (*config_.capabilities.extensions)[id];
+    }
+    protocol::extensions::checkConfigured(declared);
+  }
   // Set callbacks for protocol state changes
   protocol::McpProtocolStateMachineConfig protocol_config;
   protocol_config.initialization_timeout =
@@ -2471,6 +2484,11 @@ json::JsonValue McpClient::declaredCapabilities() const {
   json::JsonValue declared = json::to_json(config_.capabilities);
   if (!declared.isObject()) {
     declared = json::JsonValue::object();
+  }
+  const json::JsonValue extensions = protocol::extensions::merged(
+      config_.capabilities.extensions, config_.extensions);
+  if (!extensions.keys().empty()) {
+    declared.set(protocol::extensions::kField, extensions);
   }
 
   std::lock_guard<std::mutex> lock(request_handlers_mutex_);
