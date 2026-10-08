@@ -1166,8 +1166,12 @@ struct PingRequest : jsonrpc::Request {
 // Progress notification
 struct ProgressNotification : jsonrpc::Notification {
   ProgressToken progressToken;
-  double progress;  // 0.0 to 1.0
+  // How far along: increases with each notification, toward total when
+  // there is one.
+  double progress = 0;
   optional<double> total;
+  // What is happening now, for people to read.
+  optional<std::string> message;
 
   ProgressNotification() : jsonrpc::Notification() {
     method = "notifications/progress";
