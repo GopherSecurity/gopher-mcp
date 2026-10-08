@@ -554,10 +554,10 @@ TEST_F(StreamableSessionManagerTest,
     auto exchange =
         RequestExchange::create(owner_->dispatcher(), std::move(sink), nullopt);
     exchange->beginStream();
-    ASSERT_NE(manager_->openStream(*session, StreamCtx::Kind::PostResponse,
-                                   exchange, fakeConnection(1),
-                                   owner_->dispatcher()),
-              nullptr);
+    ASSERT_NE(
+        manager_->openStream(*session, StreamCtx::Kind::PostResponse, exchange,
+                             fakeConnection(1), owner_->dispatcher()),
+        nullptr);
     session->last_activity -= 1h;
 
     std::vector<std::string> expired;
