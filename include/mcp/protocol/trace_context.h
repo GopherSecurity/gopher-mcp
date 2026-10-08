@@ -140,7 +140,9 @@ using SpanHook = std::function<SpanEnd(const SpanStart& span)>;
 
 /**
  * One span, ended exactly once: by end(), or, if that never happens, when
- * the last copy goes, as a request that ended without an answer.
+ * the last copy goes, as a request that ended without an answer. Whatever
+ * the hook or what it returned throws is dropped: a tracer never costs a
+ * request its answer.
  */
 class Span {
  public:
