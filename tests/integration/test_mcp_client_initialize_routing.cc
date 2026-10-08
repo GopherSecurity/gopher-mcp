@@ -1536,6 +1536,98 @@ TEST_F(McpClientInitializeRoutingTest, EachSideSeesTheOthersExtensions) {
   }
 }
 
+// The search tool, with its region argument mirrored into a header when
+// designated is true.
+Tool searchTool(bool designated) {
+  Tool search("search");
+  search.inputSchema = mcp::make_optional(json::JsonValue::parse(
+      designated
+          ? R"({"type":"object","properties":{"region":{"type":"string","x-mcp-header":"Region"}}})"
+          : R"({"type":"object","properties":{"region":{"type":"string"}}})"));
+  return search;
+}
+
+// A call refused because the tool's header designations changed since the
+// client listed it is recovered from: the tools are listed again, and the
+// call goes once more with the header the server now expects.
+TEST_F(McpClientInitializeRoutingTest, AHeaderMismatchIsRecoveredOnce) {
+  client_path_ = "/mcp";
+  // Listed on one page, and one tool to a page so the tool that changed
+  // is found only by following the cursor.
+  for (const bool paged : {false, true}) {
+    SCOPED_TRACE(paged ? "one tool to a page" : "one page");
+    if (paged) {
+      client_.reset();
+      stopServer();
+      tweak_config_ = [](server::McpServerConfig& config) {
+        config.list_page_sizes.tools = 1;
+      };
+      startServer(/*serve_newest=*/true);
+      tweak_config_ = nullptr;
+    }
+    auto calls = std::make_shared<std::atomic<int>>(0);
+    auto handler = [calls](const std::string&, const optional<Metadata>&,
+                           server::SessionContext&) {
+      ++*calls;
+      CallToolResult result;
+      result.content.push_back(TextContent("found"));
+      return result;
+    };
+    server_->registerTool(Tool("another"), handler);
+    server_->registerTool(searchTool(false), handler);
+    connectInitializedClient();
+
+    auto listed = client_->listTools();
+    ASSERT_EQ(listed.wait_for(5s), std::future_status::ready);
+    listed.get();
+
+    // The server now mirrors region into a header, which this client has
+    // not learnt.
+    server_->registerTool(searchTool(true), handler);
+
+    auto call = client_->callTool(
+        "search", json::JsonValue::parse(R"({"region":"us-west1"})"));
+    ASSERT_EQ(call.wait_for(5s), std::future_status::ready);
+    CallToolResult result;
+    ASSERT_NO_THROW(result = call.get());
+    EXPECT_EQ(get<TextContent>(result.content.at(0)).text, "found");
+    EXPECT_EQ(calls->load(), 1);
+  }
+}
+
+// A second mismatch is the answer: the tools are listed again once, and
+// when that teaches nothing new the caller gets the server's error.
+TEST_F(McpClientInitializeRoutingTest, ASecondHeaderMismatchIsTheAnswer) {
+  client_path_ = "/mcp";
+  server_->registerTool(
+      searchTool(true),
+      [](const std::string&, const optional<Metadata>&,
+         server::SessionContext&) { return CallToolResult(); });
+  // A listing that never tells the client about the header.
+  auto listings = std::make_shared<std::atomic<int>>(0);
+  server_->registerRequestHandler(
+      "tools/list",
+      [listings](const jsonrpc::Request& request, server::SessionContext&) {
+        ++*listings;
+        ListToolsResult stale;
+        stale.tools.push_back(searchTool(false));
+        return jsonrpc::Response::success(
+            request.id, jsonrpc::ResponseResult(json::to_json(stale)));
+      });
+  connectInitializedClient();
+
+  auto call = client_->callTool(
+      "search", json::JsonValue::parse(R"({"region":"us-west1"})"));
+  ASSERT_EQ(call.wait_for(5s), std::future_status::ready);
+  try {
+    call.get();
+    FAIL() << "a call refused twice for its headers succeeded";
+  } catch (const client::RequestError& e) {
+    EXPECT_EQ(e.code(), protocol::modern::kHeaderMismatch);
+  }
+  EXPECT_EQ(listings->load(), 1) << "the tools were not listed again once";
+}
+
 // A server that offers no completions refuses, and the call fails with
 // what it said.
 TEST_F(McpClientInitializeRoutingTest, NoCompletionsIsARefusal) {
