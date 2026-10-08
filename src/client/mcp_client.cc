@@ -1772,8 +1772,15 @@ void McpClient::sendRequestInternal(std::shared_ptr<RequestContext> context) {
         // Timer allows event loop to process I/O events (like TCP connect)
         // between retries
         context->retry_count++;
-        context->retry_timer = main_dispatcher_->createTimer(
-            [this, context]() { sendRequestInternal(context); });
+        // Held weakly: the context owns this timer, so a strong hold here
+        // would keep both alive forever once the request settles. While it
+        // waits, the tracker keeps it.
+        std::weak_ptr<RequestContext> waiting = context;
+        context->retry_timer = main_dispatcher_->createTimer([this, waiting]() {
+          if (auto still = waiting.lock()) {
+            sendRequestInternal(still);
+          }
+        });
         context->retry_timer->enableTimer(
             std::chrono::milliseconds(kReconnectRetryDelayMs));
         return;
