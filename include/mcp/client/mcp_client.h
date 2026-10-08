@@ -48,6 +48,7 @@
 #include "mcp/protocol/mcp_protocol_state_machine.h"
 #include "mcp/protocol/mrtr.h"
 #include "mcp/protocol/subscriptions.h"
+#include "mcp/protocol/trace_context.h"
 #include "mcp/transport/streamable_http_config.h"
 #include "mcp/types.h"
 
@@ -75,6 +76,14 @@ struct McpClientConfig : public application::ApplicationBase::Config {
   std::string protocol_version = protocol::kLatestHandshakeVersion;
   std::string client_name = "mcp-cpp-client";
   std::string client_version = "1.0.0";
+  // The trace context to send with each request and notification, asked
+  // for on each send. A context made current with protocol::trace::
+  // TraceScope around a call is sent instead. Values not in the W3C
+  // formats are not sent.
+  std::function<protocol::trace::TraceContext()> trace_context_provider;
+  // Starts a span around each request this client sends, ended with its
+  // outcome. Without one nothing is traced.
+  protocol::trace::SpanHook span_hook;
   // How this client describes itself to people, sent beside its name and
   // version wherever it introduces itself: initialize, and _meta in
   // 2026-07-28. Each is left out when empty.
@@ -221,6 +230,19 @@ struct RequestContext {
   // is how the client itself carries on, without the blocking get()
   // that would deadlock the thread the response arrives on.
   std::function<void(const jsonrpc::Response&)> on_response;
+
+  // The trace context this request carries in _meta, settled when it was
+  // made, and the span around it when the application traces requests.
+  protocol::trace::TraceContext trace;
+  std::shared_ptr<protocol::trace::Span> span;
+
+  // Resolve the request: end its span, then hand the caller the answer.
+  void finish(const jsonrpc::Response& response) {
+    if (span) {
+      span->end(response.error);
+    }
+    promise.set_value(response);
+  }
 
   // Timer-based timeout management
   event::TimerPtr timeout_timer;
@@ -799,6 +821,13 @@ class McpClient : public application::ApplicationBase {
       const optional<Metadata>& params,
       const std::map<std::string, std::string>& http_headers);
   void sendRequestInternal(std::shared_ptr<RequestContext> context);
+  // The trace context a request or notification made now goes out with:
+  // the one current on this thread, else the provider's.
+  protocol::trace::TraceContext traceToSend() const;
+  // Settle a new request's trace context, and start its span.
+  void traceRequest(RequestContext& context) const;
+  // Post to the dispatcher, the trace context current here current there.
+  void postCarryingTrace(std::function<void()> task);
   // A request whose params go out exactly as this JSON.
   std::future<Response> sendRequestWithParams(
       const std::string& method,
