@@ -1323,6 +1323,13 @@ void McpClient::handleTransportStatus(int status_code,
   // and data are the answer, and the HTTP status only how it was sent.
   auto said = jsonRpcErrorIn(detail, context->id);
   if (said.has_value()) {
+    // A header mismatch comes back as a 400, and is recovered from here as
+    // it would be from an answer that arrived any other way.
+    if (!context->completed &&
+        recoverFromHeaderMismatch(
+            context, Response::make_error(context->id, said.value()))) {
+      return;
+    }
     completeRequestWithError(context, said.value());
     return;
   }
@@ -1967,6 +1974,13 @@ void McpClient::handleResponse(const Response& response) {
     return;
   }
 
+  // Refused for headers that no longer match what the server designates:
+  // learnt again and sent once more, rather than failed for something
+  // the caller did not get wrong.
+  if (recoverFromHeaderMismatch(request, response)) {
+    return;
+  }
+
   // An answer that turns out to be a question is not this request's
   // answer. Either it goes out again carrying what was asked for — in
   // which case there is nothing to complete here, the same caller now
@@ -2068,19 +2082,33 @@ bool McpClient::askAndSendAgain(const std::shared_ptr<RequestContext>& request,
   // that the second round carries an id of its own — the two rounds are
   // independent requests, and a server must never be able to read a
   // repeated id as one conversation it is expected to remember.
+  auto again = carryOver(request, params);
+  again->input_rounds = request->input_rounds + 1;
+
+  GOPHER_LOG_DEBUG("{} is being sent again with what was asked for (round {})",
+                   request->method, again->input_rounds);
+  sendRequestInternal(again);
+  return true;
+}
+
+std::shared_ptr<RequestContext> McpClient::carryOver(
+    const std::shared_ptr<RequestContext>& request,
+    const json::JsonValue& params) {
   RequestId fresh = static_cast<int64_t>(next_request_id_++);
   auto again = std::make_shared<RequestContext>(fresh, request->method);
   again->params = request->params;
   again->params_json = mcp::make_optional(params);
   again->http_headers = request->http_headers;
   again->start_time = request->start_time;
-  again->input_rounds = request->input_rounds + 1;
+  again->input_rounds = request->input_rounds;
+  again->header_retried = request->header_retried;
   // The caller is waiting on the first request's future and knows
   // nothing of this one, so what it waits on has to move across.
   again->promise = std::move(request->promise);
   again->on_response = request->on_response;
   // Still the caller's one request, under the id it knows, with its own
-  // way of being sent and its trace.
+  // way of being sent and its trace. Its clock is kept by that id, so it
+  // runs on across both.
   again->origin_id = request->origin_id;
   again->options = request->options;
   again->apart = request->apart;
@@ -2088,7 +2116,7 @@ bool McpClient::askAndSendAgain(const std::shared_ptr<RequestContext>& request,
   again->trace = request->trace;
   again->span = std::move(request->span);
   again->on_settled = std::move(request->on_settled);
-  // The first round's own connection, if it had one, is done with.
+  // The first one's own connection, if it had one, is done with.
   if (request->sent_apart && main_dispatcher_) {
     const RequestId first = request->id;
     std::weak_ptr<bool> alive = alive_;
@@ -2099,15 +2127,104 @@ bool McpClient::askAndSendAgain(const std::shared_ptr<RequestContext>& request,
     });
   }
   request->settled = true;
-
   request->completed = true;
   request_tracker_->removeRequest(request->id);
   request_tracker_->trackRequest(again);
+  return again;
+}
 
-  GOPHER_LOG_DEBUG("{} is being sent again with what was asked for (round {})",
-                   request->method, again->input_rounds);
-  sendRequestInternal(again);
+bool McpClient::recoverFromHeaderMismatch(
+    const std::shared_ptr<RequestContext>& request, const Response& response) {
+  if (!response.error.has_value() ||
+      response.error->code != protocol::modern::kHeaderMismatch ||
+      request->method != "tools/call" || request->header_retried ||
+      !speaksModernHttp()) {
+    return false;
+  }
+  // Once only, whatever happens next: a second mismatch is the answer.
+  request->header_retried = true;
+  GOPHER_LOG_DEBUG(
+      "tools/call refused for its mirrored headers; listing tools again");
+
+  // Kept tracked under its first id while the tools are listed, so a
+  // cancellation or timeout in the meantime still finds it.
+  std::weak_ptr<RequestContext> waiting = request;
+  relistToolsThen(nullopt, 0, [this, waiting]() {
+    auto request = waiting.lock();
+    if (!request || request->settled.load()) {
+      return;
+    }
+    json::JsonValue params = json::JsonValue::object();
+    if (request->params_json.has_value()) {
+      params = request->params_json.value();
+    } else if (request->params.has_value()) {
+      params = json::metadataToJson(request->params.value());
+    }
+    // Sent once more whatever the listing said: the server's answer to it
+    // is the caller's answer, a tool that is gone included.
+    auto again = carryOver(request, params);
+    sendRequestInternal(again);
+  });
   return true;
+}
+
+void McpClient::relistToolsThen(const optional<std::string>& cursor,
+                                size_t pages,
+                                std::function<void()> done) {
+  // Bounded, so a server that never stops paging cannot keep the call
+  // waiting forever.
+  constexpr size_t kMaxPages = 100;
+  optional<Metadata> params;
+  if (cursor.has_value()) {
+    Metadata page;
+    page["cursor"] = cursor.value();
+    params = mcp::make_optional(page);
+  }
+  std::weak_ptr<bool> alive = alive_;
+  sendInternalRequest(
+      "tools/list", params,
+      [this, alive, pages, done](const Response& response) {
+        if (alive.expired()) {
+          return;
+        }
+        optional<std::string> next;
+        // Read as listTools reads it: the answer may arrive typed, or as
+        // the JSON it was sent as.
+        optional<ListToolsResult> listed;
+        if (!response.error.has_value() && response.result.has_value()) {
+          const auto& result = response.result.value();
+          if (holds_alternative<ListToolsResult>(result)) {
+            listed = get<ListToolsResult>(result);
+          } else if (holds_alternative<std::vector<Tool>>(result)) {
+            ListToolsResult tools;
+            tools.tools = get<std::vector<Tool>>(result);
+            listed = tools;
+          } else {
+            json::JsonValue body;
+            if (resultAsJson(response, &body) && body.isObject()) {
+              try {
+                listed = json::from_json<ListToolsResult>(body);
+              } catch (const std::exception& e) {
+                GOPHER_LOG_DEBUG("tools could not be listed again: {}",
+                                 e.what());
+              }
+            }
+          }
+        }
+        if (listed.has_value()) {
+          if (streamable_session_) {
+            streamable_session_->acceptListing(listed->tools);
+          }
+          if (listed->nextCursor.has_value() && !listed->nextCursor->empty()) {
+            next = listed->nextCursor;
+          }
+        }
+        if (next.has_value() && pages + 1 < kMaxPages) {
+          relistToolsThen(next, pages + 1, done);
+          return;
+        }
+        done();
+      });
 }
 
 json::JsonValue McpClient::askOurselves(
