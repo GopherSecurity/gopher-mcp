@@ -1349,6 +1349,7 @@ std::future<Response> McpClient::sendRequest(
   context->http_headers = http_headers;
   context->start_time = std::chrono::steady_clock::now();
   traceRequest(*context);
+  startClock(context);
 
   // Track request
   request_tracker_->trackRequest(context);
@@ -1378,9 +1379,281 @@ std::future<Response> McpClient::sendRequestWithParams(
   context->http_headers = http_headers;
   context->start_time = std::chrono::steady_clock::now();
   traceRequest(*context);
+  startClock(context);
   request_tracker_->trackRequest(context);
   sendRequestInternal(context);
   return context->promise.get_future();
+}
+
+CancellableRequest McpClient::sendCancellableRequest(
+    const std::string& method,
+    const json::JsonValue& params,
+    const RequestOptions& options) {
+  CancellableRequest sent;
+  RequestId id = static_cast<int64_t>(next_request_id_++);
+  sent.id = id;
+  auto context = std::make_shared<RequestContext>(id, method);
+  context->options = options;
+  context->apart = true;
+  context->start_time = std::chrono::steady_clock::now();
+
+  json::JsonValue body = params.isObject() ? params : json::JsonValue::object();
+  if (options.on_progress) {
+    // The token is the request's own id, which nothing else can be using.
+    json::JsonValue meta = body.contains("_meta") && body["_meta"].isObject()
+                               ? body["_meta"]
+                               : json::JsonValue::object();
+    meta.set("progressToken", json::JsonValue(get<int64_t>(id)));
+    body.set("_meta", meta);
+    context->progress_token =
+        mcp::make_optional(ProgressToken(get<int64_t>(id)));
+    std::lock_guard<std::mutex> lock(progress_mutex_);
+    progress_routes_[requestIdKeyToString(requestIdKey(id))] = id;
+  }
+  context->params_json = mcp::make_optional(body);
+  sent.response = context->promise.get_future();
+
+  if (!circuit_breaker_->allowRequest()) {
+    client_stats_.circuit_breaker_opens++;
+    context->finish(Response::make_error(
+        id, Error(::mcp::jsonrpc::INTERNAL_ERROR, "Circuit breaker open")));
+    return sent;
+  }
+
+  traceRequest(*context);
+  startClock(context);
+  request_tracker_->trackRequest(context);
+  // Sent from the dispatcher, which is where a connection of its own can
+  // be opened; from anywhere else it would share the connection, and
+  // could not be cancelled alone.
+  std::weak_ptr<bool> alive = alive_;
+  postCarryingTrace([this, alive, context]() {
+    if (!alive.expired()) {
+      sendRequestInternal(context);
+    }
+  });
+  return sent;
+}
+
+bool McpClient::cancelRequest(const RequestId& id, const std::string& reason) {
+  auto context = request_tracker_->findByOrigin(id);
+  if (!context || context->method == "initialize" || !main_dispatcher_) {
+    return false;
+  }
+  std::weak_ptr<bool> alive = alive_;
+  main_dispatcher_->post([this, alive, id, reason]() {
+    if (alive.expired()) {
+      return;
+    }
+    // Looked up again here: it may have been answered on the way.
+    auto current = request_tracker_->findByOrigin(id);
+    if (current) {
+      abandonRequest(
+          current,
+          Error(::mcp::jsonrpc::REQUEST_CANCELLED, "the request was cancelled"),
+          reason);
+    }
+  });
+  return true;
+}
+
+bool McpClient::speaksModernHttp() const {
+  return streamable_session_ && settled_transport_.has_value() &&
+         settled_transport_.value() == TransportType::StreamableHttp &&
+         protocol::modern::isModernVersion(
+             streamable_session_->protocolVersion());
+}
+
+void McpClient::abandonRequest(const std::shared_ptr<RequestContext>& context,
+                               const Error& error,
+                               const std::string& reason) {
+  if (!context || context->settled.load()) {
+    return;
+  }
+  request_tracker_->removeRequest(context->id);
+  if (context->apart && speaksModernHttp()) {
+    // Closing its own stream is the cancellation, and nothing is sent.
+    // The close itself happens as it settles, below.
+  } else if (speaksModernHttp()) {
+    // On the shared connection: closing it would cancel every other
+    // request on it, so this one is only let go of.
+    GOPHER_LOG_DEBUG("{} abandoned without a signal on the shared connection",
+                     context->method);
+  } else if (context->method != "initialize" && connection_manager_ &&
+             connected_) {
+    // On stdio and in the earlier revisions, the server is told which
+    // request the client no longer wants, by the id the server knows.
+    json::JsonValue params = json::JsonValue::object();
+    params.set("requestId", holds_alternative<std::string>(context->id)
+                                ? json::JsonValue(get<std::string>(context->id))
+                                : json::JsonValue(get<int64_t>(context->id)));
+    if (!reason.empty()) {
+      params.set("reason", json::JsonValue(reason));
+    }
+    jsonrpc::Notification cancelled("notifications/cancelled");
+    cancelled.params_json = mcp::make_optional(params);
+    connection_manager_->sendNotification(cancelled);
+  }
+  if (error.code == ::mcp::jsonrpc::REQUEST_TIMED_OUT) {
+    client_stats_.requests_timeout++;
+  }
+  context->finish(Response::make_error(context->id, error));
+}
+
+void McpClient::armRequestTimeout(const RequestId& origin,
+                                  std::chrono::milliseconds after) {
+  const RequestIdKey key = requestIdKey(origin);
+  auto deadline = request_deadlines_.find(key);
+  if (deadline == request_deadlines_.end()) {
+    return;
+  }
+  // Never past the overall maximum, whatever progress says.
+  const auto now = std::chrono::steady_clock::now();
+  const auto left = std::chrono::duration_cast<std::chrono::milliseconds>(
+      deadline->second - now);
+  if (left < after) {
+    after = std::max(left, std::chrono::milliseconds(0));
+  }
+  auto& timer = request_timers_[key];
+  if (!timer) {
+    std::weak_ptr<bool> alive = alive_;
+    timer = main_dispatcher_->createTimer([this, alive, origin]() {
+      if (!alive.expired()) {
+        onRequestTimedOut(origin);
+      }
+    });
+  }
+  timer->disableTimer();
+  timer->enableTimer(after);
+}
+
+void McpClient::startClock(const std::shared_ptr<RequestContext>& context) {
+  if (!main_dispatcher_) {
+    return;
+  }
+  const RequestId origin = context->origin_id;
+  const auto max = config_.request_timeout_max;
+  const auto timeout =
+      std::min(context->options.timeout.value_or(config_.request_timeout), max);
+  const auto deadline = context->start_time + max;
+  std::weak_ptr<bool> alive = alive_;
+
+  auto previous = std::move(context->on_settled);
+  context->on_settled = [this, alive, origin, previous]() {
+    if (previous) {
+      previous();
+    }
+    {
+      std::lock_guard<std::mutex> lock(progress_mutex_);
+      progress_routes_.erase(requestIdKeyToString(requestIdKey(origin)));
+    }
+    if (alive.expired() || !main_dispatcher_) {
+      return;
+    }
+    main_dispatcher_->post([this, alive, origin]() {
+      if (alive.expired()) {
+        return;
+      }
+      const RequestIdKey key = requestIdKey(origin);
+      auto timer = request_timers_.find(key);
+      if (timer != request_timers_.end()) {
+        timer->second->disableTimer();
+        request_timers_.erase(timer);
+      }
+      request_deadlines_.erase(key);
+    });
+  };
+
+  main_dispatcher_->post([this, alive, origin, deadline, timeout]() {
+    if (alive.expired() || !request_tracker_->findByOrigin(origin)) {
+      return;
+    }
+    request_deadlines_[requestIdKey(origin)] = deadline;
+    armRequestTimeout(origin, timeout);
+  });
+}
+
+void McpClient::onRequestTimedOut(const RequestId& origin) {
+  auto context = request_tracker_->findByOrigin(origin);
+  if (!context) {
+    return;
+  }
+  abandonRequest(
+      context,
+      Error(::mcp::jsonrpc::REQUEST_TIMED_OUT, "the request timed out"),
+      "the request timed out");
+}
+
+bool McpClient::routeProgress(const jsonrpc::Notification& notification) {
+  if (notification.method != "notifications/progress") {
+    return false;
+  }
+  ProgressNotification progress;
+  try {
+    const json::JsonValue params =
+        notification.params_json.has_value()
+            ? notification.params_json.value()
+            : (notification.params.has_value()
+                   ? json::metadataToExactJson(notification.params.value())
+                   : json::JsonValue::object());
+    progress = json::from_json<ProgressNotification>(params);
+  } catch (const std::exception&) {
+    return false;
+  }
+  const std::string token =
+      holds_alternative<std::string>(progress.progressToken)
+          ? get<std::string>(progress.progressToken)
+          : std::to_string(get<int64_t>(progress.progressToken));
+
+  std::function<void(double)> tracked;
+  optional<RequestId> origin;
+  {
+    std::lock_guard<std::mutex> lock(progress_mutex_);
+    auto callback = progress_callbacks_.find(token);
+    if (callback != progress_callbacks_.end()) {
+      tracked = callback->second;
+    }
+    auto route = progress_routes_.find(token);
+    if (route != progress_routes_.end()) {
+      origin = route->second;
+    }
+  }
+  if (tracked) {
+    try {
+      tracked(progress.progress);
+    } catch (...) {
+    }
+  }
+  if (!origin.has_value()) {
+    return static_cast<bool>(tracked);
+  }
+  auto context = request_tracker_->findByOrigin(origin.value());
+  if (!context || context->settled.load()) {
+    return true;
+  }
+  if (context->options.on_progress) {
+    try {
+      context->options.on_progress(progress);
+    } catch (...) {
+      // A caller's callback failing is no reason to lose its request.
+    }
+  }
+  if (context->options.progress_resets_timeout && main_dispatcher_) {
+    const auto timeout =
+        context->options.timeout.value_or(config_.request_timeout);
+    const RequestId id = origin.value();
+    if (main_dispatcher_->isThreadSafe()) {
+      armRequestTimeout(id, timeout);
+    } else {
+      std::weak_ptr<bool> alive = alive_;
+      main_dispatcher_->post([this, alive, id, timeout]() {
+        if (!alive.expired()) {
+          armRequestTimeout(id, timeout);
+        }
+      });
+    }
+  }
+  return true;
 }
 
 protocol::trace::TraceContext McpClient::traceToSend() const {
@@ -1548,6 +1821,36 @@ void McpClient::sendRequestInternal(std::shared_ptr<RequestContext> context) {
   // Added at each send, not once: a retry is built afresh from the
   // context, and the keys an application set in _meta itself are kept.
   request = protocol::trace::withContext(request, context->trace);
+
+  // A request the caller may cancel goes out on a connection of its own
+  // in 2026-07-28 Streamable HTTP, so that closing it cancels this request
+  // and no other. Anywhere else, or when no such connection opens, it
+  // shares the connection like any other and is cancelled by message.
+  if (context->apart && speaksModernHttp() &&
+      main_dispatcher_->isThreadSafe() &&
+      connection_manager_->openSubscription(request.id,
+                                            json::to_json(request))) {
+    const RequestId sent_as = request.id;
+    std::weak_ptr<bool> alive = alive_;
+    auto previous = std::move(context->on_settled);
+    context->on_settled = [this, alive, sent_as, previous]() {
+      if (previous) {
+        previous();
+      }
+      // Posted: the answer that settles it is being read off that very
+      // connection, and closing it there tears down what is being read.
+      if (alive.expired() || !main_dispatcher_) {
+        return;
+      }
+      main_dispatcher_->post([this, alive, sent_as]() {
+        if (!alive.expired() && connection_manager_) {
+          connection_manager_->closeSubscription(sent_as);
+        }
+      });
+    };
+    client_stats_.requests_total++;
+    return;
+  }
 
   GOPHER_LOG_DEBUG("Sending request through connection_manager: method={}",
                    context->method);
@@ -1737,6 +2040,26 @@ bool McpClient::askAndSendAgain(const std::shared_ptr<RequestContext>& request,
   // nothing of this one, so what it waits on has to move across.
   again->promise = std::move(request->promise);
   again->on_response = request->on_response;
+  // Still the caller's one request, under the id it knows, with its own
+  // way of being sent and its trace.
+  again->origin_id = request->origin_id;
+  again->options = request->options;
+  again->apart = request->apart;
+  again->progress_token = request->progress_token;
+  again->trace = request->trace;
+  again->span = std::move(request->span);
+  again->on_settled = std::move(request->on_settled);
+  // The first round's own connection, if it had one, is done with.
+  if (request->apart && main_dispatcher_) {
+    const RequestId first = request->id;
+    std::weak_ptr<bool> alive = alive_;
+    main_dispatcher_->post([this, alive, first]() {
+      if (!alive.expired() && connection_manager_) {
+        connection_manager_->closeSubscription(first);
+      }
+    });
+  }
+  request->settled = true;
 
   request->completed = true;
   request_tracker_->removeRequest(request->id);
@@ -2161,6 +2484,9 @@ void McpClient::handleNotification(const Notification& notification) {
   if (routeToSubscription(notification)) {
     return;
   }
+  // Progress for a request that is following its own goes to it; the
+  // handlers registered for progress still hear it.
+  routeProgress(notification);
 
   std::function<void(const jsonrpc::Notification&)> handler;
   {
@@ -3770,8 +4096,15 @@ std::vector<std::future<Response>> McpClient::sendBatch(
 // Track progress for a given token
 void McpClient::trackProgress(const ProgressToken& token,
                               std::function<void(double)> callback) {
-  // Store the callback for this progress token
-  // Will be invoked when progress updates are received
+  const std::string key = holds_alternative<std::string>(token)
+                              ? get<std::string>(token)
+                              : std::to_string(get<int64_t>(token));
+  std::lock_guard<std::mutex> lock(progress_mutex_);
+  if (callback) {
+    progress_callbacks_[key] = std::move(callback);
+  } else {
+    progress_callbacks_.erase(key);
+  }
 }
 
 }  // namespace client

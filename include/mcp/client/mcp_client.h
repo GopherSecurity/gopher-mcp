@@ -41,6 +41,7 @@
 #include "mcp/buffer.h"
 #include "mcp/builders.h"
 #include "mcp/client/transport_probe.h"
+#include "mcp/core/request_id_key.h"
 #include "mcp/event/event_loop.h"
 #include "mcp/mcp_application_base.h"  // TODO: Migrate to mcp_application_base_refactored.h
 #include "mcp/mcp_connection_manager.h"
@@ -118,7 +119,15 @@ struct McpClientConfig : public application::ApplicationBase::Config {
   std::chrono::milliseconds max_retry_delay{30000};
 
   // Request management
+  // How long a request waits for its answer unless it says otherwise. A
+  // request that runs out of time fails, and is cancelled where that can
+  // be said without disturbing others: with notifications/cancelled on
+  // stdio and in the revisions before 2026-07-28. A request on the shared
+  // connection in 2026-07-28 Streamable HTTP is only abandoned, since
+  // closing that connection would cancel every request on it.
   std::chrono::milliseconds request_timeout{30000};
+  // The longest any request waits, however often progress extends it.
+  std::chrono::milliseconds request_timeout_max{600000};
   size_t max_concurrent_requests = 100;
   size_t batch_size = 10;
 
@@ -191,9 +200,49 @@ class RequestError : public std::runtime_error {
  * Maintains all state for a single request including retry count and timing
  * Following production patterns for proper lifecycle management
  */
+/**
+ * How one request is sent, beyond its method and params.
+ *
+ * Any of these makes it a request the caller may cancel. In 2026-07-28
+ * over Streamable HTTP such a request goes out on a connection of its own,
+ * because cancelling it means closing its stream, and closing the shared
+ * connection would cancel every request on it: that is one connection per
+ * request sent this way, which ordinary requests do not pay.
+ */
+struct RequestOptions {
+  // How long to wait for the answer. Unset: the client's request_timeout.
+  optional<std::chrono::milliseconds> timeout;
+  // Each progress notification starts the timeout again, never past the
+  // client's request_timeout_max.
+  bool progress_resets_timeout{false};
+  // Called with each progress notification for this request, until it
+  // completes. Setting it asks the server to report progress, by sending a
+  // progress token with the request.
+  std::function<void(const ProgressNotification&)> on_progress;
+};
+
+/** A request sent so that it can be cancelled. */
+struct CancellableRequest {
+  // What cancelRequest() takes.
+  RequestId id;
+  // Fails with REQUEST_CANCELLED when cancelled, REQUEST_TIMED_OUT when it
+  // runs out of time.
+  std::future<jsonrpc::Response> response;
+};
+
 struct RequestContext {
   RequestId id;
   std::string method;
+  // The id the caller knows this request by: its own, or the first one's
+  // when this is that request sent again with what the server asked for.
+  RequestId origin_id;
+  // How it was asked to be sent; none of it set for an ordinary request.
+  RequestOptions options;
+  // Sent on a connection of its own, so it can be cancelled alone.
+  bool apart{false};
+  // Run once when the request is settled, however that happens.
+  std::function<void()> on_settled;
+  std::atomic<bool> settled{false};
   optional<Metadata> params;
   // Sent in place of `params` when set: for params the flat map cannot
   // carry unchanged, such as a string that happens to look like JSON.
@@ -237,9 +286,19 @@ struct RequestContext {
   std::shared_ptr<protocol::trace::Span> span;
 
   // Resolve the request: end its span, then hand the caller the answer.
+  // Once only: whatever settles it second, a late answer to a request that
+  // was cancelled or ran out of time, is ignored.
   void finish(const jsonrpc::Response& response) {
+    if (settled.exchange(true)) {
+      return;
+    }
     if (span) {
       span->end(response.error);
+    }
+    if (on_settled) {
+      auto settle = std::move(on_settled);
+      on_settled = nullptr;
+      settle();
     }
     promise.set_value(response);
   }
@@ -251,7 +310,10 @@ struct RequestContext {
   bool completed{false};  // Ensures single completion
 
   RequestContext(const RequestId& id, const std::string& method)
-      : id(id), method(method), start_time(std::chrono::steady_clock::now()) {}
+      : id(id),
+        method(method),
+        origin_id(id),
+        start_time(std::chrono::steady_clock::now()) {}
 
   ~RequestContext() {
     // Ensure timers are cleaned up
@@ -441,6 +503,17 @@ class RequestTracker {
     }
 
     return timed_out;
+  }
+
+  // The request the caller knows by this id, under whatever id it is now.
+  RequestPtr findByOrigin(const RequestId& origin) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    for (const auto& pair : pending_requests_) {
+      if (requestIdKey(pair.second->origin_id) == requestIdKey(origin)) {
+        return pair.second;
+      }
+    }
+    return nullptr;
   }
 
   size_t getPendingCount() const {
@@ -712,6 +785,33 @@ class McpClient : public application::ApplicationBase {
   /** How many subscriptions this client is holding. */
   size_t subscriptionsHeld() const;
 
+  /**
+   * Send a request the caller may cancel, with its own timeout or a
+   * callback for its progress.
+   *
+   * In 2026-07-28 over Streamable HTTP it goes out on a connection of its
+   * own, one per request sent this way; see RequestOptions.
+   */
+  CancellableRequest sendCancellableRequest(
+      const std::string& method,
+      const json::JsonValue& params,
+      const RequestOptions& options = RequestOptions());
+
+  /**
+   * Cancel a request this client sent and is still waiting on.
+   *
+   * In 2026-07-28 over Streamable HTTP, a request sent cancellably is
+   * cancelled by closing its own connection, and nothing is sent; on stdio
+   * and in the earlier revisions, notifications/cancelled names it, with
+   * the reason when one is given. A request on the shared connection in
+   * 2026-07-28 Streamable HTTP is abandoned without a signal. Either way
+   * the caller's future fails with REQUEST_CANCELLED, and an answer that
+   * arrives afterwards is ignored. initialize is never cancelled.
+   *
+   * @return False when no such request is waiting.
+   */
+  bool cancelRequest(const RequestId& id, const std::string& reason = "");
+
   // Progress tracking - register callback for progress updates
   void trackProgress(const ProgressToken& token,
                      std::function<void(double)> callback);
@@ -827,6 +927,24 @@ class McpClient : public application::ApplicationBase {
   protocol::trace::TraceContext traceToSend() const;
   // Settle a new request's trace context, and start its span.
   void traceRequest(RequestContext& context) const;
+  // Start a request's clock, on the dispatcher. Dispatcher thread.
+  void armRequestTimeout(const RequestId& origin,
+                         std::chrono::milliseconds after);
+  void onRequestTimedOut(const RequestId& origin);
+  // Set a new request's deadline and start its clock, and arrange for
+  // both to go, with its progress route, when it settles.
+  void startClock(const std::shared_ptr<RequestContext>& context);
+  // End a request the caller gave up on, saying so to the server where
+  // that can be said, and fail its future with this error. Dispatcher
+  // thread.
+  void abandonRequest(const std::shared_ptr<RequestContext>& context,
+                      const Error& error,
+                      const std::string& reason);
+  // Whether a request cannot be cancelled without disturbing the others:
+  // 2026-07-28 Streamable HTTP, on the shared connection.
+  bool speaksModernHttp() const;
+  // Progress for a request that asked to follow it.
+  bool routeProgress(const jsonrpc::Notification& notification);
   // Post to the dispatcher, the trace context current here current there.
   void postCarryingTrace(std::function<void()> task);
   // A request whose params go out exactly as this JSON.
@@ -989,6 +1107,15 @@ class McpClient : public application::ApplicationBase {
   // Progress tracking - use string representation as map key
   std::map<std::string, std::function<void(double)>> progress_callbacks_;
   std::mutex progress_mutex_;
+  // The request each progress token belongs to, by the id its caller
+  // knows it by.
+  std::map<std::string, RequestId> progress_routes_;
+  // Each request's clock, by the id its caller knows it by. Dispatcher
+  // thread.
+  std::map<RequestIdKey, event::TimerPtr> request_timers_;
+  // When each request's clock ends at the latest, whatever progress says.
+  std::map<RequestIdKey, std::chrono::steady_clock::time_point>
+      request_deadlines_;
 
   // Application-registered notification handlers, keyed by notification method.
   // Guarded by a mutex because registration may happen on the application
