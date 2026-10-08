@@ -1729,6 +1729,12 @@ void McpClient::sendRequestInternal(std::shared_ptr<RequestContext> context) {
       context->method, connected_.load(), isConnectionOpen(),
       context->retry_count);
 
+  // Settled already: it ran out of time, or was cancelled, while waiting
+  // to be sent, perhaps for a reconnect. Sending it now would start work
+  // on the server for a caller that has been told it ended.
+  if (context->settled.load()) {
+    return;
+  }
   // Check if connection is stale (idle for too long)
   auto now = std::chrono::steady_clock::now();
   auto idle_seconds = std::chrono::duration_cast<std::chrono::seconds>(
