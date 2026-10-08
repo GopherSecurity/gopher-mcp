@@ -93,6 +93,13 @@ jsonrpc::Notification withContext(const jsonrpc::Notification& notification,
 const TraceContext& current();
 
 /**
+ * Whether a TraceScope is active on this thread, even one holding an
+ * empty context: that says this work carries no trace, which is not the
+ * same as saying nothing.
+ */
+bool inScope();
+
+/**
  * Makes a context current on this thread until it goes out of scope, when
  * the one before it is current again. Only what sanitized() keeps is made
  * current.
@@ -106,6 +113,7 @@ class TraceScope {
 
  private:
   TraceContext previous_;
+  bool previous_scoped_;
 };
 
 // ── Spans ──────────────────────────────────────────────────────────────

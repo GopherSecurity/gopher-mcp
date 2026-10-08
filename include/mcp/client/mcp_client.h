@@ -77,8 +77,8 @@ struct McpClientConfig : public application::ApplicationBase::Config {
   std::string client_name = "mcp-cpp-client";
   std::string client_version = "1.0.0";
   // The trace context to send with each request and notification, asked
-  // for on each send. A context made current with protocol::trace::
-  // TraceScope around a call is sent instead. Values not in the W3C
+  // for on each send. A protocol::trace::TraceScope active around a call
+  // wins, even an empty one, which sends no context. Values not in the W3C
   // formats are not sent.
   std::function<protocol::trace::TraceContext()> trace_context_provider;
   // Starts a span around each request this client sends, ended with its
@@ -822,7 +822,8 @@ class McpClient : public application::ApplicationBase {
       const std::map<std::string, std::string>& http_headers);
   void sendRequestInternal(std::shared_ptr<RequestContext> context);
   // The trace context a request or notification made now goes out with:
-  // the one current on this thread, else the provider's.
+  // that of an active scope on this thread, even an empty one, else the
+  // provider's.
   protocol::trace::TraceContext traceToSend() const;
   // Settle a new request's trace context, and start its span.
   void traceRequest(RequestContext& context) const;

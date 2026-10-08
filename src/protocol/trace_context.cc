@@ -223,9 +223,16 @@ json::JsonValue paramsJsonOf(const optional<json::JsonValue>& params_json,
   return json::JsonValue::object();
 }
 
-TraceContext& currentOnThisThread() {
-  static thread_local TraceContext context;
-  return context;
+// The context current on this thread, and whether any scope set it: an
+// empty context made current on purpose is not the same as none at all.
+struct Current {
+  TraceContext context;
+  bool scoped{false};
+};
+
+Current& currentOnThisThread() {
+  static thread_local Current current;
+  return current;
 }
 
 }  // namespace
@@ -418,14 +425,21 @@ jsonrpc::Notification withContext(const jsonrpc::Notification& notification,
   return out;
 }
 
-const TraceContext& current() { return currentOnThisThread(); }
+const TraceContext& current() { return currentOnThisThread().context; }
+
+bool inScope() { return currentOnThisThread().scoped; }
 
 TraceScope::TraceScope(const TraceContext& context)
-    : previous_(currentOnThisThread()) {
-  currentOnThisThread() = sanitized(context);
+    : previous_(currentOnThisThread().context),
+      previous_scoped_(currentOnThisThread().scoped) {
+  currentOnThisThread().context = sanitized(context);
+  currentOnThisThread().scoped = true;
 }
 
-TraceScope::~TraceScope() { currentOnThisThread() = std::move(previous_); }
+TraceScope::~TraceScope() {
+  currentOnThisThread().context = std::move(previous_);
+  currentOnThisThread().scoped = previous_scoped_;
+}
 
 // The application's tracer is never allowed to cost a request its answer:
 // whatever it throws is dropped, and the request goes on untraced.

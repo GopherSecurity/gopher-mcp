@@ -1384,9 +1384,10 @@ std::future<Response> McpClient::sendRequestWithParams(
 }
 
 protocol::trace::TraceContext McpClient::traceToSend() const {
-  const auto& scoped = protocol::trace::current();
-  if (!scoped.empty()) {
-    return scoped;
+  // A scope around the call wins, even an empty one: that is how a caller
+  // says this request carries no trace, whatever the provider would say.
+  if (protocol::trace::inScope()) {
+    return protocol::trace::current();
   }
   if (config_.trace_context_provider) {
     return protocol::trace::sanitized(config_.trace_context_provider());
@@ -1407,6 +1408,12 @@ void McpClient::traceRequest(RequestContext& context) const {
 }
 
 void McpClient::postCarryingTrace(std::function<void()> task) {
+  // Carried only when a scope is active here, so that one being active,
+  // empty or not, is as true there as here.
+  if (!protocol::trace::inScope()) {
+    main_dispatcher_->post(std::move(task));
+    return;
+  }
   const protocol::trace::TraceContext trace = protocol::trace::current();
   main_dispatcher_->post([trace, task]() {
     protocol::trace::TraceScope scope(trace);
