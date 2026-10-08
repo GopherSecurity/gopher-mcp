@@ -1183,6 +1183,14 @@ TEST_F(McpClientInitializeRoutingTest, TheTraceContextReachesTheServer) {
                 from_scope + " none");
     }
 
+    // An empty scope wins too: it is how a caller sends no trace whatever
+    // the provider would say.
+    {
+      protocol::trace::TraceScope untraced{protocol::trace::TraceContext()};
+      EXPECT_EQ(textOf(client_->callTool("echo", json::JsonValue::object())),
+                "none none");
+    }
+
     std::lock_guard<std::mutex> lock(*spans_mutex);
     EXPECT_NE(std::find(spans->begin(), spans->end(),
                         "tools/call " + from_provider + " ok"),
