@@ -247,7 +247,7 @@ VoidResult McpClient::connect(const std::string& uri) {
     pending_connect_promise_ = connect_promise;
   }
 
-  main_dispatcher_->post([this, uri, connect_promise]() {
+  postCarryingTrace([this, uri, connect_promise]() {
     try {
       // Initialize protocol state machine if not already created
       if (!protocol_state_machine_) {
@@ -347,7 +347,7 @@ void McpClient::disconnect() {
   // Check if we're in dispatcher thread or post to it
   if (main_dispatcher_ && !main_dispatcher_->isThreadSafe()) {
     // We're not in dispatcher thread, post the disconnect
-    main_dispatcher_->post([this]() {
+    postCarryingTrace([this]() {
       if (protocol_state_machine_ && !shutting_down_) {
         protocol_state_machine_->handleEvent(
             protocol::McpProtocolEvent::SHUTDOWN_REQUESTED);
@@ -409,7 +409,7 @@ VoidResult McpClient::reconnect() {
     auto reconnect_promise = std::make_shared<std::promise<VoidResult>>();
     auto reconnect_future = reconnect_promise->get_future();
 
-    main_dispatcher_->post([reconnect_promise, this]() {
+    postCarryingTrace([reconnect_promise, this]() {
       // Now on dispatcher thread - perform reconnection
       VoidResult result = reconnectInternal();
       reconnect_promise->set_value(result);
@@ -541,7 +541,7 @@ void McpClient::shutdown() {
     clearConnectionCallbacksForShutdown();
     if (main_dispatcher_ && !main_dispatcher_->isThreadSafe()) {
       // Post to dispatcher thread
-      main_dispatcher_->post([this]() {
+      postCarryingTrace([this]() {
         if (connection_manager_) {
           connection_manager_->close();
         }
@@ -971,7 +971,7 @@ void McpClient::completeRequestWithError(
   }
   releaseIfSubscription(*context);
   context->completed = true;
-  context->promise.set_value(Response::make_error(context->id, error));
+  context->finish(Response::make_error(context->id, error));
   request_tracker_->removeRequest(context->id);
   client_stats_.requests_failed++;
 }
@@ -1348,6 +1348,7 @@ std::future<Response> McpClient::sendRequest(
   context->params = params;
   context->http_headers = http_headers;
   context->start_time = std::chrono::steady_clock::now();
+  traceRequest(*context);
 
   // Track request
   request_tracker_->trackRequest(context);
@@ -1376,9 +1377,41 @@ std::future<Response> McpClient::sendRequestWithParams(
   context->params_json = mcp::make_optional(params);
   context->http_headers = http_headers;
   context->start_time = std::chrono::steady_clock::now();
+  traceRequest(*context);
   request_tracker_->trackRequest(context);
   sendRequestInternal(context);
   return context->promise.get_future();
+}
+
+protocol::trace::TraceContext McpClient::traceToSend() const {
+  const auto& scoped = protocol::trace::current();
+  if (!scoped.empty()) {
+    return scoped;
+  }
+  if (config_.trace_context_provider) {
+    return protocol::trace::sanitized(config_.trace_context_provider());
+  }
+  return protocol::trace::TraceContext();
+}
+
+void McpClient::traceRequest(RequestContext& context) const {
+  context.trace = traceToSend();
+  if (config_.span_hook) {
+    protocol::trace::SpanStart start;
+    start.kind = protocol::trace::SpanKind::Client;
+    start.method = context.method;
+    start.context = context.trace;
+    context.span =
+        std::make_shared<protocol::trace::Span>(config_.span_hook, start);
+  }
+}
+
+void McpClient::postCarryingTrace(std::function<void()> task) {
+  const protocol::trace::TraceContext trace = protocol::trace::current();
+  main_dispatcher_->post([trace, task]() {
+    protocol::trace::TraceScope scope(trace);
+    task();
+  });
 }
 
 // Send notification (fire-and-forget, no response expected)
@@ -1395,10 +1428,11 @@ VoidResult McpClient::sendNotification(const std::string& method,
   notification.jsonrpc = "2.0";
   notification.method = method;
   notification.params = params;
+  notification = protocol::trace::withContext(notification, traceToSend());
 
   // Send through connection manager
   // Post to dispatcher thread to ensure thread safety
-  main_dispatcher_->post([this, notification]() {
+  postCarryingTrace([this, notification]() {
     if (connection_manager_) {
       connection_manager_->sendNotification(notification);
     }
@@ -1461,7 +1495,7 @@ void McpClient::sendRequestInternal(std::shared_ptr<RequestContext> context) {
       // Connected now, proceed with send below
     } else if (context->retry_count > max_reconnect_retries) {
       // Too many retries
-      context->promise.set_value(Response::make_error(
+      context->finish(Response::make_error(
           context->id, Error(::mcp::jsonrpc::INTERNAL_ERROR,
                              "Connection not ready after reconnect")));
       request_tracker_->removeRequest(context->id);
@@ -1472,7 +1506,7 @@ void McpClient::sendRequestInternal(std::shared_ptr<RequestContext> context) {
       // Attempt to reconnect (async - just initiates connection)
       auto reconnect_result = reconnect();
       if (is_error<std::nullptr_t>(reconnect_result)) {
-        context->promise.set_value(Response::make_error(
+        context->finish(Response::make_error(
             context->id, Error(::mcp::jsonrpc::INTERNAL_ERROR,
                                "Connection closed and reconnect failed")));
         request_tracker_->removeRequest(context->id);
@@ -1483,15 +1517,14 @@ void McpClient::sendRequestInternal(std::shared_ptr<RequestContext> context) {
       // Reconnect initiated - schedule retry to allow connection event to be
       // processed
       context->retry_count = 1;
-      main_dispatcher_->post(
-          [this, context]() { sendRequestInternal(context); });
+      postCarryingTrace([this, context]() { sendRequestInternal(context); });
       return;
     }
   }
 
   // Double-check connection after potential reconnect
   if (!connected_ || !connection_manager_) {
-    context->promise.set_value(Response::make_error(
+    context->finish(Response::make_error(
         context->id, Error(::mcp::jsonrpc::INTERNAL_ERROR, "Not connected")));
     request_tracker_->removeRequest(context->id);
     client_stats_.requests_failed++;
@@ -1505,6 +1538,9 @@ void McpClient::sendRequestInternal(std::shared_ptr<RequestContext> context) {
   request.params = context->params;
   request.params_json = context->params_json;
   request.id = context->id;
+  // Added at each send, not once: a retry is built afresh from the
+  // context, and the keys an application set in _meta itself are kept.
+  request = protocol::trace::withContext(request, context->trace);
 
   GOPHER_LOG_DEBUG("Sending request through connection_manager: method={}",
                    context->method);
@@ -1532,11 +1568,11 @@ void McpClient::sendRequestInternal(std::shared_ptr<RequestContext> context) {
       auto delay = std::chrono::milliseconds(100 * (1 << context->retry_count));
       // Note: In production, this would use a timer to retry
       // For now, we'll fail immediately
-      context->promise.set_value(Response::make_error(
+      context->finish(Response::make_error(
           context->id, *get_error<std::nullptr_t>(send_result)));
     } else {
       // Max retries exceeded
-      context->promise.set_value(Response::make_error(
+      context->finish(Response::make_error(
           context->id, *get_error<std::nullptr_t>(send_result)));
       client_stats_.requests_failed++;
     }
@@ -1761,7 +1797,7 @@ void McpClient::completeRequest(const std::shared_ptr<RequestContext>& request,
       get<int64_t>(stream_recovering_.value()) == get<int64_t>(response.id)) {
     stream_recovering_.reset();
   }
-  request->promise.set_value(response);
+  request->finish(response);
   request_tracker_->removeRequest(response.id);
 
   // Work the client itself has to carry on with, on this thread. A
@@ -1890,7 +1926,7 @@ bool McpClient::runOnDispatcher(std::function<void()> work) {
   // reaching the dispatcher afterwards must not be reading any of them —
   // which is why this takes the work by value and callers hand it
   // nothing by reference.
-  main_dispatcher_->post([work, done, ran]() {
+  postCarryingTrace([work, done, ran]() {
     work();
     ran->store(true);
     done->set_value();
@@ -2015,7 +2051,7 @@ bool McpClient::releaseSubscription(int64_t subscription) {
   // Dropped unrun if the loop stops first, which is safe: shutdown lets
   // go of every subscription connection on its way out.
   std::weak_ptr<bool> alive = alive_;
-  main_dispatcher_->post([this, alive, subscription]() {
+  postCarryingTrace([this, alive, subscription]() {
     if (alive.expired() || !connection_manager_) {
       return;
     }
@@ -2657,7 +2693,7 @@ std::future<ListResourcesResult> McpClient::listResources(
                         cursor.has_value() ? cursor.value() : "<none>");
 
   // Step 1: Post to dispatcher to send the request (non-blocking)
-  main_dispatcher_->post([this, request_future_ptr, params_ptr]() {
+  postCarryingTrace([this, request_future_ptr, params_ptr]() {
     *request_future_ptr =
         sendRequestWithParams("resources/list", *params_ptr, {});
   });
@@ -2718,7 +2754,7 @@ std::future<ListResourceTemplatesResult> McpClient::listResourceTemplates(
   GOPHER_LOG_FLOW_DEBUG("MCP invoke: resources/templates/list (cursor={})",
                         cursor.has_value() ? cursor.value() : "<none>");
 
-  main_dispatcher_->post([this, request_future_ptr, params_ptr]() {
+  postCarryingTrace([this, request_future_ptr, params_ptr]() {
     *request_future_ptr =
         sendRequestWithParams("resources/templates/list", *params_ptr, {});
   });
@@ -2785,7 +2821,7 @@ std::future<ReadResourceResult> McpClient::readResource(
   GOPHER_LOG_FLOW_DEBUG("MCP invoke: resources/read uri={}", uri);
 
   // Step 1: Post to dispatcher to send the request (non-blocking)
-  main_dispatcher_->post([this, request_future_ptr, params_ptr]() {
+  postCarryingTrace([this, request_future_ptr, params_ptr]() {
     *request_future_ptr =
         sendRequest("resources/read", mcp::make_optional(*params_ptr));
   });
@@ -2847,7 +2883,7 @@ std::future<VoidResult> McpClient::subscribeResource(const std::string& uri) {
   auto params_ptr = std::make_shared<Metadata>(std::move(params));
 
   // Step 1: Post to dispatcher to send the request (non-blocking)
-  main_dispatcher_->post([this, request_future_ptr, params_ptr]() {
+  postCarryingTrace([this, request_future_ptr, params_ptr]() {
     *request_future_ptr =
         sendRequest("resources/subscribe", mcp::make_optional(*params_ptr));
   });
@@ -2898,7 +2934,7 @@ std::future<VoidResult> McpClient::unsubscribeResource(const std::string& uri) {
   auto params_ptr = std::make_shared<Metadata>(std::move(params));
 
   // Step 1: Post to dispatcher to send the request (non-blocking)
-  main_dispatcher_->post([this, request_future_ptr, params_ptr]() {
+  postCarryingTrace([this, request_future_ptr, params_ptr]() {
     *request_future_ptr =
         sendRequest("resources/unsubscribe", mcp::make_optional(*params_ptr));
   });
@@ -2963,11 +2999,10 @@ std::future<ListToolsResult> McpClient::listTools(
                         cursor.has_value() ? cursor.value() : "<none>");
 
   // Step 1: Post to dispatcher to send the request (non-blocking)
-  main_dispatcher_->post(
-      [this, request_future_ptr, params_ptr, http_headers]() {
-        *request_future_ptr =
-            sendRequestWithParams("tools/list", *params_ptr, http_headers);
-      });
+  postCarryingTrace([this, request_future_ptr, params_ptr, http_headers]() {
+    *request_future_ptr =
+        sendRequestWithParams("tools/list", *params_ptr, http_headers);
+  });
 
   // Step 2: Use std::thread to wait for response on a worker thread (not
   // dispatcher!)
@@ -3094,11 +3129,10 @@ std::future<CallToolResult> McpClient::callToolWith(
                             : "<none>");
 
   // Step 1: Post to dispatcher to send the request (non-blocking)
-  main_dispatcher_->post(
-      [this, request_future_ptr, params_ptr, http_headers]() {
-        *request_future_ptr =
-            sendRequestWithParams("tools/call", *params_ptr, http_headers);
-      });
+  postCarryingTrace([this, request_future_ptr, params_ptr, http_headers]() {
+    *request_future_ptr =
+        sendRequestWithParams("tools/call", *params_ptr, http_headers);
+  });
 
   // Step 2: Use std::thread to wait for response on a worker thread (not
   // dispatcher!)
@@ -3190,7 +3224,7 @@ std::future<ListPromptsResult> McpClient::listPrompts(
                         cursor.has_value() ? cursor.value() : "<none>");
 
   // Step 1: Post to dispatcher to send the request (non-blocking)
-  main_dispatcher_->post([this, request_future_ptr, params_ptr]() {
+  postCarryingTrace([this, request_future_ptr, params_ptr]() {
     *request_future_ptr =
         sendRequestWithParams("prompts/list", *params_ptr, {});
   });
@@ -3264,7 +3298,7 @@ std::future<GetPromptResult> McpClient::getPromptWith(
   GOPHER_LOG_FLOW_DEBUG("MCP invoke: prompts/get name={}", name);
 
   // Step 1: Post to dispatcher to send the request (non-blocking)
-  main_dispatcher_->post([this, request_future_ptr, params_ptr]() {
+  postCarryingTrace([this, request_future_ptr, params_ptr]() {
     *request_future_ptr = sendRequestWithParams("prompts/get", *params_ptr, {});
   });
 
@@ -3363,7 +3397,7 @@ std::future<CompleteResult> McpClient::complete(
 
   // Sent on the dispatcher, and waited for on a worker thread: waiting on
   // the dispatcher would block the very thread that reads the answer.
-  main_dispatcher_->post([this, request_future_ptr, params_ptr]() {
+  postCarryingTrace([this, request_future_ptr, params_ptr]() {
     *request_future_ptr =
         sendRequestWithParams("completion/complete", *params_ptr, {});
   });
@@ -3420,7 +3454,7 @@ std::future<VoidResult> McpClient::setLogLevel(
   auto params_ptr = std::make_shared<Metadata>(std::move(params));
 
   // Step 1: Post to dispatcher to send the request (non-blocking)
-  main_dispatcher_->post([this, request_future_ptr, params_ptr]() {
+  postCarryingTrace([this, request_future_ptr, params_ptr]() {
     *request_future_ptr =
         sendRequest("logging/setLevel", mcp::make_optional(*params_ptr));
   });
@@ -3692,7 +3726,7 @@ void McpClient::handleConnectionEvent(network::ConnectionEvent event) {
       // Fail all pending requests
       auto pending = request_tracker_->getTimedOutRequests();
       for (const auto& request : pending) {
-        request->promise.set_value(jsonrpc::Response::make_error(
+        request->finish(jsonrpc::Response::make_error(
             request->id, Error(jsonrpc::INTERNAL_ERROR, "Connection closed")));
       }
       break;
