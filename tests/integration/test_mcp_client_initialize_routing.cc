@@ -46,6 +46,7 @@
  * what the fix has to hold under.
  */
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstdint>
@@ -118,6 +119,8 @@ class McpClientInitializeRoutingTest : public ::testing::Test {
 
   // Applied to the server's config by the next startServer.
   std::function<void(server::McpServerConfig&)> tweak_config_;
+  // Applied to the client's config by the next connectInitializedClient.
+  std::function<void(client::McpClientConfig&)> tweak_client_;
 
   /**
    * Bring up the server on a fresh port. With serve_newest false it serves
@@ -239,6 +242,9 @@ class McpClientInitializeRoutingTest : public ::testing::Test {
     client_config.request_timeout = 5000ms;
     client_config.protocol_initialization_timeout = 5000ms;
     client_config.protocol_connection_timeout = 5000ms;
+    if (tweak_client_) {
+      tweak_client_(client_config);
+    }
 
     client_ = client::createMcpClient(client_config);
     ASSERT_NE(client_, nullptr);
@@ -1108,6 +1114,83 @@ TEST_F(McpClientInitializeRoutingTest, ArgumentsAreCompleted) {
     EXPECT_EQ(paths.completion.values,
               (std::vector<std::string>{"src/main.rs"}));
     EXPECT_TRUE(paths.completion.hasMore);
+  }
+}
+
+// The client's trace context reaches the server's handler: from a scope
+// around the call, else from the provider, in either revision. Each
+// request the client sends is a span ended with its outcome.
+TEST_F(McpClientInitializeRoutingTest, TheTraceContextReachesTheServer) {
+  const std::string from_provider =
+      "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01";
+  const std::string from_scope =
+      "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01";
+  for (const bool newest : {true, false}) {
+    SCOPED_TRACE(newest ? "2026-07-28" : "earlier");
+    if (!newest) {
+      client_->shutdown();
+      client_.reset();
+      stopServer();
+      startServer(/*serve_newest=*/false);
+    }
+    server_->registerRequestHandler(
+        "tools/call",
+        [](const jsonrpc::Request& request, server::SessionContext&) {
+          const auto& seen = protocol::trace::current();
+          CallToolResult result;
+          result.content.push_back(
+              TextContent(seen.traceparent.value_or("none") + " " +
+                          seen.baggage.value_or("none")));
+          return jsonrpc::Response::success(
+              request.id, jsonrpc::ResponseResult(json::to_json(result)));
+        });
+
+    auto spans = std::make_shared<std::vector<std::string>>();
+    auto spans_mutex = std::make_shared<std::mutex>();
+    tweak_client_ = [&](client::McpClientConfig& config) {
+      config.trace_context_provider = [from_provider]() {
+        protocol::trace::TraceContext context;
+        context.traceparent = from_provider;
+        context.baggage = std::string("from=provider");
+        return context;
+      };
+      config.span_hook = [spans,
+                          spans_mutex](const protocol::trace::SpanStart& start)
+          -> protocol::trace::SpanEnd {
+        return [spans, spans_mutex, start](const optional<Error>& error) {
+          std::lock_guard<std::mutex> lock(*spans_mutex);
+          spans->push_back(start.method + " " +
+                           start.context.traceparent.value_or("none") +
+                           (error.has_value() ? " failed" : " ok"));
+        };
+      };
+    };
+    connectInitializedClient();
+
+    auto textOf = [](std::future<CallToolResult> call) {
+      EXPECT_EQ(call.wait_for(5s), std::future_status::ready);
+      return get<TextContent>(call.get().content.at(0)).text;
+    };
+
+    EXPECT_EQ(textOf(client_->callTool("echo", json::JsonValue::object())),
+              from_provider + " from=provider");
+
+    {
+      protocol::trace::TraceContext scoped;
+      scoped.traceparent = from_scope;
+      protocol::trace::TraceScope scope(scoped);
+      EXPECT_EQ(textOf(client_->callTool("echo", json::JsonValue::object())),
+                from_scope + " none");
+    }
+
+    std::lock_guard<std::mutex> lock(*spans_mutex);
+    EXPECT_NE(std::find(spans->begin(), spans->end(),
+                        "tools/call " + from_provider + " ok"),
+              spans->end());
+    EXPECT_NE(std::find(spans->begin(), spans->end(),
+                        "tools/call " + from_scope + " ok"),
+              spans->end());
+    tweak_client_ = nullptr;
   }
 }
 
