@@ -46,6 +46,7 @@
 #include "mcp/mcp_application_base.h"  // TODO: Migrate to mcp_application_base_refactored.h
 #include "mcp/mcp_connection_manager.h"
 #include "mcp/network/filter.h"
+#include "mcp/protocol/extensions.h"
 #include "mcp/protocol/mcp_protocol_state_machine.h"
 #include "mcp/protocol/mrtr.h"
 #include "mcp/protocol/subscriptions.h"
@@ -92,6 +93,12 @@ struct McpClientConfig : public application::ApplicationBase::Config {
   std::string client_description;
   std::string client_website_url;
   std::vector<Icon> client_icons;
+  // Extensions this client supports, by identifier, each with an object of
+  // its settings, sent in initialize and in every 2026-07-28 request's
+  // capabilities. An entry in capabilities.extensions of the same
+  // identifier wins. An invalid identifier, or settings that aren't an
+  // object, is refused when the client is made.
+  std::map<std::string, json::JsonValue> extensions;
 
   // Transport configuration
   TransportType preferred_transport = TransportType::Stdio;
@@ -834,6 +841,19 @@ class McpClient : public application::ApplicationBase {
   // Set server capabilities (after initialization)
   void setServerCapabilities(const ServerCapabilities& caps) {
     server_capabilities_ = caps;
+  }
+
+  /**
+   * Whether the server advertised an extension, by identifier, and its
+   * settings when it did. Known once the client has initialized, or has
+   * discovered the server in 2026-07-28.
+   */
+  bool serverHasExtension(const std::string& id) const {
+    return serverExtension(id).has_value();
+  }
+  optional<json::JsonValue> serverExtension(const std::string& id) const {
+    return protocol::extensions::settingsOf(server_capabilities_.extensions,
+                                            id);
   }
 
  protected:
