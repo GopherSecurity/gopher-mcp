@@ -192,14 +192,54 @@ TEST(TraceContext, OnlyWhatIsSetIsWritten) {
 }
 
 // What the application put in _meta itself wins.
-TEST(TraceContext, KeysAlreadyInMetaAreKept) {
+TEST(TraceContext, WellFormedKeysAlreadyInMetaAreKept) {
+  const std::string mine =
+      "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01";
   const JsonValue params = withContext(
-      JsonValue::parse(R"({"_meta":{"traceparent":"mine","baggage":"b=1"}})"),
+      JsonValue::parse(R"({"_meta":{"traceparent":")" + mine +
+                       R"(","tracestate":"mine=1","baggage":"b=1","k":2}})"),
       full());
-  EXPECT_EQ(params["_meta"][kTraceParent].getString(), "mine");
+  EXPECT_EQ(params["_meta"][kTraceParent].getString(), mine);
+  EXPECT_EQ(params["_meta"][kTraceState].getString(), "mine=1");
   EXPECT_EQ(params["_meta"][kBaggage].getString(), "b=1");
-  EXPECT_EQ(params["_meta"][kTraceState].getString(),
+  EXPECT_EQ(params["_meta"]["k"].getInt64(), 2);
+
+  // The application's traceparent brings its own tracestate, or none: the
+  // context's tracestate belongs to the context's traceparent.
+  const JsonValue alone = withContext(
+      JsonValue::parse(R"({"_meta":{"traceparent":")" + mine + R"("}})"),
+      full());
+  EXPECT_EQ(alone["_meta"][kTraceParent].getString(), mine);
+  EXPECT_FALSE(alone["_meta"].contains(kTraceState)) << alone.toString();
+  EXPECT_EQ(alone["_meta"][kBaggage].getString(), full().baggage.value());
+}
+
+// A reserved key the application set in another format never goes out:
+// the context's replaces it, or it is removed.
+TEST(TraceContext, MalformedKeysAlreadyInMetaAreNotSent) {
+  const JsonValue replaced = withContext(
+      JsonValue::parse(
+          R"({"_meta":{"traceparent":"mine","baggage":"not baggage"}})"),
+      full());
+  EXPECT_EQ(replaced["_meta"][kTraceParent].getString(), kParent);
+  EXPECT_EQ(replaced["_meta"][kTraceState].getString(),
             full().tracestate.value());
+  EXPECT_EQ(replaced["_meta"][kBaggage].getString(), full().baggage.value());
+
+  const JsonValue removed = withContext(
+      JsonValue::parse(R"({"_meta":{"traceparent":"mine","tracestate":"a=1",
+                                    "baggage":7,"k":1}})"),
+      TraceContext());
+  EXPECT_EQ(removed["_meta"].toString(),
+            JsonValue::parse(R"({"k":1})").toString());
+
+  // A message is checked even when no context is added to it.
+  jsonrpc::Request request;
+  request.method = "tools/list";
+  request.params_json = mcp::make_optional(
+      JsonValue::parse(R"({"_meta":{"traceparent":"mine"}})"));
+  const jsonrpc::Request sent = withContext(request, TraceContext());
+  EXPECT_FALSE(sent.params_json.value()["_meta"].contains(kTraceParent));
 }
 
 TEST(TraceContext, MessagesWithoutParamsGainThem) {
