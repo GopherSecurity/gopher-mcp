@@ -769,6 +769,7 @@ void StreamableSessionManager::retireStreams(SessionCtx& session) {
       // followed, but comparing against an address that may since have
       // been handed to somebody else is worse than not comparing at all.
       stream->conn = nullptr;
+      session.last_activity = now;
     }
 
     // Nothing more will be written to a standalone stream once its client
@@ -786,6 +787,9 @@ void StreamableSessionManager::retireStreams(SessionCtx& session) {
     }
 
     if (stream->retire_at == std::chrono::steady_clock::time_point()) {
+      if (stream->kind == StreamCtx::Kind::PostResponse) {
+        session.last_activity = now;
+      }
       stream->retire_at = now + closed_stream_retention_;
       continue;
     }

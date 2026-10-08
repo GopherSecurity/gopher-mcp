@@ -543,6 +543,44 @@ TEST_F(StreamableSessionManagerTest, ADetachedGetStreamStartsANewIdleWindow) {
 }
 
 TEST_F(StreamableSessionManagerTest,
+       RetiringADetachedGetStreamStartsANewIdleWindow) {
+  std::mutex mutex;
+  std::condition_variable removed_cv;
+  std::vector<std::string> removed;
+  manager_->setSessionRemovedCallback([&](const std::string& removed_id) {
+    std::lock_guard<std::mutex> lock(mutex);
+    removed.push_back(removed_id);
+    removed_cv.notify_all();
+  });
+  manager_->setTimeout(500ms);
+  manager_->setClosedStreamRetention(20ms);
+
+  const std::string id = createSession();
+
+  owner_->run([&]() {
+    SessionCtx* session = manager_->find(id);
+    ASSERT_NE(session, nullptr);
+    FakeStream stream(*manager_, *session, owner_->dispatcher(),
+                      fakeConnection(1));
+    ASSERT_NE(stream.ctx(), nullptr);
+    ASSERT_TRUE(stream.ctx()->exchange);
+    stream.ctx()->exchange->setRetainOnDisconnect(true);
+    ASSERT_TRUE(stream.ctx()->exchange->onConnectionGone());
+    ASSERT_TRUE(stream.ctx()->exchange->detached());
+    session->last_activity -= 1h;
+  });
+
+  std::unique_lock<std::mutex> lock(mutex);
+  EXPECT_FALSE(
+      removed_cv.wait_for(lock, 300ms, [&]() { return !removed.empty(); }))
+      << "the sweep expired the session in the same pass that noticed the "
+         "detached stream was no longer active";
+  lock.unlock();
+
+  EXPECT_TRUE(manager_->known(id));
+}
+
+TEST_F(StreamableSessionManagerTest,
        AnOpenAnsweringStreamKeepsSessionFromExpiring) {
   const std::string id = createSession();
 
@@ -568,6 +606,48 @@ TEST_F(StreamableSessionManagerTest,
     EXPECT_TRUE(expired.empty())
         << "an in-flight streamed response was treated as abandoned";
   });
+}
+
+TEST_F(StreamableSessionManagerTest,
+       RetiringACompletedAnsweringStreamStartsANewIdleWindow) {
+  std::mutex mutex;
+  std::condition_variable removed_cv;
+  std::vector<std::string> removed;
+  manager_->setSessionRemovedCallback([&](const std::string& removed_id) {
+    std::lock_guard<std::mutex> lock(mutex);
+    removed.push_back(removed_id);
+    removed_cv.notify_all();
+  });
+  manager_->setTimeout(500ms);
+  manager_->setClosedStreamRetention(20ms);
+
+  const std::string id = createSession();
+
+  owner_->run([&]() {
+    SessionCtx* session = manager_->find(id);
+    ASSERT_NE(session, nullptr);
+
+    std::unique_ptr<RetainedExchangeSink> sink(new RetainedExchangeSink());
+    auto exchange =
+        RequestExchange::create(owner_->dispatcher(), std::move(sink), nullopt);
+    exchange->beginStream();
+    ASSERT_NE(
+        manager_->openStream(*session, StreamCtx::Kind::PostResponse, exchange,
+                             fakeConnection(1), owner_->dispatcher()),
+        nullptr);
+    session->last_activity -= 1h;
+
+    ASSERT_TRUE(exchange->complete());
+  });
+
+  std::unique_lock<std::mutex> lock(mutex);
+  EXPECT_FALSE(
+      removed_cv.wait_for(lock, 300ms, [&]() { return !removed.empty(); }))
+      << "the sweep expired the session in the same pass that noticed the "
+         "answering stream had completed";
+  lock.unlock();
+
+  EXPECT_TRUE(manager_->known(id));
 }
 
 TEST_F(StreamableSessionManagerTest, TheNewestStreamIsWhereAMessageGoes) {
