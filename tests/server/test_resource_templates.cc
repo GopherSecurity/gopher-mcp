@@ -73,6 +73,10 @@ JsonValue listTemplates(McpServer& server,
 McpServerConfig testConfig() {
   McpServerConfig config;
   config.server_name = "resource-template-test";
+  // The features these requests reach, which a server only answers
+  // for what it advertises.
+  config.capabilities.resources =
+      mcp::make_optional(variant<bool, ResourcesCapability>(true));
   config.server_version = "0.0.1";
   return config;
 }

@@ -464,6 +464,10 @@ class AnswerSpy : public MessageDispatchContext {
 TEST(ListenRegistry, AnOlderCallerIsToldTheMethodIsNotFound) {
   McpServerConfig config;
   config.server_name = "listen-era-answer-test";
+  // The features these requests reach, which a server only answers
+  // for what it advertises.
+  config.capabilities.resources =
+      mcp::make_optional(variant<bool, ResourcesCapability>(true));
   config.server_version = "0.0.1";
   // Dispatch is the server's own doorway rather than a public one, so
   // this asks the way the transport does.
@@ -493,6 +497,10 @@ TEST(ListenRegistry, TheReplacedMethodsAreGoneForACallerOfThisEra) {
   McpServerConfig config;
   config.server_name = "listen-replaced-test";
   config.server_version = "0.0.1";
+  // Resources offered, so what a classic caller is refused is only what its
+  // era lacks.
+  config.capabilities.resources =
+      mcp::make_optional(variant<bool, ResourcesCapability>(true));
   class Doorway : public McpServer {
    public:
     explicit Doorway(const McpServerConfig& config) : McpServer(config) {}

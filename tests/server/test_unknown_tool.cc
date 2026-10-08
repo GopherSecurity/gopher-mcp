@@ -86,6 +86,9 @@ JsonValue answerTo(McpServer& server, const jsonrpc::Request& request) {
 McpServerConfig testConfig() {
   McpServerConfig config;
   config.server_name = "unknown-tool-test";
+  // The features these requests reach, which a server only answers
+  // for what it advertises.
+  config.capabilities.tools = mcp::make_optional(ToolsCapability());
   config.server_version = "0.0.1";
   return config;
 }

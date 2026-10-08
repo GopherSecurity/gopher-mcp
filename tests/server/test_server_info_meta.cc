@@ -64,6 +64,12 @@ class CapturingContext : public NullMessageDispatchContext {
 McpServerConfig testConfig() {
   McpServerConfig config;
   config.server_name = "server-info-test";
+  // The features these requests reach, which a server only answers
+  // for what it advertises.
+  config.capabilities.tools = mcp::make_optional(ToolsCapability());
+  config.capabilities.prompts = mcp::make_optional(PromptsCapability());
+  config.capabilities.resources =
+      mcp::make_optional(variant<bool, ResourcesCapability>(true));
   config.server_version = "4.2.0";
   return config;
 }
