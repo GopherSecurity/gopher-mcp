@@ -58,7 +58,7 @@ TEST(ShortJsonApi, ComplexTypes) {
   InitializeRequest request;
   request.protocolVersion = "1.0.0";
   request.capabilities.experimental =
-      Metadata{{"feature", MetadataValue("enabled")}};
+      JsonValue::parse(R"({"feature":{"enabled":true}})");
 
   // Serialize
   JsonValue json = to_json(request);
