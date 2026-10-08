@@ -427,9 +427,16 @@ TraceScope::TraceScope(const TraceContext& context)
 
 TraceScope::~TraceScope() { currentOnThisThread() = std::move(previous_); }
 
+// The application's tracer is never allowed to cost a request its answer:
+// whatever it throws is dropped, and the request goes on untraced.
 Span::Span(const SpanHook& hook, SpanStart start) {
-  if (hook) {
+  if (!hook) {
+    return;
+  }
+  try {
     end_ = hook(start);
+  } catch (...) {
+    end_ = nullptr;
   }
 }
 
@@ -444,7 +451,10 @@ void Span::end(const optional<Error>& error) {
   }
   auto finished = std::move(end_);
   end_ = nullptr;
-  finished(error);
+  try {
+    finished(error);
+  } catch (...) {
+  }
 }
 
 }  // namespace trace
