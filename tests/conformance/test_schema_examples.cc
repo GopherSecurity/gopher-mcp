@@ -517,9 +517,8 @@ const std::map<std::string, std::string>& kKnownGaps() {
       {"ReadResourceResultResponse", "resultType is not written"},
       // Capabilities
       {"ClientCapabilities",
-       "extensions, sampling.context and sampling.tools are dropped, and an "
+       "sampling.context and sampling.tools are dropped, and an "
        "elicitation capability given as {} is written back as {form: {}}"},
-      {"ServerCapabilities", "extensions are dropped"},
       // Sampling with tools
       {"CreateMessageResult",
        "content holding an array of blocks, as tool use returns, is not "
