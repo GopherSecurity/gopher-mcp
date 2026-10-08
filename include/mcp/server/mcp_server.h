@@ -458,6 +458,12 @@ class SessionContext {
   // Whether the request being handled was cancelled, for every handler,
   // plain or streaming. Set for the length of one dispatch, like the
   // response stream; a handler that finishes later keeps its own copy.
+  //
+  // A handler that returns its answer runs to completion on the
+  // dispatcher, which is also the thread a disconnect or a
+  // notifications/cancelled would arrive on, so neither can reach it while
+  // it runs. Work that should stop when its request is cancelled is
+  // registered with registerAsyncRequestHandler, and keeps this.
   void setCancellation(const CancellationPtr& cancellation) {
     cancellation_ = cancellation;
   }
