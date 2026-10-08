@@ -1490,6 +1490,52 @@ TEST_F(McpClientInitializeRoutingTest, ProgressIsFollowedAndExtendsTheTimeout) {
   }
 }
 
+// Each side advertises its extensions and can ask whether the other did,
+// in 2026-07-28 and an earlier revision.
+TEST_F(McpClientInitializeRoutingTest, EachSideSeesTheOthersExtensions) {
+  for (const bool newest : {true, false}) {
+    SCOPED_TRACE(newest ? "2026-07-28" : "earlier");
+    client_.reset();
+    stopServer();
+    tweak_config_ = [](server::McpServerConfig& config) {
+      config.extensions["io.modelcontextprotocol/tasks"] =
+          json::JsonValue::parse(R"({"pollIntervalMs":500})");
+    };
+    startServer(newest);
+    tweak_config_ = nullptr;
+    auto seen = std::make_shared<std::string>("unasked");
+    server_->registerRequestHandler(
+        "tools/call", [seen](const jsonrpc::Request& request,
+                             server::SessionContext& session) {
+          auto settings = session.clientExtension("com.example/ui");
+          *seen = settings.has_value() ? settings->toString() : "none";
+          CallToolResult result;
+          result.content.push_back(TextContent(*seen));
+          return jsonrpc::Response::success(
+              request.id, jsonrpc::ResponseResult(json::to_json(result)));
+        });
+    tweak_client_ = [](client::McpClientConfig& config) {
+      config.extensions["com.example/ui"] =
+          json::JsonValue::parse(R"({"theme":"dark"})");
+    };
+    connectInitializedClient();
+    tweak_client_ = nullptr;
+
+    EXPECT_TRUE(client_->serverHasExtension("io.modelcontextprotocol/tasks"));
+    ASSERT_TRUE(
+        client_->serverExtension("io.modelcontextprotocol/tasks").has_value());
+    EXPECT_EQ(
+        client_->serverExtension("io.modelcontextprotocol/tasks")->toString(),
+        json::JsonValue::parse(R"({"pollIntervalMs":500})").toString());
+    EXPECT_FALSE(client_->serverHasExtension("com.example/other"));
+
+    auto call = client_->callTool("echo", json::JsonValue::object());
+    ASSERT_EQ(call.wait_for(5s), std::future_status::ready);
+    EXPECT_EQ(get<TextContent>(call.get().content.at(0)).text,
+              json::JsonValue::parse(R"({"theme":"dark"})").toString());
+  }
+}
+
 // A server that offers no completions refuses, and the call fails with
 // what it said.
 TEST_F(McpClientInitializeRoutingTest, NoCompletionsIsARefusal) {
