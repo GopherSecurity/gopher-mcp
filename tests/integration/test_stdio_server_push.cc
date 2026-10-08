@@ -60,6 +60,10 @@ class StdioServerPushTest : public ::testing::Test {
 
     server::McpServerConfig config;
     config.server_name = "stdio-push-test-server";
+    // The features these requests reach, which a server only answers
+    // for what it advertises.
+    config.capabilities.resources =
+        mcp::make_optional(variant<bool, ResourcesCapability>(true));
     config.server_version = "0.0.1";
     config.supported_transports = {TransportType::Stdio};
     config.num_workers = 1;

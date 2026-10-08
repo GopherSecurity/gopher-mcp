@@ -101,6 +101,10 @@ class ServerNotificationDeliveryTest : public ::testing::Test {
 
     server::McpServerConfig server_config;
     server_config.server_name = "notification-delivery-test-server";
+    // The features these requests reach, which a server only answers
+    // for what it advertises.
+    server_config.capabilities.resources =
+        mcp::make_optional(variant<bool, ResourcesCapability>(true));
     server_config.server_version = "0.0.1";
     server_config.supported_transports = {TransportType::HttpSse};
     server_config.num_workers = 1;
