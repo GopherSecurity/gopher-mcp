@@ -31,6 +31,7 @@ add_executable(test_list_paging server/test_list_paging.cc)
 add_executable(test_elicitation_gate server/test_elicitation_gate.cc)
 add_executable(test_server_info_meta server/test_server_info_meta.cc)
 add_executable(test_completion server/test_completion.cc)
+add_executable(test_request_cancellation server/test_request_cancellation.cc)
 add_executable(test_trace_server server/test_trace_server.cc)
 add_executable(test_trace_context protocol/test_trace_context.cc)
 add_executable(test_resource_templates server/test_resource_templates.cc)
@@ -362,6 +363,14 @@ target_link_libraries(test_server_info_meta
     fmt::fmt
 )
 target_link_libraries(test_completion
+    gopher-mcp
+    gopher-mcp-logging
+    gtest
+    gtest_main
+    Threads::Threads
+    fmt::fmt
+)
+target_link_libraries(test_request_cancellation
     gopher-mcp
     gopher-mcp-logging
     gtest
@@ -1682,6 +1691,7 @@ add_test(NAME ListPagingTest COMMAND test_list_paging)
 add_test(NAME ElicitationGateTest COMMAND test_elicitation_gate)
 add_test(NAME ServerInfoMetaTest COMMAND test_server_info_meta)
 add_test(NAME CompletionTest COMMAND test_completion)
+add_test(NAME RequestCancellationTest COMMAND test_request_cancellation)
 add_test(NAME TraceServerTest COMMAND test_trace_server)
 add_test(NAME TraceContextTest COMMAND test_trace_context)
 add_test(NAME ResourceTemplatesTest COMMAND test_resource_templates)
