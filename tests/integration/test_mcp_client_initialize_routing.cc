@@ -1194,6 +1194,23 @@ TEST_F(McpClientInitializeRoutingTest, TheTraceContextReachesTheServer) {
   }
 }
 
+// A tracer that throws costs the caller nothing: the request still
+// resolves with its answer.
+TEST_F(McpClientInitializeRoutingTest, AThrowingTracerStillAnswers) {
+  tweak_client_ = [](client::McpClientConfig& config) {
+    config.span_hook =
+        [](const protocol::trace::SpanStart&) -> protocol::trace::SpanEnd {
+      return [](const optional<Error>&) {
+        throw std::runtime_error("exporter down");
+      };
+    };
+  };
+  connectInitializedClient();
+  auto ping = client_->sendRequest("ping");
+  ASSERT_EQ(ping.wait_for(5s), std::future_status::ready);
+  EXPECT_FALSE(ping.get().error.has_value());
+}
+
 // A server that offers no completions refuses, and the call fails with
 // what it said.
 TEST_F(McpClientInitializeRoutingTest, NoCompletionsIsARefusal) {

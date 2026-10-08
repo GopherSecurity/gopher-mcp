@@ -10,6 +10,7 @@
  *              "baggage": "key=value;property,..."}}
  */
 
+#include <stdexcept>
 #include <string>
 #include <thread>
 #include <vector>
@@ -335,6 +336,25 @@ TEST(TraceContext, ASpanEndsOnceWithItsOutcome) {
   ASSERT_EQ(ended.size(), 2u);
   ASSERT_TRUE(ended[1].has_value());
   EXPECT_EQ(ended[1]->code, jsonrpc::INTERNAL_ERROR);
+
+  // A tracer that throws, starting or ending, costs nothing but its span.
+  SpanHook throws_starting = [](const SpanStart&) -> SpanEnd {
+    throw std::runtime_error("tracer down");
+  };
+  EXPECT_NO_THROW({
+    Span span(throws_starting, start);
+    span.end(nullopt);
+  });
+  SpanHook throws_ending = [](const SpanStart&) -> SpanEnd {
+    return [](const optional<Error>&) {
+      throw std::runtime_error("exporter down");
+    };
+  };
+  EXPECT_NO_THROW({
+    Span span(throws_ending, start);
+    span.end(nullopt);
+  });
+  EXPECT_NO_THROW({ Span abandoned(throws_ending, start); });
 
   // No hook, nothing at all.
   Span untraced(SpanHook(), start);
