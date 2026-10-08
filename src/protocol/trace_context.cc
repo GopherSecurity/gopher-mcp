@@ -43,6 +43,8 @@ bool allZero(const std::string& value, size_t from, size_t count) {
 
 bool isOws(char c) { return c == ' ' || c == '\t'; }
 
+bool isHex(char c) { return isLowerHex(c) || (c >= 'A' && c <= 'F'); }
+
 std::string trimmed(const std::string& value) {
   size_t begin = 0;
   size_t end = value.size();
@@ -161,10 +163,20 @@ bool isToken(const std::string& value) {
 }
 
 // Printable ASCII but space, '"', ',', ';' and '\'.
+// A '%' only as the start of a percent-encoded octet: a literal one is
+// itself encoded, as %25.
 bool isBaggageValue(const std::string& value) {
-  for (char c : value) {
+  for (size_t i = 0; i < value.size(); ++i) {
+    const char c = value[i];
     if (c < 0x21 || c > 0x7E || c == '"' || c == ',' || c == ';' || c == '\\') {
       return false;
+    }
+    if (c == '%') {
+      if (i + 2 >= value.size() || !isHex(value[i + 1]) ||
+          !isHex(value[i + 2])) {
+        return false;
+      }
+      i += 2;
     }
   }
   return true;
