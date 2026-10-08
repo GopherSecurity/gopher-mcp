@@ -278,6 +278,24 @@ TEST(TraceContext, MalformedValuesAreIgnoredWhenRead) {
 
 // ── Current ────────────────────────────────────────────────────────────
 
+// A scope is active even when what it holds is empty: that says the work
+// carries no trace, which is not the same as saying nothing.
+TEST(TraceContext, AnEmptyScopeIsStillAScope) {
+  EXPECT_FALSE(inScope());
+  {
+    TraceScope empty{TraceContext()};
+    EXPECT_TRUE(inScope());
+    EXPECT_TRUE(current().empty());
+    {
+      TraceScope inner(full());
+      EXPECT_TRUE(inScope());
+    }
+    EXPECT_TRUE(inScope());
+    EXPECT_TRUE(current().empty());
+  }
+  EXPECT_FALSE(inScope());
+}
+
 TEST(TraceContext, AScopeMakesAContextCurrentUntilItEnds) {
   EXPECT_TRUE(current().empty());
   {
