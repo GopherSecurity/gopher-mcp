@@ -274,16 +274,21 @@ class StreamableHttpFilter : public HttpCodecFilter::MessageCallbacks,
   class ResponseStreamImpl : public ResponseStream {
    public:
     /**
-     * @param on_open Told the moment this becomes a stream, which is when
-     *                it becomes something a client could be given a name
-     *                for and could later come back to.
+     * @param on_open     Told the moment this becomes a stream, which is when
+     *                    it becomes something a client could be given a name
+     *                    for and could later come back to.
+     * @param on_complete Told when the stream has finished producing, which
+     *                    is when the session becomes idle if no other stream
+     *                    is active.
      */
     ResponseStreamImpl(transport::RequestExchangePtr exchange,
                        bool may_stream,
-                       std::function<void()> on_open)
+                       std::function<void()> on_open,
+                       std::function<void()> on_complete)
         : exchange_(std::move(exchange)),
           may_stream_(may_stream),
-          on_open_(std::move(on_open)) {}
+          on_open_(std::move(on_open)),
+          on_complete_(std::move(on_complete)) {}
 
     VoidResult sendNotification(
         const jsonrpc::Notification& notification) override;
@@ -305,6 +310,7 @@ class StreamableHttpFilter : public HttpCodecFilter::MessageCallbacks,
     transport::RequestExchangePtr exchange_;
     bool may_stream_;
     std::function<void()> on_open_;
+    std::function<void()> on_complete_;
     size_t dropped_{0};
   };
 

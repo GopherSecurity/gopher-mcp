@@ -323,6 +323,9 @@ VoidResult StreamableHttpFilter::ResponseStreamImpl::sendResponse(
   // frees the connection for the next request.
   exchange_->setPhase(transport::RequestExchange::Phase::RespondingSseClosed);
   exchange_->complete();
+  if (on_complete_) {
+    on_complete_();
+  }
   return makeVoidSuccess();
 }
 
@@ -385,6 +388,24 @@ ResponseStreamPtr StreamableHttpFilter::DispatchContext::beginResponseStream() {
     transport::RequestExchangePtr exchange = parent_.exchange_;
     const std::string session_id = parent_.session_id_;
     std::weak_ptr<int> alive = parent_.alive_;
+    transport::StreamableSessionManager* sessions = parent_.sessions_;
+    event::Dispatcher* dispatcher = &parent_.dispatcher_;
+
+    auto touch_session = [sessions, dispatcher, session_id]() {
+      if (sessions == nullptr || dispatcher == nullptr || session_id.empty()) {
+        return;
+      }
+      auto touch = [](transport::SessionCtx& session) {
+        session.last_activity = std::chrono::steady_clock::now();
+      };
+      if (sessions->ownedBy(session_id, *dispatcher)) {
+        if (auto* session = sessions->find(session_id)) {
+          touch(*session);
+        }
+        return;
+      }
+      sessions->withSession(*dispatcher, session_id, touch, nullptr);
+    };
 
     parent_.stream_.reset(new ResponseStreamImpl(
         parent_.exchange_, parent_.exchange_->clientContext().accepts_sse,
@@ -396,7 +417,8 @@ ResponseStreamPtr StreamableHttpFilter::DispatchContext::beginResponseStream() {
           }
           filter->registerResponseStream(exchange, session_id,
                                          filter->nameThisStream(exchange));
-        }));
+        },
+        touch_session));
   }
   return parent_.stream_;
 }
