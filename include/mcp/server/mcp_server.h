@@ -116,6 +116,60 @@ class RequestHandler;
 class ResourceManager;
 class ToolRegistry;
 class PromptRegistry;
+
+/**
+ * Whether a request was cancelled, shared by everything working on it.
+ *
+ * A request is cancelled when the client sends notifications/cancelled
+ * naming it, or, in 2026-07-28, when it disconnects from the request's
+ * stream. Work that can stop early checks isCancelled(), or registers to
+ * be told; either way, the answer to a cancelled request is not sent.
+ */
+class Cancellation {
+ public:
+  bool isCancelled() const { return cancelled_.load(); }
+
+  /**
+   * Run observer once when the request is cancelled; at once, on this
+   * thread, when it already has been.
+   */
+  void onCancelled(std::function<void()> observer) {
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      if (!cancelled_.load()) {
+        observers_.push_back(std::move(observer));
+        return;
+      }
+    }
+    observer();
+  }
+
+  /** Cancel it, telling every observer. True only the first time. */
+  bool cancel() {
+    std::vector<std::function<void()>> told;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      if (cancelled_.exchange(true)) {
+        return false;
+      }
+      told.swap(observers_);
+    }
+    for (auto& observer : told) {
+      try {
+        observer();
+      } catch (...) {
+        // One observer failing is no reason the others go untold.
+      }
+    }
+    return true;
+  }
+
+ private:
+  std::atomic<bool> cancelled_{false};
+  std::mutex mutex_;
+  std::vector<std::function<void()>> observers_;
+};
+using CancellationPtr = std::shared_ptr<Cancellation>;
 class SessionManager;
 class SessionContext;
 
@@ -401,6 +455,17 @@ class SessionContext {
   }
   const ResponseStreamPtr& responseStream() const { return response_stream_; }
 
+  // Whether the request being handled was cancelled, for every handler,
+  // plain or streaming. Set for the length of one dispatch, like the
+  // response stream; a handler that finishes later keeps its own copy.
+  void setCancellation(const CancellationPtr& cancellation) {
+    cancellation_ = cancellation;
+  }
+  const CancellationPtr& cancellation() const { return cancellation_; }
+  bool isCancelled() const {
+    return cancellation_ && cancellation_->isCancelled();
+  }
+
   // Update activity timestamp
   void updateActivity() { last_activity_ = std::chrono::steady_clock::now(); }
 
@@ -488,8 +553,9 @@ class SessionContext {
 
  private:
   SessionId id_;
-  network::Connection* connection_;    // Store raw pointer
-  std::string transport_session_id_;   // Durable transport identity, may be ""
+  network::Connection* connection_;   // Store raw pointer
+  std::string transport_session_id_;  // Durable transport identity, may be ""
+  CancellationPtr cancellation_;
   ResponseStreamPtr response_stream_;  // Live only during one dispatch
   std::chrono::steady_clock::time_point created_time_;
   std::chrono::steady_clock::time_point last_activity_;
@@ -1622,9 +1688,18 @@ class McpServer : public application::ApplicationBase,
   // Request tracking helpers
   bool isRequestCancelled(const std::string& session_id,
                           const RequestId& id) const {
+    auto cancellation = cancellationOf(session_id, id);
+    return cancellation && cancellation->isCancelled();
+  }
+
+  // Whether a request still being handled was cancelled, and a way to be
+  // told when it is. Null for a request that is not in hand.
+  CancellationPtr cancellationOf(const std::string& session_id,
+                                 const RequestId& id) const {
     std::lock_guard<std::mutex> lock(pending_requests_mutex_);
     auto it = pending_requests_.find(pendingKeyOf(session_id, id));
-    return (it != pending_requests_.end() && it->second->cancelled.load());
+    return it != pending_requests_.end() ? it->second->cancellation
+                                         : CancellationPtr();
   }
 
   // ListenerCallbacks overrides (production pattern)
@@ -1872,7 +1947,7 @@ class McpServer : public application::ApplicationBase,
     // its own caller whatever stream it is sent through.
     std::string principal;
     std::chrono::steady_clock::time_point start_time;
-    std::atomic<bool> cancelled{false};
+    CancellationPtr cancellation = std::make_shared<Cancellation>();
   };
   // Use string key for map to avoid variant comparison issues
   std::unordered_map<std::string, std::shared_ptr<PendingRequest>>

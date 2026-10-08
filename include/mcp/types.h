@@ -35,6 +35,11 @@ constexpr int INTERNAL_ERROR = -32603;
 // MCP's own code for reading a resource that does not exist, in the
 // revisions before 2026-07-28. That revision uses INVALID_PARAMS instead.
 constexpr int RESOURCE_NOT_FOUND = -32002;
+// Never sent: how a request that was cancelled, or ran out of time, ends
+// on the side that gave up on it. A cancelled request has no answer on the
+// wire, so these say why there is none.
+constexpr int REQUEST_CANCELLED = -32800;
+constexpr int REQUEST_TIMED_OUT = -32001;
 }  // namespace jsonrpc
 
 // Protocol type aliases

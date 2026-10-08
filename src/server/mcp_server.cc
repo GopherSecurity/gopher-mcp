@@ -427,10 +427,12 @@ class DeferredAnswer : public ResponseStream {
   // on_answered is told the error the answer carried, if any.
   DeferredAnswer(ResponseStreamPtr stream,
                  std::function<void(const optional<Error>&)> on_answered,
-                 CacheHintPolicy cache_hints = CacheHintPolicy())
+                 CacheHintPolicy cache_hints = CacheHintPolicy(),
+                 CancellationPtr cancellation = CancellationPtr())
       : stream_(std::move(stream)),
         on_answered_(std::move(on_answered)),
-        cache_hints_(std::move(cache_hints)) {}
+        cache_hints_(std::move(cache_hints)),
+        cancellation_(std::move(cancellation)) {}
 
   VoidResult sendNotification(
       const jsonrpc::Notification& notification) override {
@@ -444,6 +446,12 @@ class DeferredAnswer : public ResponseStream {
   VoidResult sendResponse(const jsonrpc::Response& response) override {
     // Settled here as well as on the ordinary path, since an answer that
     // comes later still answers a method whose result is cacheable.
+    // The answer to a cancelled request is not sent: the client has said
+    // it no longer wants one.
+    if (cancelled()) {
+      answered(cancelledError());
+      return makeVoidSuccess();
+    }
     jsonrpc::Response settled = response;
     cache_hints_.apply(settled);
     auto sent = stream_ ? stream_->sendResponse(settled) : noStream();
@@ -462,6 +470,10 @@ class DeferredAnswer : public ResponseStream {
     // transport has no status to set and the wrong thing here, where the
     // one underneath does — a client reading a 200 for a refusal reads a
     // success containing a failure.
+    if (cancelled()) {
+      answered(cancelledError());
+      return makeVoidSuccess();
+    }
     auto sent =
         stream_ ? stream_->sendRefusal(http_status, error, data) : noStream();
     answered(mcp::make_optional(error));
@@ -485,6 +497,15 @@ class DeferredAnswer : public ResponseStream {
               "this request was dispatched with nowhere to answer it"));
   }
 
+  bool cancelled() const {
+    return cancellation_ && cancellation_->isCancelled();
+  }
+
+  static optional<Error> cancelledError() {
+    return mcp::make_optional(
+        Error(jsonrpc::REQUEST_CANCELLED, "the request was cancelled"));
+  }
+
   void answered(const optional<Error>& error) {
     if (on_answered_) {
       auto finished = std::move(on_answered_);
@@ -496,6 +517,7 @@ class DeferredAnswer : public ResponseStream {
   ResponseStreamPtr stream_;
   std::function<void(const optional<Error>&)> on_answered_;
   CacheHintPolicy cache_hints_;
+  CancellationPtr cancellation_;
 };
 
 /**
@@ -2345,6 +2367,8 @@ void McpServer::dispatchRequest(const jsonrpc::Request& request,
     std::lock_guard<std::mutex> lock(pending_requests_mutex_);
     pending_requests_[pendingKeyOf(session->getId(), request.id)] = pending_req;
   }
+  const CancellationPtr cancellation = pending_req->cancellation;
+  session->setCancellation(cancellation);
 
   // What the request said about itself, for every method rather than for
   // tool calls alone: in the era with no introduction this is where a
@@ -2373,6 +2397,9 @@ void McpServer::dispatchRequest(const jsonrpc::Request& request,
   if (streamingFor(request) != StreamingMode::None) {
     stream = context.beginResponseStream();
     if (stream) {
+      // A disconnect cancels the request where the transport says it
+      // does, which in 2026-07-28 is any disconnect from its stream.
+      stream->onCancelled([cancellation]() { cancellation->cancel(); });
       stream->setRequestPrincipal(context.principal());
       if (!trace.empty()) {
         stream = std::make_shared<TracingStream>(stream, trace);
@@ -2463,7 +2490,7 @@ void McpServer::dispatchRequest(const jsonrpc::Request& request,
           }
           forgetPendingRequest(pending_key);
         },
-        cache_hints);
+        cache_hints, cancellation);
     // The caller of this request, kept with its answer: the session will
     // have served others by the time a deferred answer comes.
     answer->setRequestPrincipal(context.principal());
@@ -2478,6 +2505,9 @@ void McpServer::dispatchRequest(const jsonrpc::Request& request,
       answer->sendResponse(jsonrpc::Response::make_error(
           request.id, Error(jsonrpc::INTERNAL_ERROR, e.what())));
     }
+    // Kept by the handler if it wants it: the session goes on to serve
+    // other requests.
+    session->setCancellation(nullptr);
     return;
   }
 
@@ -2558,6 +2588,19 @@ void McpServer::dispatchRequest(const jsonrpc::Request& request,
                        : std::to_string(get<int64_t>(request.id)));
 
   session->setResponseStream(nullptr);
+  session->setCancellation(nullptr);
+
+  // The answer to a cancelled request is not sent: the client has said it
+  // no longer wants one.
+  if (cancellation->isCancelled()) {
+    GOPHER_LOG_DEBUG("not answering cancelled request {}", request.method);
+    if (span) {
+      span->end(mcp::make_optional(
+          Error(jsonrpc::REQUEST_CANCELLED, "the request was cancelled")));
+    }
+    forgetPendingRequest(pendingKeyOf(session->getId(), request.id));
+    return;
+  }
 
   cache_hints.apply(response);
 
@@ -2646,37 +2689,32 @@ void McpServer::onNotificationWithContext(
 
   // Handle built-in notifications
   if (notification.method == "notifications/cancelled") {
-    // Client cancelled a request
-    // Extract the request ID that was cancelled
-    if (notification.params.has_value()) {
-      auto params = notification.params.value();
-      auto req_id_it = params.find("requestId");
-      if (req_id_it != params.end()) {
-        // Mark the request as cancelled
-        // The value in params is a MetadataValue which could be string or
-        // int64_t
-        std::string key_to_cancel;
-        if (holds_alternative<std::string>(req_id_it->second)) {
-          key_to_cancel = pendingKeyOf(
-              session->getId(), RequestId(get<std::string>(req_id_it->second)));
-        } else if (holds_alternative<int64_t>(req_id_it->second)) {
-          key_to_cancel = pendingKeyOf(
-              session->getId(), RequestId(get<int64_t>(req_id_it->second)));
-        } else {
-          // Not a valid request ID type
-          return;
-        }
-
-        // Find and mark the request as cancelled
-        {
-          std::lock_guard<std::mutex> lock(pending_requests_mutex_);
-          auto it = pending_requests_.find(key_to_cancel);
-          if (it != pending_requests_.end()) {
-            it->second->cancelled = true;
-            GOPHER_LOG_INFO("Request marked as cancelled: {}", key_to_cancel);
-          }
-        }
-      }
+    // The client no longer wants the answer to a request it sent. Read
+    // off the wire rather than the flat map, which would turn a string id
+    // that looks like a number into one, and name another request.
+    json::JsonValue params = json::JsonValue::object();
+    if (notification.params_json.has_value()) {
+      params = notification.params_json.value();
+    } else if (notification.params.has_value()) {
+      params = json::metadataToExactJson(notification.params.value());
+    }
+    if (!params.isObject() || !params.contains("requestId")) {
+      return;
+    }
+    const auto& id = params["requestId"];
+    RequestId cancelled;
+    if (id.isString()) {
+      cancelled = RequestId(id.getString());
+    } else if (id.isInteger()) {
+      cancelled = RequestId(id.getInt64());
+    } else {
+      return;
+    }
+    // Only a request this session sent: an id is unique within one.
+    auto cancellation = cancellationOf(session->getId(), cancelled);
+    if (cancellation && cancellation->cancel()) {
+      GOPHER_LOG_DEBUG("request {} cancelled by the client",
+                       requestIdKeyToString(requestIdKey(cancelled)));
     }
   }
 }
