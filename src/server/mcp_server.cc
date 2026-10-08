@@ -24,6 +24,7 @@
 #include "mcp/filter/sse_session_registry.h"
 #include "mcp/json/json_serialization.h"
 #include "mcp/logging/log_macros.h"
+#include "mcp/protocol/extensions.h"
 #include "mcp/protocol/modern_era.h"
 #include "mcp/protocol/protocol_versions.h"
 #include "mcp/protocol/trace_context.h"
@@ -659,6 +660,20 @@ VoidResult McpServer::resolveBindAddress(const std::string& url) {
 // Constructor
 McpServer::McpServer(const McpServerConfig& config)
     : ApplicationBase(config), config_(config), server_stats_() {
+  // An extension identifier that breaks the rules would be advertised to
+  // every client and recognised by none: refused here, at startup.
+  protocol::extensions::checkConfigured(config_.extensions);
+  if (config_.capabilities.extensions.has_value()) {
+    if (!config_.capabilities.extensions->isObject()) {
+      throw std::invalid_argument("capabilities.extensions must be an object");
+    }
+    std::map<std::string, json::JsonValue> declared;
+    for (const auto& id : config_.capabilities.extensions->keys()) {
+      declared[id] = (*config_.capabilities.extensions)[id];
+    }
+    protocol::extensions::checkConfigured(declared);
+  }
+
   // Built once, from keys checked here: a bad key is a configuration
   // mistake, and better found at startup than on the first retry.
   if (!config_.request_state_keys.empty()) {
@@ -1197,6 +1212,7 @@ void McpServer::registerRequestHandler(
   std::lock_guard<std::mutex> lock(handlers_mutex_);
   request_handlers_[method] = handler;
   async_request_handlers_.erase(method);
+  noteHandled(method);
   streaming_methods_.erase(method);
 }
 
@@ -1208,6 +1224,7 @@ void McpServer::registerRequestHandler(
   std::lock_guard<std::mutex> lock(handlers_mutex_);
   request_handlers_[method] = handler;
   async_request_handlers_.erase(method);
+  noteHandled(method);
   if (streaming == StreamingMode::None) {
     streaming_methods_.erase(method);
   } else {
@@ -1221,6 +1238,7 @@ void McpServer::registerAsyncRequestHandler(const std::string& method,
   std::lock_guard<std::mutex> lock(handlers_mutex_);
   async_request_handlers_[method] = std::move(handler);
   request_handlers_.erase(method);
+  noteHandled(method);
   // A handler that answers later needs somewhere to answer, and None is
   // the one mode that leaves it without one. Taken as Optional rather
   // than refused: what was meant is not in doubt.
@@ -1676,15 +1694,99 @@ void McpServer::notifyResourceUpdate(const std::string& uri) {
   }
 }
 
-bool McpServer::advertisesListChanged(ListKind kind) const {
-  ServerCapabilities advertised;
+ServerCapabilities McpServer::advertisedNow() const {
+  ServerCapabilities capabilities;
+  bool tools_list_changed = false;
+  bool prompts_list_changed = false;
+  bool resources_list_changed = false;
+  bool resources_subscribe = false;
+  std::map<std::string, json::JsonValue> extensions;
   {
     std::lock_guard<std::mutex> lock(config_mutex_);
-    advertised = advertisedCapabilities(
-        config_.capabilities, config_.tools_list_changed,
-        config_.prompts_list_changed, config_.resources_list_changed,
-        config_.resources_subscribe);
+    capabilities = config_.capabilities;
+    tools_list_changed = config_.tools_list_changed;
+    prompts_list_changed = config_.prompts_list_changed;
+    resources_list_changed = config_.resources_list_changed;
+    resources_subscribe = config_.resources_subscribe;
+    extensions = config_.extensions;
   }
+
+  // A server offers what it has registered, whether or not it was also
+  // configured to say so: otherwise it would refuse its own features. A
+  // capability configured either way is left as configured.
+  if (!capabilities.tools.has_value() &&
+      ((tool_registry_ && !tool_registry_->empty()) ||
+       (handled_capabilities_.load() & kHandlesTools) != 0)) {
+    capabilities.tools = mcp::make_optional(ToolsCapability());
+  }
+  if (!capabilities.prompts.has_value() &&
+      ((prompt_registry_ && !prompt_registry_->empty()) ||
+       (handled_capabilities_.load() & kHandlesPrompts) != 0)) {
+    capabilities.prompts = mcp::make_optional(PromptsCapability());
+  }
+  if (!capabilities.resources.has_value() &&
+      ((resource_manager_ && !resource_manager_->empty()) ||
+       (handled_capabilities_.load() & kHandlesResources) != 0)) {
+    capabilities.resources =
+        mcp::make_optional(variant<bool, ResourcesCapability>(true));
+  }
+
+  capabilities = advertisedCapabilities(
+      capabilities, tools_list_changed, prompts_list_changed,
+      resources_list_changed, resources_subscribe, offersCompletions());
+
+  const json::JsonValue all =
+      protocol::extensions::merged(capabilities.extensions, extensions);
+  capabilities.extensions = all.keys().empty() ? optional<json::JsonValue>()
+                                               : mcp::make_optional(all);
+  return capabilities;
+}
+
+void McpServer::noteHandled(const std::string& method) {
+  if (method == "tools/list" || method == "tools/call") {
+    handled_capabilities_ |= kHandlesTools;
+  } else if (method == "prompts/list" || method == "prompts/get") {
+    handled_capabilities_ |= kHandlesPrompts;
+  } else if (method == "resources/list" || method == "resources/read" ||
+             method == "resources/templates/list") {
+    handled_capabilities_ |= kHandlesResources;
+  }
+}
+
+bool McpServer::offers(const std::string& method) const {
+  auto under = [&method](const char* prefix) {
+    return method.compare(0, std::string(prefix).size(), prefix) == 0;
+  };
+  const bool tools = under("tools/");
+  const bool prompts = under("prompts/");
+  const bool resources = under("resources/");
+  const bool logging = method == "logging/setLevel";
+  if (!tools && !prompts && !resources && !logging) {
+    return true;
+  }
+  const ServerCapabilities advertised = advertisedNow();
+  if (tools) {
+    return advertised.tools.has_value() &&
+           static_cast<bool>(advertised.tools.value());
+  }
+  if (prompts) {
+    return advertised.prompts.has_value() &&
+           static_cast<bool>(advertised.prompts.value());
+  }
+  if (resources) {
+    if (!advertised.resources.has_value()) {
+      return false;
+    }
+    const auto& declared = advertised.resources.value();
+    return holds_alternative<ResourcesCapability>(declared) ||
+           get<bool>(declared);
+  }
+  return advertised.logging.has_value() &&
+         static_cast<bool>(advertised.logging.value());
+}
+
+bool McpServer::advertisesListChanged(ListKind kind) const {
+  const ServerCapabilities advertised = advertisedNow();
   switch (kind) {
     case ListKind::Tools:
       return advertised.tools.has_value() &&
@@ -2417,9 +2519,14 @@ void McpServer::dispatchRequest(const jsonrpc::Request& request,
   // answers for a handler this caller has no business reaching, and the
   // nearest such answer — that this transport cannot hold an answer open
   // — describes the wrong thing entirely.
+  // A built-in method whose capability this server doesn't advertise is
+  // not found, whatever is registered for it: a client is only to use
+  // what it was told is there.
+  const bool offered = offers(request.method);
+
   AsyncRequestHandler async_handler;
-  if (!protocol::modern::isEraOnlyMethod(request.method) ||
-      isModernRequest(request)) {
+  if (offered && (!protocol::modern::isEraOnlyMethod(request.method) ||
+                  isModernRequest(request))) {
     std::lock_guard<std::mutex> lock(handlers_mutex_);
     auto it = async_request_handlers_.find(request.method);
     if (it != async_request_handlers_.end()) {
@@ -2514,7 +2621,12 @@ void McpServer::dispatchRequest(const jsonrpc::Request& request,
   // Route request to appropriate handler
   jsonrpc::Response response;
 
-  {
+  if (!offered) {
+    response = jsonrpc::Response::make_error(
+        request.id, Error(jsonrpc::METHOD_NOT_FOUND,
+                          "Method not found: " + request.method));
+    server_stats_.requests_invalid++;
+  } else {
     std::lock_guard<std::mutex> lock(handlers_mutex_);
     auto it = request_handlers_.find(request.method);
     if (it != request_handlers_.end()) {
@@ -2876,17 +2988,13 @@ jsonrpc::Response McpServer::handleInitialize(const jsonrpc::Request& request,
   std::string instructions;
   std::string protocol_version;
   json::JsonValue server_info;
-  ServerCapabilities server_capabilities;
-  bool tools_list_changed = false;
   std::function<std::string(const jsonrpc::Request&, SessionContext&)>
       instructions_provider;
   {
     std::lock_guard<std::mutex> lock(config_mutex_);
-    tools_list_changed = config_.tools_list_changed;
     instructions = config_.instructions;
     protocol_version = config_.protocol_version;
     server_info = serverInfoOf(config_);
-    server_capabilities = config_.capabilities;
     instructions_provider = config_.instructions_provider;
   }
 
@@ -2953,10 +3061,7 @@ jsonrpc::Response McpServer::handleInitialize(const jsonrpc::Request& request,
 
   result_json["serverInfo"] = std::move(server_info);
 
-  result_json["capabilities"] = json::to_json(advertisedCapabilities(
-      server_capabilities, tools_list_changed, config_.prompts_list_changed,
-      config_.resources_list_changed, config_.resources_subscribe,
-      offersCompletions()));
+  result_json["capabilities"] = json::to_json(advertisedNow());
 
   // Add instructions if present
   if (!instructions.empty()) {
@@ -2972,15 +3077,10 @@ jsonrpc::Response McpServer::handleDiscover(const jsonrpc::Request& request,
                                             SessionContext& session) {
   (void)session;
   std::string instructions;
-  ServerCapabilities capabilities;
-  const bool completions = offersCompletions();
+  const ServerCapabilities capabilities = advertisedNow();
   {
     std::lock_guard<std::mutex> lock(config_mutex_);
     instructions = config_.instructions;
-    capabilities = advertisedCapabilities(
-        config_.capabilities, config_.tools_list_changed,
-        config_.prompts_list_changed, config_.resources_list_changed,
-        config_.resources_subscribe, completions);
   }
 
   // What a client would otherwise have learned from an introduction. In

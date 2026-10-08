@@ -25,6 +25,7 @@
 #include <chrono>
 #include <functional>
 #include <future>
+#include <initializer_list>
 #include <list>
 #include <map>
 #include <memory>
@@ -51,6 +52,7 @@
 #include "mcp/mcp_connection_manager.h"
 #include "mcp/network/filter.h"
 #include "mcp/protocol/designated_params.h"
+#include "mcp/protocol/extensions.h"
 #include "mcp/protocol/mrtr.h"
 #include "mcp/protocol/request_state_sealer.h"
 #include "mcp/protocol/trace_context.h"
@@ -230,6 +232,12 @@ struct McpServerConfig : public application::ApplicationBase::Config {
   // every successful result to a 2026-07-28 caller, as the spec asks of a
   // server unless it is configured not to. Earlier revisions never get it.
   bool send_server_info = true;
+  // Extensions this server supports, by identifier, each with an object of
+  // its settings, advertised in initialize and server/discover. An entry in
+  // capabilities.extensions of the same identifier wins. An invalid
+  // identifier, or settings that aren't an object, is refused when the
+  // server is made.
+  std::map<std::string, json::JsonValue> extensions;
   // Starts a span around each request this server handles, ended with its
   // outcome, given the trace context the request carried in _meta.
   // Without one nothing is traced.
@@ -517,6 +525,37 @@ class SessionContext {
     return client_capabilities_;
   }
 
+  /**
+   * The settings the client advertised for an extension, if it did: in
+   * 2026-07-28 from the request being handled, which declares the client's
+   * capabilities itself, and otherwise from the client's initialize.
+   */
+  optional<json::JsonValue> clientExtension(const std::string& id) const {
+    if (request_meta_.has_value()) {
+      const std::string declared =
+          protocol::modern::declaredCapabilitiesIn(request_meta_.value());
+      if (!declared.empty()) {
+        try {
+          const json::JsonValue capabilities = json::JsonValue::parse(declared);
+          if (capabilities.isObject() &&
+              capabilities.contains(protocol::extensions::kField)) {
+            return protocol::extensions::settingsOf(
+                mcp::make_optional(capabilities[protocol::extensions::kField]),
+                id);
+          }
+          return nullopt;
+        } catch (const std::exception&) {
+          return nullopt;
+        }
+      }
+    }
+    return protocol::extensions::settingsOf(client_capabilities_.extensions,
+                                            id);
+  }
+  bool clientHasExtension(const std::string& id) const {
+    return clientExtension(id).has_value();
+  }
+
   // Request-scoped metadata: the in-flight request's params._meta, carried as
   // its stringified-JSON form (consistent with how nested arguments are
   // represented in Metadata). Set immediately before each tool handler is
@@ -625,12 +664,14 @@ class ResourceManager {
     std::lock_guard<std::mutex> lock(mutex_);
     resources_[resource.uri] = resource;
     resource_handlers_[resource.uri] = handler;
+    count_ = resources_.size() + resource_templates_.size();
   }
 
   // Register a resource without a read handler (metadata-only, e.g. for list).
   void registerResource(const Resource& resource) {
     std::lock_guard<std::mutex> lock(mutex_);
     resources_[resource.uri] = resource;
+    count_ = resources_.size() + resource_templates_.size();
   }
 
   // Register resource template
@@ -638,7 +679,9 @@ class ResourceManager {
   bool unregisterResource(const std::string& uri) {
     std::lock_guard<std::mutex> lock(mutex_);
     resource_handlers_.erase(uri);
-    return resources_.erase(uri) != 0;
+    const bool removed = resources_.erase(uri) != 0;
+    count_ = resources_.size() + resource_templates_.size();
+    return removed;
   }
 
   // Register a resource template. One registered again under the same
@@ -646,6 +689,7 @@ class ResourceManager {
   void registerResourceTemplate(const ResourceTemplate& template_) {
     std::lock_guard<std::mutex> lock(mutex_);
     resource_templates_[template_.uriTemplate] = template_;
+    count_ = resources_.size() + resource_templates_.size();
   }
 
   // One page of the resource templates, in uriTemplate order; by default
@@ -661,6 +705,11 @@ class ResourceManager {
   }
 
   // List resources with pagination
+  // Whether there is nothing here: no resource and no template. Read
+  // without the lock, so it can be asked from inside a handler this holds
+  // the lock around.
+  bool empty() const { return count_.load() == 0; }
+
   // One page of the resources, in URI order. Throws InvalidCursor for a
   // cursor this list did not issue.
   ListResourcesResult listResources(const optional<Cursor>& cursor = nullopt,
@@ -740,6 +789,7 @@ class ResourceManager {
 
  private:
   mutable std::mutex mutex_;
+  std::atomic<size_t> count_{0};
   std::map<std::string, Resource> resources_;
   // Signs this list's cursors, so they are good only here.
   paging::CursorSigner cursor_signer_;
@@ -798,6 +848,7 @@ class ToolRegistry {
     tools_[tool.name] = tool;
     tool_handlers_[tool.name] = handler;
     designated_[tool.name] = std::move(designated);
+    count_ = tools_.size();
     return true;
   }
 
@@ -806,7 +857,9 @@ class ToolRegistry {
     std::lock_guard<std::mutex> lock(mutex_);
     tool_handlers_.erase(name);
     designated_.erase(name);
-    return tools_.erase(name) != 0;
+    const bool removed = tools_.erase(name) != 0;
+    count_ = tools_.size();
+    return removed;
   }
 
   /** Whether a registered tool declares an outputSchema. */
@@ -828,6 +881,10 @@ class ToolRegistry {
     *out = it->second;
     return true;
   }
+
+  // Read without the lock, so it can be asked from inside a tool, which
+  // runs with the lock held.
+  bool empty() const { return count_.load() == 0; }
 
   // One page of the tools, in name order; by default all of them. Throws
   // InvalidCursor for a cursor this list did not issue.
@@ -875,6 +932,7 @@ class ToolRegistry {
 
  private:
   mutable std::mutex mutex_;
+  std::atomic<size_t> count_{0};
   std::map<std::string, Tool> tools_;
   // Signs this list's cursors, so they are good only here.
   paging::CursorSigner cursor_signer_;
@@ -905,6 +963,7 @@ class PromptRegistry {
     std::lock_guard<std::mutex> lock(mutex_);
     prompts_[prompt.name] = prompt;
     prompt_handlers_[prompt.name] = handler;
+    count_ = prompts_.size();
   }
 
   // List all prompts
@@ -912,8 +971,14 @@ class PromptRegistry {
   bool unregisterPrompt(const std::string& name) {
     std::lock_guard<std::mutex> lock(mutex_);
     prompt_handlers_.erase(name);
-    return prompts_.erase(name) != 0;
+    const bool removed = prompts_.erase(name) != 0;
+    count_ = prompts_.size();
+    return removed;
   }
+
+  // Read without the lock, so it can be asked from inside a prompt
+  // handler, which runs with the lock held.
+  bool empty() const { return count_.load() == 0; }
 
   // One page of the prompts, in name order; by default all of them. Throws
   // InvalidCursor for a cursor this list did not issue.
@@ -944,6 +1009,7 @@ class PromptRegistry {
 
  private:
   mutable std::mutex mutex_;
+  std::atomic<size_t> count_{0};
   std::map<std::string, Prompt> prompts_;
   // Signs this list's cursors, so they are good only here.
   paging::CursorSigner cursor_signer_;
@@ -1665,6 +1731,24 @@ class McpServer : public application::ApplicationBase,
   enum class ListKind { Tools, Prompts, Resources };
   // Whether the advertised capability for this list says listChanged.
   bool advertisesListChanged(ListKind kind) const;
+  // What this server advertises, the same in initialize and
+  // server/discover: what it was configured with, the capabilities of what
+  // it has registered, and its extensions.
+  ServerCapabilities advertisedNow() const;
+  // Whether a built-in method's capability is advertised. A method of no
+  // capability is always offered.
+  bool offers(const std::string& method) const;
+  // Whether a handler is registered for any of these methods.
+  // Which capabilities registered handlers serve, as bits, kept as they
+  // are registered so they can be read without the handlers lock, which a
+  // built-in method's handler runs inside.
+  enum HandledCapability : unsigned {
+    kHandlesTools = 1,
+    kHandlesPrompts = 2,
+    kHandlesResources = 4,
+  };
+  std::atomic<unsigned> handled_capabilities_{0};
+  void noteHandled(const std::string& method);
   void notifyListChanged(ListKind kind);
   // A change made while the server runs is announced; one made while it
   // is being set up is just part of what it starts with.
