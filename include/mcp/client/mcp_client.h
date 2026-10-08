@@ -238,8 +238,10 @@ struct RequestContext {
   RequestId origin_id;
   // How it was asked to be sent; none of it set for an ordinary request.
   RequestOptions options;
-  // Sent on a connection of its own, so it can be cancelled alone.
+  // To be sent on a connection of its own, so it can be cancelled alone,
+  // and whether it went out on one.
   bool apart{false};
+  bool sent_apart{false};
   // Run once when the request is settled, however that happens.
   std::function<void()> on_settled;
   std::atomic<bool> settled{false};

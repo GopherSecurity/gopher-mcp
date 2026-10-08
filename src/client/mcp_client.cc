@@ -1471,7 +1471,7 @@ void McpClient::abandonRequest(const std::shared_ptr<RequestContext>& context,
     return;
   }
   request_tracker_->removeRequest(context->id);
-  if (context->apart && speaksModernHttp()) {
+  if (context->sent_apart) {
     // Closing its own stream is the cancellation, and nothing is sent.
     // The close itself happens as it settles, below.
   } else if (speaksModernHttp()) {
@@ -1830,12 +1830,25 @@ void McpClient::sendRequestInternal(std::shared_ptr<RequestContext> context) {
 
   // A request the caller may cancel goes out on a connection of its own
   // in 2026-07-28 Streamable HTTP, so that closing it cancels this request
-  // and no other. Anywhere else, or when no such connection opens, it
-  // shares the connection like any other and is cancelled by message.
-  if (context->apart && speaksModernHttp() &&
-      main_dispatcher_->isThreadSafe() &&
-      connection_manager_->openSubscription(request.id,
-                                            json::to_json(request))) {
+  // and no other. Anywhere else it shares the connection like any other
+  // and is cancelled by message.
+  if (context->apart && speaksModernHttp()) {
+    if (!main_dispatcher_->isThreadSafe() ||
+        !connection_manager_->openSubscription(request.id,
+                                               json::to_json(request))) {
+      // Not sent on the shared connection instead: there it could not be
+      // cancelled without cancelling every other request, and a caller who
+      // asked for a request it can cancel is not handed one it cannot.
+      request_tracker_->removeRequest(context->id);
+      client_stats_.requests_failed++;
+      context->finish(Response::make_error(
+          context->id,
+          Error(::mcp::jsonrpc::INTERNAL_ERROR,
+                "could not open a connection of its own for a request that "
+                "has to be cancellable")));
+      return;
+    }
+    context->sent_apart = true;
     const RequestId sent_as = request.id;
     std::weak_ptr<bool> alive = alive_;
     auto previous = std::move(context->on_settled);
@@ -2056,7 +2069,7 @@ bool McpClient::askAndSendAgain(const std::shared_ptr<RequestContext>& request,
   again->span = std::move(request->span);
   again->on_settled = std::move(request->on_settled);
   // The first round's own connection, if it had one, is done with.
-  if (request->apart && main_dispatcher_) {
+  if (request->sent_apart && main_dispatcher_) {
     const RequestId first = request->id;
     std::weak_ptr<bool> alive = alive_;
     main_dispatcher_->post([this, alive, first]() {
