@@ -274,6 +274,10 @@ struct RequestContext {
   // round with another question cannot keep one request going forever.
   size_t input_rounds{0};
 
+  // Already sent once more after the server refused its mirrored headers
+  // as not matching its body. Once only: a second mismatch is the answer.
+  bool header_retried{false};
+
   // How many times the answer to this request has been asked for again
   // after arriving as a stream that was cut off. Bounded, so a server
   // that cannot finish an answer cannot keep one request alive forever.
@@ -967,6 +971,19 @@ class McpClient : public application::ApplicationBase {
   bool speaksModernHttp() const;
   // Progress for a request that asked to follow it.
   bool routeProgress(const jsonrpc::Notification& notification);
+  // The same request again under a new id, carrying everything its caller
+  // is waiting on, and the first one let go of. Dispatcher thread.
+  std::shared_ptr<RequestContext> carryOver(
+      const std::shared_ptr<RequestContext>& request,
+      const json::JsonValue& params);
+  // A tools/call refused because its mirrored headers no longer match
+  // what the server designates: learn the designations again by listing
+  // every page of tools, then send the call once more. Dispatcher thread.
+  bool recoverFromHeaderMismatch(const std::shared_ptr<RequestContext>& request,
+                                 const Response& response);
+  void relistToolsThen(const optional<std::string>& cursor,
+                       size_t pages,
+                       std::function<void()> done);
   // Post to the dispatcher, the trace context current here current there.
   void postCarryingTrace(std::function<void()> task);
   // A request whose params go out exactly as this JSON.
