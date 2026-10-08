@@ -121,6 +121,9 @@ class McpClientInitializeRoutingTest : public ::testing::Test {
   std::function<void(server::McpServerConfig&)> tweak_config_;
   // Applied to the client's config by the next connectInitializedClient.
   std::function<void(client::McpClientConfig&)> tweak_client_;
+  // The endpoint connectInitializedClient reaches. /mcp holds an answer
+  // open as a stream, which a handler that answers later needs.
+  std::string client_path_ = "/rpc";
 
   /**
    * Bring up the server on a fresh port. With serve_newest false it serves
@@ -250,7 +253,7 @@ class McpClientInitializeRoutingTest : public ::testing::Test {
     ASSERT_NE(client_, nullptr);
 
     const std::string uri =
-        "http://127.0.0.1:" + std::to_string(port_) + "/rpc";
+        "http://127.0.0.1:" + std::to_string(port_) + client_path_;
     ASSERT_TRUE(holds_alternative<std::nullptr_t>(client_->connect(uri)));
     auto init_future = client_->initializeProtocol();
     ASSERT_EQ(init_future.wait_for(5s), std::future_status::ready);
@@ -1217,6 +1220,274 @@ TEST_F(McpClientInitializeRoutingTest, AThrowingTracerStillAnswers) {
   auto ping = client_->sendRequest("ping");
   ASSERT_EQ(ping.wait_for(5s), std::future_status::ready);
   EXPECT_FALSE(ping.get().error.has_value());
+}
+
+// A server-side view of a request the client may cancel: whether the
+// handler ran, whether the server saw it cancelled, and what
+// notifications/cancelled it received.
+struct SlowRequestProbe {
+  std::mutex mutex;
+  bool started{false};
+  server::CancellationPtr cancellation;
+  int cancelled_notifications{0};
+  std::string cancelled_id;
+  std::string cancelled_reason;
+
+  bool waitFor(const std::function<bool()>& condition) {
+    const auto deadline = std::chrono::steady_clock::now() + 5s;
+    while (std::chrono::steady_clock::now() < deadline) {
+      {
+        std::lock_guard<std::mutex> lock(mutex);
+        if (condition()) {
+          return true;
+        }
+      }
+      std::this_thread::sleep_for(20ms);
+    }
+    return false;
+  }
+};
+
+// A handler that never answers, and a record of notifications/cancelled.
+void registerSlowRequest(server::McpServer& server,
+                         const std::shared_ptr<SlowRequestProbe>& probe) {
+  server.registerAsyncRequestHandler(
+      "example/slow",
+      [probe](const jsonrpc::Request&, server::SessionContext& session,
+              const ResponseStreamPtr&) {
+        std::lock_guard<std::mutex> lock(probe->mutex);
+        probe->started = true;
+        probe->cancellation = session.cancellation();
+      });
+  server.registerNotificationHandler(
+      "notifications/cancelled",
+      [probe](const jsonrpc::Notification& notification,
+              server::SessionContext&) {
+        std::lock_guard<std::mutex> lock(probe->mutex);
+        ++probe->cancelled_notifications;
+        if (notification.params_json.has_value()) {
+          const auto& params = notification.params_json.value();
+          probe->cancelled_id = params["requestId"].toString();
+          if (params.contains("reason")) {
+            probe->cancelled_reason = params["reason"].getString();
+          }
+        }
+      });
+}
+
+// A request the client cancels ends for both sides: its future fails as
+// cancelled, and the server's handler sees it cancelled. In 2026-07-28
+// that is said by closing the request's own connection, with nothing
+// sent; in an earlier revision by notifications/cancelled. Either way the
+// shared connection carries on.
+TEST_F(McpClientInitializeRoutingTest, ACancelledRequestEndsForBoth) {
+  client_path_ = "/mcp";
+  for (const bool newest : {true, false}) {
+    SCOPED_TRACE(newest ? "2026-07-28" : "earlier");
+    if (!newest) {
+      client_->shutdown();
+      client_.reset();
+      stopServer();
+      startServer(/*serve_newest=*/false);
+    }
+    auto probe = std::make_shared<SlowRequestProbe>();
+    registerSlowRequest(*server_, probe);
+    connectInitializedClient();
+
+    auto sent = client_->sendCancellableRequest("example/slow",
+                                                json::JsonValue::object());
+    ASSERT_TRUE(probe->waitFor([&]() { return probe->started; }))
+        << "the request never reached its handler";
+    EXPECT_TRUE(client_->cancelRequest(sent.id, "user gave up"));
+
+    ASSERT_EQ(sent.response.wait_for(5s), std::future_status::ready);
+    const auto response = sent.response.get();
+    ASSERT_TRUE(response.error.has_value());
+    EXPECT_EQ(response.error->code, jsonrpc::REQUEST_CANCELLED);
+
+    EXPECT_TRUE(probe->waitFor([&]() {
+      return probe->cancellation && probe->cancellation->isCancelled();
+    })) << "the server never saw the request cancelled";
+    if (newest) {
+      std::this_thread::sleep_for(100ms);
+      std::lock_guard<std::mutex> lock(probe->mutex);
+      EXPECT_EQ(probe->cancelled_notifications, 0)
+          << "a 2026-07-28 client sent notifications/cancelled over HTTP";
+    } else {
+      ASSERT_TRUE(probe->waitFor(
+          [&]() { return probe->cancelled_notifications == 1; }));
+      std::lock_guard<std::mutex> lock(probe->mutex);
+      EXPECT_EQ(probe->cancelled_id,
+                json::JsonValue(get<int64_t>(sent.id)).toString());
+      EXPECT_EQ(probe->cancelled_reason, "user gave up");
+    }
+
+    // Nothing left to cancel, and the shared connection is untouched.
+    EXPECT_FALSE(client_->cancelRequest(sent.id));
+    auto ping = client_->sendRequest("ping");
+    ASSERT_EQ(ping.wait_for(5s), std::future_status::ready);
+    EXPECT_FALSE(ping.get().error.has_value());
+  }
+}
+
+// A request that runs out of its own time is cancelled the same way.
+TEST_F(McpClientInitializeRoutingTest, ARequestThatTimesOutIsCancelled) {
+  client_path_ = "/mcp";
+  for (const bool newest : {true, false}) {
+    SCOPED_TRACE(newest ? "2026-07-28" : "earlier");
+    if (!newest) {
+      client_->shutdown();
+      client_.reset();
+      stopServer();
+      startServer(/*serve_newest=*/false);
+    }
+    auto probe = std::make_shared<SlowRequestProbe>();
+    registerSlowRequest(*server_, probe);
+    connectInitializedClient();
+
+    client::RequestOptions options;
+    options.timeout = 300ms;
+    auto sent = client_->sendCancellableRequest(
+        "example/slow", json::JsonValue::object(), options);
+    ASSERT_EQ(sent.response.wait_for(5s), std::future_status::ready);
+    const auto response = sent.response.get();
+    ASSERT_TRUE(response.error.has_value());
+    EXPECT_EQ(response.error->code, jsonrpc::REQUEST_TIMED_OUT)
+        << response.error->message;
+
+    EXPECT_TRUE(probe->waitFor([&]() {
+      return probe->cancellation && probe->cancellation->isCancelled();
+    })) << "the server never saw the timed-out request cancelled";
+    if (!newest) {
+      std::lock_guard<std::mutex> lock(probe->mutex);
+      EXPECT_EQ(probe->cancelled_notifications, 1);
+    }
+  }
+}
+
+// An ordinary request running out of the client's default time fails as
+// timed out. In 2026-07-28 it shares its connection with others, so it is
+// let go of without a signal and the connection carries on; in an earlier
+// revision the server is told with notifications/cancelled.
+TEST_F(McpClientInitializeRoutingTest, TheDefaultTimeoutCostsNoConnection) {
+  client_path_ = "/mcp";
+  for (const bool newest : {true, false}) {
+    SCOPED_TRACE(newest ? "2026-07-28" : "earlier");
+    if (!newest) {
+      client_->shutdown();
+      client_.reset();
+      stopServer();
+      startServer(/*serve_newest=*/false);
+    }
+    auto probe = std::make_shared<SlowRequestProbe>();
+    registerSlowRequest(*server_, probe);
+    tweak_client_ = [](client::McpClientConfig& config) {
+      config.request_timeout = 400ms;
+    };
+    connectInitializedClient();
+    tweak_client_ = nullptr;
+
+    auto slow = client_->sendRequest("example/slow");
+    ASSERT_EQ(slow.wait_for(5s), std::future_status::ready);
+    const auto response = slow.get();
+    ASSERT_TRUE(response.error.has_value());
+    EXPECT_EQ(response.error->code, jsonrpc::REQUEST_TIMED_OUT)
+        << response.error->message;
+
+    if (newest) {
+      std::this_thread::sleep_for(100ms);
+      std::lock_guard<std::mutex> lock(probe->mutex);
+      EXPECT_EQ(probe->cancelled_notifications, 0);
+    } else {
+      EXPECT_TRUE(probe->waitFor([&]() {
+        return probe->cancelled_notifications == 1;
+      })) << "the timed-out request was not cancelled";
+    }
+    auto ping = client_->sendRequest("ping");
+    ASSERT_EQ(ping.wait_for(5s), std::future_status::ready);
+    EXPECT_FALSE(ping.get().error.has_value());
+  }
+}
+
+// A caller following a request's progress hears each notification, with
+// its message, and progress may keep a short timeout from running out.
+TEST_F(McpClientInitializeRoutingTest, ProgressIsFollowedAndExtendsTheTimeout) {
+  client_path_ = "/mcp";
+  for (const bool newest : {true, false}) {
+    SCOPED_TRACE(newest ? "2026-07-28" : "earlier");
+    if (!newest) {
+      client_->shutdown();
+      client_.reset();
+      stopServer();
+      startServer(/*serve_newest=*/false);
+    }
+    std::thread worker;
+    std::mutex worker_mutex;
+    server::McpServer* server = server_.get();
+    server_->registerAsyncRequestHandler(
+        "example/steps",
+        [server, &worker, &worker_mutex](const jsonrpc::Request& request,
+                                         server::SessionContext&,
+                                         const ResponseStreamPtr& stream) {
+          json::JsonValue token;
+          if (request.params_json.has_value() &&
+              request.params_json->contains("_meta")) {
+            token = (*request.params_json)["_meta"]["progressToken"];
+          }
+          const RequestId id = request.id;
+          std::lock_guard<std::mutex> lock(worker_mutex);
+          worker = std::thread([server, stream, token, id]() {
+            for (int step = 1; step <= 4; ++step) {
+              std::this_thread::sleep_for(150ms);
+              server->postToDispatcher([stream, token, step]() {
+                jsonrpc::Notification progress("notifications/progress");
+                json::JsonValue params = json::JsonValue::object();
+                params.set("progressToken", token);
+                params.set("progress", json::JsonValue(step));
+                params.set("total", json::JsonValue(4));
+                params.set("message",
+                           json::JsonValue("step " + std::to_string(step)));
+                progress.params_json = mcp::make_optional(params);
+                stream->sendNotification(progress);
+              });
+            }
+            std::this_thread::sleep_for(150ms);
+            server->postToDispatcher([stream, id]() {
+              stream->sendResponse(jsonrpc::Response::success(
+                  id, jsonrpc::ResponseResult(json::JsonValue::object())));
+            });
+          });
+        });
+    connectInitializedClient();
+
+    auto heard = std::make_shared<std::vector<std::string>>();
+    auto heard_mutex = std::make_shared<std::mutex>();
+    client::RequestOptions options;
+    options.timeout = 400ms;
+    options.progress_resets_timeout = true;
+    options.on_progress = [heard, heard_mutex](const ProgressNotification& p) {
+      std::lock_guard<std::mutex> lock(*heard_mutex);
+      heard->push_back(std::to_string(static_cast<int>(p.progress)) + "/" +
+                       std::to_string(static_cast<int>(p.total.value_or(0))) +
+                       " " + p.message.value_or(""));
+    };
+    auto sent = client_->sendCancellableRequest(
+        "example/steps", json::JsonValue::object(), options);
+    ASSERT_EQ(sent.response.wait_for(5s), std::future_status::ready);
+    const auto response = sent.response.get();
+    EXPECT_FALSE(response.error.has_value())
+        << "progress did not keep the request alive: "
+        << (response.error.has_value() ? response.error->message : "");
+    {
+      std::lock_guard<std::mutex> lock(*heard_mutex);
+      EXPECT_EQ(*heard, (std::vector<std::string>{"1/4 step 1", "2/4 step 2",
+                                                  "3/4 step 3", "4/4 step 4"}));
+    }
+    std::lock_guard<std::mutex> lock(worker_mutex);
+    if (worker.joinable()) {
+      worker.join();
+    }
+  }
 }
 
 // A server that offers no completions refuses, and the call fails with
