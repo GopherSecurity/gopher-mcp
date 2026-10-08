@@ -53,6 +53,7 @@
 #include "mcp/protocol/designated_params.h"
 #include "mcp/protocol/mrtr.h"
 #include "mcp/protocol/request_state_sealer.h"
+#include "mcp/protocol/trace_context.h"
 #include "mcp/server/list_paging.h"
 #include "mcp/server/listen_registry.h"
 #include "mcp/transport/streamable_http_config.h"
@@ -175,6 +176,10 @@ struct McpServerConfig : public application::ApplicationBase::Config {
   // every successful result to a 2026-07-28 caller, as the spec asks of a
   // server unless it is configured not to. Earlier revisions never get it.
   bool send_server_info = true;
+  // Starts a span around each request this server handles, ended with its
+  // outcome, given the trace context the request carried in _meta.
+  // Without one nothing is traced.
+  protocol::trace::SpanHook span_hook;
 
   // Keys for sealing the requestState a handler sends with answerWithInput.
   // With any configured, every such state is sealed to the caller, the

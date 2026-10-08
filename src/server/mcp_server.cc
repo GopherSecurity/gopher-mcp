@@ -26,6 +26,7 @@
 #include "mcp/logging/log_macros.h"
 #include "mcp/protocol/modern_era.h"
 #include "mcp/protocol/protocol_versions.h"
+#include "mcp/protocol/trace_context.h"
 #include "mcp/transport/http_sse_transport_socket.h"
 // NOTE: We'll implement connection handler directly in server for now
 // to avoid conflicts with existing connection management in
@@ -423,8 +424,9 @@ namespace {
  */
 class DeferredAnswer : public ResponseStream {
  public:
+  // on_answered is told the error the answer carried, if any.
   DeferredAnswer(ResponseStreamPtr stream,
-                 std::function<void()> on_answered,
+                 std::function<void(const optional<Error>&)> on_answered,
                  CacheHintPolicy cache_hints = CacheHintPolicy())
       : stream_(std::move(stream)),
         on_answered_(std::move(on_answered)),
@@ -448,11 +450,7 @@ class DeferredAnswer : public ResponseStream {
     // Told once, whether or not the write reached anyone: the request is
     // over either way, and a client that has gone — or a stream that was
     // never there — is not a reason to keep accounting for it.
-    if (on_answered_) {
-      auto finished = std::move(on_answered_);
-      on_answered_ = nullptr;
-      finished();
-    }
+    answered(settled.error);
     return sent;
   }
 
@@ -466,11 +464,7 @@ class DeferredAnswer : public ResponseStream {
     // success containing a failure.
     auto sent =
         stream_ ? stream_->sendRefusal(http_status, error, data) : noStream();
-    if (on_answered_) {
-      auto finished = std::move(on_answered_);
-      on_answered_ = nullptr;
-      finished();
-    }
+    answered(mcp::make_optional(error));
     return sent;
   }
 
@@ -491,9 +485,59 @@ class DeferredAnswer : public ResponseStream {
               "this request was dispatched with nowhere to answer it"));
   }
 
+  void answered(const optional<Error>& error) {
+    if (on_answered_) {
+      auto finished = std::move(on_answered_);
+      on_answered_ = nullptr;
+      finished(error);
+    }
+  }
+
   ResponseStreamPtr stream_;
-  std::function<void()> on_answered_;
+  std::function<void(const optional<Error>&)> on_answered_;
   CacheHintPolicy cache_hints_;
+};
+
+/**
+ * A request's stream, carrying its trace context on what the server sends
+ * while answering: progress and other notifications, and questions to the
+ * client. Whichever thread a handler sends from, what it sends belongs to
+ * this request's trace.
+ */
+class TracingStream : public ResponseStream {
+ public:
+  TracingStream(ResponseStreamPtr stream, protocol::trace::TraceContext trace)
+      : stream_(std::move(stream)), trace_(std::move(trace)) {}
+
+  VoidResult sendNotification(
+      const jsonrpc::Notification& notification) override {
+    return stream_->sendNotification(
+        protocol::trace::withContext(notification, trace_));
+  }
+
+  VoidResult sendRequest(const jsonrpc::Request& request) override {
+    return stream_->sendRequest(protocol::trace::withContext(request, trace_));
+  }
+
+  VoidResult sendRefusal(int http_status,
+                         const Error& error,
+                         const json::JsonValue& data) override {
+    return stream_->sendRefusal(http_status, error, data);
+  }
+
+  VoidResult sendResponse(const jsonrpc::Response& response) override {
+    return stream_->sendResponse(response);
+  }
+
+  bool alive() const override { return stream_->alive(); }
+
+  bool onCancelled(std::function<void()> observer) override {
+    return stream_->onCancelled(std::move(observer));
+  }
+
+ private:
+  ResponseStreamPtr stream_;
+  protocol::trace::TraceContext trace_;
 };
 
 /**
@@ -1431,8 +1475,11 @@ VoidResult McpServer::sendRequestToSession(
 
 std::future<jsonrpc::Response> McpServer::sendRequest(
     const std::string& session_id,
-    const jsonrpc::Request& request,
+    const jsonrpc::Request& given,
     std::chrono::milliseconds timeout) {
+  // Sent while handling a request, it belongs to that request's trace.
+  const jsonrpc::Request request =
+      protocol::trace::withContext(given, protocol::trace::current());
   if (!main_dispatcher_) {
     return makeReadyResponseFuture(request.id, jsonrpc::INTERNAL_ERROR,
                                    "Server not running");
@@ -1667,8 +1714,11 @@ void McpServer::notifyResourcesListChanged() {
 }
 
 // Send notification to specific session
-VoidResult McpServer::sendNotification(
-    const std::string& session_id, const jsonrpc::Notification& notification) {
+VoidResult McpServer::sendNotification(const std::string& session_id,
+                                       const jsonrpc::Notification& given) {
+  // Sent while handling a request, it belongs to that request's trace.
+  const jsonrpc::Notification notification =
+      protocol::trace::withContext(given, protocol::trace::current());
   // Already on the dispatcher thread (e.g. called from a tool or request
   // handler): resolve and deliver inline, returning the real result. The
   // old post-and-wait here deadlocked the event loop — the future could
@@ -1864,9 +1914,31 @@ VoidResult McpServer::answerWithInput(
         request_state_sealer_->seal(outgoing.request_state.value(), bound);
   }
 
-  jsonrpc::Response response = jsonrpc::Response::success(
-      request.id,
-      jsonrpc::ResponseResult(protocol::modern::renderInputRequired(outgoing)));
+  // Each request the client is asked to fulfil belongs to this request's
+  // trace, as one sent to it directly would.
+  json::JsonValue rendered = protocol::modern::renderInputRequired(outgoing);
+  const protocol::trace::TraceContext trace =
+      protocol::trace::current().empty() ? protocol::trace::fromRequest(request)
+                                         : protocol::trace::current();
+  if (!trace.empty() &&
+      rendered.contains(protocol::modern::kInputRequestsField) &&
+      rendered[protocol::modern::kInputRequestsField].isObject()) {
+    json::JsonValue asked = rendered[protocol::modern::kInputRequestsField];
+    for (const auto& key : asked.keys()) {
+      json::JsonValue one = asked[key];
+      if (one.isObject()) {
+        one.set("params",
+                protocol::trace::withContext(
+                    one.contains("params") ? one["params"] : json::JsonValue(),
+                    trace));
+        asked.set(key, one);
+      }
+    }
+    rendered.set(protocol::modern::kInputRequestsField, asked);
+  }
+
+  jsonrpc::Response response =
+      jsonrpc::Response::success(request.id, jsonrpc::ResponseResult(rendered));
   return stream->sendResponse(response);
 }
 
@@ -2239,6 +2311,29 @@ void McpServer::dispatchRequest(const jsonrpc::Request& request,
 
   session->updateActivity();
 
+  // The trace this request belongs to, as its _meta says: current while
+  // it is handled, so what the handler sends carries it on, and handed to
+  // the application's tracer with the outcome. A malformed context is
+  // ignored, never a reason to refuse the request.
+  const protocol::trace::TraceContext trace =
+      protocol::trace::fromRequest(request);
+  protocol::trace::TraceScope trace_scope(trace);
+  std::shared_ptr<protocol::trace::Span> span;
+  {
+    protocol::trace::SpanHook hook;
+    {
+      std::lock_guard<std::mutex> lock(config_mutex_);
+      hook = config_.span_hook;
+    }
+    if (hook) {
+      protocol::trace::SpanStart start;
+      start.kind = protocol::trace::SpanKind::Server;
+      start.method = request.method;
+      start.context = trace;
+      span = std::make_shared<protocol::trace::Span>(hook, start);
+    }
+  }
+
   // Track this request for potential cancellation, under its session: an
   // id is unique only within one.
   auto pending_req = std::make_shared<PendingRequest>();
@@ -2279,6 +2374,10 @@ void McpServer::dispatchRequest(const jsonrpc::Request& request,
     stream = context.beginResponseStream();
     if (stream) {
       stream->setRequestPrincipal(context.principal());
+      if (!trace.empty()) {
+        stream = std::make_shared<TracingStream>(stream, trace);
+        stream->setRequestPrincipal(context.principal());
+      }
     }
     session->setResponseStream(stream);
   }
@@ -2323,6 +2422,9 @@ void McpServer::dispatchRequest(const jsonrpc::Request& request,
       GOPHER_LOG_ERROR("Failed to refuse '{}': {}", request.method,
                        get<Error>(sent).message);
     }
+    if (span) {
+      span->end(refusal.error);
+    }
     forgetPendingRequest(pendingKeyOf(session->getId(), request.id));
     return;
   }
@@ -2354,7 +2456,13 @@ void McpServer::dispatchRequest(const jsonrpc::Request& request,
 
     const std::string pending_key = pendingKeyOf(session->getId(), request.id);
     auto answer = std::make_shared<DeferredAnswer>(
-        stream, [this, pending_key]() { forgetPendingRequest(pending_key); },
+        stream,
+        [this, pending_key, span](const optional<Error>& error) {
+          if (span) {
+            span->end(error);
+          }
+          forgetPendingRequest(pending_key);
+        },
         cache_hints);
     // The caller of this request, kept with its answer: the session will
     // have served others by the time a deferred answer comes.
@@ -2458,6 +2566,9 @@ void McpServer::dispatchRequest(const jsonrpc::Request& request,
   // the stream open with the client still waiting.
   auto send_result =
       stream ? stream->sendResponse(response) : context.sendResponse(response);
+  if (span) {
+    span->end(response.error);
+  }
   if (holds_alternative<Error>(send_result)) {
     server_stats_.errors_total++;
     GOPHER_LOG_ERROR("Failed to send response for request id {}: {}",
