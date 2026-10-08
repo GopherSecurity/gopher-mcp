@@ -2075,10 +2075,14 @@ JsonValue serialize_ProgressNotification(
   builder
       .add("progressToken",
            to_json(static_cast<RequestId>(notification.progressToken)))
-      .add("progress", notification.progress);
+      .add("progress", numberJson(notification.progress));
 
   if (notification.total.has_value()) {
-    builder.add("total", notification.total.value());
+    builder.add("total", numberJson(notification.total.value()));
+  }
+
+  if (notification.message.has_value()) {
+    builder.add("message", notification.message.value());
   }
 
   return builder.build();
@@ -3264,11 +3268,13 @@ ProgressNotification deserialize_ProgressNotification(const JsonValue& json) {
     notif.progressToken = ProgressToken(token.getInt());
   }
 
-  notif.progress = json.at("progress").getFloat();
-
-  if (json.contains("total")) {
-    notif.total = json["total"].getFloat();
+  const auto progress = numberField(json, "progress");
+  if (!progress.has_value()) {
+    throw JsonException("progress must be a number");
   }
+  notif.progress = progress.value();
+  notif.total = numberField(json, "total");
+  notif.message = stringField(json, "message");
 
   return notif;
 }
