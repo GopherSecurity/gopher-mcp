@@ -496,10 +496,6 @@ const std::map<std::string, std::string>& kKnownGaps() {
        "dropped"},
       {"CreateMessageRequestParams",
        "toolChoice and tool-result message content are not modelled"},
-      {"ProgressNotification",
-       "the progress message is not modelled, so dropped"},
-      {"ProgressNotificationParams",
-       "the progress message is not modelled, so dropped"},
       // Results
       {"CallToolResult",
        "resultType is not written, and isError: false is left out"},
