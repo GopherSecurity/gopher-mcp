@@ -317,30 +317,74 @@ TraceContext fromRequest(const jsonrpc::Request& request) {
 
 json::JsonValue withContext(const json::JsonValue& params,
                             const TraceContext& context) {
-  const TraceContext kept = sanitized(context);
-  if (kept.empty()) {
+  const bool has_meta = params.isObject() && params.contains("_meta") &&
+                        params["_meta"].isObject();
+  const json::JsonValue given =
+      has_meta ? params["_meta"] : json::JsonValue::object();
+  const bool sets_any = given.contains(kTraceParent) ||
+                        given.contains(kTraceState) || given.contains(kBaggage);
+  const TraceContext ours = sanitized(context);
+  if (ours.empty() && !sets_any) {
     return params;
   }
-  json::JsonValue out = params.isObject() ? params : json::JsonValue::object();
-  json::JsonValue meta = out.contains("_meta") && out["_meta"].isObject()
-                             ? out["_meta"]
-                             : json::JsonValue::object();
+
+  // What the application set itself wins, but only where it is well formed:
+  // the reserved keys are never sent in any other format. A tracestate
+  // belongs to the traceparent it came with, so the two go together from
+  // whichever side the traceparent is taken.
+  TraceContext own;
+  own.traceparent = stringAt(given, kTraceParent);
+  own.tracestate = stringAt(given, kTraceState);
+  own.baggage = stringAt(given, kBaggage);
+  own = sanitized(own);
+  TraceContext sent;
+  if (own.traceparent.has_value()) {
+    sent.traceparent = own.traceparent;
+    sent.tracestate = own.tracestate;
+  } else {
+    sent.traceparent = ours.traceparent;
+    sent.tracestate = ours.tracestate;
+  }
+  sent.baggage = own.baggage.has_value() ? own.baggage : ours.baggage;
+
+  json::JsonValue meta = json::JsonValue::object();
+  for (const auto& key : given.keys()) {
+    if (key != kTraceParent && key != kTraceState && key != kBaggage) {
+      meta.set(key, given[key]);
+    }
+  }
   const std::pair<const char*, const optional<std::string>*> keys[] = {
-      {kTraceParent, &kept.traceparent},
-      {kTraceState, &kept.tracestate},
-      {kBaggage, &kept.baggage}};
+      {kTraceParent, &sent.traceparent},
+      {kTraceState, &sent.tracestate},
+      {kBaggage, &sent.baggage}};
   for (const auto& key : keys) {
-    if (key.second->has_value() && !meta.contains(key.first)) {
+    if (key.second->has_value()) {
       meta.set(key.first, json::JsonValue(key.second->value()));
     }
   }
+  json::JsonValue out = params.isObject() ? params : json::JsonValue::object();
   out.set("_meta", meta);
   return out;
 }
 
+namespace {
+// Whether a message's own params set any of the reserved keys, which are
+// checked before it goes out whether or not a context is added.
+bool setsTraceKeys(const json::JsonValue& params) {
+  if (!params.isObject() || !params.contains("_meta") ||
+      !params["_meta"].isObject()) {
+    return false;
+  }
+  const auto& meta = params["_meta"];
+  return meta.contains(kTraceParent) || meta.contains(kTraceState) ||
+         meta.contains(kBaggage);
+}
+}  // namespace
+
 jsonrpc::Request withContext(const jsonrpc::Request& request,
                              const TraceContext& context) {
-  if (sanitized(context).empty()) {
+  if (sanitized(context).empty() &&
+      !setsTraceKeys(paramsJsonOf(request.params_json, request.params))) {
     return request;
   }
   jsonrpc::Request out = request;
@@ -351,7 +395,9 @@ jsonrpc::Request withContext(const jsonrpc::Request& request,
 
 jsonrpc::Notification withContext(const jsonrpc::Notification& notification,
                                   const TraceContext& context) {
-  if (sanitized(context).empty()) {
+  if (sanitized(context).empty() &&
+      !setsTraceKeys(
+          paramsJsonOf(notification.params_json, notification.params))) {
     return notification;
   }
   jsonrpc::Notification out = notification;
