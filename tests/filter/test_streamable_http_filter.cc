@@ -1387,6 +1387,46 @@ TEST_F(StreamableHttpFilterTest, ASessionInUseIsKeptAlive) {
   EXPECT_GE(sessions_->find(id)->last_activity, before);
 }
 
+TEST_F(StreamableHttpFilterTest,
+       ACompletedResponseStreamStartsANewIdleWindow) {
+  keepSessions();
+
+  feed(post("/mcp", kRequestBody));
+  const std::string id = sessionIdOnTheWire();
+  ASSERT_FALSE(id.empty());
+
+  callbacks_.streaming = StreamingMode::Required;
+  callbacks_.answer_requests = false;
+  wire_.clear();
+
+  feed(post("/mcp", "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\"}",
+            "Mcp-Session-Id: " + id + "\r\n"
+            "Accept: text/event-stream\r\n"));
+  ASSERT_TRUE(callbacks_.stream);
+
+  transport::SessionCtx* session = sessions_->find(id);
+  ASSERT_NE(session, nullptr);
+  const auto before = session->last_activity;
+  session->last_activity -= std::chrono::seconds(60);
+
+  jsonrpc::Response response;
+  response.jsonrpc = "2.0";
+  response.id = RequestId(static_cast<int64_t>(2));
+  response.result = mcp::make_optional(jsonrpc::ResponseResult(Metadata()));
+  ASSERT_FALSE(
+      holds_alternative<Error>(callbacks_.stream->sendResponse(response)));
+
+  std::vector<std::string> expired;
+  sessions_->forEachExpired(std::chrono::milliseconds(25),
+                            [&expired](transport::SessionCtx& session) {
+                              expired.push_back(session.id);
+                            });
+
+  EXPECT_TRUE(expired.empty())
+      << "the idle window started before the response stream completed";
+  EXPECT_GE(sessions_->find(id)->last_activity, before);
+}
+
 TEST_F(StreamableHttpFilterTest, TheAgreedRevisionIsRecordedOnTheSession) {
   keepSessions();
   callbacks_.result = json::JsonValue::object();
