@@ -362,11 +362,57 @@ TEST_P(PythonServerInteropTest, AMissingResourceKeepsTheServersError) {
             "interop://missing");
 }
 
-// Listening, which only the newest revision has: a subscription to the
-// greeting hears it change when a tool says it did.
-TEST_P(PythonServerInteropTest, AListenerHearsAResourceChange) {
+// A change to the greeting is heard when a tool says it changed, in each
+// revision the way it has: a subscription opened with subscriptions/listen
+// in 2026-07-28, resources/subscribe before it.
+TEST_P(PythonServerInteropTest, AResourceChangeIsHeard) {
   if (!modern()) {
-    GTEST_SKIP() << "subscriptions/listen is new in 2026-07-28";
+    ASSERT_TRUE(startServer());
+    startClient();
+    auto heard = std::make_shared<std::atomic<int>>(0);
+    client_->registerNotificationHandler(
+        "notifications/resources/updated",
+        [heard](const jsonrpc::Notification& notification) {
+          const json::JsonValue params =
+              notification.params_json.has_value()
+                  ? notification.params_json.value()
+                  : (notification.params.has_value()
+                         ? json::metadataToJson(notification.params.value())
+                         : json::JsonValue::object());
+          if (params.isObject() && params.contains("uri") &&
+              params["uri"].isString() &&
+              params["uri"].getString() == kGreeting) {
+            ++*heard;
+          }
+        });
+    ASSERT_NO_THROW(handshake());
+
+    auto subscribed = client_->subscribeResource(kGreeting);
+    ASSERT_EQ(subscribed.wait_for(15s), std::future_status::ready);
+    auto subscribe_result = subscribed.get();
+    ASSERT_TRUE(holds_alternative<std::nullptr_t>(subscribe_result))
+        << "the subscription was refused: "
+        << get<Error>(subscribe_result).message << "\n"
+        << server_.output();
+    ASSERT_NO_THROW(call("touch_greeting"));
+    for (int i = 0; i < 200 && heard->load() == 0; ++i) {
+      std::this_thread::sleep_for(50ms);
+    }
+    ASSERT_GE(heard->load(), 1) << "the change was never heard";
+    // Heard once: one change is one notification.
+    std::this_thread::sleep_for(1s);
+    ASSERT_EQ(heard->load(), 1) << "one change was heard more than once";
+
+    // Unsubscribed, a further change is not delivered.
+    auto unsubscribed = client_->unsubscribeResource(kGreeting);
+    ASSERT_EQ(unsubscribed.wait_for(15s), std::future_status::ready);
+    ASSERT_TRUE(holds_alternative<std::nullptr_t>(unsubscribed.get()));
+    ASSERT_NO_THROW(call("touch_greeting"));
+    std::this_thread::sleep_for(1s);
+    EXPECT_EQ(heard->load(), 1)
+        << "a change was heard after unsubscribing; the Python server wrote:\n"
+        << server_.output();
+    return;
   }
   ASSERT_TRUE(startServer());
   startClient();

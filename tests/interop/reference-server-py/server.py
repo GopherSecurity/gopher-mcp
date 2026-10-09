@@ -14,9 +14,11 @@ ones too, since the SDK serves both from one endpoint:
   elicit_prompt     asks the client which environment, and answers
                     "<action>:<env>": a request of its own up to 2025-11-25,
                     input_required in 2026-07-28
-  touch_greeting    says the greeting resource changed, for anyone listening
+  touch_greeting    says the greeting resource changed: to 2026-07-28
+                    listeners, and to subscribers of the earlier revisions
 
-plus a resource and a prompt, and caching hints on tools/list.
+plus a resource and a prompt, caching hints on tools/list, and
+resources/subscribe and resources/unsubscribe for the earlier revisions.
 
     python server.py --port 8932 [--stateless]
 """
@@ -28,6 +30,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel
 
+from mcp import types
 from mcp.server import CacheHint
 from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.mcpserver.resolve import Elicit, ElicitationResult, Resolve
@@ -109,9 +112,49 @@ def build_server(page_size: int = 0) -> MCPServer:
         env = getattr(data, "env", "") if data is not None else ""
         return f"{action}:{env}"
 
+    # The earlier revisions hear of a change by subscribing to its resource,
+    # and are told with notifications/resources/updated on their session.
+    # MCPServer serves only 2026-07-28 listening, so these go on its
+    # low-level server, which then advertises resources.subscribe to the
+    # earlier revisions.
+    #
+    # Keyed by Mcp-Session-Id: each HTTP connection gets a session object of
+    # its own, and a client may unsubscribe on a connection other than the
+    # one it subscribed on.
+    subscribers: dict[str, dict[str, object]] = {}
+
+    def client_of(ctx) -> str:
+        request = getattr(ctx, "request", None)
+        headers = getattr(request, "headers", None)
+        session_id = headers.get("mcp-session-id") if headers is not None else None
+        return session_id or f"connection-{id(ctx.session)}"
+
+    async def subscribe(ctx, params: types.SubscribeRequestParams):
+        subscribers.setdefault(str(params.uri), {})[client_of(ctx)] = ctx.session
+        return types.EmptyResult()
+
+    async def unsubscribe(ctx, params: types.UnsubscribeRequestParams):
+        subscribers.get(str(params.uri), {}).pop(client_of(ctx), None)
+        return types.EmptyResult()
+
+    server._lowlevel_server.add_request_handler(
+        "resources/subscribe", types.SubscribeRequestParams, subscribe
+    )
+    server._lowlevel_server.add_request_handler(
+        "resources/unsubscribe", types.UnsubscribeRequestParams, unsubscribe
+    )
+
     @server.tool(description="Say the greeting resource changed")
     async def touch_greeting(ctx: Context) -> str:
+        # 2026-07-28 listeners, through the SDK's own subscriptions.
         await ctx.notify_resource_updated(GREETING)
+        # Subscribers of the earlier revisions, on their own sessions. One
+        # whose session has gone is forgotten.
+        for client, session in list(subscribers.get(GREETING, {}).items()):
+            try:
+                await session.send_resource_updated(GREETING)
+            except Exception:  # noqa: BLE001 - a gone session hears nothing
+                subscribers[GREETING].pop(client, None)
         return "touched"
 
     @server.resource(GREETING, description="A fixed greeting", mime_type="text/plain")
