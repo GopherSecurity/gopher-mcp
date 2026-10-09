@@ -147,7 +147,7 @@ TEST_F(RequestTrackerTest, ConcurrentGetRequest) {
 
   // Writer threads
   for (int w = 0; w < NUM_WRITERS; ++w) {
-    threads.emplace_back([this, w, OPS_PER_THREAD]() {
+    threads.emplace_back([this, w]() {
       for (int i = 0; i < OPS_PER_THREAD; ++i) {
         int64_t id = 50 + w * OPS_PER_THREAD + i;
         tracker_->trackRequest(createRequest(id));
@@ -207,7 +207,7 @@ TEST_F(RequestTrackerTest, TimeoutDetectionUnderLoad) {
 
   // Request adder threads
   for (int t = 0; t < NUM_THREADS; ++t) {
-    threads.emplace_back([this, t, REQUESTS_PER_THREAD]() {
+    threads.emplace_back([this, t]() {
       for (int i = 0; i < REQUESTS_PER_THREAD; ++i) {
         int64_t id = t * REQUESTS_PER_THREAD + i;
         tracker_->trackRequest(createRequest(id));
@@ -247,7 +247,7 @@ TEST_F(RequestTrackerTest, RequestIdUniqueness) {
   threads.reserve(NUM_THREADS);
 
   for (int t = 0; t < NUM_THREADS; ++t) {
-    threads.emplace_back([&next_id, &all_ids, &ids_mutex, IDS_PER_THREAD]() {
+    threads.emplace_back([&next_id, &all_ids, &ids_mutex]() {
       std::vector<int64_t> local_ids;
       local_ids.reserve(IDS_PER_THREAD);
 
@@ -304,7 +304,7 @@ TEST_F(CircuitBreakerTest, ConcurrentAllowRequestCalls) {
   threads.reserve(NUM_THREADS);
 
   for (int t = 0; t < NUM_THREADS; ++t) {
-    threads.emplace_back([this, &allowed, &denied, CALLS_PER_THREAD]() {
+    threads.emplace_back([this, &allowed, &denied]() {
       for (int i = 0; i < CALLS_PER_THREAD; ++i) {
         if (breaker_->allowRequest()) {
           allowed++;
@@ -385,7 +385,7 @@ TEST_F(CircuitBreakerTest, ConcurrentRecordSuccessFailure) {
 
   // Success threads
   for (int t = 0; t < NUM_SUCCESS_THREADS; ++t) {
-    threads.emplace_back([this, &start, &successes, OPS_PER_THREAD]() {
+    threads.emplace_back([this, &start, &successes]() {
       while (!start.load())
         std::this_thread::yield();
       for (int i = 0; i < OPS_PER_THREAD; ++i) {
@@ -397,7 +397,7 @@ TEST_F(CircuitBreakerTest, ConcurrentRecordSuccessFailure) {
 
   // Failure threads
   for (int t = 0; t < NUM_FAILURE_THREADS; ++t) {
-    threads.emplace_back([this, &start, &failures, OPS_PER_THREAD]() {
+    threads.emplace_back([this, &start, &failures]() {
       while (!start.load())
         std::this_thread::yield();
       for (int i = 0; i < OPS_PER_THREAD; ++i) {
@@ -935,7 +935,7 @@ TEST_F(ClientThreadingStressTest, CombinedStress) {
 
   for (int t = 0; t < NUM_THREADS; ++t) {
     threads.emplace_back([this, t, &total_requests, &allowed_requests,
-                          &completed_requests, &stop, OPS_PER_THREAD]() {
+                          &completed_requests, &stop]() {
       for (int i = 0; i < OPS_PER_THREAD && !stop.load(); ++i) {
         total_requests++;
 
@@ -1132,7 +1132,7 @@ TEST_F(ClientThreadingStressTest, CircuitBreakerUnderStress) {
   threads.reserve(NUM_THREADS);
 
   for (int t = 0; t < NUM_THREADS; ++t) {
-    threads.emplace_back([&fast_breaker, t, &allowed, &denied, &successes,
+    threads.emplace_back([&fast_breaker, &allowed, &denied, &successes,
                           &failures, &state_changes, &last_state,
                           &state_mutex]() {
       std::random_device rd;
@@ -1250,7 +1250,7 @@ TEST_F(ErrorScenarioTest, DisconnectWhileRequestsPending) {
   std::vector<std::thread> reject_threads;
 
   for (int i = 0; i < NUM_PENDING; ++i) {
-    reject_threads.emplace_back([this, i, &rejected, &contexts]() {
+    reject_threads.emplace_back([this, i, &rejected]() {
       auto removed =
           tracker_->removeRequest(RequestId(static_cast<int64_t>(i)));
       if (removed) {

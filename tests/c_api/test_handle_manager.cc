@@ -165,7 +165,7 @@ TEST_F(HandleManagerTest, ThreadSafety) {
 
   // Multiple threads storing objects
   for (int t = 0; t < num_threads; ++t) {
-    threads.emplace_back([this, t, &thread_handles, objects_per_thread]() {
+    threads.emplace_back([this, t, &thread_handles]() {
       for (int i = 0; i < objects_per_thread; ++i) {
         auto obj = std::make_unique<TestObject>(t * 1000 + i);
         uint64_t handle = manager_.store(std::move(obj));
