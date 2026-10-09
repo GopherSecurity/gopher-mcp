@@ -10,6 +10,7 @@
  *              "baggage": "key=value;property,..."}}
  */
 
+#include <memory>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -348,9 +349,8 @@ TEST(TraceContext, ASpanEndsOnceWithItsOutcome) {
   EXPECT_FALSE(ended[0].has_value());
 
   // One never ended is ended when it goes, as a request with no answer.
-  {
-    Span abandoned(hook, start);
-  }
+  std::unique_ptr<Span> abandoned(new Span(hook, start));
+  abandoned.reset();
   ASSERT_EQ(ended.size(), 2u);
   ASSERT_TRUE(ended[1].has_value());
   EXPECT_EQ(ended[1]->code, jsonrpc::INTERNAL_ERROR);
