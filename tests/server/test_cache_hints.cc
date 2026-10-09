@@ -163,7 +163,7 @@ TEST(CacheHints, EveryCacheableResultCarriesTheSafeDefaults) {
   addResource(server);
   addTemplateListing(server);
 
-  for (const std::string method :
+  for (const std::string& method :
        {std::string(protocol::modern::kMethodServerDiscover),
         std::string("tools/list"), std::string("prompts/list"),
         std::string("resources/list"), std::string("resources/templates/list"),
@@ -207,7 +207,7 @@ TEST(CacheHints, AnOlderCallerIsGivenNone) {
   DispatchTestServer server(testConfig());
   addResource(server);
 
-  for (const std::string method :
+  for (const std::string& method :
        {std::string("tools/list"), std::string("prompts/list"),
         std::string("resources/list"), std::string("resources/read")}) {
     const JsonValue answer = answerTo(

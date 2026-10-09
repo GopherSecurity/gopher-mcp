@@ -95,7 +95,7 @@ TEST(EmptyResultShape, SubscribingAnswersWithAnEmptyObject) {
 // revision and in the newest.
 TEST(EmptyResultShape, APingIsAnsweredWithAnEmptyObject) {
   DispatchTestServer server(testConfig());
-  for (const std::string revision :
+  for (const std::string& revision :
        {std::string(), std::string("2026-07-28")}) {
     SCOPED_TRACE(revision.empty() ? "no revision declared" : revision);
     jsonrpc::Request ping;

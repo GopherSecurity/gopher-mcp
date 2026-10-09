@@ -49,7 +49,7 @@ RequestStateContext deployCall(const std::string& principal = "alice") {
 
 TEST(RequestStateSealer, ASealedStateOpensForTheSameCallAndCaller) {
   RequestStateSealer sealer({kCurrent});
-  for (const std::string state :
+  for (const std::string& state :
        {std::string("approved:deploy"), std::string(),
         std::string("\x00\x01\xff binary", 10), std::string(5000, 'x')}) {
     const std::string sealed = sealer.seal(state, deployCall());

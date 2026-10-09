@@ -349,7 +349,7 @@ TEST(ResourceNotFoundResponse, AResourceThatExistsIsStillRead) {
                             return result;
                           });
 
-  for (const std::string revision :
+  for (const std::string& revision :
        {std::string(), std::string("2026-07-28")}) {
     const JsonValue answer =
         answerTo(server, readRequest("present://here", revision));
