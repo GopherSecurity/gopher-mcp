@@ -91,7 +91,12 @@ struct Task {
 /** The task's fields, without a resultType. */
 json::JsonValue toJson(const Task& task);
 
-/** A task read from any peer; nothing when it has no taskId or status. */
+/**
+ * A task read from any peer; nothing when it lacks anything a task must
+ * have: its id, a known status, its timestamps, ttlMs (a number or null),
+ * and what its status carries — inputRequests, result, or an error with a
+ * code and message.
+ */
 optional<Task> fromJson(const json::JsonValue& json);
 
 /** The answer to a request that became a task: resultType "task". */

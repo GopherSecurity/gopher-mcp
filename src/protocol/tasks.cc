@@ -110,27 +110,58 @@ optional<Task> fromJson(const json::JsonValue& json) {
   if (!id.has_value() || id->empty() || !status.has_value()) {
     return nullopt;
   }
+  // What every task has: when it was made and last changed, and how long
+  // it is kept, a number or null.
+  const auto created = stringAt(json, "createdAt");
+  const auto updated = stringAt(json, "lastUpdatedAt");
+  if (!created.has_value() || !updated.has_value() || !json.contains("ttlMs") ||
+      !(json["ttlMs"].isNull() || json["ttlMs"].isInteger())) {
+    return nullopt;
+  }
   Task task;
   task.taskId = id.value();
   task.status = status.value();
   task.statusMessage = stringAt(json, "statusMessage");
-  task.createdAt = stringAt(json, "createdAt").value_or("");
-  task.lastUpdatedAt = stringAt(json, "lastUpdatedAt").value_or("");
+  task.createdAt = created.value();
+  task.lastUpdatedAt = updated.value();
   task.ttlMs = integerAt(json, "ttlMs");
   task.pollIntervalMs = integerAt(json, "pollIntervalMs");
-  if (json.contains(modern::kInputRequestsField) &&
-      json[modern::kInputRequestsField].isObject()) {
-    task.inputRequests = json[modern::kInputRequestsField];
-  }
-  if (json.contains("result") && json["result"].isObject()) {
-    task.result = json["result"];
-  }
-  if (json.contains("error") && json["error"].isObject()) {
-    try {
-      task.error = json::from_json<Error>(json["error"]);
-    } catch (const std::exception&) {
-      task.error = Error(jsonrpc::INTERNAL_ERROR, "the task failed");
+
+  // What each status has to carry. A completed task without its result is
+  // not a task that succeeded with nothing: it is no task at all.
+  switch (task.status) {
+    case Status::InputRequired:
+      if (!json.contains(modern::kInputRequestsField) ||
+          !json[modern::kInputRequestsField].isObject()) {
+        return nullopt;
+      }
+      task.inputRequests = json[modern::kInputRequestsField];
+      break;
+    case Status::Completed:
+      if (!json.contains("result") || !json["result"].isObject()) {
+        return nullopt;
+      }
+      task.result = json["result"];
+      break;
+    case Status::Failed: {
+      if (!json.contains("error") || !json["error"].isObject()) {
+        return nullopt;
+      }
+      const auto& error = json["error"];
+      if (!error.contains("code") || !error["code"].isInteger() ||
+          !error.contains("message") || !error["message"].isString()) {
+        return nullopt;
+      }
+      try {
+        task.error = json::from_json<Error>(error);
+      } catch (const std::exception&) {
+        return nullopt;
+      }
+      break;
     }
+    case Status::Working:
+    case Status::Cancelled:
+      break;
   }
   return task;
 }

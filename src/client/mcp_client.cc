@@ -2311,11 +2311,10 @@ void McpClient::onTaskState(const std::shared_ptr<RequestContext>& request,
   };
   switch (task.status) {
     case tasks::Status::Completed:
-      settle(Response::success(
-          request->id,
-          jsonrpc::ResponseResult(task.result.has_value()
-                                      ? task.result.value()
-                                      : json::JsonValue::object())));
+      // A completed task always carries its result; one that didn't was
+      // never read as a task.
+      settle(Response::success(request->id,
+                               jsonrpc::ResponseResult(task.result.value())));
       return;
     case tasks::Status::Failed:
       settle(Response::make_error(
