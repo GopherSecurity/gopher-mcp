@@ -31,6 +31,7 @@
 #include <mutex>
 #include <queue>
 #include <random>
+#include <set>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -50,6 +51,7 @@
 #include "mcp/protocol/mcp_protocol_state_machine.h"
 #include "mcp/protocol/mrtr.h"
 #include "mcp/protocol/subscriptions.h"
+#include "mcp/protocol/tasks.h"
 #include "mcp/protocol/trace_context.h"
 #include "mcp/transport/streamable_http_config.h"
 #include "mcp/types.h"
@@ -93,6 +95,12 @@ struct McpClientConfig : public application::ApplicationBase::Config {
   std::string client_description;
   std::string client_website_url;
   std::vector<Icon> client_icons;
+  // Accept tasks (the io.modelcontextprotocol/tasks extension): declared to
+  // every server, so one may answer tools/call with a task, which callTool
+  // then follows to its end as though it were the answer. Off, a server
+  // answering with a task anyway is answering wrongly.
+  bool accept_tasks = true;
+
   // Extensions this client supports, by identifier, each with an object of
   // its settings, sent in initialize and in every 2026-07-28 request's
   // capabilities. An entry in capabilities.extensions of the same
@@ -273,6 +281,12 @@ struct RequestContext {
   // happened for this request. Bounded, so a server that answers every
   // round with another question cannot keep one request going forever.
   size_t input_rounds{0};
+
+  // The task a tools/call became (the Tasks extension), the inputRequests
+  // keys already answered for it, and the clock for its next poll.
+  optional<std::string> task_id;
+  std::set<std::string> answered_input;
+  event::TimerPtr poll_timer;
 
   // Already sent once more after the server refused its mirrored headers
   // as not matching its body. Once only: a second mismatch is the answer.
@@ -825,6 +839,16 @@ class McpClient : public application::ApplicationBase {
    */
   bool cancelRequest(const RequestId& id, const std::string& reason = "");
 
+  // Tasks, asked about directly (the io.modelcontextprotocol/tasks
+  // extension). callTool follows a task to its end by itself; these are for
+  // a caller that keeps a task's id, or listens to it.
+  std::future<protocol::tasks::Task> getTask(const std::string& task_id);
+  // Answers to what a task in input_required asked for, by key.
+  std::future<jsonrpc::Response> updateTask(
+      const std::string& task_id,
+      const std::map<std::string, json::JsonValue>& input_responses);
+  std::future<jsonrpc::Response> cancelTask(const std::string& task_id);
+
   // Progress tracking - register callback for progress updates
   void trackProgress(const ProgressToken& token,
                      std::function<void(double)> callback);
@@ -981,6 +1005,21 @@ class McpClient : public application::ApplicationBase {
   // every page of tools, then send the call once more. Dispatcher thread.
   bool recoverFromHeaderMismatch(const std::shared_ptr<RequestContext>& request,
                                  const Response& response);
+  // A tools/call answered with a task: followed to its end, the caller's
+  // future answered with what the task finishes with. Dispatcher thread.
+  bool followTask(const std::shared_ptr<RequestContext>& request,
+                  const Response& response);
+  void onTaskState(const std::shared_ptr<RequestContext>& request,
+                   const protocol::tasks::Task& task);
+  void pollTaskLater(const std::shared_ptr<RequestContext>& request,
+                     std::chrono::milliseconds after);
+  // A request of the client's own, its params going out as this JSON.
+  void sendInternalJson(const std::string& method,
+                        const json::JsonValue& params,
+                        std::function<void(const Response&)> on_response);
+  // Sent from the dispatcher, answered on the future.
+  std::future<jsonrpc::Response> sendFromDispatcher(
+      const std::string& method, const json::JsonValue& params);
   void relistToolsThen(const optional<std::string>& cursor,
                        size_t pages,
                        std::function<void()> done);
