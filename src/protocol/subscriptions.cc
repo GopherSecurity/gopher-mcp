@@ -43,6 +43,14 @@ NotificationFilter NotificationFilter::parse(const json::JsonValue& params) {
       }
     }
   }
+  if (asked.contains("taskIds") && asked["taskIds"].isArray()) {
+    const auto& ids = asked["taskIds"];
+    for (size_t i = 0; i < ids.size(); ++i) {
+      if (ids[i].isString()) {
+        filter.task_ids.push_back(ids[i].getString());
+      }
+    }
+  }
   return filter;
 }
 
@@ -66,6 +74,13 @@ json::JsonValue NotificationFilter::render() const {
     }
     asked.set(kFilterResourceSubscriptions, uris);
   }
+  if (!task_ids.empty()) {
+    json::JsonValue ids = json::JsonValue::array();
+    for (const auto& id : task_ids) {
+      ids.push_back(json::JsonValue(id));
+    }
+    asked.set("taskIds", ids);
+  }
   return asked;
 }
 
@@ -85,6 +100,9 @@ bool NotificationFilter::wants(const std::string& method,
     // not asked about every file.
     return std::find(resource_uris.begin(), resource_uris.end(), uri) !=
            resource_uris.end();
+  }
+  if (method == "notifications/tasks") {
+    return std::find(task_ids.begin(), task_ids.end(), uri) != task_ids.end();
   }
   // Anything else — progress, logging — belongs to the request it
   // relates to and never to a subscription.
