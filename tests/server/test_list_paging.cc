@@ -161,7 +161,7 @@ TEST(ListPaging, ACursorFromElsewhereIsRefused) {
 
 // Any key survives the trip, whatever bytes it holds.
 TEST(ListPaging, AnyKeyRoundTripsThroughACursor) {
-  for (const std::string key :
+  for (const std::string& key :
        {std::string(""), std::string("file:///a b?c=d#e"),
         std::string("\xe2\x9c\x93 \x01\xff")}) {
     std::string back;
@@ -352,7 +352,7 @@ TEST(ListPagingOnTheWire, ToolsAndPromptsAreOnePageByDefault) {
 // nextCursor on a tool listing is opaque in both directions: written as
 // set, read as given, an empty string included.
 TEST(ListPagingOnTheWire, AToolListingsCursorRoundTrips) {
-  for (const std::string cursor : {std::string("abc"), std::string("")}) {
+  for (const std::string& cursor : {std::string("abc"), std::string("")}) {
     ListToolsResult result;
     result.tools.push_back(Tool("t"));
     result.nextCursor = cursor;
