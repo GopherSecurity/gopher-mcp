@@ -435,9 +435,10 @@ struct PromptArgument {
   std::string name;
   optional<std::string> description;
   bool required = false;
-  // For people to read; name is for programs. Last, so an argument written
-  // as {name, description, required} still means what it did.
-  optional<std::string> title;
+  // For people to read; name is for programs. Last, and defaulted, so an
+  // argument written as {name, description, required} still means what it
+  // did, with no title.
+  optional<std::string> title{};
 
   /** The name to show people: title when provided, otherwise name. */
   std::string displayName() const { return title.value_or(name); }
