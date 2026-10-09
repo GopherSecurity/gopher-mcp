@@ -1628,6 +1628,338 @@ TEST_F(McpClientInitializeRoutingTest, ASecondHeaderMismatchIsTheAnswer) {
   EXPECT_EQ(listings->load(), 1) << "the tools were not listed again once";
 }
 
+// A server whose task tools the test drives: tasks for callers it cannot
+// name, polled every 30ms.
+void allowTasks(server::McpServerConfig& config) {
+  config.allow_tasks_without_caller = true;
+  config.task_poll_interval = 30ms;
+}
+
+CallToolResult saying(const std::string& text) {
+  CallToolResult result;
+  result.content.push_back(TextContent(text));
+  return result;
+}
+
+// A tool call answered with a task is followed to its end, and the caller
+// gets what the task finished with as though it were the answer. An
+// ordinary tool on the same server answers as ever.
+TEST_F(McpClientInitializeRoutingTest, ATaskIsFollowedToItsEnd) {
+  client_path_ = "/mcp";
+  client_.reset();
+  stopServer();
+  tweak_config_ = allowTasks;
+  startServer(/*serve_newest=*/true);
+  tweak_config_ = nullptr;
+  std::vector<std::thread> workers;
+  std::mutex workers_mutex;
+  server_->registerTaskTool(
+      Tool("forecast"), [&workers, &workers_mutex](
+                            const json::JsonValue& arguments,
+                            const std::shared_ptr<server::TaskHandle>& task) {
+        const std::string city = arguments["city"].getString();
+        std::lock_guard<std::mutex> lock(workers_mutex);
+        workers.emplace_back([task, city]() {
+          std::this_thread::sleep_for(100ms);
+          task->setStatusMessage("looking outside");
+          std::this_thread::sleep_for(100ms);
+          task->complete(json::to_json(saying("sunny in " + city)));
+        });
+      });
+  server_->registerTaskTool(
+      Tool("broken"), [](const json::JsonValue&,
+                         const std::shared_ptr<server::TaskHandle>& task) {
+        task->fail(Error(jsonrpc::INTERNAL_ERROR, "rate limited"));
+      });
+  server_->registerTool(Tool("echo"),
+                        [](const std::string&, const optional<Metadata>&,
+                           server::SessionContext&) { return saying("now"); });
+  connectInitializedClient();
+
+  auto forecast = client_->callTool(
+      "forecast", json::JsonValue::parse(R"({"city":"Lisbon"})"));
+  ASSERT_EQ(forecast.wait_for(5s), std::future_status::ready);
+  EXPECT_EQ(get<TextContent>(forecast.get().content.at(0)).text,
+            "sunny in Lisbon");
+
+  auto broken = client_->callTool("broken", json::JsonValue::object());
+  ASSERT_EQ(broken.wait_for(5s), std::future_status::ready);
+  try {
+    broken.get();
+    FAIL() << "a failed task was answered";
+  } catch (const client::RequestError& e) {
+    EXPECT_EQ(e.code(), jsonrpc::INTERNAL_ERROR);
+    EXPECT_EQ(e.error().message, "rate limited");
+  }
+
+  auto echo = client_->callTool("echo", json::JsonValue::object());
+  ASSERT_EQ(echo.wait_for(5s), std::future_status::ready);
+  EXPECT_EQ(get<TextContent>(echo.get().content.at(0)).text, "now");
+
+  std::lock_guard<std::mutex> lock(workers_mutex);
+  for (auto& worker : workers) {
+    worker.join();
+  }
+}
+
+// What a task asks for is answered by the client's own handler, and the
+// task carries on to its end.
+TEST_F(McpClientInitializeRoutingTest, ATaskAsksAndIsAnswered) {
+  client_path_ = "/mcp";
+  client_.reset();
+  stopServer();
+  tweak_config_ = allowTasks;
+  startServer(/*serve_newest=*/true);
+  tweak_config_ = nullptr;
+  server_->registerTaskTool(
+      Tool("greet"), [](const json::JsonValue&,
+                        const std::shared_ptr<server::TaskHandle>& task) {
+        protocol::modern::InputRequest ask;
+        ask.method = protocol::modern::kMethodElicitation;
+        ask.params = json::JsonValue::parse(R"({"mode":"form",
+            "message":"Your name?","requestedSchema":{"type":"object",
+            "properties":{"name":{"type":"string"}},"required":["name"]}})");
+        protocol::modern::InputRequests requests;
+        requests["name"] = ask;
+        task->askForInput(
+            requests, [task](const server::TaskHandle::Answers& a) {
+              const auto& answer = a.at("name");
+              task->complete(json::to_json(saying(
+                  "Hello, " + answer["content"]["name"].getString() + "!")));
+            });
+      });
+  connectInitializedClient();
+  client_->registerRequestHandler(
+      protocol::modern::kMethodElicitation,
+      [](const jsonrpc::Request&) -> jsonrpc::ResponseResult {
+        return jsonrpc::ResponseResult(json::JsonValue::parse(
+            R"({"action":"accept","content":{"name":"Luca"}})"));
+      });
+
+  auto greet = client_->callTool("greet", json::JsonValue::object());
+  ASSERT_EQ(greet.wait_for(5s), std::future_status::ready);
+  EXPECT_EQ(get<TextContent>(greet.get().content.at(0)).text, "Hello, Luca!");
+}
+
+// A server may show the same request again on the next poll, before it
+// has taken the answer in; the client answers each key once.
+TEST_F(McpClientInitializeRoutingTest, ARepeatedRequestIsAnsweredOnce) {
+  client_path_ = "/mcp";
+  client_.reset();
+  stopServer();
+  tweak_config_ = [](server::McpServerConfig& config) {
+    config.extensions[protocol::tasks::kExtensionId] =
+        json::JsonValue::object();
+  };
+  startServer(/*serve_newest=*/true);
+  tweak_config_ = nullptr;
+
+  // A scripted server: the task asks for a name on its first three polls,
+  // then completes.
+  auto polls = std::make_shared<std::atomic<int>>(0);
+  auto updates = std::make_shared<std::atomic<int>>(0);
+  auto taskAt = [](const std::string& status) {
+    protocol::tasks::Task task;
+    task.taskId = "scripted-task";
+    task.status = *protocol::tasks::statusNamed(status);
+    task.createdAt = task.lastUpdatedAt = "2026-01-01T00:00:00Z";
+    task.pollIntervalMs = 20;
+    if (status == "input_required") {
+      task.inputRequests = json::JsonValue::parse(R"({"name":{
+          "method":"elicitation/create","params":{"mode":"form",
+          "message":"Your name?","requestedSchema":{"type":"object",
+          "properties":{"name":{"type":"string"}}}}}})");
+    }
+    if (status == "completed") {
+      task.result = json::to_json(saying("done"));
+    }
+    return task;
+  };
+  server_->registerRequestHandler(
+      "tools/call",
+      [taskAt](const jsonrpc::Request& request, server::SessionContext&) {
+        return jsonrpc::Response::success(
+            request.id,
+            jsonrpc::ResponseResult(
+                protocol::tasks::createTaskResult(taskAt("working"))));
+      });
+  server_->registerRequestHandler(
+      protocol::tasks::kMethodGet,
+      [taskAt, polls](const jsonrpc::Request& request,
+                      server::SessionContext&) {
+        const int poll = ++*polls;
+        return jsonrpc::Response::success(
+            request.id,
+            jsonrpc::ResponseResult(protocol::tasks::getTaskResult(
+                taskAt(poll <= 3 ? "input_required" : "completed"))));
+      });
+  server_->registerRequestHandler(
+      protocol::tasks::kMethodUpdate,
+      [updates](const jsonrpc::Request& request, server::SessionContext&) {
+        ++*updates;
+        return jsonrpc::Response::success(
+            request.id, jsonrpc::ResponseResult(json::JsonValue::parse(
+                            R"({"resultType":"complete"})")));
+      });
+  connectInitializedClient();
+  auto asked = std::make_shared<std::atomic<int>>(0);
+  client_->registerRequestHandler(
+      protocol::modern::kMethodElicitation,
+      [asked](const jsonrpc::Request&) -> jsonrpc::ResponseResult {
+        ++*asked;
+        return jsonrpc::ResponseResult(json::JsonValue::parse(
+            R"({"action":"accept","content":{"name":"Luca"}})"));
+      });
+
+  auto call = client_->callTool("anything", json::JsonValue::object());
+  ASSERT_EQ(call.wait_for(5s), std::future_status::ready);
+  EXPECT_EQ(get<TextContent>(call.get().content.at(0)).text, "done");
+  EXPECT_GE(polls->load(), 4);
+  EXPECT_EQ(asked->load(), 1) << "the same question was asked more than once";
+  EXPECT_EQ(updates->load(), 1) << "the same answer was sent more than once";
+}
+
+// Cancelling a call that became a task cancels the task, with tasks/cancel
+// rather than notifications/cancelled, and the caller's future fails as
+// cancelled.
+TEST_F(McpClientInitializeRoutingTest, CancellingACallCancelsItsTask) {
+  client_path_ = "/mcp";
+  client_.reset();
+  stopServer();
+  tweak_config_ = allowTasks;
+  startServer(/*serve_newest=*/true);
+  tweak_config_ = nullptr;
+  auto handle = std::make_shared<std::shared_ptr<server::TaskHandle>>();
+  auto handle_mutex = std::make_shared<std::mutex>();
+  server_->registerTaskTool(
+      Tool("forever"),
+      [handle, handle_mutex](const json::JsonValue&,
+                             const std::shared_ptr<server::TaskHandle>& task) {
+        std::lock_guard<std::mutex> lock(*handle_mutex);
+        *handle = task;
+      });
+  auto cancelled_notifications = std::make_shared<std::atomic<int>>(0);
+  server_->registerNotificationHandler(
+      "notifications/cancelled",
+      [cancelled_notifications](const jsonrpc::Notification&,
+                                server::SessionContext&) {
+        ++*cancelled_notifications;
+      });
+  connectInitializedClient();
+
+  auto sent = client_->sendCancellableRequest(
+      "tools/call", json::JsonValue::parse(R"({"name":"forever"})"));
+  std::shared_ptr<server::TaskHandle> task;
+  for (int i = 0; i < 250 && !task; ++i) {
+    std::this_thread::sleep_for(20ms);
+    std::lock_guard<std::mutex> lock(*handle_mutex);
+    task = *handle;
+  }
+  ASSERT_TRUE(task) << "the call never became a task";
+  // Polled at least once, so the call is following its task.
+  std::this_thread::sleep_for(100ms);
+  EXPECT_TRUE(client_->cancelRequest(sent.id, "user gave up"));
+  ASSERT_EQ(sent.response.wait_for(5s), std::future_status::ready);
+  const auto response = sent.response.get();
+  ASSERT_TRUE(response.error.has_value());
+  EXPECT_EQ(response.error->code, jsonrpc::REQUEST_CANCELLED);
+
+  for (int i = 0; i < 250 && !task->isCancelled(); ++i) {
+    std::this_thread::sleep_for(20ms);
+  }
+  EXPECT_TRUE(task->isCancelled()) << "the task never heard it was cancelled";
+  EXPECT_EQ(cancelled_notifications->load(), 0)
+      << "a task was cancelled with notifications/cancelled";
+}
+
+// A caller that keeps a task's id can ask about it and cancel it directly.
+TEST_F(McpClientInitializeRoutingTest, ATaskCanBeAskedAboutDirectly) {
+  client_path_ = "/mcp";
+  client_.reset();
+  stopServer();
+  tweak_config_ = allowTasks;
+  startServer(/*serve_newest=*/true);
+  tweak_config_ = nullptr;
+  auto handle = std::make_shared<std::shared_ptr<server::TaskHandle>>();
+  auto handle_mutex = std::make_shared<std::mutex>();
+  server_->registerTaskTool(
+      Tool("forever"),
+      [handle, handle_mutex](const json::JsonValue&,
+                             const std::shared_ptr<server::TaskHandle>& task) {
+        std::lock_guard<std::mutex> lock(*handle_mutex);
+        *handle = task;
+      });
+  connectInitializedClient();
+
+  auto sent = client_->sendCancellableRequest(
+      "tools/call", json::JsonValue::parse(R"({"name":"forever"})"));
+  std::string id;
+  for (int i = 0; i < 250 && id.empty(); ++i) {
+    std::this_thread::sleep_for(20ms);
+    std::lock_guard<std::mutex> lock(*handle_mutex);
+    if (*handle) {
+      id = (*handle)->id();
+    }
+  }
+  ASSERT_FALSE(id.empty());
+
+  auto working = client_->getTask(id);
+  ASSERT_EQ(working.wait_for(5s), std::future_status::ready);
+  EXPECT_EQ(working.get().status, protocol::tasks::Status::Working);
+
+  auto ack = client_->cancelTask(id);
+  ASSERT_EQ(ack.wait_for(5s), std::future_status::ready);
+  EXPECT_FALSE(ack.get().error.has_value());
+
+  auto cancelled = client_->getTask(id);
+  ASSERT_EQ(cancelled.wait_for(5s), std::future_status::ready);
+  EXPECT_EQ(cancelled.get().status, protocol::tasks::Status::Cancelled);
+
+  // The call following that task ends with it.
+  ASSERT_EQ(sent.response.wait_for(5s), std::future_status::ready);
+  EXPECT_EQ(sent.response.get().error->code, jsonrpc::REQUEST_CANCELLED);
+
+  auto unknown = client_->getTask("no-such-task");
+  ASSERT_EQ(unknown.wait_for(5s), std::future_status::ready);
+  try {
+    unknown.get();
+    FAIL() << "an unknown task was found";
+  } catch (const client::RequestError& e) {
+    EXPECT_EQ(e.code(), jsonrpc::INVALID_PARAMS);
+  }
+}
+
+// An earlier revision has no tasks: a task tool refuses, and everything
+// else is as it was.
+TEST_F(McpClientInitializeRoutingTest, AnEarlierRevisionHasNoTasks) {
+  client_.reset();
+  stopServer();
+  tweak_config_ = allowTasks;
+  startServer(/*serve_newest=*/false);
+  tweak_config_ = nullptr;
+  server_->registerTaskTool(
+      Tool("forecast"), [](const json::JsonValue&,
+                           const std::shared_ptr<server::TaskHandle>& task) {
+        task->complete(json::to_json(saying("never")));
+      });
+  server_->registerTool(Tool("echo"),
+                        [](const std::string&, const optional<Metadata>&,
+                           server::SessionContext&) { return saying("now"); });
+  connectInitializedClient();
+
+  auto forecast = client_->callTool("forecast", json::JsonValue::object());
+  ASSERT_EQ(forecast.wait_for(5s), std::future_status::ready);
+  try {
+    forecast.get();
+    FAIL() << "an earlier-revision caller was given a task";
+  } catch (const client::RequestError& e) {
+    EXPECT_EQ(e.code(), protocol::modern::kMissingRequiredClientCapability);
+  }
+  auto echo = client_->callTool("echo", json::JsonValue::object());
+  ASSERT_EQ(echo.wait_for(5s), std::future_status::ready);
+  EXPECT_EQ(get<TextContent>(echo.get().content.at(0)).text, "now");
+}
+
 // A server that offers no completions refuses, and the call fails with
 // what it said.
 TEST_F(McpClientInitializeRoutingTest, NoCompletionsIsARefusal) {
