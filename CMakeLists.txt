@@ -516,7 +516,9 @@ set(MCP_CORE_SOURCES
     src/protocol/subscriptions.cc           # What a subscription asks to hear
     src/protocol/trace_context.cc           # W3C trace context in _meta
     src/protocol/extensions.cc              # Extensions in capabilities
+    src/protocol/tasks.cc                   # The Tasks extension
     src/server/listen_registry.cc           # Long-lived notification streams
+    src/server/task_store.cc                # Tasks a server is running
     src/config/config_manager.cc
     src/config/file_config_source.cc
     src/config/config_merger.cc
