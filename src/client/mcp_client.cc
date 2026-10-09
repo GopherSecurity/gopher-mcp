@@ -1529,7 +1529,12 @@ void McpClient::abandonRequest(const std::shared_ptr<RequestContext>& context,
   if (error.code == ::mcp::jsonrpc::REQUEST_TIMED_OUT) {
     client_stats_.requests_timeout++;
   }
-  context->finish(Response::make_error(context->id, error));
+  const Response ended = Response::make_error(context->id, error);
+  context->finish(ended);
+  // Work the client carries on with hears that this request ended.
+  if (context->on_response) {
+    context->on_response(ended);
+  }
 }
 
 void McpClient::armRequestTimeout(const RequestId& origin,
@@ -2253,6 +2258,9 @@ void McpClient::sendInternalJson(
   context->params_json = mcp::make_optional(params);
   context->start_time = std::chrono::steady_clock::now();
   context->on_response = std::move(on_response);
+  // Timed like any other request: a server that takes one and never
+  // answers would otherwise leave whatever waits on it waiting for ever.
+  startClock(context);
   request_tracker_->trackRequest(context);
   sendRequestInternal(context);
 }
