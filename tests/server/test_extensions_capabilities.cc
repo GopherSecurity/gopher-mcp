@@ -320,6 +320,31 @@ TEST(ExtensionsCapabilities, AHandlerForAMethodOffersIt) {
                   .contains("tools"));
 }
 
+// Any method a capability covers counts, not only its list method: a
+// server serving only subscriptions, or only prompts/get, offers the
+// capability and answers its own handler.
+TEST(ExtensionsCapabilities, AnyMethodACapabilityCoversOffersIt) {
+  struct Case {
+    const char* method;
+    const char* capability;
+  };
+  for (const Case& c :
+       {Case{"resources/subscribe", "resources"},
+        Case{"resources/unsubscribe", "resources"},
+        Case{"prompts/get", "prompts"}, Case{"tools/call", "tools"}}) {
+    SCOPED_TRACE(c.method);
+    DispatchTestServer server(testConfig());
+    server.registerRequestHandler(
+        c.method, [](const jsonrpc::Request& request, SessionContext&) {
+          return jsonrpc::Response::success(
+              request.id, jsonrpc::ResponseResult(JsonValue::object()));
+        });
+    EXPECT_TRUE(capabilitiesIn(answerTo(server, requestFor("initialize")))
+                    .contains(c.capability));
+    EXPECT_EQ(errorCodeOf(answerTo(server, requestFor(c.method))), 0);
+  }
+}
+
 // One configured either way stays as configured: a server that says it
 // has no tools has none, whatever is registered.
 TEST(ExtensionsCapabilities, AConfiguredCapabilityIsKept) {
