@@ -117,6 +117,18 @@ async def answer_elicitation(context, params):
     return types.ElicitResult(action="accept", content={"env": "staging"})
 
 
+# Every notifications/resources/updated this client hears, by URI.
+updates: list[str] = []
+
+
+async def hear(message) -> None:
+    # The session hands over notifications and transport errors alike;
+    # only resource updates are kept.
+    notification = getattr(message, "root", message)
+    if getattr(notification, "method", None) == "notifications/resources/updated":
+        updates.append(str(notification.params.uri))
+
+
 async def all_tools(client) -> list:
     """Every tool, following nextCursor to the end as the spec says to."""
     tools = []
@@ -132,7 +144,7 @@ async def all_tools(client) -> list:
 async def run_scenarios(url: str, modern: bool, stateless: bool, page_size: int) -> None:
     mode = "2026-07-28" if modern else "legacy"
     async with mcp.Client(
-        url, mode=mode, elicitation_callback=answer_elicitation
+        url, mode=mode, elicitation_callback=answer_elicitation, message_handler=hear
     ) as client:
 
         async def connected():
@@ -236,11 +248,34 @@ async def run_scenarios(url: str, modern: bool, stateless: bool, page_size: int)
                             return
                 raise Mismatch("the subscription ended without the update")
 
-        await scenario(
-            "a listener hears a resource change",
-            listened,
-            None if modern else "subscriptions/listen is new in 2026-07-28",
-        )
+        async def subscribed():
+            # The earlier revisions' way: subscribe, hear the change on the
+            # session, unsubscribe and hear nothing more.
+            updates.clear()
+            await client.subscribe_resource(GREETING)
+            await client.call_tool("touch_greeting", {})
+            with anyio.fail_after(10):
+                while GREETING not in updates:
+                    await anyio.sleep(0.05)
+            await client.unsubscribe_resource(GREETING)
+            heard = len(updates)
+            await client.call_tool("touch_greeting", {})
+            await anyio.sleep(1)
+            equal(len(updates), heard, "updates heard after unsubscribing")
+
+        # The same thing in each revision, each the way it has.
+        if modern:
+            await scenario("a listener hears a resource change", listened)
+        else:
+            await scenario(
+                "a subscriber hears a resource change",
+                subscribed,
+                # Told on the session, which a server keeping none has not
+                # got: there is nowhere for a change to be said.
+                "a server keeping no sessions has nowhere to send a change"
+                if stateless
+                else None,
+            )
 
         async def refused():
             try:
