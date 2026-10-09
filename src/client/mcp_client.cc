@@ -2337,8 +2337,11 @@ void McpClient::onTaskState(const std::shared_ptr<RequestContext>& request,
       const auto asked = protocol::modern::askedForIn(asking);
       std::map<std::string, json::JsonValue> answers;
       for (const auto& entry : asked.requests) {
-        if (request->answered_input.insert(entry.first).second) {
-          answers[entry.first] = askOurselves(entry.second);
+        if (request->input_answers.count(entry.first) == 0) {
+          request->input_answers[entry.first] = askOurselves(entry.second);
+        }
+        if (request->input_sent.insert(entry.first).second) {
+          answers[entry.first] = request->input_answers[entry.first];
         }
       }
       if (!answers.empty()) {
@@ -2346,8 +2349,22 @@ void McpClient::onTaskState(const std::shared_ptr<RequestContext>& request,
         params.set("taskId", json::JsonValue(task.taskId));
         params.set(protocol::modern::kInputResponsesField,
                    protocol::modern::renderInputResponses(answers));
+        std::vector<std::string> keys;
+        for (const auto& answer : answers) {
+          keys.push_back(answer.first);
+        }
+        std::weak_ptr<RequestContext> waiting = request;
         sendInternalJson(protocol::tasks::kMethodUpdate, params,
-                         [](const Response&) {});
+                         [waiting, keys](const Response& response) {
+                           // Not taken: sent again on the next poll that still
+                           // asks.
+                           auto request = waiting.lock();
+                           if (request && response.error.has_value()) {
+                             for (const auto& key : keys) {
+                               request->input_sent.erase(key);
+                             }
+                           }
+                         });
       }
       break;
     }
