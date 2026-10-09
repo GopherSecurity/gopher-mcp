@@ -58,6 +58,7 @@
 #include "mcp/protocol/trace_context.h"
 #include "mcp/server/list_paging.h"
 #include "mcp/server/listen_registry.h"
+#include "mcp/server/task_store.h"
 #include "mcp/transport/streamable_http_config.h"
 #include "mcp/types.h"
 
@@ -232,6 +233,21 @@ struct McpServerConfig : public application::ApplicationBase::Config {
   // every successful result to a 2026-07-28 caller, as the spec asks of a
   // server unless it is configured not to. Earlier revisions never get it.
   bool send_server_info = true;
+  // Tasks (the io.modelcontextprotocol/tasks extension): how long a task is
+  // kept from when it was made (zero for ever), how often a client is asked
+  // to poll, and how many one caller may hold.
+  std::chrono::milliseconds task_ttl{std::chrono::hours(1)};
+  std::chrono::milliseconds task_poll_interval{std::chrono::seconds(1)};
+  size_t max_tasks_per_caller = 100;
+  // Each task belongs to the caller that made it, as the transport
+  // authenticated it, and is reachable by no one else. A caller the
+  // transport authenticated as no one cannot be told from any other such
+  // caller — 2026-07-28 has no session to tell them apart by — so by
+  // default no task is made for one: a task tool refuses it. Set this to
+  // make tasks for such callers anyway, where the task's id, 128 random
+  // bits, is then all that keeps one caller from another's task.
+  bool allow_tasks_without_caller = false;
+
   // Extensions this server supports, by identifier, each with an object of
   // its settings, advertised in initialize and server/discover. An entry in
   // capabilities.extensions of the same identifier wins. An invalid
@@ -1565,6 +1581,24 @@ class McpServer : public application::ApplicationBase,
   using CompletionHandler =
       std::function<CompleteResult::Completion(const CompletionQuery&)>;
 
+  /**
+   * A tool whose calls run as tasks (the io.modelcontextprotocol/tasks
+   * extension): tools/call answers at once with the task, and the handler
+   * does the work through the handle, finishing it whenever it can.
+   *
+   * The handler runs on the dispatcher and must not block: work that takes
+   * time goes elsewhere, keeping the handle. Registering one advertises
+   * the extension. A caller whose request didn't declare the extension is
+   * refused with -32021, since this tool has no other way to answer.
+   */
+  using TaskToolHandler =
+      std::function<void(const json::JsonValue& arguments,
+                         const std::shared_ptr<TaskHandle>& task)>;
+  bool registerTaskTool(const Tool& tool, TaskToolHandler handler);
+
+  // The tasks this server is running.
+  const std::shared_ptr<TaskStore>& taskStore() const { return task_store_; }
+
   // Completes the arguments of the prompt of this name.
   void registerPromptCompletion(const std::string& prompt,
                                 CompletionHandler handler) {
@@ -1872,6 +1906,17 @@ class McpServer : public application::ApplicationBase,
                                       SessionContext& session);
   jsonrpc::Response handleComplete(const jsonrpc::Request& request,
                                    SessionContext& session);
+  // The Tasks extension: a call to a task tool, and the three task methods.
+  jsonrpc::Response handleTaskToolCall(const jsonrpc::Request& request,
+                                       SessionContext& session,
+                                       const TaskToolHandler& handler,
+                                       const json::JsonValue& arguments);
+  jsonrpc::Response handleTaskMethod(const jsonrpc::Request& request,
+                                     SessionContext& session);
+  // Who a task belongs to: the caller the transport authenticated, or,
+  // when it authenticated no one and that is allowed, the task's id alone.
+  // Nothing when no task may be made for this caller.
+  optional<std::string> taskOwnerOf(const SessionContext& session) const;
   // Whether any completion handler is registered, and so whether the
   // completions capability is advertised.
   bool offersCompletions() const {
@@ -2086,6 +2131,12 @@ class McpServer : public application::ApplicationBase,
   std::unique_ptr<ResourceManager> resource_manager_;
   std::unique_ptr<ToolRegistry> tool_registry_;
   std::unique_ptr<PromptRegistry> prompt_registry_;
+  // Tasks, and the tools whose calls run as them.
+  std::shared_ptr<TaskStore> task_store_;
+  std::map<std::string, TaskToolHandler> task_tools_;
+  mutable std::mutex task_tools_mutex_;
+  std::atomic<bool> has_task_tools_{false};
+
   // Completion handlers, by prompt name and by URI template.
   std::map<std::string, CompletionHandler> prompt_completions_;
   std::map<std::string, CompletionHandler> template_completions_;
