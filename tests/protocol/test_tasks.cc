@@ -145,6 +145,34 @@ TEST(Tasks, AMalformedTaskIsNoTask) {
   }
 }
 
+// A task missing what every task has, or what its status must carry, is
+// no task: a completed one without its result is not a success with
+// nothing in it.
+TEST(Tasks, ATaskMissingWhatItMustCarryIsNoTask) {
+  const std::string base =
+      R"("taskId":"t","createdAt":"2025-11-25T10:30:00Z",)"
+      R"("lastUpdatedAt":"2025-11-25T10:30:00Z","ttlMs":null)";
+  for (const std::string& bad : {
+           std::string(R"({"taskId":"t","status":"working","ttlMs":null,)"
+                       R"("lastUpdatedAt":"x"})"),
+           std::string(R"({"taskId":"t","status":"working","createdAt":"x",)"
+                       R"("lastUpdatedAt":"x"})"),
+           std::string(R"({"taskId":"t","status":"working","createdAt":"x",)"
+                       R"("lastUpdatedAt":"x","ttlMs":"soon"})"),
+           "{" + base + R"(,"status":"completed"})",
+           "{" + base + R"(,"status":"completed","result":"done"})",
+           "{" + base + R"(,"status":"failed"})",
+           "{" + base + R"(,"status":"failed","error":{"message":"no code"}})",
+           "{" + base + R"(,"status":"input_required"})",
+       }) {
+    SCOPED_TRACE(bad);
+    EXPECT_FALSE(tasks::fromJson(JsonValue::parse(bad)).has_value());
+  }
+  EXPECT_TRUE(tasks::fromJson(
+                  JsonValue::parse("{" + base + R"(,"status":"cancelled"})"))
+                  .has_value());
+}
+
 TEST(Tasks, ResultTypesTellATaskFromAnAnswer) {
   const auto task = taskIn(tasks::Status::Working);
   const JsonValue created = tasks::createTaskResult(task);
