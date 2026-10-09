@@ -1819,6 +1819,136 @@ TEST_F(McpClientInitializeRoutingTest, ARepeatedRequestIsAnsweredOnce) {
   EXPECT_EQ(updates->load(), 1) << "the same answer was sent more than once";
 }
 
+// An update the server does not take is sent again on the next poll that
+// still asks, without asking the client's handler a second time.
+TEST_F(McpClientInitializeRoutingTest, AFailedUpdateIsSentAgain) {
+  client_path_ = "/mcp";
+  client_.reset();
+  stopServer();
+  tweak_config_ = [](server::McpServerConfig& config) {
+    config.extensions[protocol::tasks::kExtensionId] =
+        json::JsonValue::object();
+  };
+  startServer(/*serve_newest=*/true);
+  tweak_config_ = nullptr;
+  auto taken = std::make_shared<std::atomic<bool>>(false);
+  auto updates = std::make_shared<std::atomic<int>>(0);
+  auto taskAt = [](const std::string& status) {
+    protocol::tasks::Task task;
+    task.taskId = "scripted-task";
+    task.status = *protocol::tasks::statusNamed(status);
+    task.createdAt = task.lastUpdatedAt = "2026-01-01T00:00:00Z";
+    task.pollIntervalMs = 20;
+    if (status == "input_required") {
+      task.inputRequests = json::JsonValue::parse(R"({"name":{
+          "method":"elicitation/create","params":{"mode":"form",
+          "message":"Your name?","requestedSchema":{"type":"object",
+          "properties":{"name":{"type":"string"}}}}}})");
+    }
+    if (status == "completed") {
+      task.result = json::to_json(saying("done"));
+    }
+    return task;
+  };
+  server_->registerRequestHandler(
+      "tools/call",
+      [taskAt](const jsonrpc::Request& request, server::SessionContext&) {
+        return jsonrpc::Response::success(
+            request.id,
+            jsonrpc::ResponseResult(
+                protocol::tasks::createTaskResult(taskAt("working"))));
+      });
+  server_->registerRequestHandler(
+      protocol::tasks::kMethodGet,
+      [taskAt, taken](const jsonrpc::Request& request,
+                      server::SessionContext&) {
+        return jsonrpc::Response::success(
+            request.id,
+            jsonrpc::ResponseResult(protocol::tasks::getTaskResult(
+                taskAt(taken->load() ? "completed" : "input_required"))));
+      });
+  // The first update is refused; the second is taken.
+  server_->registerRequestHandler(
+      protocol::tasks::kMethodUpdate,
+      [updates, taken](const jsonrpc::Request& request,
+                       server::SessionContext&) {
+        if (++*updates == 1) {
+          return jsonrpc::Response::make_error(
+              request.id, Error(jsonrpc::INTERNAL_ERROR, "try again"));
+        }
+        *taken = true;
+        return jsonrpc::Response::success(
+            request.id, jsonrpc::ResponseResult(json::JsonValue::parse(
+                            R"({"resultType":"complete"})")));
+      });
+  connectInitializedClient();
+  auto asked = std::make_shared<std::atomic<int>>(0);
+  client_->registerRequestHandler(
+      protocol::modern::kMethodElicitation,
+      [asked](const jsonrpc::Request&) -> jsonrpc::ResponseResult {
+        ++*asked;
+        return jsonrpc::ResponseResult(json::JsonValue::parse(
+            R"({"action":"accept","content":{"name":"Luca"}})"));
+      });
+
+  auto call = client_->callTool("anything", json::JsonValue::object());
+  ASSERT_EQ(call.wait_for(5s), std::future_status::ready)
+      << "the call waited for ever after an update failed";
+  EXPECT_EQ(get<TextContent>(call.get().content.at(0)).text, "done");
+  EXPECT_EQ(updates->load(), 2);
+  EXPECT_EQ(asked->load(), 1) << "the client's handler was asked again";
+}
+
+// A poll the server takes and never answers runs out of time, and the call
+// fails rather than waiting for ever.
+TEST_F(McpClientInitializeRoutingTest, ASilentPollTimesOut) {
+  client_path_ = "/mcp";
+  client_.reset();
+  stopServer();
+  tweak_config_ = [](server::McpServerConfig& config) {
+    config.extensions[protocol::tasks::kExtensionId] =
+        json::JsonValue::object();
+  };
+  startServer(/*serve_newest=*/true);
+  tweak_config_ = nullptr;
+  server_->registerRequestHandler(
+      "tools/call",
+      [](const jsonrpc::Request& request, server::SessionContext&) {
+        protocol::tasks::Task task;
+        task.taskId = "silent-task";
+        task.createdAt = task.lastUpdatedAt = "2026-01-01T00:00:00Z";
+        task.pollIntervalMs = 20;
+        return jsonrpc::Response::success(
+            request.id,
+            jsonrpc::ResponseResult(protocol::tasks::createTaskResult(task)));
+      });
+  // Takes every poll and never answers one.
+  auto held = std::make_shared<std::vector<ResponseStreamPtr>>();
+  auto held_mutex = std::make_shared<std::mutex>();
+  server_->registerAsyncRequestHandler(
+      protocol::tasks::kMethodGet,
+      [held, held_mutex](const jsonrpc::Request&, server::SessionContext&,
+                         const ResponseStreamPtr& stream) {
+        std::lock_guard<std::mutex> lock(*held_mutex);
+        held->push_back(stream);
+      });
+  tweak_client_ = [](client::McpClientConfig& config) {
+    config.request_timeout = 500ms;
+  };
+  connectInitializedClient();
+  tweak_client_ = nullptr;
+
+  auto call = client_->callTool("anything", json::JsonValue::object());
+  ASSERT_EQ(call.wait_for(5s), std::future_status::ready)
+      << "a silent poll left the call waiting";
+  try {
+    call.get();
+    FAIL() << "a call whose task never answered succeeded";
+  } catch (const client::RequestError& e) {
+    EXPECT_EQ(e.code(), jsonrpc::REQUEST_TIMED_OUT);
+  }
+}
+
 // Cancelling a call that became a task cancels the task, with tasks/cancel
 // rather than notifications/cancelled, and the caller's future fails as
 // cancelled.
