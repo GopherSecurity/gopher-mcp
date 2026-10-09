@@ -1387,8 +1387,7 @@ TEST_F(StreamableHttpFilterTest, ASessionInUseIsKeptAlive) {
   EXPECT_GE(sessions_->find(id)->last_activity, before);
 }
 
-TEST_F(StreamableHttpFilterTest,
-       ACompletedResponseStreamStartsANewIdleWindow) {
+TEST_F(StreamableHttpFilterTest, ACompletedResponseStreamStartsANewIdleWindow) {
   keepSessions();
 
   feed(post("/mcp", kRequestBody));
@@ -1400,8 +1399,9 @@ TEST_F(StreamableHttpFilterTest,
   wire_.clear();
 
   feed(post("/mcp", "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\"}",
-            "Mcp-Session-Id: " + id + "\r\n"
-            "Accept: text/event-stream\r\n"));
+            "Mcp-Session-Id: " + id +
+                "\r\n"
+                "Accept: text/event-stream\r\n"));
   ASSERT_TRUE(callbacks_.stream);
 
   transport::SessionCtx* session = sessions_->find(id);
