@@ -27,6 +27,7 @@
 #include "mcp/protocol/extensions.h"
 #include "mcp/protocol/modern_era.h"
 #include "mcp/protocol/protocol_versions.h"
+#include "mcp/protocol/tasks.h"
 #include "mcp/protocol/trace_context.h"
 #include "mcp/transport/http_sse_transport_socket.h"
 // NOTE: We'll implement connection handler directly in server for now
@@ -94,6 +95,15 @@ optional<Metadata> argumentsOf(const json::JsonValue& params) {
   const auto& arguments = params["arguments"];
   return mcp::make_optional(
       arguments.isObject() ? json::jsonToMetadata(arguments) : Metadata());
+}
+
+// A refusal to a caller that didn't declare the Tasks extension.
+jsonrpc::Response tasksExtensionRequired(const RequestId& id) {
+  Error error(protocol::modern::kMissingRequiredClientCapability,
+              "Missing required client capability");
+  error.data =
+      mcp::make_optional(ErrorData(protocol::tasks::requiredExtensionData()));
+  return jsonrpc::Response::make_error(id, error);
 }
 
 // Who this server says it is, as configured.
@@ -672,6 +682,37 @@ McpServer::McpServer(const McpServerConfig& config)
       declared[id] = (*config_.capabilities.extensions)[id];
     }
     protocol::extensions::checkConfigured(declared);
+  }
+
+  // Tasks change from whatever thread their work runs on; each change is
+  // told to whoever listens for it, on the dispatcher, which is where the
+  // streams they go down live.
+  {
+    TaskStore::Config tasks;
+    tasks.ttl = config_.task_ttl;
+    tasks.poll_interval = config_.task_poll_interval;
+    tasks.max_per_caller = config_.max_tasks_per_caller;
+    std::weak_ptr<bool> alive = alive_;
+    task_store_ = TaskStore::make(
+        tasks, [this, alive](const protocol::tasks::Task& task) {
+          if (alive.expired()) {
+            return;
+          }
+          const json::JsonValue params = protocol::tasks::toJson(task);
+          const std::string id = task.taskId;
+          const bool posted = postToDispatcher([this, alive, params, id]() {
+            if (!alive.expired()) {
+              subscriptions_.publish(protocol::tasks::kNotificationTasks,
+                                     params, id);
+            }
+          });
+          // No dispatcher, no loop: nothing else touches the streams, so
+          // they are written here.
+          if (!posted) {
+            subscriptions_.publish(protocol::tasks::kNotificationTasks, params,
+                                   id);
+          }
+        });
   }
 
   // Built once, from keys checked here: a bad key is a configuration
@@ -1308,6 +1349,9 @@ bool McpServer::knowsMethod(const std::string& method) const {
       "prompts/list",
       "prompts/get",
       "completion/complete",
+      protocol::tasks::kMethodGet,
+      protocol::tasks::kMethodUpdate,
+      protocol::tasks::kMethodCancel,
       protocol::modern::kMethodServerDiscover};
   for (const char* known : kBuiltIn) {
     if (method == known) {
@@ -1735,6 +1779,12 @@ ServerCapabilities McpServer::advertisedNow() const {
       capabilities, tools_list_changed, prompts_list_changed,
       resources_list_changed, resources_subscribe, offersCompletions());
 
+  // A server with task tools supports the Tasks extension, whether or not
+  // it was also configured to say so.
+  if (has_task_tools_.load() &&
+      extensions.count(protocol::tasks::kExtensionId) == 0) {
+    extensions[protocol::tasks::kExtensionId] = json::JsonValue::object();
+  }
   const json::JsonValue all =
       protocol::extensions::merged(capabilities.extensions, extensions);
   capabilities.extensions = all.keys().empty() ? optional<json::JsonValue>()
@@ -1765,6 +1815,11 @@ bool McpServer::offers(const std::string& method) const {
   const bool prompts = under("prompts/");
   const bool resources = under("resources/");
   const bool logging = method == "logging/setLevel";
+  if (protocol::tasks::isTaskMethod(method)) {
+    return protocol::extensions::settingsOf(advertisedNow().extensions,
+                                            protocol::tasks::kExtensionId)
+        .has_value();
+  }
   if (!tools && !prompts && !resources && !logging) {
     return true;
   }
@@ -2681,6 +2736,8 @@ void McpServer::dispatchRequest(const jsonrpc::Request& request,
         response = handleGetPrompt(request, *session);
       } else if (request.method == "completion/complete") {
         response = handleComplete(request, *session);
+      } else if (protocol::tasks::isTaskMethod(request.method)) {
+        response = handleTaskMethod(request, *session);
       } else if (request.method == protocol::modern::kMethodServerDiscover) {
         response = handleDiscover(request, *session);
       } else {
@@ -2971,7 +3028,24 @@ void McpServer::registerBuiltinHandlers() {
           return;
         }
 
-        const auto filter = NotificationFilter::parse(paramsOf(request));
+        auto filter = NotificationFilter::parse(paramsOf(request));
+        // Task changes only for a caller that declared the Tasks
+        // extension, and only about its own tasks: the acknowledgement
+        // names those this server agreed to.
+        if (!filter.task_ids.empty()) {
+          if (!session.clientHasExtension(protocol::tasks::kExtensionId)) {
+            stream->sendResponse(tasksExtensionRequired(request.id));
+            return;
+          }
+          std::vector<std::string> owned;
+          for (const auto& id : filter.task_ids) {
+            const auto owner = taskOwnerOf(session);
+            if (owner.has_value() && task_store_->owns(owner.value(), id)) {
+              owned.push_back(id);
+            }
+          }
+          filter.task_ids = owned;
+        }
         // Held under who asked as well as what they called it: the id a
         // subscription answers to is one its own client chose, and two
         // clients each numbering their requests from one is ordinary.
@@ -3319,6 +3393,25 @@ jsonrpc::Response McpServer::handleCallTool(const jsonrpc::Request& request,
   std::string name = get<std::string>(name_it->second);
 
   const json::JsonValue params_json = paramsOf(request);
+
+  // A tool whose calls run as tasks is answered with one.
+  TaskToolHandler task_tool;
+  {
+    std::lock_guard<std::mutex> lock(task_tools_mutex_);
+    auto it = task_tools_.find(name);
+    if (it != task_tools_.end()) {
+      task_tool = it->second;
+    }
+  }
+  if (task_tool) {
+    return handleTaskToolCall(request, session, task_tool,
+                              params_json.isObject() &&
+                                      params_json.contains("arguments") &&
+                                      params_json["arguments"].isObject()
+                                  ? params_json["arguments"]
+                                  : json::JsonValue::object());
+  }
+
   optional<Metadata> arguments = argumentsOf(params_json);
 
   // Surface the request's params._meta (out-of-band metadata, e.g. correlation
@@ -3507,6 +3600,151 @@ jsonrpc::Response McpServer::handleComplete(const jsonrpc::Request& request,
         Error(jsonrpc::INTERNAL_ERROR,
               std::string("Completion could not be encoded: ") + e.what()));
   }
+}
+
+optional<std::string> McpServer::taskOwnerOf(
+    const SessionContext& session) const {
+  const std::string& principal = session.getPrincipal();
+  if (!principal.empty()) {
+    // Prefixed, so no authenticated caller can share the owner that stands
+    // for none.
+    return mcp::make_optional("caller:" + principal);
+  }
+  bool allowed = false;
+  {
+    std::lock_guard<std::mutex> lock(config_mutex_);
+    allowed = config_.allow_tasks_without_caller;
+  }
+  return allowed ? mcp::make_optional(std::string()) : nullopt;
+}
+
+bool McpServer::registerTaskTool(const Tool& tool, TaskToolHandler handler) {
+  if (!handler) {
+    return false;
+  }
+  // Listed like any other tool. Its calls never reach this handler: they
+  // are answered with a task before any tool handler runs.
+  const bool listed = registerTool(
+      tool, [](const std::string&, const optional<Metadata>&, SessionContext&) {
+        CallToolResult refused;
+        refused.isError = true;
+        refused.content.push_back(
+            ExtendedContentBlock(TextContent("this tool runs only as a task")));
+        return refused;
+      });
+  if (!listed) {
+    return false;
+  }
+  {
+    std::lock_guard<std::mutex> lock(task_tools_mutex_);
+    task_tools_[tool.name] = std::move(handler);
+  }
+  has_task_tools_ = true;
+  return true;
+}
+
+jsonrpc::Response McpServer::handleTaskToolCall(
+    const jsonrpc::Request& request,
+    SessionContext& session,
+    const TaskToolHandler& handler,
+    const json::JsonValue& arguments) {
+  // A task only for a 2026-07-28 request that declared it can take one:
+  // this tool has no other way to answer, so anyone else is refused.
+  if (!isModernRequest(request) ||
+      !session.clientHasExtension(protocol::tasks::kExtensionId)) {
+    return tasksExtensionRequired(request.id);
+  }
+
+  const auto owner = taskOwnerOf(session);
+  if (!owner.has_value()) {
+    // No caller to bind the task to, and binding it to no one is not
+    // allowed: refused rather than made reachable by anyone with its id.
+    return jsonrpc::Response::make_error(
+        request.id,
+        Error(jsonrpc::INVALID_REQUEST,
+              "this tool runs as a task, which needs an authenticated caller"));
+  }
+  auto task = task_store_->create(owner.value());
+  if (!task) {
+    return jsonrpc::Response::make_error(
+        request.id, Error(jsonrpc::INTERNAL_ERROR,
+                          "too many tasks are held for this caller"));
+  }
+  try {
+    handler(arguments, task);
+  } catch (const std::exception& e) {
+    task->fail(Error(jsonrpc::INTERNAL_ERROR, e.what()));
+  }
+
+  // Answered with the task as it is now, which the store already holds:
+  // a tasks/get for this id finds it the moment the id is known.
+  auto created = task_store_->get(owner.value(), task->id());
+  if (!created.has_value()) {
+    return jsonrpc::Response::make_error(
+        request.id,
+        Error(jsonrpc::INTERNAL_ERROR, "the task could not be kept"));
+  }
+  return jsonrpc::Response::success(
+      request.id, jsonrpc::ResponseResult(
+                      protocol::tasks::createTaskResult(created.value())));
+}
+
+jsonrpc::Response McpServer::handleTaskMethod(const jsonrpc::Request& request,
+                                              SessionContext& session) {
+  // Defined only in 2026-07-28, and only for a caller that declared it.
+  if (!isModernRequest(request)) {
+    return jsonrpc::Response::make_error(
+        request.id, Error(jsonrpc::METHOD_NOT_FOUND,
+                          "Method not found: " + request.method));
+  }
+  if (!session.clientHasExtension(protocol::tasks::kExtensionId)) {
+    return tasksExtensionRequired(request.id);
+  }
+
+  const json::JsonValue params = paramsOf(request);
+  if (!params.isObject() || !params.contains("taskId") ||
+      !params["taskId"].isString()) {
+    return jsonrpc::Response::make_error(
+        request.id, Error(jsonrpc::INVALID_PARAMS, "taskId is required"));
+  }
+  const std::string id = params["taskId"].getString();
+  // A caller that can own no task has none to ask about.
+  const std::string owner = taskOwnerOf(session).value_or("\x01none");
+  // One that doesn't exist, has expired, or is another caller's: all the
+  // same to the caller, so none can be told apart.
+  const auto unknown = [&request]() {
+    return jsonrpc::Response::make_error(
+        request.id, Error(jsonrpc::INVALID_PARAMS,
+                          "Failed to retrieve task: Task not found"));
+  };
+
+  json::JsonValue ack = json::JsonValue::object();
+  ack.set(protocol::modern::kResultTypeField,
+          json::JsonValue(protocol::modern::kResultTypeComplete));
+
+  if (request.method == protocol::tasks::kMethodGet) {
+    auto task = task_store_->get(owner, id);
+    if (!task.has_value()) {
+      return unknown();
+    }
+    return jsonrpc::Response::success(
+        request.id,
+        jsonrpc::ResponseResult(protocol::tasks::getTaskResult(task.value())));
+  }
+  if (request.method == protocol::tasks::kMethodUpdate) {
+    const json::JsonValue responses =
+        params.contains(protocol::modern::kInputResponsesField)
+            ? params[protocol::modern::kInputResponsesField]
+            : json::JsonValue::object();
+    if (!task_store_->update(owner, id, responses)) {
+      return unknown();
+    }
+    return jsonrpc::Response::success(request.id, jsonrpc::ResponseResult(ack));
+  }
+  if (!task_store_->cancel(owner, id)) {
+    return unknown();
+  }
+  return jsonrpc::Response::success(request.id, jsonrpc::ResponseResult(ack));
 }
 
 jsonrpc::Response McpServer::handleGetPrompt(const jsonrpc::Request& request,
