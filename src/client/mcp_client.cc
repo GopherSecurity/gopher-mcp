@@ -984,9 +984,15 @@ void McpClient::completeRequestWithError(
   }
   releaseIfSubscription(*context);
   context->completed = true;
-  context->finish(Response::make_error(context->id, error));
+  const Response failed = Response::make_error(context->id, error);
+  context->finish(failed);
   request_tracker_->removeRequest(context->id);
   client_stats_.requests_failed++;
+  // Work the client carries on with hears of a failure as it would of an
+  // answer: otherwise it waits for one that is never coming.
+  if (context->on_response) {
+    context->on_response(failed);
+  }
 }
 
 void McpClient::releaseIfSubscription(const RequestContext& request) {
@@ -1491,7 +1497,13 @@ void McpClient::abandonRequest(const std::shared_ptr<RequestContext>& context,
     return;
   }
   request_tracker_->removeRequest(context->id);
-  if (context->sent_apart) {
+  if (context->task_id.has_value()) {
+    // A task is cancelled with tasks/cancel and nothing else.
+    json::JsonValue params = json::JsonValue::object();
+    params.set("taskId", json::JsonValue(context->task_id.value()));
+    sendInternalJson(protocol::tasks::kMethodCancel, params,
+                     [](const Response&) {});
+  } else if (context->sent_apart) {
     // Closing its own stream is the cancellation, and nothing is sent.
     // The close itself happens as it settles, below.
   } else if (speaksModernHttp()) {
@@ -1981,6 +1993,11 @@ void McpClient::handleResponse(const Response& response) {
     return;
   }
 
+  // Answered with a task rather than the answer: followed to its end.
+  if (followTask(request, response)) {
+    return;
+  }
+
   // An answer that turns out to be a question is not this request's
   // answer. Either it goes out again carrying what was asked for — in
   // which case there is nothing to complete here, the same caller now
@@ -2225,6 +2242,245 @@ void McpClient::relistToolsThen(const optional<std::string>& cursor,
         }
         done();
       });
+}
+
+void McpClient::sendInternalJson(
+    const std::string& method,
+    const json::JsonValue& params,
+    std::function<void(const Response&)> on_response) {
+  RequestId id = static_cast<int64_t>(next_request_id_++);
+  auto context = std::make_shared<RequestContext>(id, method);
+  context->params_json = mcp::make_optional(params);
+  context->start_time = std::chrono::steady_clock::now();
+  context->on_response = std::move(on_response);
+  request_tracker_->trackRequest(context);
+  sendRequestInternal(context);
+}
+
+bool McpClient::followTask(const std::shared_ptr<RequestContext>& request,
+                           const Response& response) {
+  if (request->method != "tools/call" || response.error.has_value() ||
+      !response.result.has_value()) {
+    return false;
+  }
+  json::JsonValue body;
+  if (!resultAsJson(response, &body) || !protocol::tasks::isTaskResult(body)) {
+    return false;
+  }
+  auto fail = [this, &request](const std::string& why) {
+    request->completed = true;
+    completeRequest(
+        request, Response::make_error(
+                     request->id, Error(::mcp::jsonrpc::INTERNAL_ERROR, why)));
+  };
+  if (!config_.accept_tasks) {
+    fail("the server answered with a task, which this client did not accept");
+    return true;
+  }
+  const auto task = protocol::tasks::fromJson(body);
+  if (!task.has_value()) {
+    fail("the server answered with a task that could not be read");
+    return true;
+  }
+
+  // The call now lasts as long as its task: its own clock stops, and only
+  // the task's end, or the caller cancelling, answers it.
+  request->task_id = task->taskId;
+  const RequestIdKey key = requestIdKey(request->origin_id);
+  auto timer = request_timers_.find(key);
+  if (timer != request_timers_.end()) {
+    timer->second->disableTimer();
+    request_timers_.erase(timer);
+  }
+  request_deadlines_.erase(key);
+  GOPHER_LOG_DEBUG("tools/call became task {}", task->taskId);
+  onTaskState(request, task.value());
+  return true;
+}
+
+void McpClient::onTaskState(const std::shared_ptr<RequestContext>& request,
+                            const protocol::tasks::Task& task) {
+  if (request->settled.load()) {
+    return;
+  }
+  namespace tasks = protocol::tasks;
+  const auto settle = [this, &request](const Response& answer) {
+    request->completed = true;
+    request_tracker_->removeRequest(request->id);
+    completeRequest(request, answer);
+  };
+  switch (task.status) {
+    case tasks::Status::Completed:
+      settle(Response::success(
+          request->id,
+          jsonrpc::ResponseResult(task.result.has_value()
+                                      ? task.result.value()
+                                      : json::JsonValue::object())));
+      return;
+    case tasks::Status::Failed:
+      settle(Response::make_error(
+          request->id,
+          task.error.has_value()
+              ? task.error.value()
+              : Error(::mcp::jsonrpc::INTERNAL_ERROR, "the task failed")));
+      return;
+    case tasks::Status::Cancelled:
+      settle(Response::make_error(
+          request->id,
+          Error(::mcp::jsonrpc::REQUEST_CANCELLED, "the task was cancelled")));
+      return;
+    case tasks::Status::InputRequired: {
+      // Each request answered once, however often it is seen again.
+      json::JsonValue asking = json::JsonValue::object();
+      asking.set(protocol::modern::kResultTypeField,
+                 json::JsonValue(protocol::modern::kResultTypeInputRequired));
+      asking.set(protocol::modern::kInputRequestsField, task.inputRequests);
+      const auto asked = protocol::modern::askedForIn(asking);
+      std::map<std::string, json::JsonValue> answers;
+      for (const auto& entry : asked.requests) {
+        if (request->answered_input.insert(entry.first).second) {
+          answers[entry.first] = askOurselves(entry.second);
+        }
+      }
+      if (!answers.empty()) {
+        json::JsonValue params = json::JsonValue::object();
+        params.set("taskId", json::JsonValue(task.taskId));
+        params.set(protocol::modern::kInputResponsesField,
+                   protocol::modern::renderInputResponses(answers));
+        sendInternalJson(protocol::tasks::kMethodUpdate, params,
+                         [](const Response&) {});
+      }
+      break;
+    }
+    case tasks::Status::Working:
+      break;
+  }
+  pollTaskLater(request,
+                std::chrono::milliseconds(task.pollIntervalMs.value_or(1000)));
+}
+
+void McpClient::pollTaskLater(const std::shared_ptr<RequestContext>& request,
+                              std::chrono::milliseconds after) {
+  if (!main_dispatcher_ || !request->task_id.has_value()) {
+    return;
+  }
+  // At the server's pace, but never so fast as to be a busy loop, nor so
+  // slow a finished task goes unnoticed for long.
+  after = std::max(after, std::chrono::milliseconds(10));
+  after = std::min(after, std::chrono::milliseconds(60000));
+  std::weak_ptr<RequestContext> waiting = request;
+  std::weak_ptr<bool> alive = alive_;
+  request->poll_timer = main_dispatcher_->createTimer([this, alive, waiting]() {
+    auto request = waiting.lock();
+    if (alive.expired() || !request || request->settled.load()) {
+      return;
+    }
+    json::JsonValue params = json::JsonValue::object();
+    params.set("taskId", json::JsonValue(request->task_id.value()));
+    sendInternalJson(
+        protocol::tasks::kMethodGet, params,
+        [this, alive, waiting](const Response& response) {
+          auto request = waiting.lock();
+          if (alive.expired() || !request || request->settled.load()) {
+            return;
+          }
+          if (response.error.has_value()) {
+            // Gone or expired: what the server said is the answer.
+            request->completed = true;
+            request_tracker_->removeRequest(request->id);
+            completeRequest(request, Response::make_error(
+                                         request->id, response.error.value()));
+            return;
+          }
+          json::JsonValue body;
+          optional<protocol::tasks::Task> task;
+          if (resultAsJson(response, &body)) {
+            task = protocol::tasks::fromJson(body);
+          }
+          if (!task.has_value()) {
+            request->completed = true;
+            request_tracker_->removeRequest(request->id);
+            completeRequest(
+                request,
+                Response::make_error(request->id,
+                                     Error(::mcp::jsonrpc::INTERNAL_ERROR,
+                                           "tasks/get answered with no task")));
+            return;
+          }
+          onTaskState(request, task.value());
+        });
+  });
+  request->poll_timer->enableTimer(after);
+}
+
+std::future<jsonrpc::Response> McpClient::sendFromDispatcher(
+    const std::string& method, const json::JsonValue& params) {
+  auto answered = std::make_shared<std::promise<Response>>();
+  auto future = answered->get_future();
+  if (!main_dispatcher_) {
+    answered->set_value(Response::make_error(
+        RequestId(), Error(::mcp::jsonrpc::INTERNAL_ERROR, "No dispatcher")));
+    return future;
+  }
+  std::weak_ptr<bool> alive = alive_;
+  postCarryingTrace([this, alive, method, params, answered]() {
+    if (alive.expired()) {
+      answered->set_value(Response::make_error(
+          RequestId(), Error(::mcp::jsonrpc::INTERNAL_ERROR, "client gone")));
+      return;
+    }
+    sendInternalJson(method, params, [answered](const Response& response) {
+      answered->set_value(response);
+    });
+  });
+  return future;
+}
+
+std::future<protocol::tasks::Task> McpClient::getTask(
+    const std::string& task_id) {
+  json::JsonValue params = json::JsonValue::object();
+  params.set("taskId", json::JsonValue(task_id));
+  auto asked = std::make_shared<std::future<Response>>(
+      sendFromDispatcher(protocol::tasks::kMethodGet, params));
+  auto task = std::make_shared<std::promise<protocol::tasks::Task>>();
+  auto future = task->get_future();
+  std::thread([asked, task]() {
+    try {
+      const Response response = asked->get();
+      if (response.error.has_value()) {
+        throw RequestError(response.error.value());
+      }
+      json::JsonValue body;
+      optional<protocol::tasks::Task> read;
+      if (resultAsJson(response, &body)) {
+        read = protocol::tasks::fromJson(body);
+      }
+      if (!read.has_value()) {
+        throw std::runtime_error("tasks/get answered with no task");
+      }
+      task->set_value(read.value());
+    } catch (...) {
+      task->set_exception(std::current_exception());
+    }
+  }).detach();
+  return future;
+}
+
+std::future<jsonrpc::Response> McpClient::updateTask(
+    const std::string& task_id,
+    const std::map<std::string, json::JsonValue>& input_responses) {
+  json::JsonValue params = json::JsonValue::object();
+  params.set("taskId", json::JsonValue(task_id));
+  params.set(protocol::modern::kInputResponsesField,
+             protocol::modern::renderInputResponses(input_responses));
+  return sendFromDispatcher(protocol::tasks::kMethodUpdate, params);
+}
+
+std::future<jsonrpc::Response> McpClient::cancelTask(
+    const std::string& task_id) {
+  json::JsonValue params = json::JsonValue::object();
+  params.set("taskId", json::JsonValue(task_id));
+  return sendFromDispatcher(protocol::tasks::kMethodCancel, params);
 }
 
 json::JsonValue McpClient::askOurselves(
@@ -2602,8 +2858,13 @@ json::JsonValue McpClient::declaredCapabilities() const {
   if (!declared.isObject()) {
     declared = json::JsonValue::object();
   }
-  const json::JsonValue extensions = protocol::extensions::merged(
-      config_.capabilities.extensions, config_.extensions);
+  std::map<std::string, json::JsonValue> configured = config_.extensions;
+  if (config_.accept_tasks &&
+      configured.count(protocol::tasks::kExtensionId) == 0) {
+    configured[protocol::tasks::kExtensionId] = json::JsonValue::object();
+  }
+  const json::JsonValue extensions =
+      protocol::extensions::merged(config_.capabilities.extensions, configured);
   if (!extensions.keys().empty()) {
     declared.set(protocol::extensions::kField, extensions);
   }
