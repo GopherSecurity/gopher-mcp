@@ -35,6 +35,8 @@ struct NotificationFilter {
   bool resources_list_changed{false};
   /** The resources whose updates this subscription wants, by URI. */
   std::vector<std::string> resource_uris;
+  /** The tasks whose changes it wants, by id (the Tasks extension). */
+  std::vector<std::string> task_ids;
 
   /** Read out of a listen request's params. */
   static NotificationFilter parse(const json::JsonValue& params);
@@ -49,13 +51,14 @@ struct NotificationFilter {
   /**
    * Whether this subscription asked for this notification. The URI
    * matters only for a resource update — a subscription names the
-   * resources it cares about rather than asking for all of them.
+   * resources it cares about rather than asking for all of them — and
+   * for a task's change it is the task's id.
    */
   bool wants(const std::string& method, const std::string& uri) const;
 
   bool empty() const {
     return !tools_list_changed && !prompts_list_changed &&
-           !resources_list_changed && resource_uris.empty();
+           !resources_list_changed && resource_uris.empty() && task_ids.empty();
   }
 };
 

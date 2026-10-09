@@ -156,6 +156,13 @@ size_t ListenRegistry::publish(const std::string& method,
     }
     tagWithSubscription(carried, subscription.id);
     notification.params = mcp::make_optional(carried);
+    // And as the JSON it is, so nested values go out as they came in.
+    json::JsonValue exact =
+        params.isObject() ? params : json::JsonValue::object();
+    json::JsonValue meta = json::JsonValue::object();
+    meta.set(modern::kMetaSubscriptionId, idAsJson(subscription.id));
+    exact.set("_meta", meta);
+    notification.params_json = mcp::make_optional(exact);
 
     auto sent = subscription.stream->sendNotification(notification);
     if (holds_alternative<Error>(sent)) {
