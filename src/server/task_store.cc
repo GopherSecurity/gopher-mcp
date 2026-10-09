@@ -330,6 +330,12 @@ bool TaskStore::askForInput(
       return false;
     }
     Entry& entry = it->second;
+    // One question at a time: until what was asked is answered, there is
+    // one callback waiting, and a second would take the first one's
+    // answers.
+    if (!entry.outstanding.empty()) {
+      return false;
+    }
     // A key names one request for the whole of a task's life.
     for (const auto& request : requests) {
       if (entry.used_keys.count(request.first) != 0) {
