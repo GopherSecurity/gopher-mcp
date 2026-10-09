@@ -141,7 +141,9 @@ constexpr const char* kMethodListRoots = "roots/list";
  * that, for it, does not exist.
  */
 inline bool isEraOnlyMethod(const std::string& method) {
-  return method == kMethodSubscriptionsListen;
+  // The Tasks extension's methods too: it is not defined before this era.
+  return method == kMethodSubscriptionsListen || method == "tasks/get" ||
+         method == "tasks/update" || method == "tasks/cancel";
 }
 
 /**
@@ -193,10 +195,16 @@ inline const char* nameFieldFor(const std::string& method) {
   if (method == kMethodResourcesRead) {
     return "uri";
   }
+  // The Tasks extension routes each of its requests by the task, so the
+  // instance holding it can be found.
+  if (method == "tasks/get" || method == "tasks/update" ||
+      method == "tasks/cancel") {
+    return "taskId";
+  }
   return "";
 }
 
-/** Whether this method is one of the three that must carry `Mcp-Name`. */
+/** Whether this method is one of those that must carry `Mcp-Name`. */
 inline bool carriesName(const std::string& method) {
   return *nameFieldFor(method) != '\0';
 }
