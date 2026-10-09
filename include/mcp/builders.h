@@ -419,7 +419,8 @@ class ClientCapabilitiesBuilder
   // Each entry as the JSON it holds: a string of JSON text is read as the
   // object it spells, as a flat map has always carried one.
   ClientCapabilitiesBuilder& experimental(const Metadata& metadata) {
-    value_.experimental = mcp::make_optional(detail::experimentalFrom(metadata));
+    value_.experimental =
+        mcp::make_optional(detail::experimentalFrom(metadata));
     return *this;
   }
 
@@ -507,7 +508,8 @@ class ServerCapabilitiesBuilder
   // Each entry as the JSON it holds: a string of JSON text is read as the
   // object it spells, as a flat map has always carried one.
   ServerCapabilitiesBuilder& experimental(const Metadata& metadata) {
-    value_.experimental = mcp::make_optional(detail::experimentalFrom(metadata));
+    value_.experimental =
+        mcp::make_optional(detail::experimentalFrom(metadata));
     return *this;
   }
 
