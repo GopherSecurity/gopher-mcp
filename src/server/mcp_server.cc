@@ -1743,12 +1743,16 @@ ServerCapabilities McpServer::advertisedNow() const {
 }
 
 void McpServer::noteHandled(const std::string& method) {
-  if (method == "tools/list" || method == "tools/call") {
+  // By the same prefixes offers() gates on, so a handler for any method a
+  // capability covers counts as offering it, and the two cannot disagree.
+  auto under = [&method](const char* prefix) {
+    return method.compare(0, std::string(prefix).size(), prefix) == 0;
+  };
+  if (under("tools/")) {
     handled_capabilities_ |= kHandlesTools;
-  } else if (method == "prompts/list" || method == "prompts/get") {
+  } else if (under("prompts/")) {
     handled_capabilities_ |= kHandlesPrompts;
-  } else if (method == "resources/list" || method == "resources/read" ||
-             method == "resources/templates/list") {
+  } else if (under("resources/")) {
     handled_capabilities_ |= kHandlesResources;
   }
 }
