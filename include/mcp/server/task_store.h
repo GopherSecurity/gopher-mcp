@@ -66,7 +66,8 @@ class TaskHandle {
    * Ask the client for something: the task waits in input_required until
    * the client answers, and on_answered gets the answers to these keys.
    * A key may be used once in a task's life. False when a key was used
-   * before, or the task has finished.
+   * before, the task has finished, or what it asked before is still
+   * unanswered: one question at a time.
    */
   bool askForInput(const protocol::modern::InputRequests& requests,
                    std::function<void(const Answers&)> on_answered);
