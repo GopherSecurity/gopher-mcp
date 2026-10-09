@@ -285,7 +285,11 @@ struct RequestContext {
   // The task a tools/call became (the Tasks extension), the inputRequests
   // keys already answered for it, and the clock for its next poll.
   optional<std::string> task_id;
-  std::set<std::string> answered_input;
+  // What the task asked for, answered once by the client's own handlers,
+  // and which of those answers are on their way or were taken. An answer
+  // whose update failed goes again, without asking a second time.
+  std::map<std::string, json::JsonValue> input_answers;
+  std::set<std::string> input_sent;
   event::TimerPtr poll_timer;
 
   // Already sent once more after the server refused its mirrored headers
