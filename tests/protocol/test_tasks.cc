@@ -301,6 +301,33 @@ TEST(TaskStore, InputIsAskedForAndAnswered) {
   })) << "a key was used twice";
 }
 
+// One question at a time: a second ask while the first is unanswered is
+// refused, rather than taking the first one's answers.
+TEST(TaskStore, OneQuestionAtATime) {
+  auto store = storeWith();
+  auto handle = store->create("caller:alice");
+  int first = 0;
+  ASSERT_TRUE(handle->askForInput(
+      askName(), [&first](const TaskHandle::Answers&) { ++first; }));
+  protocol::modern::InputRequests other = askName();
+  other["age"] = other["name"];
+  other.erase("name");
+  EXPECT_FALSE(handle->askForInput(other, [](const TaskHandle::Answers&) {}))
+      << "a second question was taken while the first was unanswered";
+
+  EXPECT_TRUE(
+      store->update("caller:alice", handle->id(),
+                    JsonValue::parse(R"({"name":{"action":"accept"}})")));
+  EXPECT_EQ(first, 1) << "the first answer went somewhere else";
+  int second = 0;
+  EXPECT_TRUE(handle->askForInput(
+      other, [&second](const TaskHandle::Answers&) { ++second; }));
+  EXPECT_TRUE(
+      store->update("caller:alice", handle->id(),
+                    JsonValue::parse(R"({"age":{"action":"accept"}})")));
+  EXPECT_EQ(second, 1);
+}
+
 TEST(TaskStore, CancellingTellsTheWork) {
   auto store = storeWith();
   auto handle = store->create("caller:alice");
