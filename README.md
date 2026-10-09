@@ -290,6 +290,7 @@ Install [Cygwin](https://www.cygwin.com/) with these packages:
 ### MCP CPP Core Components
 
 - [MCP Protocol in C++](docs/mcp_protocol.md) - Model Context Protocol implementation details
+- [Tasks](docs/tasks.md) - Long-running tool calls as tasks, on the server and the client
 - [Filter Chain](docs/filter_chain.md) - Processing pipeline architecture
 - [Transport Layer](docs/transport_layer.md) - Transport implementations
 - [Network Layer](docs/network_layer.md) - Connection management and socket abstraction
