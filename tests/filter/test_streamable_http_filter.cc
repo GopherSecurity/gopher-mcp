@@ -1520,6 +1520,45 @@ TEST_F(StreamableHttpFilterTest, AFailedFinalResponseStreamDoesNotPinSession) {
   EXPECT_GE(sessions_->find(id)->last_activity, before);
 }
 
+TEST_F(StreamableHttpFilterTest,
+       RetainedResponseStreamIgnoresDestroyedSessionManager) {
+  keepSessions();
+
+  feed(post("/mcp", kRequestBody));
+  const std::string id = sessionIdOnTheWire();
+  ASSERT_FALSE(id.empty());
+
+  callbacks_.streaming = StreamingMode::Required;
+  callbacks_.answer_requests = false;
+  wire_.clear();
+
+  feed(post("/mcp", "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\"}",
+            "Mcp-Session-Id: " + id +
+                "\r\n"
+                "Accept: text/event-stream\r\n"));
+  ASSERT_TRUE(callbacks_.stream);
+
+  std::weak_ptr<transport::StreamableSessionManager> gone = sessions_;
+  codec_.reset();
+  filter_.reset();
+  callbacks_.filter = nullptr;
+  sessions_.reset();
+  ASSERT_TRUE(gone.expired());
+
+  jsonrpc::Notification progress;
+  progress.jsonrpc = "2.0";
+  progress.method = "notifications/progress";
+  EXPECT_FALSE(
+      holds_alternative<Error>(callbacks_.stream->sendNotification(progress)));
+
+  jsonrpc::Response response;
+  response.jsonrpc = "2.0";
+  response.id = RequestId(static_cast<int64_t>(2));
+  response.result = mcp::make_optional(jsonrpc::ResponseResult(Metadata()));
+  EXPECT_FALSE(
+      holds_alternative<Error>(callbacks_.stream->sendResponse(response)));
+}
+
 TEST_F(StreamableHttpFilterTest, TheAgreedRevisionIsRecordedOnTheSession) {
   keepSessions();
   callbacks_.result = json::JsonValue::object();
