@@ -421,8 +421,7 @@ class StreamableSessionManager
    * whether completion was observed there directly or reached through
    * withSession().
    */
-  static bool finishStream(SessionCtx& session,
-                           const std::string& stream_id);
+  static bool finishStream(SessionCtx& session, const std::string& stream_id);
 
   /**
    * Told once for each session that goes away, on the thread that owned
