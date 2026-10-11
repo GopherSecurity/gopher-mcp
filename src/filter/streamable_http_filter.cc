@@ -35,6 +35,21 @@ std::string headerOr(const std::map<std::string, std::string>& headers,
   return it != headers.end() ? it->second : fallback;
 }
 
+std::weak_ptr<transport::StreamableSessionManager> weakSessionManager(
+    transport::StreamableSessionManager* sessions) {
+  if (sessions == nullptr) {
+    return std::weak_ptr<transport::StreamableSessionManager>();
+  }
+  try {
+    return sessions->shared_from_this();
+  } catch (const std::bad_weak_ptr&) {
+    GOPHER_LOG_ERROR(
+        "session manager is not shared-owned; delayed response stream "
+        "callbacks cannot safely update session state");
+    return std::weak_ptr<transport::StreamableSessionManager>();
+  }
+}
+
 /** The request target, with any query string removed. */
 std::string requestPath(const std::map<std::string, std::string>& headers) {
   // Some codecs surface the target as the HTTP/2-style pseudo-header and
@@ -407,11 +422,14 @@ ResponseStreamPtr StreamableHttpFilter::DispatchContext::beginResponseStream() {
     transport::RequestExchangePtr exchange = parent_.exchange_;
     const std::string session_id = parent_.session_id_;
     std::weak_ptr<int> alive = parent_.alive_;
-    transport::StreamableSessionManager* sessions = parent_.sessions_;
+    std::weak_ptr<transport::StreamableSessionManager> weak_sessions =
+        weakSessionManager(parent_.sessions_);
     event::Dispatcher* dispatcher = &parent_.dispatcher_;
 
-    auto touch_session = [sessions, dispatcher, session_id]() {
-      if (sessions == nullptr || dispatcher == nullptr || session_id.empty()) {
+    auto touch_session = [weak_sessions, dispatcher, session_id]() {
+      std::shared_ptr<transport::StreamableSessionManager> sessions =
+          weak_sessions.lock();
+      if (!sessions || dispatcher == nullptr || session_id.empty()) {
         return;
       }
       auto touch = [](transport::SessionCtx& session) {
@@ -427,9 +445,11 @@ ResponseStreamPtr StreamableHttpFilter::DispatchContext::beginResponseStream() {
     };
 
     auto finish_session_stream =
-        [sessions, dispatcher,
+        [weak_sessions, dispatcher,
          session_id](const std::string& stream_id) {
-          if (sessions == nullptr || dispatcher == nullptr ||
+          std::shared_ptr<transport::StreamableSessionManager> sessions =
+              weak_sessions.lock();
+          if (!sessions || dispatcher == nullptr ||
               session_id.empty() || stream_id.empty()) {
             return;
           }
