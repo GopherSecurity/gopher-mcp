@@ -45,16 +45,27 @@ std::string toHex(const unsigned char* bytes, size_t length) {
   return out;
 }
 
-bool streamKeepsSessionActive(const StreamCtx& stream) {
+bool streamKeepsSessionActive(const SessionCtx& session,
+                              const StreamCtx& stream,
+                              std::chrono::steady_clock::time_point now,
+                              std::chrono::milliseconds timeout) {
   if (stream.kind == StreamCtx::Kind::Get) {
     return stream.live();
   }
-  return stream.open();
+  if (!stream.open() || timeout.count() <= 0) {
+    return false;
+  }
+  // An answering stream is one request, not the session's standing receive
+  // channel. It keeps the session alive while it is making progress, but a
+  // handler that goes silent must not pin the session forever.
+  return now - session.last_activity < timeout;
 }
 
-bool hasActiveStream(const SessionCtx& session) {
+bool hasActiveStream(const SessionCtx& session,
+                     std::chrono::steady_clock::time_point now,
+                     std::chrono::milliseconds timeout) {
   for (const auto& stream : session.streams) {
-    if (stream && streamKeepsSessionActive(*stream)) {
+    if (stream && streamKeepsSessionActive(session, *stream, now, timeout)) {
       return true;
     }
   }
@@ -581,7 +592,7 @@ void StreamableSessionManager::forEachExpired(
         // last_activity from here would be reading state we do not own.
         continue;
       }
-      if (hasActiveStream(*entry.second.ctx)) {
+      if (hasActiveStream(*entry.second.ctx, now, timeout)) {
         continue;
       }
       if (now - entry.second.ctx->last_activity >= timeout) {

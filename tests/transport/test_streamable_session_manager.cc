@@ -581,7 +581,34 @@ TEST_F(StreamableSessionManagerTest,
 }
 
 TEST_F(StreamableSessionManagerTest,
-       AnOpenAnsweringStreamKeepsSessionFromExpiring) {
+       ARecentAnsweringStreamKeepsSessionFromExpiring) {
+  const std::string id = createSession();
+
+  owner_->run([&]() {
+    SessionCtx* session = manager_->find(id);
+    ASSERT_NE(session, nullptr);
+
+    std::unique_ptr<RetainedExchangeSink> sink(new RetainedExchangeSink());
+    auto exchange =
+        RequestExchange::create(owner_->dispatcher(), std::move(sink), nullopt);
+    exchange->beginStream();
+    ASSERT_NE(
+        manager_->openStream(*session, StreamCtx::Kind::PostResponse, exchange,
+                             fakeConnection(1), owner_->dispatcher()),
+        nullptr);
+
+    std::vector<std::string> expired;
+    manager_->forEachExpired(25ms, [&expired](SessionCtx& expired_session) {
+      expired.push_back(expired_session.id);
+    });
+
+    EXPECT_TRUE(expired.empty())
+        << "an in-flight streamed response was treated as abandoned";
+  });
+}
+
+TEST_F(StreamableSessionManagerTest,
+       AStaleAnsweringStreamDoesNotKeepSessionForever) {
   const std::string id = createSession();
 
   owner_->run([&]() {
@@ -599,12 +626,13 @@ TEST_F(StreamableSessionManagerTest,
     session->last_activity -= 1h;
 
     std::vector<std::string> expired;
-    manager_->forEachExpired(0ms, [&expired](SessionCtx& expired_session) {
+    manager_->forEachExpired(25ms, [&expired](SessionCtx& expired_session) {
       expired.push_back(expired_session.id);
     });
 
-    EXPECT_TRUE(expired.empty())
-        << "an in-flight streamed response was treated as abandoned";
+    ASSERT_EQ(expired.size(), 1u)
+        << "a silent streamed response pinned the session forever";
+    EXPECT_EQ(expired[0], id);
   });
 }
 
