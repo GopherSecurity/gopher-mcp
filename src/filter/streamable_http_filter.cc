@@ -217,11 +217,15 @@ VoidResult StreamableHttpFilter::ResponseStreamImpl::sendNotification(
     return makeVoidError(err);
   }
 
-  return exchange_->writeEvent("message",
-                               json::to_json(notification).toString())
-             ? makeVoidSuccess()
-             : makeVoidError(
-                   Error(jsonrpc::INTERNAL_ERROR, "notification not written"));
+  if (!exchange_->writeEvent("message",
+                             json::to_json(notification).toString())) {
+    return makeVoidError(
+        Error(jsonrpc::INTERNAL_ERROR, "notification not written"));
+  }
+  if (on_activity_) {
+    on_activity_();
+  }
+  return makeVoidSuccess();
 }
 
 VoidResult StreamableHttpFilter::ResponseStreamImpl::sendRequest(
@@ -252,10 +256,14 @@ VoidResult StreamableHttpFilter::ResponseStreamImpl::sendRequest(
     return makeVoidError(err);
   }
 
-  return exchange_->writeEvent("message", json::to_json(request).toString())
-             ? makeVoidSuccess()
-             : makeVoidError(
-                   Error(jsonrpc::INTERNAL_ERROR, "question not written"));
+  if (!exchange_->writeEvent("message", json::to_json(request).toString())) {
+    return makeVoidError(
+        Error(jsonrpc::INTERNAL_ERROR, "question not written"));
+  }
+  if (on_activity_) {
+    on_activity_();
+  }
+  return makeVoidSuccess();
 }
 
 VoidResult StreamableHttpFilter::ResponseStreamImpl::sendRefusal(
@@ -313,6 +321,11 @@ VoidResult StreamableHttpFilter::ResponseStreamImpl::sendResponse(
   exchange_->setPhase(transport::RequestExchange::Phase::RespondingSseDraining);
   if (!exchange_->writeEvent("message",
                              exchange_->serializeResponse(response))) {
+    exchange_->setPhase(transport::RequestExchange::Phase::RespondingSseClosed);
+    exchange_->complete();
+    if (on_activity_) {
+      on_activity_();
+    }
     Error err;
     err.code = jsonrpc::INTERNAL_ERROR;
     err.message = "response not written";
@@ -323,8 +336,8 @@ VoidResult StreamableHttpFilter::ResponseStreamImpl::sendResponse(
   // frees the connection for the next request.
   exchange_->setPhase(transport::RequestExchange::Phase::RespondingSseClosed);
   exchange_->complete();
-  if (on_complete_) {
-    on_complete_();
+  if (on_activity_) {
+    on_activity_();
   }
   return makeVoidSuccess();
 }
