@@ -185,9 +185,19 @@ bool StreamableHttpFilter::ResponseStreamImpl::open() {
   if (on_open_) {
     auto announce = std::move(on_open_);
     on_open_ = nullptr;
-    announce();
+    stream_id_ = announce();
   }
   return true;
+}
+
+void StreamableHttpFilter::ResponseStreamImpl::noteFinished() {
+  if (on_finish_ && !stream_id_.empty()) {
+    on_finish_(stream_id_);
+    return;
+  }
+  if (on_activity_) {
+    on_activity_();
+  }
 }
 
 VoidResult StreamableHttpFilter::ResponseStreamImpl::sendNotification(
@@ -323,9 +333,7 @@ VoidResult StreamableHttpFilter::ResponseStreamImpl::sendResponse(
                              exchange_->serializeResponse(response))) {
     exchange_->setPhase(transport::RequestExchange::Phase::RespondingSseClosed);
     exchange_->complete();
-    if (on_activity_) {
-      on_activity_();
-    }
+    noteFinished();
     Error err;
     err.code = jsonrpc::INTERNAL_ERROR;
     err.message = "response not written";
@@ -336,9 +344,7 @@ VoidResult StreamableHttpFilter::ResponseStreamImpl::sendResponse(
   // frees the connection for the next request.
   exchange_->setPhase(transport::RequestExchange::Phase::RespondingSseClosed);
   exchange_->complete();
-  if (on_activity_) {
-    on_activity_();
-  }
+  noteFinished();
   return makeVoidSuccess();
 }
 
@@ -420,18 +426,39 @@ ResponseStreamPtr StreamableHttpFilter::DispatchContext::beginResponseStream() {
       sessions->withSession(*dispatcher, session_id, touch, nullptr);
     };
 
+    auto finish_session_stream =
+        [sessions, dispatcher,
+         session_id](const std::string& stream_id) {
+          if (sessions == nullptr || dispatcher == nullptr ||
+              session_id.empty() || stream_id.empty()) {
+            return;
+          }
+          auto finish = [stream_id](transport::SessionCtx& session) {
+            transport::StreamableSessionManager::finishStream(session,
+                                                              stream_id);
+          };
+          if (sessions->ownedBy(session_id, *dispatcher)) {
+            if (auto* session = sessions->find(session_id)) {
+              finish(*session);
+            }
+            return;
+          }
+          sessions->withSession(*dispatcher, session_id, finish, nullptr);
+        };
+
     parent_.stream_.reset(new ResponseStreamImpl(
         parent_.exchange_, parent_.exchange_->clientContext().accepts_sse,
-        [filter, exchange, session_id, alive]() {
+        [filter, exchange, session_id, alive]() -> std::string {
           if (alive.expired()) {
             // The connection is gone. Nothing could reach this stream to
             // be told about it, and nothing could come back to it.
-            return;
+            return std::string();
           }
-          filter->registerResponseStream(exchange, session_id,
-                                         filter->nameThisStream(exchange));
+          const std::string stream_id = filter->nameThisStream(exchange);
+          filter->registerResponseStream(exchange, session_id, stream_id);
+          return stream_id;
         },
-        touch_session));
+        touch_session, finish_session_stream));
   }
   return parent_.stream_;
 }
