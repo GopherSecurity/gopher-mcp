@@ -252,6 +252,7 @@ StreamCtx* StreamableSessionManager::openStream(
   stream->exchange = exchange;
   stream->conn = conn;
   stream->dispatcher = &dispatcher;
+  stream->producing = exchange != nullptr;
 
   StreamCtx* opened = stream.get();
   // Appended, so the collection stays in the order the streams opened —
@@ -314,6 +315,7 @@ bool StreamableSessionManager::endStream(SessionCtx& session,
   // carry. Nothing follows the pointer, so nulling it early costs
   // nothing and closes that window.
   stream.conn = nullptr;
+  stream.producing = false;
 
   // The connection ends but the stream does not, so the client is told
   // how long to wait before coming back for the rest, as the spec asks of
@@ -527,6 +529,25 @@ void StreamableSessionManager::detachConnection(SessionCtx& session,
                        session.id, stream->id);
     }
   }
+}
+
+bool StreamableSessionManager::finishStream(SessionCtx& session,
+                                            const std::string& stream_id) {
+  auto found = session.stream_index.find(stream_id);
+  if (found == session.stream_index.end() || found->second == nullptr) {
+    return false;
+  }
+
+  StreamCtx& stream = *found->second;
+  if (!stream.open()) {
+    return false;
+  }
+
+  stream.producing = false;
+  stream.retire_at = std::chrono::steady_clock::time_point();
+  session.last_activity = std::chrono::steady_clock::now();
+  GOPHER_LOG_DEBUG("session {} stream {} finished", session.id, stream.id);
+  return true;
 }
 
 bool StreamableSessionManager::removeOwned(const std::string& id) {
@@ -772,15 +793,6 @@ void StreamableSessionManager::retireStreams(SessionCtx& session) {
     StreamCtx* stream = held.get();
     if (stream == nullptr) {
       continue;
-    }
-
-    if (stream->conn != nullptr && stream->exchange &&
-        stream->exchange->detached()) {
-      // Its client has gone. The pointer is only ever compared, never
-      // followed, but comparing against an address that may since have
-      // been handed to somebody else is worse than not comparing at all.
-      stream->conn = nullptr;
-      session.last_activity = now;
     }
 
     // Nothing more will be written to a standalone stream once its client

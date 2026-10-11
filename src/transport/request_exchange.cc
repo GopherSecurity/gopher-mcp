@@ -109,6 +109,16 @@ void RequestExchange::assertOnDispatcher() const {
          "RequestExchange used off its dispatcher thread");
 }
 
+RequestExchange::Mode RequestExchange::mode() const {
+  assertOnDispatcher();
+  return mode_;
+}
+
+RequestExchange::Phase RequestExchange::phase() const {
+  assertOnDispatcher();
+  return phase_;
+}
+
 bool RequestExchange::setPhase(Phase phase) {
   assertOnDispatcher();
   if (phase_ == Phase::Done && phase != Phase::Done) {

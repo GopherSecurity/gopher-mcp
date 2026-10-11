@@ -568,6 +568,7 @@ TEST_F(StreamableSessionManagerTest,
     ASSERT_TRUE(stream.ctx()->exchange->onConnectionGone());
     ASSERT_TRUE(stream.ctx()->exchange->detached());
     session->last_activity -= 1h;
+    StreamableSessionManager::detachConnection(*session, fakeConnection(1));
   });
 
   std::unique_lock<std::mutex> lock(mutex);
@@ -604,6 +605,59 @@ TEST_F(StreamableSessionManagerTest,
 
     EXPECT_TRUE(expired.empty())
         << "an in-flight streamed response was treated as abandoned";
+  });
+}
+
+TEST_F(StreamableSessionManagerTest,
+       AnAnsweringStreamOnAnotherDispatcherUsesSessionStateForExpiry) {
+  const std::string id = createSession();
+
+  RequestExchangePtr exchange;
+  other_->run([&]() {
+    std::unique_ptr<RetainedExchangeSink> sink(new RetainedExchangeSink());
+    exchange =
+        RequestExchange::create(other_->dispatcher(), std::move(sink), nullopt);
+    ASSERT_TRUE(exchange->beginStream());
+  });
+
+  std::string stream_id;
+  owner_->run([&]() {
+    SessionCtx* session = manager_->find(id);
+    ASSERT_NE(session, nullptr);
+
+    StreamCtx* stream = manager_->openStream(
+        *session, StreamCtx::Kind::PostResponse, exchange, fakeConnection(1),
+        other_->dispatcher());
+    ASSERT_NE(stream, nullptr);
+    stream_id = stream->id;
+
+    std::vector<std::string> expired;
+    manager_->forEachExpired(25ms, [&expired](SessionCtx& expired_session) {
+      expired.push_back(expired_session.id);
+    });
+
+    EXPECT_TRUE(expired.empty())
+        << "a recent streamed response on another dispatcher was read "
+           "through the exchange instead of the session";
+  });
+
+  other_->run([&]() { ASSERT_TRUE(exchange->complete()); });
+
+  owner_->run([&]() {
+    SessionCtx* session = manager_->find(id);
+    ASSERT_NE(session, nullptr);
+    ASSERT_TRUE(StreamableSessionManager::finishStream(*session, stream_id));
+    session->last_activity -= 1h;
+
+    std::vector<std::string> expired;
+    manager_->forEachExpired(25ms, [&expired](SessionCtx& expired_session) {
+      expired.push_back(expired_session.id);
+    });
+
+    ASSERT_EQ(expired.size(), 1u)
+        << "a finished streamed response on another dispatcher still looked "
+           "active";
+    EXPECT_EQ(expired[0], id);
   });
 }
 
@@ -666,6 +720,9 @@ TEST_F(StreamableSessionManagerTest,
     session->last_activity -= 1h;
 
     ASSERT_TRUE(exchange->complete());
+    ASSERT_TRUE(
+        StreamableSessionManager::finishStream(*session,
+                                               session->streams.back()->id));
   });
 
   std::unique_lock<std::mutex> lock(mutex);
