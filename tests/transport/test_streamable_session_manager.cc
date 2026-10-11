@@ -735,6 +735,46 @@ TEST_F(StreamableSessionManagerTest,
   EXPECT_TRUE(manager_->known(id));
 }
 
+TEST_F(StreamableSessionManagerTest,
+       RetiringACompletedAnsweringStreamDoesNotRefreshIdleWindow) {
+  manager_->setTimeout(500ms);
+  manager_->setClosedStreamRetention(20ms);
+
+  const std::string id = createSession();
+  std::chrono::steady_clock::time_point completed_at;
+
+  owner_->run([&]() {
+    SessionCtx* session = manager_->find(id);
+    ASSERT_NE(session, nullptr);
+
+    std::unique_ptr<RetainedExchangeSink> sink(new RetainedExchangeSink());
+    auto exchange =
+        RequestExchange::create(owner_->dispatcher(), std::move(sink), nullopt);
+    exchange->beginStream();
+    ASSERT_NE(
+        manager_->openStream(*session, StreamCtx::Kind::PostResponse, exchange,
+                             fakeConnection(1), owner_->dispatcher()),
+        nullptr);
+
+    ASSERT_TRUE(exchange->complete());
+    ASSERT_TRUE(
+        StreamableSessionManager::finishStream(*session,
+                                               session->streams.back()->id));
+    completed_at = session->last_activity;
+  });
+
+  std::this_thread::sleep_for(120ms);
+
+  owner_->run([&]() {
+    SessionCtx* session = manager_->find(id);
+    ASSERT_NE(session, nullptr);
+    EXPECT_EQ(session->last_activity, completed_at)
+        << "retirement stretched the idle window after stream completion";
+    EXPECT_TRUE(session->streams.empty())
+        << "the completed stream was not retired by the retention sweep";
+  });
+}
+
 TEST_F(StreamableSessionManagerTest, TheNewestStreamIsWhereAMessageGoes) {
   const std::string id = createSession();
 

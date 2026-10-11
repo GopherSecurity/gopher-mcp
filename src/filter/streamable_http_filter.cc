@@ -50,6 +50,35 @@ std::weak_ptr<transport::StreamableSessionManager> weakSessionManager(
   }
 }
 
+void withSessionOnOwner(transport::StreamableSessionManager& sessions,
+                        event::Dispatcher& caller,
+                        const std::string& id,
+                        transport::StreamableSessionManager::SessionFn fn) {
+  if (id.empty() || !fn) {
+    return;
+  }
+  if (sessions.ownedBy(id, caller)) {
+    if (auto* session = sessions.find(id)) {
+      fn(*session);
+    }
+    return;
+  }
+  sessions.withSession(caller, id, std::move(fn), nullptr);
+}
+
+void withSessionOnOwner(
+    const std::weak_ptr<transport::StreamableSessionManager>& weak_sessions,
+    event::Dispatcher* caller,
+    const std::string& id,
+    transport::StreamableSessionManager::SessionFn fn) {
+  std::shared_ptr<transport::StreamableSessionManager> sessions =
+      weak_sessions.lock();
+  if (!sessions || caller == nullptr) {
+    return;
+  }
+  withSessionOnOwner(*sessions, *caller, id, std::move(fn));
+}
+
 /** The request target, with any query string removed. */
 std::string requestPath(const std::map<std::string, std::string>& headers) {
   // Some codecs surface the target as the HTTP/2-style pseudo-header and
@@ -427,43 +456,25 @@ ResponseStreamPtr StreamableHttpFilter::DispatchContext::beginResponseStream() {
     event::Dispatcher* dispatcher = &parent_.dispatcher_;
 
     auto touch_session = [weak_sessions, dispatcher, session_id]() {
-      std::shared_ptr<transport::StreamableSessionManager> sessions =
-          weak_sessions.lock();
-      if (!sessions || dispatcher == nullptr || session_id.empty()) {
-        return;
-      }
-      auto touch = [](transport::SessionCtx& session) {
-        session.last_activity = std::chrono::steady_clock::now();
-      };
-      if (sessions->ownedBy(session_id, *dispatcher)) {
-        if (auto* session = sessions->find(session_id)) {
-          touch(*session);
-        }
-        return;
-      }
-      sessions->withSession(*dispatcher, session_id, touch, nullptr);
+      withSessionOnOwner(
+          weak_sessions, dispatcher, session_id,
+          [](transport::SessionCtx& session) {
+            session.last_activity = std::chrono::steady_clock::now();
+          });
     };
 
     auto finish_session_stream =
         [weak_sessions, dispatcher,
          session_id](const std::string& stream_id) {
-          std::shared_ptr<transport::StreamableSessionManager> sessions =
-              weak_sessions.lock();
-          if (!sessions || dispatcher == nullptr ||
-              session_id.empty() || stream_id.empty()) {
+          if (stream_id.empty()) {
             return;
           }
-          auto finish = [stream_id](transport::SessionCtx& session) {
-            transport::StreamableSessionManager::finishStream(session,
-                                                              stream_id);
-          };
-          if (sessions->ownedBy(session_id, *dispatcher)) {
-            if (auto* session = sessions->find(session_id)) {
-              finish(*session);
-            }
-            return;
-          }
-          sessions->withSession(*dispatcher, session_id, finish, nullptr);
+          withSessionOnOwner(
+              weak_sessions, dispatcher, session_id,
+              [stream_id](transport::SessionCtx& session) {
+                transport::StreamableSessionManager::finishStream(session,
+                                                                  stream_id);
+              });
         };
 
     parent_.stream_.reset(new ResponseStreamImpl(
@@ -518,18 +529,11 @@ StreamableHttpFilter::~StreamableHttpFilter() {
   network::Connection* conn = get_stream_conn_;
   const std::string id = get_stream_session_id_;
 
-  if (sessions->ownedBy(id, dispatcher_)) {
-    if (auto* session = sessions->find(id)) {
-      transport::StreamableSessionManager::detachConnection(*session, conn);
-    }
-    return;
-  }
-  sessions->withSession(
-      dispatcher_, id,
+  withSessionOnOwner(
+      *sessions, dispatcher_, id,
       [conn](transport::SessionCtx& session) {
         transport::StreamableSessionManager::detachConnection(session, conn);
-      },
-      nullptr);
+      });
 }
 
 void StreamableHttpFilter::onHeaders(
@@ -1529,17 +1533,11 @@ void StreamableHttpFilter::registerEventStream(
                          exchange, conn, *dispatcher);
   };
 
-  if (sessions_->ownedBy(id, dispatcher_)) {
-    if (auto* session = sessions_->find(id)) {
-      attach(*session);
-    }
-    return;
-  }
-  // The session lives on another thread, so the record of the stream is
+  // If the session lives on another thread, the record of the stream is
   // made there. The bytes stay here: the exchange may only be touched
   // where its connection is, and the name it is writing under was settled
   // before either of those threads had to agree on anything.
-  sessions_->withSession(dispatcher_, id, attach, nullptr);
+  withSessionOnOwner(*sessions_, dispatcher_, id, attach);
 }
 
 void StreamableHttpFilter::registerResponseStream(
@@ -1565,13 +1563,7 @@ void StreamableHttpFilter::registerResponseStream(
                          conn, *dispatcher);
   };
 
-  if (sessions_->ownedBy(session_id, dispatcher_)) {
-    if (auto* session = sessions_->find(session_id)) {
-      attach(*session);
-    }
-    return;
-  }
-  sessions_->withSession(dispatcher_, session_id, attach, nullptr);
+  withSessionOnOwner(*sessions_, dispatcher_, session_id, attach);
 }
 
 void StreamableHttpFilter::terminateSession() {
