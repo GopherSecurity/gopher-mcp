@@ -50,9 +50,18 @@ void tagWithSubscription(Metadata& params, const RequestId& id) {
           json::JsonValue::parse(get<std::string>(existing->second));
       if (parsed.isObject()) {
         meta = parsed;
+      } else {
+        GOPHER_LOG_DEBUG(
+            "subscription metadata was not an object and will be replaced");
       }
-    } catch (const json::JsonException&) {
+    } catch (const json::JsonException& e) {
+      GOPHER_LOG_DEBUG(
+          "subscription metadata could not be parsed and will be replaced: {}",
+          e.what());
     }
+  } else if (existing != params.end()) {
+    GOPHER_LOG_DEBUG(
+        "subscription metadata was not encoded as JSON and will be replaced");
   }
   meta.set(modern::kMetaSubscriptionId, idAsJson(id));
   params["_meta"] = MetadataValue(meta.toString());

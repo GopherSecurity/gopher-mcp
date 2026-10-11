@@ -810,9 +810,6 @@ void StreamableSessionManager::retireStreams(SessionCtx& session) {
     }
 
     if (stream->retire_at == std::chrono::steady_clock::time_point()) {
-      if (stream->kind == StreamCtx::Kind::PostResponse) {
-        session.last_activity = now;
-      }
       stream->retire_at = now + closed_stream_retention_;
       continue;
     }
