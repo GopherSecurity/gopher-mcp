@@ -456,26 +456,24 @@ ResponseStreamPtr StreamableHttpFilter::DispatchContext::beginResponseStream() {
     event::Dispatcher* dispatcher = &parent_.dispatcher_;
 
     auto touch_session = [weak_sessions, dispatcher, session_id]() {
-      withSessionOnOwner(
-          weak_sessions, dispatcher, session_id,
-          [](transport::SessionCtx& session) {
-            session.last_activity = std::chrono::steady_clock::now();
-          });
+      withSessionOnOwner(weak_sessions, dispatcher, session_id,
+                         [](transport::SessionCtx& session) {
+                           session.last_activity =
+                               std::chrono::steady_clock::now();
+                         });
     };
 
-    auto finish_session_stream =
-        [weak_sessions, dispatcher,
-         session_id](const std::string& stream_id) {
-          if (stream_id.empty()) {
-            return;
-          }
-          withSessionOnOwner(
-              weak_sessions, dispatcher, session_id,
-              [stream_id](transport::SessionCtx& session) {
-                transport::StreamableSessionManager::finishStream(session,
-                                                                  stream_id);
-              });
-        };
+    auto finish_session_stream = [weak_sessions, dispatcher,
+                                  session_id](const std::string& stream_id) {
+      if (stream_id.empty()) {
+        return;
+      }
+      withSessionOnOwner(weak_sessions, dispatcher, session_id,
+                         [stream_id](transport::SessionCtx& session) {
+                           transport::StreamableSessionManager::finishStream(
+                               session, stream_id);
+                         });
+    };
 
     parent_.stream_.reset(new ResponseStreamImpl(
         parent_.exchange_, parent_.exchange_->clientContext().accepts_sse,
@@ -530,8 +528,7 @@ StreamableHttpFilter::~StreamableHttpFilter() {
   const std::string id = get_stream_session_id_;
 
   withSessionOnOwner(
-      *sessions, dispatcher_, id,
-      [conn](transport::SessionCtx& session) {
+      *sessions, dispatcher_, id, [conn](transport::SessionCtx& session) {
         transport::StreamableSessionManager::detachConnection(session, conn);
       });
 }

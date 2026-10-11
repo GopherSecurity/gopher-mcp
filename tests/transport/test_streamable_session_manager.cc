@@ -625,9 +625,9 @@ TEST_F(StreamableSessionManagerTest,
     SessionCtx* session = manager_->find(id);
     ASSERT_NE(session, nullptr);
 
-    StreamCtx* stream = manager_->openStream(
-        *session, StreamCtx::Kind::PostResponse, exchange, fakeConnection(1),
-        other_->dispatcher());
+    StreamCtx* stream =
+        manager_->openStream(*session, StreamCtx::Kind::PostResponse, exchange,
+                             fakeConnection(1), other_->dispatcher());
     ASSERT_NE(stream, nullptr);
     stream_id = stream->id;
 
@@ -720,9 +720,8 @@ TEST_F(StreamableSessionManagerTest,
     session->last_activity -= 1h;
 
     ASSERT_TRUE(exchange->complete());
-    ASSERT_TRUE(
-        StreamableSessionManager::finishStream(*session,
-                                               session->streams.back()->id));
+    ASSERT_TRUE(StreamableSessionManager::finishStream(
+        *session, session->streams.back()->id));
   });
 
   std::unique_lock<std::mutex> lock(mutex);
@@ -757,9 +756,8 @@ TEST_F(StreamableSessionManagerTest,
         nullptr);
 
     ASSERT_TRUE(exchange->complete());
-    ASSERT_TRUE(
-        StreamableSessionManager::finishStream(*session,
-                                               session->streams.back()->id));
+    ASSERT_TRUE(StreamableSessionManager::finishStream(
+        *session, session->streams.back()->id));
     completed_at = session->last_activity;
   });
 
