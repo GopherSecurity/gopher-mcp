@@ -64,10 +64,16 @@ struct StreamCtx {
   network::Connection* conn{nullptr};
   event::Dispatcher* dispatcher{nullptr};
 
+  /**
+   * Whether the stream has begun and not yet finished, as observed by the
+   * session owner. The exchange has the same truth on its own dispatcher;
+   * the session keeps this copy so sweeps never read another thread's
+   * exchange state.
+   */
+  bool producing{false};
+
   /** Whether the stream has begun and not yet finished. */
-  bool open() const {
-    return exchange && exchange->mode() == RequestExchange::Mode::Stream;
-  }
+  bool open() const { return producing; }
 
   /**
    * Whether anything written here would reach a client now. An open
@@ -409,6 +415,13 @@ class StreamableSessionManager
    * is owed whatever it missed.
    */
   static void detachConnection(SessionCtx& session, network::Connection* conn);
+
+  /**
+   * The producer behind a stream has finished. Runs on the session owner,
+   * whether completion was observed there directly or reached through
+   * withSession().
+   */
+  static bool finishStream(SessionCtx& session, const std::string& stream_id);
 
   /**
    * Told once for each session that goes away, on the thread that owned

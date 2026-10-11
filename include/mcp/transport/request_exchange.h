@@ -315,8 +315,8 @@ class RequestExchange : public std::enable_shared_from_this<RequestExchange> {
   size_t droppedEvents() const { return dropped_events_; }
 
   const optional<RequestId>& requestId() const { return request_id_; }
-  Mode mode() const { return mode_; }
-  Phase phase() const { return phase_; }
+  Mode mode() const;
+  Phase phase() const;
 
   /**
    * Record where the request has got to. Refused once the exchange is Done,

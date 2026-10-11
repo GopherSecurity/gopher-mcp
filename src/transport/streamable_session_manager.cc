@@ -45,6 +45,33 @@ std::string toHex(const unsigned char* bytes, size_t length) {
   return out;
 }
 
+bool streamKeepsSessionActive(const SessionCtx& session,
+                              const StreamCtx& stream,
+                              std::chrono::steady_clock::time_point now,
+                              std::chrono::milliseconds timeout) {
+  if (stream.kind == StreamCtx::Kind::Get) {
+    return stream.live();
+  }
+  if (!stream.open() || timeout.count() <= 0) {
+    return false;
+  }
+  // An answering stream is one request, not the session's standing receive
+  // channel. It keeps the session alive while it is making progress, but a
+  // handler that goes silent must not pin the session forever.
+  return now - session.last_activity < timeout;
+}
+
+bool hasActiveStream(const SessionCtx& session,
+                     std::chrono::steady_clock::time_point now,
+                     std::chrono::milliseconds timeout) {
+  for (const auto& stream : session.streams) {
+    if (stream && streamKeepsSessionActive(session, *stream, now, timeout)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 }  // namespace
 
 StreamableSessionManager::StreamableSessionManager(
@@ -225,11 +252,13 @@ StreamCtx* StreamableSessionManager::openStream(
   stream->exchange = exchange;
   stream->conn = conn;
   stream->dispatcher = &dispatcher;
+  stream->producing = exchange != nullptr;
 
   StreamCtx* opened = stream.get();
   // Appended, so the collection stays in the order the streams opened —
   // which is what makes "the most recently opened" a thing that can be
   // asked for.
+  session.last_activity = std::chrono::steady_clock::now();
   session.streams.push_back(std::move(stream));
   session.stream_index[stream_id] = opened;
   GOPHER_LOG_DEBUG("session {} opened stream {}", session.id, stream_id);
@@ -286,6 +315,7 @@ bool StreamableSessionManager::endStream(SessionCtx& session,
   // carry. Nothing follows the pointer, so nulling it early costs
   // nothing and closes that window.
   stream.conn = nullptr;
+  stream.producing = false;
 
   // The connection ends but the stream does not, so the client is told
   // how long to wait before coming back for the rest, as the spec asks of
@@ -303,6 +333,7 @@ bool StreamableSessionManager::endStream(SessionCtx& session,
     });
   }
 
+  session.last_activity = std::chrono::steady_clock::now();
   GOPHER_LOG_DEBUG("session {} ended stream {}", session.id, stream.id);
   return true;
 }
@@ -493,10 +524,30 @@ void StreamableSessionManager::detachConnection(SessionCtx& session,
       // Only the connection goes. The stream stays on the session, which
       // is what a client that reconnects comes back to.
       stream->conn = nullptr;
+      session.last_activity = std::chrono::steady_clock::now();
       GOPHER_LOG_DEBUG("session {} stream {} detached from its connection",
                        session.id, stream->id);
     }
   }
+}
+
+bool StreamableSessionManager::finishStream(SessionCtx& session,
+                                            const std::string& stream_id) {
+  auto found = session.stream_index.find(stream_id);
+  if (found == session.stream_index.end() || found->second == nullptr) {
+    return false;
+  }
+
+  StreamCtx& stream = *found->second;
+  if (!stream.open()) {
+    return false;
+  }
+
+  stream.producing = false;
+  stream.retire_at = std::chrono::steady_clock::time_point();
+  session.last_activity = std::chrono::steady_clock::now();
+  GOPHER_LOG_DEBUG("session {} stream {} finished", session.id, stream.id);
+  return true;
 }
 
 bool StreamableSessionManager::removeOwned(const std::string& id) {
@@ -560,6 +611,9 @@ void StreamableSessionManager::forEachExpired(
           !entry.second.owner->isThreadSafe()) {
         // Another dispatcher's session. Its own sweep judges it; reading
         // last_activity from here would be reading state we do not own.
+        continue;
+      }
+      if (hasActiveStream(*entry.second.ctx, now, timeout)) {
         continue;
       }
       if (now - entry.second.ctx->last_activity >= timeout) {
@@ -739,14 +793,6 @@ void StreamableSessionManager::retireStreams(SessionCtx& session) {
     StreamCtx* stream = held.get();
     if (stream == nullptr) {
       continue;
-    }
-
-    if (stream->conn != nullptr && stream->exchange &&
-        stream->exchange->detached()) {
-      // Its client has gone. The pointer is only ever compared, never
-      // followed, but comparing against an address that may since have
-      // been handed to somebody else is worse than not comparing at all.
-      stream->conn = nullptr;
     }
 
     // Nothing more will be written to a standalone stream once its client

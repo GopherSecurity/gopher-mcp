@@ -43,9 +43,13 @@ namespace {
 /** A sink that appends to somewhere the test can still read afterwards. */
 class RecordingSink : public transport::ExchangeSink {
  public:
-  explicit RecordingSink(std::string& out) : out_(out) {}
+  RecordingSink(std::string& out, const bool& writes_allowed)
+      : out_(out), writes_allowed_(writes_allowed) {}
 
   bool write(Buffer& data) override {
+    if (!writes_allowed_) {
+      return false;
+    }
     const size_t length = data.length();
     if (length > 0) {
       out_.append(static_cast<const char*>(data.linearize(length)), length);
@@ -54,10 +58,11 @@ class RecordingSink : public transport::ExchangeSink {
     return true;
   }
 
-  bool alive() const override { return true; }
+  bool alive() const override { return writes_allowed_; }
 
  private:
   std::string& out_;
+  const bool& writes_allowed_;
 };
 
 class TestHost : public StreamableHttpFilter::Host {
@@ -65,7 +70,7 @@ class TestHost : public StreamableHttpFilter::Host {
   explicit TestHost(std::string& wire) : wire_(wire) {}
 
   transport::ExchangeSinkPtr makeSink() override {
-    return transport::ExchangeSinkPtr(new RecordingSink(wire_));
+    return transport::ExchangeSinkPtr(new RecordingSink(wire_, writes_allowed));
   }
   network::Connection* connection() override { return nullptr; }
   bool requestIsHttp11() const override { return true; }
@@ -80,6 +85,7 @@ class TestHost : public StreamableHttpFilter::Host {
   std::string principal_value{"anonymous"};
   http::ResponseWriter::HeaderList framed_headers;
   bool input_held{false};
+  bool writes_allowed{true};
 
  private:
   std::string& wire_;
@@ -1385,6 +1391,172 @@ TEST_F(StreamableHttpFilterTest, ASessionInUseIsKeptAlive) {
             "Mcp-Session-Id: " + id + "\r\n"));
 
   EXPECT_GE(sessions_->find(id)->last_activity, before);
+}
+
+TEST_F(StreamableHttpFilterTest, ACompletedResponseStreamStartsANewIdleWindow) {
+  keepSessions();
+
+  feed(post("/mcp", kRequestBody));
+  const std::string id = sessionIdOnTheWire();
+  ASSERT_FALSE(id.empty());
+
+  callbacks_.streaming = StreamingMode::Required;
+  callbacks_.answer_requests = false;
+  wire_.clear();
+
+  feed(post("/mcp", "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\"}",
+            "Mcp-Session-Id: " + id +
+                "\r\n"
+                "Accept: text/event-stream\r\n"));
+  ASSERT_TRUE(callbacks_.stream);
+
+  transport::SessionCtx* session = sessions_->find(id);
+  ASSERT_NE(session, nullptr);
+  const auto before = session->last_activity;
+  session->last_activity -= std::chrono::seconds(60);
+
+  jsonrpc::Response response;
+  response.jsonrpc = "2.0";
+  response.id = RequestId(static_cast<int64_t>(2));
+  response.result = mcp::make_optional(jsonrpc::ResponseResult(Metadata()));
+  ASSERT_FALSE(
+      holds_alternative<Error>(callbacks_.stream->sendResponse(response)));
+
+  std::vector<std::string> expired;
+  sessions_->forEachExpired(std::chrono::milliseconds(25),
+                            [&expired](transport::SessionCtx& session) {
+                              expired.push_back(session.id);
+                            });
+
+  EXPECT_TRUE(expired.empty())
+      << "the idle window started before the response stream completed";
+  EXPECT_GE(sessions_->find(id)->last_activity, before);
+}
+
+TEST_F(StreamableHttpFilterTest, ResponseStreamProgressRefreshesIdleWindow) {
+  keepSessions();
+
+  feed(post("/mcp", kRequestBody));
+  const std::string id = sessionIdOnTheWire();
+  ASSERT_FALSE(id.empty());
+
+  callbacks_.streaming = StreamingMode::Required;
+  callbacks_.answer_requests = false;
+  wire_.clear();
+
+  feed(post("/mcp", "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\"}",
+            "Mcp-Session-Id: " + id +
+                "\r\n"
+                "Accept: text/event-stream\r\n"));
+  ASSERT_TRUE(callbacks_.stream);
+
+  transport::SessionCtx* session = sessions_->find(id);
+  ASSERT_NE(session, nullptr);
+  const auto before = session->last_activity;
+  session->last_activity -= std::chrono::seconds(60);
+
+  jsonrpc::Notification progress;
+  progress.jsonrpc = "2.0";
+  progress.method = "notifications/progress";
+  ASSERT_FALSE(
+      holds_alternative<Error>(callbacks_.stream->sendNotification(progress)));
+
+  std::vector<std::string> expired;
+  sessions_->forEachExpired(std::chrono::milliseconds(25),
+                            [&expired](transport::SessionCtx& session) {
+                              expired.push_back(session.id);
+                            });
+
+  EXPECT_TRUE(expired.empty())
+      << "a streamed response making progress was treated as idle";
+  EXPECT_GE(sessions_->find(id)->last_activity, before);
+}
+
+TEST_F(StreamableHttpFilterTest, AFailedFinalResponseStreamDoesNotPinSession) {
+  keepSessions();
+
+  feed(post("/mcp", kRequestBody));
+  const std::string id = sessionIdOnTheWire();
+  ASSERT_FALSE(id.empty());
+
+  callbacks_.streaming = StreamingMode::Required;
+  callbacks_.answer_requests = false;
+  wire_.clear();
+
+  feed(post("/mcp", "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\"}",
+            "Mcp-Session-Id: " + id +
+                "\r\n"
+                "Accept: text/event-stream\r\n"));
+  ASSERT_TRUE(callbacks_.stream);
+
+  transport::SessionCtx* session = sessions_->find(id);
+  ASSERT_NE(session, nullptr);
+  ASSERT_EQ(session->streams.size(), 1u);
+  const auto before = session->last_activity;
+  session->last_activity -= std::chrono::seconds(60);
+
+  host_->writes_allowed = false;
+
+  jsonrpc::Response response;
+  response.jsonrpc = "2.0";
+  response.id = RequestId(static_cast<int64_t>(2));
+  response.result = mcp::make_optional(jsonrpc::ResponseResult(Metadata()));
+  EXPECT_TRUE(
+      holds_alternative<Error>(callbacks_.stream->sendResponse(response)));
+
+  EXPECT_FALSE(callbacks_.stream->alive())
+      << "a failed final write left the response stream open";
+  EXPECT_FALSE(session->streams.front()->open())
+      << "the session still sees the failed response as active";
+
+  std::vector<std::string> expired;
+  sessions_->forEachExpired(std::chrono::milliseconds(25),
+                            [&expired](transport::SessionCtx& expired_session) {
+                              expired.push_back(expired_session.id);
+                            });
+
+  EXPECT_TRUE(expired.empty())
+      << "the idle window started before the failed final write";
+  EXPECT_GE(sessions_->find(id)->last_activity, before);
+}
+
+TEST_F(StreamableHttpFilterTest,
+       RetainedResponseStreamIgnoresDestroyedSessionManager) {
+  keepSessions();
+
+  feed(post("/mcp", kRequestBody));
+  const std::string id = sessionIdOnTheWire();
+  ASSERT_FALSE(id.empty());
+
+  callbacks_.streaming = StreamingMode::Required;
+  callbacks_.answer_requests = false;
+  wire_.clear();
+
+  feed(post("/mcp", "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\"}",
+            "Mcp-Session-Id: " + id +
+                "\r\n"
+                "Accept: text/event-stream\r\n"));
+  ASSERT_TRUE(callbacks_.stream);
+
+  std::weak_ptr<transport::StreamableSessionManager> gone = sessions_;
+  codec_.reset();
+  filter_.reset();
+  callbacks_.filter = nullptr;
+  sessions_.reset();
+  ASSERT_TRUE(gone.expired());
+
+  jsonrpc::Notification progress;
+  progress.jsonrpc = "2.0";
+  progress.method = "notifications/progress";
+  EXPECT_FALSE(
+      holds_alternative<Error>(callbacks_.stream->sendNotification(progress)));
+
+  jsonrpc::Response response;
+  response.jsonrpc = "2.0";
+  response.id = RequestId(static_cast<int64_t>(2));
+  response.result = mcp::make_optional(jsonrpc::ResponseResult(Metadata()));
+  EXPECT_FALSE(
+      holds_alternative<Error>(callbacks_.stream->sendResponse(response)));
 }
 
 TEST_F(StreamableHttpFilterTest, TheAgreedRevisionIsRecordedOnTheSession) {

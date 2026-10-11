@@ -35,6 +35,50 @@ std::string headerOr(const std::map<std::string, std::string>& headers,
   return it != headers.end() ? it->second : fallback;
 }
 
+std::weak_ptr<transport::StreamableSessionManager> weakSessionManager(
+    transport::StreamableSessionManager* sessions) {
+  if (sessions == nullptr) {
+    return std::weak_ptr<transport::StreamableSessionManager>();
+  }
+  try {
+    return sessions->shared_from_this();
+  } catch (const std::bad_weak_ptr&) {
+    GOPHER_LOG_ERROR(
+        "session manager is not shared-owned; delayed response stream "
+        "callbacks cannot safely update session state");
+    return std::weak_ptr<transport::StreamableSessionManager>();
+  }
+}
+
+void withSessionOnOwner(transport::StreamableSessionManager& sessions,
+                        event::Dispatcher& caller,
+                        const std::string& id,
+                        transport::StreamableSessionManager::SessionFn fn) {
+  if (id.empty() || !fn) {
+    return;
+  }
+  if (sessions.ownedBy(id, caller)) {
+    if (auto* session = sessions.find(id)) {
+      fn(*session);
+    }
+    return;
+  }
+  sessions.withSession(caller, id, std::move(fn), nullptr);
+}
+
+void withSessionOnOwner(
+    const std::weak_ptr<transport::StreamableSessionManager>& weak_sessions,
+    event::Dispatcher* caller,
+    const std::string& id,
+    transport::StreamableSessionManager::SessionFn fn) {
+  std::shared_ptr<transport::StreamableSessionManager> sessions =
+      weak_sessions.lock();
+  if (!sessions || caller == nullptr) {
+    return;
+  }
+  withSessionOnOwner(*sessions, *caller, id, std::move(fn));
+}
+
 /** The request target, with any query string removed. */
 std::string requestPath(const std::map<std::string, std::string>& headers) {
   // Some codecs surface the target as the HTTP/2-style pseudo-header and
@@ -185,9 +229,19 @@ bool StreamableHttpFilter::ResponseStreamImpl::open() {
   if (on_open_) {
     auto announce = std::move(on_open_);
     on_open_ = nullptr;
-    announce();
+    stream_id_ = announce();
   }
   return true;
+}
+
+void StreamableHttpFilter::ResponseStreamImpl::noteFinished() {
+  if (on_finish_ && !stream_id_.empty()) {
+    on_finish_(stream_id_);
+    return;
+  }
+  if (on_activity_) {
+    on_activity_();
+  }
 }
 
 VoidResult StreamableHttpFilter::ResponseStreamImpl::sendNotification(
@@ -217,11 +271,15 @@ VoidResult StreamableHttpFilter::ResponseStreamImpl::sendNotification(
     return makeVoidError(err);
   }
 
-  return exchange_->writeEvent("message",
-                               json::to_json(notification).toString())
-             ? makeVoidSuccess()
-             : makeVoidError(
-                   Error(jsonrpc::INTERNAL_ERROR, "notification not written"));
+  if (!exchange_->writeEvent("message",
+                             json::to_json(notification).toString())) {
+    return makeVoidError(
+        Error(jsonrpc::INTERNAL_ERROR, "notification not written"));
+  }
+  if (on_activity_) {
+    on_activity_();
+  }
+  return makeVoidSuccess();
 }
 
 VoidResult StreamableHttpFilter::ResponseStreamImpl::sendRequest(
@@ -252,10 +310,14 @@ VoidResult StreamableHttpFilter::ResponseStreamImpl::sendRequest(
     return makeVoidError(err);
   }
 
-  return exchange_->writeEvent("message", json::to_json(request).toString())
-             ? makeVoidSuccess()
-             : makeVoidError(
-                   Error(jsonrpc::INTERNAL_ERROR, "question not written"));
+  if (!exchange_->writeEvent("message", json::to_json(request).toString())) {
+    return makeVoidError(
+        Error(jsonrpc::INTERNAL_ERROR, "question not written"));
+  }
+  if (on_activity_) {
+    on_activity_();
+  }
+  return makeVoidSuccess();
 }
 
 VoidResult StreamableHttpFilter::ResponseStreamImpl::sendRefusal(
@@ -313,6 +375,9 @@ VoidResult StreamableHttpFilter::ResponseStreamImpl::sendResponse(
   exchange_->setPhase(transport::RequestExchange::Phase::RespondingSseDraining);
   if (!exchange_->writeEvent("message",
                              exchange_->serializeResponse(response))) {
+    exchange_->setPhase(transport::RequestExchange::Phase::RespondingSseClosed);
+    exchange_->complete();
+    noteFinished();
     Error err;
     err.code = jsonrpc::INTERNAL_ERROR;
     err.message = "response not written";
@@ -323,6 +388,7 @@ VoidResult StreamableHttpFilter::ResponseStreamImpl::sendResponse(
   // frees the connection for the next request.
   exchange_->setPhase(transport::RequestExchange::Phase::RespondingSseClosed);
   exchange_->complete();
+  noteFinished();
   return makeVoidSuccess();
 }
 
@@ -385,18 +451,43 @@ ResponseStreamPtr StreamableHttpFilter::DispatchContext::beginResponseStream() {
     transport::RequestExchangePtr exchange = parent_.exchange_;
     const std::string session_id = parent_.session_id_;
     std::weak_ptr<int> alive = parent_.alive_;
+    std::weak_ptr<transport::StreamableSessionManager> weak_sessions =
+        weakSessionManager(parent_.sessions_);
+    event::Dispatcher* dispatcher = &parent_.dispatcher_;
+
+    auto touch_session = [weak_sessions, dispatcher, session_id]() {
+      withSessionOnOwner(weak_sessions, dispatcher, session_id,
+                         [](transport::SessionCtx& session) {
+                           session.last_activity =
+                               std::chrono::steady_clock::now();
+                         });
+    };
+
+    auto finish_session_stream = [weak_sessions, dispatcher,
+                                  session_id](const std::string& stream_id) {
+      if (stream_id.empty()) {
+        return;
+      }
+      withSessionOnOwner(weak_sessions, dispatcher, session_id,
+                         [stream_id](transport::SessionCtx& session) {
+                           transport::StreamableSessionManager::finishStream(
+                               session, stream_id);
+                         });
+    };
 
     parent_.stream_.reset(new ResponseStreamImpl(
         parent_.exchange_, parent_.exchange_->clientContext().accepts_sse,
-        [filter, exchange, session_id, alive]() {
+        [filter, exchange, session_id, alive]() -> std::string {
           if (alive.expired()) {
             // The connection is gone. Nothing could reach this stream to
             // be told about it, and nothing could come back to it.
-            return;
+            return std::string();
           }
-          filter->registerResponseStream(exchange, session_id,
-                                         filter->nameThisStream(exchange));
-        }));
+          const std::string stream_id = filter->nameThisStream(exchange);
+          filter->registerResponseStream(exchange, session_id, stream_id);
+          return stream_id;
+        },
+        touch_session, finish_session_stream));
   }
   return parent_.stream_;
 }
@@ -436,18 +527,10 @@ StreamableHttpFilter::~StreamableHttpFilter() {
   network::Connection* conn = get_stream_conn_;
   const std::string id = get_stream_session_id_;
 
-  if (sessions->ownedBy(id, dispatcher_)) {
-    if (auto* session = sessions->find(id)) {
-      transport::StreamableSessionManager::detachConnection(*session, conn);
-    }
-    return;
-  }
-  sessions->withSession(
-      dispatcher_, id,
-      [conn](transport::SessionCtx& session) {
+  withSessionOnOwner(
+      *sessions, dispatcher_, id, [conn](transport::SessionCtx& session) {
         transport::StreamableSessionManager::detachConnection(session, conn);
-      },
-      nullptr);
+      });
 }
 
 void StreamableHttpFilter::onHeaders(
@@ -1447,17 +1530,11 @@ void StreamableHttpFilter::registerEventStream(
                          exchange, conn, *dispatcher);
   };
 
-  if (sessions_->ownedBy(id, dispatcher_)) {
-    if (auto* session = sessions_->find(id)) {
-      attach(*session);
-    }
-    return;
-  }
-  // The session lives on another thread, so the record of the stream is
+  // If the session lives on another thread, the record of the stream is
   // made there. The bytes stay here: the exchange may only be touched
   // where its connection is, and the name it is writing under was settled
   // before either of those threads had to agree on anything.
-  sessions_->withSession(dispatcher_, id, attach, nullptr);
+  withSessionOnOwner(*sessions_, dispatcher_, id, attach);
 }
 
 void StreamableHttpFilter::registerResponseStream(
@@ -1483,13 +1560,7 @@ void StreamableHttpFilter::registerResponseStream(
                          conn, *dispatcher);
   };
 
-  if (sessions_->ownedBy(session_id, dispatcher_)) {
-    if (auto* session = sessions_->find(session_id)) {
-      attach(*session);
-    }
-    return;
-  }
-  sessions_->withSession(dispatcher_, session_id, attach, nullptr);
+  withSessionOnOwner(*sessions_, dispatcher_, session_id, attach);
 }
 
 void StreamableHttpFilter::terminateSession() {

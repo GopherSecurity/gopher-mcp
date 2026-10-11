@@ -274,16 +274,22 @@ class StreamableHttpFilter : public HttpCodecFilter::MessageCallbacks,
   class ResponseStreamImpl : public ResponseStream {
    public:
     /**
-     * @param on_open Told the moment this becomes a stream, which is when
-     *                it becomes something a client could be given a name
-     *                for and could later come back to.
+     * @param on_open     Told the moment this becomes a stream, returning the
+     *                    stream id the session will know it by.
+     * @param on_activity Told when the stream writes, which refreshes the
+     *                    session's idle window.
+     * @param on_finish   Told when the stream finishes producing.
      */
     ResponseStreamImpl(transport::RequestExchangePtr exchange,
                        bool may_stream,
-                       std::function<void()> on_open)
+                       std::function<std::string()> on_open,
+                       std::function<void()> on_activity,
+                       std::function<void(const std::string&)> on_finish)
         : exchange_(std::move(exchange)),
           may_stream_(may_stream),
-          on_open_(std::move(on_open)) {}
+          on_open_(std::move(on_open)),
+          on_activity_(std::move(on_activity)),
+          on_finish_(std::move(on_finish)) {}
 
     VoidResult sendNotification(
         const jsonrpc::Notification& notification) override;
@@ -302,9 +308,14 @@ class StreamableHttpFilter : public HttpCodecFilter::MessageCallbacks,
     size_t droppedNotifications() const { return dropped_; }
 
    private:
+    void noteFinished();
+
     transport::RequestExchangePtr exchange_;
     bool may_stream_;
-    std::function<void()> on_open_;
+    std::function<std::string()> on_open_;
+    std::function<void()> on_activity_;
+    std::function<void(const std::string&)> on_finish_;
+    std::string stream_id_;
     size_t dropped_{0};
   };
 
