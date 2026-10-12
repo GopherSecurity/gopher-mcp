@@ -1552,15 +1552,14 @@ void StreamableHttpFilter::registerResponseStream(
       weakSessionManager(sessions);
   network::Connection* conn = host_.connection();
 
-  exchange->setConnectionGoneObserver(
-      [weak_sessions, dispatcher, session_id, conn]() {
-        withSessionOnOwner(
-            weak_sessions, dispatcher, session_id,
-            [conn](transport::SessionCtx& session) {
-              transport::StreamableSessionManager::detachConnection(session,
-                                                                    conn);
-            });
-      });
+  exchange->setConnectionGoneObserver([weak_sessions, dispatcher, session_id,
+                                       conn]() {
+    withSessionOnOwner(weak_sessions, dispatcher, session_id,
+                       [conn](transport::SessionCtx& session) {
+                         transport::StreamableSessionManager::detachConnection(
+                             session, conn);
+                       });
+  });
 
   auto attach = [sessions, exchange, conn, dispatcher,
                  stream_id](transport::SessionCtx& session) {
