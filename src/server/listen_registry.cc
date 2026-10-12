@@ -13,6 +13,7 @@
 #include <utility>
 
 #include "mcp/logging/log_macros.h"
+#include "mcp/json/json_serialization.h"
 #include "mcp/protocol/modern_era.h"
 
 #undef GOPHER_LOG_COMPONENT
@@ -65,6 +66,29 @@ void tagWithSubscription(Metadata& params, const RequestId& id) {
   }
   meta.set(modern::kMetaSubscriptionId, idAsJson(id));
   params["_meta"] = MetadataValue(meta.toString());
+}
+
+/**
+ * The same tag, in the JSON representation used when a request's params
+ * need to keep nested values exact on the wire.
+ */
+json::JsonValue tagJsonWithSubscription(const json::JsonValue& params,
+                                        const RequestId& id) {
+  json::JsonValue exact =
+      params.isObject() ? params : json::JsonValue::object();
+  json::JsonValue meta = json::JsonValue::object();
+  if (exact.contains("_meta")) {
+    const json::JsonValue& existing = exact["_meta"];
+    if (existing.isObject()) {
+      meta = existing;
+    } else {
+      GOPHER_LOG_DEBUG(
+          "subscription metadata was not an object and will be replaced");
+    }
+  }
+  meta.set(modern::kMetaSubscriptionId, idAsJson(id));
+  exact.set("_meta", meta);
+  return exact;
 }
 
 }  // namespace
@@ -221,6 +245,12 @@ VoidResult ListenRegistry::sendRequest(const std::string& caller,
     }
     tagWithSubscription(params, subscription.id);
     tagged.params = mcp::make_optional(params);
+    if (tagged.params_json.has_value()) {
+      json::JsonValue exact =
+          tagJsonWithSubscription(tagged.params_json.value(), subscription.id);
+      tagged.params_json = mcp::make_optional(exact);
+      tagged.params = mcp::make_optional(json::jsonToMetadata(exact));
+    }
     auto sent = subscription.stream->sendRequest(tagged);
     if (holds_alternative<std::nullptr_t>(sent)) {
       return sent;

@@ -26,6 +26,7 @@
 #include "mcp/json/json_bridge.h"
 #include "mcp/json/json_serialization.h"
 #include "mcp/message_dispatch_context.h"
+#include "mcp/protocol/elicitation.h"
 #include "mcp/protocol/modern_era.h"
 #include "mcp/protocol/protocol_versions.h"
 #include "mcp/server/listen_registry.h"
@@ -415,6 +416,46 @@ TEST(ListenRegistry, SendRequestPreservesExistingRequestMeta) {
       << "request metadata was replaced instead of extended";
   EXPECT_EQ(meta[modern::kMetaSubscriptionId].getInt64(), 7)
       << "the registry did not stamp the subscription it used";
+}
+
+TEST(ListenRegistry, SendRequestTagsJsonParamsFromTypedElicitation) {
+  ListenRegistry registry;
+  auto stream = std::make_shared<StreamSpy>();
+
+  ASSERT_TRUE(registry.open("caller-a", make_request_id(7), stream,
+                            filterFrom(R"({})")));
+
+  ElicitRequest elicit;
+  elicit.message = "sign in";
+  elicit.requestedSchema.properties["account"] = StringSchema();
+  auto request =
+      protocol::elicitation::toRequest(elicit, make_request_id("elicit-1"));
+  ASSERT_TRUE(request.params_json.has_value())
+      << "typed elicitation requests must exercise the JSON params path";
+
+  json::JsonValue exact = request.params_json.value();
+  json::JsonValue original_meta = json::JsonValue::object();
+  original_meta.set("trace", json::JsonValue("kept"));
+  exact.set("_meta", original_meta);
+  request.params_json = mcp::make_optional(exact);
+  request.params = mcp::make_optional(json::jsonToMetadata(exact));
+
+  auto sent = registry.sendRequest("caller-a", request);
+
+  EXPECT_TRUE(holds_alternative<std::nullptr_t>(sent));
+  ASSERT_EQ(stream->requests.size(), 1u);
+  const auto& params = stream->requests[0]["params"];
+  EXPECT_EQ(params["message"].getString(), "sign in")
+      << "the original elicitation payload was not preserved";
+  EXPECT_EQ(params["requestedSchema"]["properties"]["account"]["type"]
+                .getString(),
+            "string")
+      << "nested elicitation params did not stay in JSON form";
+  const auto& stamped_meta = params["_meta"];
+  EXPECT_EQ(stamped_meta["trace"].getString(), "kept")
+      << "existing request metadata was replaced instead of extended";
+  EXPECT_EQ(stamped_meta[modern::kMetaSubscriptionId].getInt64(), 7)
+      << "the registry did not stamp the subscription into JSON params";
 }
 
 TEST(ListenRegistry, OneClientCannotUseOneIdTwice) {
