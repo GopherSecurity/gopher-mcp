@@ -546,6 +546,12 @@ bool RequestExchange::onConnectionGone() {
   assertOnDispatcher();
   auto self = shared_from_this();
 
+  if (connection_gone_observer_) {
+    auto observer = std::move(connection_gone_observer_);
+    connection_gone_observer_ = nullptr;
+    observer();
+  }
+
   if (mode_ == Mode::Complete || !retain_on_disconnect_) {
     // Nothing worth carrying on for. Tell whoever is still producing that
     // the work is no longer wanted.

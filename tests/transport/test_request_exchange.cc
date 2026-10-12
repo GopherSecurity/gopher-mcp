@@ -654,10 +654,14 @@ TEST_F(RequestExchangeTest, RetainedExchangeSurvivesAndKeepsProducing) {
   exchange->setRetainOnDisconnect(true);
   ASSERT_TRUE(exchange->beginStream());
 
+  int connection_gone = 0;
+  exchange->setConnectionGoneObserver(
+      [&connection_gone]() { ++connection_gone; });
   bool cancelled = false;
   exchange->cancellation().addObserver([&cancelled]() { cancelled = true; });
 
   ASSERT_TRUE(exchange->onConnectionGone());
+  EXPECT_EQ(connection_gone, 1);
   EXPECT_TRUE(exchange->detached());
   EXPECT_FALSE(cancelled) << "a detached stream has not been cancelled";
 
