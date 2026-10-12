@@ -447,9 +447,9 @@ TEST(ListenRegistry, SendRequestTagsJsonParamsFromTypedElicitation) {
   const auto& params = stream->requests[0]["params"];
   EXPECT_EQ(params["message"].getString(), "sign in")
       << "the original elicitation payload was not preserved";
-  EXPECT_EQ(params["requestedSchema"]["properties"]["account"]["type"]
-                .getString(),
-            "string")
+  EXPECT_EQ(
+      params["requestedSchema"]["properties"]["account"]["type"].getString(),
+      "string")
       << "nested elicitation params did not stay in JSON form";
   const auto& stamped_meta = params["_meta"];
   EXPECT_EQ(stamped_meta["trace"].getString(), "kept")

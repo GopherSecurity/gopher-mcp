@@ -12,8 +12,8 @@
 #include <memory>
 #include <utility>
 
-#include "mcp/logging/log_macros.h"
 #include "mcp/json/json_serialization.h"
+#include "mcp/logging/log_macros.h"
 #include "mcp/protocol/modern_era.h"
 
 #undef GOPHER_LOG_COMPONENT
