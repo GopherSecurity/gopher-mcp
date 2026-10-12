@@ -544,6 +544,7 @@ bool StreamableSessionManager::finishStream(SessionCtx& session,
   }
 
   stream.producing = false;
+  stream.conn = nullptr;
   stream.retire_at = std::chrono::steady_clock::time_point();
   session.last_activity = std::chrono::steady_clock::now();
   GOPHER_LOG_DEBUG("session {} stream {} finished", session.id, stream.id);

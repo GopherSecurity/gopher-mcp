@@ -508,6 +508,17 @@ class RequestExchange : public std::enable_shared_from_this<RequestExchange> {
     completion_observer_ = std::move(observer);
   }
 
+  /**
+   * Told once when the connection carrying this exchange goes away.
+   *
+   * Distinct from cancellation: a retained stream survives the connection
+   * loss, but any session state that still names that connection must stop
+   * treating it as connected.
+   */
+  void setConnectionGoneObserver(std::function<void()> observer) {
+    connection_gone_observer_ = std::move(observer);
+  }
+
   CancellationToken& cancellation() { return cancellation_; }
   ExchangeClientContext& clientContext() { return client_context_; }
   const ExchangeClientContext& clientContext() const { return client_context_; }
@@ -590,6 +601,7 @@ class RequestExchange : public std::enable_shared_from_this<RequestExchange> {
   CancellationToken cancellation_;
   ExchangeClientContext client_context_;
   std::function<void()> completion_observer_;
+  std::function<void()> connection_gone_observer_;
 
   // What a returning client would be given, oldest first. Filled while
   // this stream is resumable and while nobody is connected to it — the two

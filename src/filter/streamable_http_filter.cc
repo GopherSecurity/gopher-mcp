@@ -1546,12 +1546,21 @@ void StreamableHttpFilter::registerResponseStream(
     return;
   }
 
-  // The connection is deliberately not recorded. An answering stream ends
-  // with its answer, and a client that lost it comes back on a stream of
-  // its own rather than expecting this one to be reattached.
   event::Dispatcher* dispatcher = &dispatcher_;
   transport::StreamableSessionManager* sessions = sessions_;
+  std::weak_ptr<transport::StreamableSessionManager> weak_sessions =
+      weakSessionManager(sessions);
   network::Connection* conn = host_.connection();
+
+  exchange->setConnectionGoneObserver(
+      [weak_sessions, dispatcher, session_id, conn]() {
+        withSessionOnOwner(
+            weak_sessions, dispatcher, session_id,
+            [conn](transport::SessionCtx& session) {
+              transport::StreamableSessionManager::detachConnection(session,
+                                                                    conn);
+            });
+      });
 
   auto attach = [sessions, exchange, conn, dispatcher,
                  stream_id](transport::SessionCtx& session) {

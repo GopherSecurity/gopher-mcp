@@ -72,7 +72,7 @@ class TestHost : public StreamableHttpFilter::Host {
   transport::ExchangeSinkPtr makeSink() override {
     return transport::ExchangeSinkPtr(new RecordingSink(wire_, writes_allowed));
   }
-  network::Connection* connection() override { return nullptr; }
+  network::Connection* connection() override { return connection_value; }
   bool requestIsHttp11() const override { return true; }
   const std::string& principal() const override { return principal_value; }
   http::ResponseWriter::HeaderList framedResponseHeaders() const override {
@@ -84,12 +84,18 @@ class TestHost : public StreamableHttpFilter::Host {
 
   std::string principal_value{"anonymous"};
   http::ResponseWriter::HeaderList framed_headers;
+  network::Connection* connection_value{nullptr};
   bool input_held{false};
   bool writes_allowed{true};
 
  private:
   std::string& wire_;
 };
+
+// A stand-in for a client's connection. Only compared, never followed.
+network::Connection* fakeConnection(int which) {
+  return reinterpret_cast<network::Connection*>(0x2000 + which);
+}
 
 /** Everything the filter hands to the layer above it. */
 class RecordingCallbacks : public McpProtocolCallbacks {
@@ -1470,6 +1476,53 @@ TEST_F(StreamableHttpFilterTest, ResponseStreamProgressRefreshesIdleWindow) {
   EXPECT_TRUE(expired.empty())
       << "a streamed response making progress was treated as idle";
   EXPECT_GE(sessions_->find(id)->last_activity, before);
+}
+
+TEST_F(StreamableHttpFilterTest,
+       RetainedResponseStreamDetachesWhenConnectionGoes) {
+  keepSessions();
+  host_->connection_value = fakeConnection(1);
+
+  feed(post("/mcp", kRequestBody));
+  const std::string id = sessionIdOnTheWire();
+  ASSERT_FALSE(id.empty());
+
+  callbacks_.streaming = StreamingMode::Required;
+  callbacks_.answer_requests = false;
+  wire_.clear();
+
+  feed(post("/mcp", "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\"}",
+            "Mcp-Session-Id: " + id +
+                "\r\n"
+                "Accept: text/event-stream\r\n"));
+  ASSERT_TRUE(callbacks_.stream);
+
+  transport::SessionCtx* session = sessions_->find(id);
+  ASSERT_NE(session, nullptr);
+  ASSERT_EQ(session->streams.size(), 1u);
+  ASSERT_EQ(session->streams.front()->kind,
+            transport::StreamCtx::Kind::PostResponse);
+  EXPECT_EQ(transport::StreamableSessionManager::countStreams(
+                *session, transport::StreamCtx::Kind::PostResponse,
+                /*connected_only=*/true),
+            1u);
+
+  auto survivors = exchanges_->onConnectionGone();
+
+  ASSERT_EQ(survivors.size(), 1u)
+      << "the retained response stream was not kept for resume";
+  EXPECT_EQ(session->streams.front()->conn, nullptr)
+      << "the session still holds the dead response connection";
+  EXPECT_EQ(transport::StreamableSessionManager::countStreams(
+                *session, transport::StreamCtx::Kind::PostResponse,
+                /*connected_only=*/true),
+            0u)
+      << "a detached response stream still counted as connected";
+  EXPECT_EQ(transport::StreamableSessionManager::countStreams(
+                *session, transport::StreamCtx::Kind::PostResponse,
+                /*connected_only=*/false),
+            1u)
+      << "the in-flight response stream should still be retained";
 }
 
 TEST_F(StreamableHttpFilterTest, AFailedFinalResponseStreamDoesNotPinSession) {

@@ -735,6 +735,39 @@ TEST_F(StreamableSessionManagerTest,
 }
 
 TEST_F(StreamableSessionManagerTest,
+       FinishedAnsweringStreamNoLongerCountsAsConnected) {
+  const std::string id = createSession();
+
+  owner_->run([&]() {
+    SessionCtx* session = manager_->find(id);
+    ASSERT_NE(session, nullptr);
+
+    std::unique_ptr<RetainedExchangeSink> sink(new RetainedExchangeSink());
+    auto exchange =
+        RequestExchange::create(owner_->dispatcher(), std::move(sink), nullopt);
+    exchange->beginStream();
+    StreamCtx* stream =
+        manager_->openStream(*session, StreamCtx::Kind::PostResponse, exchange,
+                             fakeConnection(1), owner_->dispatcher());
+    ASSERT_NE(stream, nullptr);
+    EXPECT_EQ(StreamableSessionManager::countStreams(
+                  *session, StreamCtx::Kind::PostResponse,
+                  /*connected_only=*/true),
+              1u);
+
+    ASSERT_TRUE(exchange->complete());
+    ASSERT_TRUE(StreamableSessionManager::finishStream(*session, stream->id));
+
+    EXPECT_EQ(stream->conn, nullptr)
+        << "a finished answering stream kept a stale connection pointer";
+    EXPECT_EQ(StreamableSessionManager::countStreams(
+                  *session, StreamCtx::Kind::PostResponse,
+                  /*connected_only=*/true),
+              0u);
+  });
+}
+
+TEST_F(StreamableSessionManagerTest,
        RetiringACompletedAnsweringStreamDoesNotRefreshIdleWindow) {
   manager_->setTimeout(500ms);
   manager_->setClosedStreamRetention(20ms);
