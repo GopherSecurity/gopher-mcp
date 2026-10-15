@@ -400,6 +400,7 @@ ConnectionImpl::ConnectionImpl(event::Dispatcher& dispatcher,
 }
 
 ConnectionImpl::~ConnectionImpl() {
+  lifetime_token_.reset();
   // Ensure socket is closed
   if (state_ != ConnectionState::Closed) {
     closeSocket(ConnectionEvent::LocalClose);
@@ -845,10 +846,9 @@ void ConnectionImpl::onFileEvent(uint32_t events) {
    * - Closed: Socket closed/error → closeSocket()
    */
 
-  // CRITICAL FIX: Check if connection is already closed
-  // This prevents processing events after closeSocket() has been called
-  // Events may still fire from libevent queue even after file_event_ is reset
-  if (state_ == ConnectionState::Closed || state_ == ConnectionState::Closing) {
+  // A flushing connection still needs write-ready events to drain its reply.
+  // Ignore queued events only once socket teardown has actually started.
+  if (state_ == ConnectionState::Closed || socket_close_in_progress_) {
     GOPHER_LOG_DEBUG(
         "onFileEvent(): ignoring events on closed connection, fd={} state={}",
         (socket_ ? socket_->ioHandle().fd() : -1), static_cast<int>(state_));
@@ -878,7 +878,7 @@ void ConnectionImpl::onFileEvent(uint32_t events) {
     }
 
     // Check if socket is still open after write handling
-    if (socket_->isOpen() &&
+    if (state_ == ConnectionState::Open && socket_->isOpen() &&
         (events & static_cast<uint32_t>(event::FileReadyType::Read))) {
       // Process read event
       onReadReady();
@@ -1020,10 +1020,15 @@ void ConnectionImpl::onWriteReady() {
   } else {
     doWrite();
     initial_write_done_ = true;  // Mark that we've done at least one write
-    // After writing, only keep write events enabled if there's more data to
-    // write This prevents busy loop with level-triggered events
+    if (state_ == ConnectionState::Closed || deferred_delete_) {
+      return;
+    }
+    // A pending flush needs writes, not new reads. Stop write-ready events
+    // once the buffer is drained to avoid a level-triggered busy loop.
     uint32_t events_to_enable =
-        static_cast<uint32_t>(event::FileReadyType::Read);
+        state_ == ConnectionState::Open
+            ? static_cast<uint32_t>(event::FileReadyType::Read)
+            : 0;
     if (write_buffer_.length() > 0) {
       events_to_enable |= static_cast<uint32_t>(event::FileReadyType::Write);
     }
@@ -1041,7 +1046,7 @@ void ConnectionImpl::closeThroughFilterManager(ConnectionEvent close_type) {
 
   // Process any pending data in read buffer before closing
   // This ensures filters see all data before connection close
-  if (read_buffer_.length() > 0) {
+  if (read_buffer_.length() > 0 && !processing_read_buffer_) {
     processReadBuffer();
   }
 
@@ -1071,7 +1076,12 @@ void ConnectionImpl::closeThroughFilterManager(ConnectionEvent close_type) {
     // and wakes the loop; unlike a locally-scoped Timer, the queued
     // callback is owned by the dispatcher so it cannot be cancelled by
     // stack unwinding.
-    dispatcher_.post([this, close_type]() { closeSocket(close_type); });
+    std::weak_ptr<LifetimeToken> lifetime = lifetime_token_;
+    dispatcher_.post([this, close_type, lifetime]() {
+      if (!lifetime.expired()) {
+        closeSocket(close_type);
+      }
+    });
   }
 }
 
@@ -1088,15 +1098,14 @@ void ConnectionImpl::closeSocket(ConnectionEvent close_type) {
                    socket_->ioHandle().fd(), static_cast<int>(close_type),
                    static_cast<int>(state_));
 
-  // CRITICAL FIX: Check both Closed and Closing states
-  // Closing state indicates we're in the process of closing
-  if (state_ == ConnectionState::Closed || state_ == ConnectionState::Closing) {
-    GOPHER_LOG_TRACE("closeSocket(): already closed/closing, returning");
+  // Closing also means a flush is pending. Only actual socket teardown is
+  // re-entrant; a completed flush or its timeout must still release the socket.
+  if (state_ == ConnectionState::Closed || socket_close_in_progress_) {
+    GOPHER_LOG_TRACE("closeSocket(): already closed or tearing down, returning");
     return;
   }
 
-  // Set state to Closing first to prevent re-entrancy
-  // This prevents the infinite loop where events keep firing
+  socket_close_in_progress_ = true;
   state_ = ConnectionState::Closing;
 
   // Transition state machine to Closed
@@ -1164,6 +1173,7 @@ void ConnectionImpl::closeSocket(ConnectionEvent close_type) {
 
   // Now set final state to Closed
   state_ = ConnectionState::Closed;
+  socket_close_in_progress_ = false;
 
   // Raise close event (callbacks should be safe to call now)
   raiseConnectionEvent(close_type);
@@ -1520,6 +1530,10 @@ void ConnectionImpl::doWrite() {
     }
     // If transport handled all data, we're done
     if (write_buffer_.length() == 0) {
+      if (state_ == ConnectionState::Closing && write_half_closed_) {
+        closeThroughFilterManager(ConnectionEvent::LocalClose);
+        return;
+      }
       GOPHER_LOG_TRACE("doWrite(): transport handled all data, enabling Read");
       // CRITICAL FIX: Must enable Read events before returning!
       // Otherwise the caller (write()) left us with only Write events enabled.
@@ -1544,6 +1558,10 @@ void ConnectionImpl::doWrite() {
 
   // Now check if we have data to write after transport processing
   if (write_buffer_.length() == 0) {
+    if (state_ == ConnectionState::Closing && write_half_closed_) {
+      closeThroughFilterManager(ConnectionEvent::LocalClose);
+      return;
+    }
     GOPHER_LOG_TRACE("doWrite(): buffer empty after transport, enabling Read");
     // CRITICAL FIX: Must enable Read events before returning!
     enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Read));
@@ -1721,14 +1739,8 @@ void ConnectionImpl::onConnectTimeout() {
 }
 
 void ConnectionImpl::onIdleReadTimeout() {
-  // Idle peer that stopped sending — drop the socket immediately. NoFlush
-  // is the right pick here for two reasons: (1) a silent peer isn't
-  // waiting on an in-flight write, so there's nothing to drain; and
-  // (2) the close() wrapper for FlushWrite pre-sets state_ to Closing
-  // before calling closeSocket(), which then bails via its
-  // re-entrancy guard — NoFlush is the one ConnectionCloseType that
-  // routes straight to closeSocket() with state still Open, so the
-  // LocalClose event actually propagates to our lifecycle adapter.
+  // A silent peer has nothing to drain; release it immediately and notify
+  // lifecycle observers rather than waiting for another socket event.
   GOPHER_LOG_DEBUG("idle read timeout fired on fd={}; closing with NoFlush",
                    socket_->ioHandle().fd());
   close(ConnectionCloseType::NoFlush, "idle read timeout");
