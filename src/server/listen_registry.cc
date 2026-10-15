@@ -272,6 +272,11 @@ bool ListenRegistry::close(const std::string& caller, const RequestId& id) {
     return false;
   }
 
+  // Sending can synchronously cancel the stream and re-enter forget(). Keep
+  // the subscription alive locally, but detach it before invoking transport.
+  Subscription subscription = std::move(it->second);
+  subscriptions_.erase(it);
+
   // The response its listen request never got. A client that receives it
   // knows this ended rather than dropped, and a transport that closes
   // without one is telling it the opposite.
@@ -279,15 +284,15 @@ bool ListenRegistry::close(const std::string& caller, const RequestId& id) {
   result.set(modern::kResultTypeField,
              json::JsonValue(modern::kResultTypeComplete));
   json::JsonValue meta = json::JsonValue::object();
-  meta.set(modern::kMetaSubscriptionId, idAsJson(it->second.id));
+  meta.set(modern::kMetaSubscriptionId, idAsJson(subscription.id));
   result.set("_meta", meta);
 
-  it->second.stream->sendResponse(jsonrpc::Response::success(
-      it->second.id, jsonrpc::ResponseResult(result)));
+  subscription.stream->sendResponse(jsonrpc::Response::success(
+      subscription.id, jsonrpc::ResponseResult(result)));
 
   GOPHER_LOG_DEBUG("subscription {} of {} closed",
-                   requestIdKeyToString(it->first.id), it->first.caller);
-  subscriptions_.erase(it);
+                   requestIdKeyToString(requestIdKey(subscription.id)),
+                   subscription.caller);
   return true;
 }
 
