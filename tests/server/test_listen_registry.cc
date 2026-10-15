@@ -61,6 +61,9 @@ class StreamSpy : public ResponseStream {
   }
   VoidResult sendResponse(const jsonrpc::Response& response) override {
     responses.push_back(json::to_json(response));
+    if (cancel_on_response_) {
+      clientWentAway();
+    }
     return makeVoidSuccess();
   }
   bool alive() const override { return alive_; }
@@ -71,6 +74,7 @@ class StreamSpy : public ResponseStream {
 
   void die() { alive_ = false; }
   void failRequests() { fail_requests_ = true; }
+  void cancelOnResponse() { cancel_on_response_ = true; }
 
   /** What a client closing this stream does. */
   void clientWentAway() {
@@ -112,6 +116,7 @@ class StreamSpy : public ResponseStream {
  private:
   bool alive_{true};
   bool fail_requests_{false};
+  bool cancel_on_response_{false};
 };
 
 NotificationFilter filterFrom(const std::string& params_json) {
@@ -263,6 +268,40 @@ TEST(ListenRegistry, AnEndingIsSaidOnTheStreamThatIsEnding) {
                              json::JsonValue::object()),
             1u);
   EXPECT_EQ(carrying_on->notifications.size(), 2u);
+}
+
+TEST(ListenRegistry, ClosingMaySynchronouslyCancelItsStream) {
+  ListenRegistry registry;
+  auto stream = std::make_shared<StreamSpy>();
+  stream->cancelOnResponse();
+  ASSERT_TRUE(registry.open(
+      "caller-a", make_request_id(1), stream,
+      filterFrom(R"({"notifications":{"toolsListChanged":true}})")));
+
+  EXPECT_TRUE(registry.close("caller-a", make_request_id(1)));
+  EXPECT_EQ(registry.size(), 0u);
+  EXPECT_EQ(stream->responses.size(), 1u);
+  EXPECT_FALSE(registry.close("caller-a", make_request_id(1)));
+}
+
+TEST(ListenRegistry, CloseAllToleratesSynchronousStreamCancellation) {
+  ListenRegistry registry;
+  auto first = std::make_shared<StreamSpy>();
+  auto second = std::make_shared<StreamSpy>();
+  first->cancelOnResponse();
+  second->cancelOnResponse();
+  const auto filter =
+      filterFrom(R"({"notifications":{"toolsListChanged":true}})");
+  ASSERT_TRUE(registry.open("caller-a", make_request_id(1), first, filter));
+  ASSERT_TRUE(registry.open("caller-b", make_request_id(1), second, filter));
+
+  registry.closeAll();
+  EXPECT_EQ(registry.size(), 0u);
+  EXPECT_EQ(first->responses.size(), 1u);
+  EXPECT_EQ(second->responses.size(), 1u);
+  registry.closeAll();
+  EXPECT_EQ(first->responses.size(), 1u);
+  EXPECT_EQ(second->responses.size(), 1u);
 }
 
 // A subscription's id is one its own client chose, so two clients each
