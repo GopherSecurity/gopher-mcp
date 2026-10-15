@@ -16,6 +16,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <functional>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -51,12 +52,23 @@ struct Observed {
  */
 class ClosingReader : public ReadFilter {
  public:
-  explicit ClosingReader(Observed& observed) : observed_(observed) {}
+  explicit ClosingReader(
+      Observed& observed,
+      ConnectionCloseType close_type = ConnectionCloseType::NoFlush,
+      std::string response = "")
+      : observed_(observed),
+        close_type_(close_type),
+        response_(std::move(response)) {}
 
   FilterStatus onData(Buffer& data, bool) override {
     const size_t length = data.length();
     observed_.before = length;
-    callbacks_->connection().close(ConnectionCloseType::NoFlush);
+    if (!response_.empty()) {
+      OwnedBuffer response;
+      response.add(response_);
+      callbacks_->connection().write(response, false);
+    }
+    callbacks_->connection().close(close_type_);
     observed_.after_close = data.length();
     try {
       data.drain(length);
@@ -73,6 +85,8 @@ class ClosingReader : public ReadFilter {
 
  private:
   Observed& observed_;
+  ConnectionCloseType close_type_;
+  std::string response_;
   ReadFilterCallbacks* callbacks_{nullptr};
 };
 
@@ -101,12 +115,36 @@ class ClosedEvents : public ConnectionCallbacks {
     if (event == ConnectionEvent::LocalClose ||
         event == ConnectionEvent::RemoteClose) {
       closed = true;
+      ++close_count;
     }
   }
   void onAboveWriteBufferHighWatermark() override {}
   void onBelowWriteBufferLowWatermark() override {}
 
   std::atomic<bool> closed{false};
+  std::atomic<int> close_count{0};
+};
+
+class ControlledTransport : public RawBufferTransportSocket {
+ public:
+  TransportIoResult doWrite(Buffer& buffer, bool end_stream) override {
+    if (blocked)
+      return TransportIoResult::stop();
+    if (fail_write)
+      return TransportIoResult::close();
+    return RawBufferTransportSocket::doWrite(buffer, end_stream);
+  }
+  void closeSocket(ConnectionEvent event) override {
+    ++close_count;
+    if (on_close)
+      on_close();
+    RawBufferTransportSocket::closeSocket(event);
+  }
+
+  bool blocked{false};
+  bool fail_write{false};
+  int close_count{0};
+  std::function<void()> on_close;
 };
 
 class ConnectionCloseWhileReadingTest : public test::RealIoTestBase {
@@ -118,7 +156,8 @@ class ConnectionCloseWhileReadingTest : public test::RealIoTestBase {
 
   /** A server connection reading through this filter, and its peer. */
   void connect(ReadFilterSharedPtr filter,
-               WriteFilterSharedPtr writer = nullptr) {
+               WriteFilterSharedPtr writer = nullptr,
+               TransportSocketPtr transport = nullptr) {
     executeInDispatcher([&]() {
       auto pair = createSocketPair();
       auto local = Address::parseInternetAddress("127.0.0.1", 0);
@@ -127,7 +166,9 @@ class ConnectionCloseWhileReadingTest : public test::RealIoTestBase {
           std::move(pair.first), local, remote);
       conn_ = ConnectionImpl::createServerConnection(
           *dispatcher_, std::move(socket),
-          std::make_unique<RawBufferTransportSocket>(), stream_info_);
+          transport ? std::move(transport)
+                    : std::make_unique<RawBufferTransportSocket>(),
+          stream_info_);
       auto* impl = static_cast<ConnectionImpl*>(conn_.get());
       impl->addConnectionCallbacks(events_);
       impl->filterManager().addReadFilter(filter);
@@ -154,6 +195,27 @@ class ConnectionCloseWhileReadingTest : public test::RealIoTestBase {
       std::this_thread::sleep_for(5ms);
     }
     return done();
+  }
+
+  void expectClosedWithResponse(const std::string& expected) {
+    EXPECT_TRUE(waitFor([&]() { return events_.closed.load(); }));
+    executeInDispatcher([&]() {
+      EXPECT_EQ(conn_->state(), ConnectionState::Closed);
+      EXPECT_FALSE(conn_->ioHandle().isOpen());
+      EXPECT_EQ(events_.close_count.load(), 1);
+    });
+    std::string response;
+    bool eof = false;
+    EXPECT_TRUE(waitFor([&]() {
+      OwnedBuffer buffer;
+      auto result = peer_->read(buffer, 4096);
+      if (result.ok()) {
+        response += buffer.toString();
+        eof = *result == 0;
+      }
+      return eof;
+    })) << "peer never received EOF";
+    EXPECT_EQ(response, expected);
   }
 
   stream_info::StreamInfoImpl stream_info_;
@@ -216,6 +278,143 @@ TEST_F(ConnectionCloseWhileReadingTest, AFailingWriterClosesOnlyItsConnection) {
   std::atomic<bool> ran{false};
   executeInDispatcher([&]() { ran = true; });
   EXPECT_TRUE(ran.load());
+}
+
+TEST_F(ConnectionCloseWhileReadingTest,
+       FlushWriteWithEmptyBufferClosesSocketOnce) {
+  Observed observed;
+  connect(std::make_shared<ClosingReader>(observed));
+  executeInDispatcher([&]() {
+    conn_->close(ConnectionCloseType::FlushWrite);
+    conn_->close(ConnectionCloseType::FlushWrite);
+    conn_->close(ConnectionCloseType::NoFlush);
+  });
+  expectClosedWithResponse("");
+}
+
+TEST_F(ConnectionCloseWhileReadingTest,
+       FlushWriteFromReaderDeliversReplyAndCloses) {
+  Observed observed;
+  const std::string response =
+      "HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\nConnection: "
+      "close\r\n\r\n";
+  connect(std::make_shared<ClosingReader>(
+      observed, ConnectionCloseType::FlushWrite, response));
+  send("GET /mcp HTTP/1.1\r\nHost: localhost\r\n\r\n");
+  ASSERT_TRUE(waitFor([&]() { return observed.read.load(); }));
+  EXPECT_EQ(observed.before.load(), observed.after_close.load());
+  EXPECT_FALSE(observed.drain_threw.load());
+  expectClosedWithResponse(response);
+}
+
+TEST_F(ConnectionCloseWhileReadingTest,
+       FlushWriteResumesQueuedReplyAfterBackpressure) {
+  Observed observed;
+  auto transport = std::make_unique<ControlledTransport>();
+  auto* controlled = transport.get();
+  connect(std::make_shared<ClosingReader>(observed), nullptr,
+          std::move(transport));
+  const std::string response =
+      "HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\n\r\n";
+  executeInDispatcher([&]() {
+    controlled->blocked = true;
+    OwnedBuffer buffer;
+    buffer.add(response);
+    conn_->write(buffer, false);
+    conn_->close(ConnectionCloseType::FlushWrite);
+    EXPECT_EQ(conn_->state(), ConnectionState::Closing);
+    EXPECT_EQ(controlled->close_count, 0);
+    EXPECT_TRUE(conn_->ioHandle().isOpen());
+  });
+  executeInDispatcher([&]() { controlled->blocked = false; });
+  expectClosedWithResponse(response);
+  executeInDispatcher([&]() { EXPECT_EQ(controlled->close_count, 1); });
+}
+
+TEST_F(ConnectionCloseWhileReadingTest,
+       DelayedCloseTimeoutReleasesBlockedSocket) {
+  Observed observed;
+  auto transport = std::make_unique<ControlledTransport>();
+  auto* controlled = transport.get();
+  connect(std::make_shared<ClosingReader>(observed), nullptr,
+          std::move(transport));
+  executeInDispatcher([&]() {
+    controlled->blocked = true;
+    OwnedBuffer buffer;
+    buffer.add("pending response");
+    conn_->write(buffer, false);
+    conn_->setDelayedCloseTimeout(10ms);
+    conn_->close(ConnectionCloseType::FlushWriteAndDelay);
+    EXPECT_EQ(conn_->state(), ConnectionState::Closing);
+  });
+  expectClosedWithResponse("");
+}
+
+TEST_F(ConnectionCloseWhileReadingTest, NoFlushCanFinishAPendingFlushClose) {
+  Observed observed;
+  auto transport = std::make_unique<ControlledTransport>();
+  auto* controlled = transport.get();
+  connect(std::make_shared<ClosingReader>(observed), nullptr,
+          std::move(transport));
+  executeInDispatcher([&]() {
+    controlled->blocked = true;
+    OwnedBuffer buffer;
+    buffer.add("pending response");
+    conn_->write(buffer, false);
+    conn_->close(ConnectionCloseType::FlushWrite);
+    conn_->close(ConnectionCloseType::NoFlush);
+  });
+  expectClosedWithResponse("");
+}
+
+TEST_F(ConnectionCloseWhileReadingTest, WriteFailureDuringFlushStillCloses) {
+  Observed observed;
+  auto transport = std::make_unique<ControlledTransport>();
+  auto* controlled = transport.get();
+  connect(std::make_shared<ClosingReader>(observed), nullptr,
+          std::move(transport));
+  executeInDispatcher([&]() {
+    controlled->blocked = true;
+    OwnedBuffer buffer;
+    buffer.add("pending response");
+    conn_->write(buffer, false);
+    controlled->blocked = false;
+    controlled->fail_write = true;
+    conn_->close(ConnectionCloseType::FlushWrite);
+  });
+  expectClosedWithResponse("");
+}
+
+TEST_F(ConnectionCloseWhileReadingTest, ReentrantTransportCloseRunsOnlyOnce) {
+  Observed observed;
+  auto transport = std::make_unique<ControlledTransport>();
+  auto* controlled = transport.get();
+  connect(std::make_shared<ClosingReader>(observed), nullptr,
+          std::move(transport));
+  executeInDispatcher([&]() {
+    controlled->on_close = [&]() {
+      conn_->close(ConnectionCloseType::NoFlush);
+    };
+    conn_->close(ConnectionCloseType::NoFlush);
+    EXPECT_EQ(controlled->close_count, 1);
+  });
+  expectClosedWithResponse("");
+}
+
+TEST_F(ConnectionCloseWhileReadingTest,
+       DeferredFlushCloseDoesNotOutliveConnection) {
+  Observed observed;
+  connect(std::make_shared<ClosingReader>(observed));
+  executeInDispatcher([&]() {
+    OwnedBuffer buffer;
+    buffer.add("complete response");
+    conn_->write(buffer, false);
+    conn_->close(ConnectionCloseType::FlushWrite);
+    conn_->close(ConnectionCloseType::NoFlush);
+    conn_.reset();
+  });
+  executeInDispatcher([]() {});
+  EXPECT_EQ(events_.close_count.load(), 1);
 }
 
 }  // namespace

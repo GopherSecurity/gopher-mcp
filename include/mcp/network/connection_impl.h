@@ -201,6 +201,7 @@ class ConnectionImpl : public ConnectionImplBase,
   // State flags
   bool read_half_closed_{false};
   bool write_half_closed_{false};
+  bool socket_close_in_progress_{false};
   ConnectionEvent immediate_error_event_{
       ConnectionEvent::Connected};  // Use Connected as "no error"
   bool bind_error_{false};
@@ -257,6 +258,10 @@ class ConnectionImpl : public ConnectionImplBase,
   // Track if we've done the initial write for already-connected connections
   // This is needed for stdio connections to properly initialize
   bool initial_write_done_{false};
+
+  struct LifetimeToken {};
+  std::shared_ptr<LifetimeToken> lifetime_token_{
+      std::make_shared<LifetimeToken>()};
 };
 
 /**
