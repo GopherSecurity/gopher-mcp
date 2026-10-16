@@ -34,6 +34,17 @@
 
 namespace mcp {
 namespace network {
+
+class ConnectionImplTestPeer {
+ public:
+  static void setReadBufferReady(ConnectionImpl& connection) {
+    connection.setReadBufferReady();
+  }
+  static void disableFileEvents(ConnectionImpl& connection) {
+    connection.enableFileEvents(0);
+  }
+};
+
 namespace {
 
 using namespace std::chrono_literals;
@@ -170,8 +181,9 @@ class ConnectionCloseWhileReadingTest : public test::RealIoTestBase {
       if (!transport && !use_raw_socket) {
         transport = std::make_unique<RawBufferTransportSocket>();
       }
-      conn_ = ConnectionImpl::createServerConnection(
+      auto server = ConnectionImpl::createServerConnection(
           *dispatcher_, std::move(socket), std::move(transport), stream_info_);
+      conn_.reset(static_cast<ConnectionImpl*>(server.release()));
       auto* impl = static_cast<ConnectionImpl*>(conn_.get());
       impl->addConnectionCallbacks(events_);
       impl->filterManager().addReadFilter(filter);
@@ -187,6 +199,66 @@ class ConnectionCloseWhileReadingTest : public test::RealIoTestBase {
     OwnedBuffer out;
     out.add(bytes);
     ASSERT_TRUE(peer_->write(out).ok());
+  }
+
+  void failConnect(std::function<void(ConnectionImpl&)> after_failure) {
+    std::atomic<bool> failed{false};
+    event::FileEventPtr ready;
+    IoHandlePtr readiness_handle;
+    executeInDispatcher([&]() {
+      auto& sockets = socketInterface();
+      auto reserved_fd = sockets.socket(SocketType::Stream, Address::Type::Ip,
+                                        Address::IpVersion::v4);
+      ASSERT_TRUE(reserved_fd.ok());
+      peer_ = sockets.ioHandleForFd(*reserved_fd, false);
+      auto local = Address::parseInternetAddress("127.0.0.1", 0);
+      ASSERT_TRUE(peer_->bind(local).ok());
+      auto remote = peer_->localAddress();
+      ASSERT_TRUE(remote.ok());
+      // Reserve an ephemeral local port, then close it before connecting so
+      // the kernel refuses the TCP connection.
+      ASSERT_TRUE(peer_->close().ok());
+      auto client_fd = sockets.socket(SocketType::Stream, Address::Type::Ip,
+                                      Address::IpVersion::v4);
+      ASSERT_TRUE(client_fd.ok());
+      auto handle = sockets.ioHandleForFd(*client_fd, false);
+      ASSERT_TRUE(handle->setBlocking(false).ok());
+      auto socket = std::make_unique<ConnectionSocketImpl>(std::move(handle),
+                                                           local, *remote);
+      auto transport = std::make_unique<ControlledTransport>();
+      transport->blocked = true;
+      auto client = ConnectionImpl::createClientConnection(
+          *dispatcher_, std::move(socket), std::move(transport), stream_info_);
+      auto* impl = static_cast<ConnectionImpl*>(client.get());
+      impl->addConnectionCallbacks(events_);
+      client->connect();
+      EXPECT_TRUE(impl->connecting());
+      conn_.reset(static_cast<ConnectionImpl*>(client.release()));
+      // Drive the real failure event ourselves so the test can destroy the
+      // connection or request a flush before its posted close runs.
+      ConnectionImplTestPeer::disableFileEvents(*impl);
+      readiness_handle = impl->ioHandle().duplicate();
+      ASSERT_TRUE(readiness_handle);
+      ready = dispatcher_->createFileEvent(
+          readiness_handle->fd(),
+          [&, impl](uint32_t) {
+            ready->setEnabled(0);
+            impl->onWriteReady();
+            EXPECT_FALSE(impl->connecting());
+            after_failure(*impl);
+            if (conn_) {
+              ConnectionImplTestPeer::disableFileEvents(*conn_);
+            }
+            failed = true;
+          },
+          event::PlatformDefaultTriggerType,
+          static_cast<uint32_t>(event::FileReadyType::Write));
+    });
+    EXPECT_TRUE(waitFor([&]() { return failed.load(); }));
+    executeInDispatcher([&]() {
+      ready.reset();
+      readiness_handle.reset();
+    });
   }
 
   bool waitFor(const std::function<bool()>& done,
@@ -258,7 +330,7 @@ class ConnectionCloseWhileReadingTest : public test::RealIoTestBase {
 
   stream_info::StreamInfoImpl stream_info_;
   ClosedEvents events_;
-  std::unique_ptr<ServerConnection> conn_;
+  std::unique_ptr<ConnectionImpl> conn_;
   IoHandlePtr peer_;
 };
 
@@ -802,6 +874,97 @@ TEST_F(ConnectionCloseWhileReadingTest,
     conn_.reset();
   });
   executeInDispatcher([]() {});
+  EXPECT_EQ(events_.close_count.load(), 1);
+}
+
+TEST_F(ConnectionCloseWhileReadingTest, ConnectFailurePostsRemoteClose) {
+  failConnect([](ConnectionImpl& connection) {
+    EXPECT_EQ(connection.state(), ConnectionState::Open);
+  });
+  expectClosed();
+  EXPECT_EQ(events_.last_close_event.load(), ConnectionEvent::RemoteClose);
+}
+
+TEST_F(ConnectionCloseWhileReadingTest, ConnectFailurePostClosesAPendingFlush) {
+  failConnect([](ConnectionImpl& connection) {
+    OwnedBuffer response;
+    response.add("pending response");
+    connection.write(response, false);
+    connection.close(ConnectionCloseType::FlushWrite);
+    EXPECT_EQ(connection.state(), ConnectionState::Closing);
+    EXPECT_GT(connection.writeBuffer().length(), 0u);
+  });
+  expectClosed();
+  EXPECT_EQ(events_.last_close_event.load(), ConnectionEvent::RemoteClose);
+}
+
+TEST_F(ConnectionCloseWhileReadingTest,
+       ConnectFailurePostDoesNotOutliveConnection) {
+  failConnect([&](ConnectionImpl&) { conn_.reset(); });
+  executeInDispatcher([]() {});
+  EXPECT_EQ(events_.close_count.load(), 1);
+}
+
+TEST_F(ConnectionCloseWhileReadingTest,
+       ReadBufferReadyProcessesBufferedDataWhileAlive) {
+  Observed observed;
+  connect(std::make_shared<ClosingReader>(observed));
+  executeInDispatcher([&]() {
+    conn_->readBuffer().add("buffered request");
+    ConnectionImplTestPeer::setReadBufferReady(
+        *static_cast<ConnectionImpl*>(conn_.get()));
+  });
+  executeInDispatcher([]() {});
+  EXPECT_TRUE(observed.read.load());
+  EXPECT_EQ(observed.before.load(), observed.after_close.load());
+  EXPECT_FALSE(observed.drain_threw.load());
+  expectClosedWithResponse("");
+}
+
+TEST_F(ConnectionCloseWhileReadingTest,
+       ReadBufferReadySkipsReadDisabledConnection) {
+  Observed observed;
+  connect(std::make_shared<ClosingReader>(observed));
+  executeInDispatcher([&]() {
+    conn_->readDisable(true);
+    conn_->readBuffer().add("buffered request");
+    ConnectionImplTestPeer::setReadBufferReady(
+        *static_cast<ConnectionImpl*>(conn_.get()));
+  });
+  executeInDispatcher([&]() {
+    EXPECT_FALSE(observed.read.load());
+    EXPECT_EQ(conn_->readBuffer().toString(), "buffered request");
+    conn_->close(ConnectionCloseType::NoFlush);
+  });
+  expectClosedWithResponse("");
+}
+
+TEST_F(ConnectionCloseWhileReadingTest, ReadBufferReadySkipsClosedConnection) {
+  Observed observed;
+  connect(std::make_shared<ClosingReader>(observed));
+  executeInDispatcher([&]() {
+    conn_->readBuffer().add("buffered request");
+    ConnectionImplTestPeer::setReadBufferReady(
+        *static_cast<ConnectionImpl*>(conn_.get()));
+    conn_->close(ConnectionCloseType::NoFlush);
+  });
+  executeInDispatcher([]() {});
+  EXPECT_FALSE(observed.read.load());
+  expectClosedWithResponse("");
+}
+
+TEST_F(ConnectionCloseWhileReadingTest,
+       ReadBufferReadyDoesNotOutliveConnection) {
+  Observed observed;
+  connect(std::make_shared<ClosingReader>(observed));
+  executeInDispatcher([&]() {
+    conn_->readBuffer().add("buffered request");
+    ConnectionImplTestPeer::setReadBufferReady(
+        *static_cast<ConnectionImpl*>(conn_.get()));
+    conn_.reset();
+  });
+  executeInDispatcher([]() {});
+  EXPECT_FALSE(observed.read.load());
   EXPECT_EQ(events_.close_count.load(), 1);
 }
 

@@ -148,6 +148,8 @@ class ConnectionImpl : public ConnectionImplBase,
   FilterManager& filterManager() { return filter_manager_; }
 
  private:
+  friend class ConnectionImplTestPeer;
+
   enum class DelayedCloseState {
     None,
     CloseAfterFlush,
@@ -192,6 +194,7 @@ class ConnectionImpl : public ConnectionImplBase,
   void resetIdleReadTimer();
 
   // Helper methods
+  void postIfAlive(event::PostCb callback);
   void enableFileEvents(uint32_t events);
   void disableFileEvents(uint32_t events);
   uint32_t getReadyEvents();
