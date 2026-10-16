@@ -880,8 +880,7 @@ void ConnectionImpl::onFileEvent(uint32_t events) {
     }
 
     // Check if socket is still open after write handling
-    if ((state_ == ConnectionState::Open ||
-         delayed_close_state_ == DelayedCloseState::CloseAfterFlushAndWait) &&
+    if ((state_ == ConnectionState::Open || waitingForPeerClose()) &&
         socket_->isOpen() &&
         (events & static_cast<uint32_t>(event::FileReadyType::Read))) {
       // Process read event
@@ -1025,13 +1024,11 @@ void ConnectionImpl::onWriteReady() {
     if (state_ == ConnectionState::Closed || deferred_delete_) {
       return;
     }
-    // Read readiness during the grace period detects peer EOF; doRead()
-    // discards further input instead of handing it to application filters.
+    // Read readiness after flushing detects peer EOF; doRead() discards
+    // further input instead of handing it to application filters.
     // Stop write readiness after draining to avoid a level-triggered busy loop.
     uint32_t events_to_enable =
-        state_ == ConnectionState::Open ||
-                delayed_close_state_ ==
-                    DelayedCloseState::CloseAfterFlushAndWait
+        state_ == ConnectionState::Open || waitingForPeerClose()
             ? static_cast<uint32_t>(event::FileReadyType::Read)
             : 0;
     if (write_buffer_.length() > 0) {
@@ -1342,10 +1339,7 @@ void ConnectionImpl::doRead() {
    * Thread safety: All operations in dispatcher thread
    */
 
-  const bool delayed_close_read =
-      state_ == ConnectionState::Closing &&
-      delayed_close_state_ == DelayedCloseState::CloseAfterFlushAndWait;
-  if (!delayed_close_read &&
+  if (!waitingForPeerClose() &&
       (read_disable_count_ > 0 || state_ != ConnectionState::Open)) {
     // Don't clear transport_wants_read_ when returning early
     GOPHER_LOG_TRACE(
@@ -1358,7 +1352,10 @@ void ConnectionImpl::doRead() {
   // Clear transport wants read just before reading (reference pattern)
   transport_wants_read_ = false;
 
-  while (true) {
+  // A filter can start closing from processReadBuffer(). Recheck before
+  // reading again so peer EOF cannot discard a reply that is still flushing.
+  while ((state_ == ConnectionState::Open && read_disable_count_ == 0) ||
+         waitingForPeerClose()) {
     // Read from socket into buffer
     auto result = doReadFromSocket();
 
@@ -1401,8 +1398,7 @@ void ConnectionImpl::doRead() {
     // Update stats
     updateReadBufferStats(result.bytes_processed_, read_buffer_.length());
 
-    if (state_ == ConnectionState::Closing &&
-        delayed_close_state_ == DelayedCloseState::CloseAfterFlushAndWait) {
+    if (waitingForPeerClose()) {
       // We only read to notice peer EOF during the grace period. Discarding
       // input prevents both another request dispatch and a readable-socket
       // busy loop, without extending the close deadline.
@@ -1411,11 +1407,6 @@ void ConnectionImpl::doRead() {
       // Rearm before filters, which may themselves block for a while.
       resetIdleReadTimer();
       processReadBuffer();
-    }
-
-    if (read_disable_count_ > 0 && !delayed_close_read) {
-      // Reading was disabled during processing
-      break;
     }
   }
 }
@@ -1710,6 +1701,14 @@ void ConnectionImpl::doWrite() {
   }
 }
 
+bool ConnectionImpl::waitingForPeerClose() const {
+  // A peer FIN only closes its write side. Its read side may still be waiting
+  // for our response, so notice EOF only after the queued reply has drained.
+  return state_ == ConnectionState::Closing &&
+         delayed_close_state_ == DelayedCloseState::CloseAfterFlushAndWait &&
+         write_buffer_.length() == 0;
+}
+
 bool ConnectionImpl::finishFlushIfDrained(uint64_t bytes_written) {
   assert(dispatcher_.isThreadSafe());
   if (state_ != ConnectionState::Closing ||
@@ -1727,7 +1726,7 @@ bool ConnectionImpl::finishFlushIfDrained(uint64_t bytes_written) {
     return false;
   }
 
-  if (delayed_close_state_ == DelayedCloseState::CloseAfterFlushAndWait) {
+  if (waitingForPeerClose()) {
     enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Read));
   } else {
     closeThroughFilterManager(ConnectionEvent::LocalClose);
