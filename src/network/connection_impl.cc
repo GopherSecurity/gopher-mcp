@@ -972,11 +972,9 @@ void ConnectionImpl::onWriteReady() {
       // CRITICAL FIX: Defer the close to avoid destroying FileEventImpl during
       // its callback Post the close to the dispatcher to execute after the
       // current event completes
-      dispatcher_.post([this]() {
-        if (state_ != ConnectionState::Closed &&
-            state_ != ConnectionState::Closing) {
-          closeSocket(ConnectionEvent::RemoteClose);
-        }
+      postIfAlive([this]() {
+        // closeSocket() distinguishes a pending flush from actual teardown.
+        closeSocket(ConnectionEvent::RemoteClose);
       });
       return;
     }
@@ -1041,6 +1039,19 @@ void ConnectionImpl::onWriteReady() {
   }
 }
 
+void ConnectionImpl::postIfAlive(event::PostCb callback) {
+  assert(dispatcher_.isThreadSafe());
+  // Destruction invalidates the token before teardown. Both it and posted
+  // callbacks run on the dispatcher, so no connection access can race this
+  // check. The queued callback must not keep the connection alive itself.
+  std::weak_ptr<LifetimeToken> lifetime = lifetime_token_;
+  dispatcher_.post([lifetime, callback = std::move(callback)]() {
+    if (!lifetime.expired()) {
+      callback();
+    }
+  });
+}
+
 void ConnectionImpl::closeThroughFilterManager(ConnectionEvent close_type) {
   GOPHER_LOG_TRACE("closeThroughFilterManager(): fd={} close_type={} state={}",
                    socket_->ioHandle().fd(), static_cast<int>(close_type),
@@ -1060,11 +1071,11 @@ void ConnectionImpl::closeThroughFilterManager(ConnectionEvent close_type) {
   //          can cause the ConnectionImpl (managed by unique_ptr) to be
   //          destroyed while still executing doRead(), causing segfault on
   //          return.
-  // Solution: Defer the actual close to the next event loop iteration using a
-  //          0-delay timer. This ensures the object remains valid throughout
-  //          the current call stack.
+  // Solution: Defer the actual close to the next event loop iteration. This
+  //          ensures the object remains valid throughout the current call
+  //          stack.
   // Flow: EOF detected → closeThroughFilterManager → disable events →
-  //       schedule timer → return safely → timer fires → closeSocket
+  //       post close → return safely → callback runs → closeSocket
   if (!deferred_delete_) {
     deferred_delete_ = true;
 
@@ -1081,12 +1092,7 @@ void ConnectionImpl::closeThroughFilterManager(ConnectionEvent close_type) {
     // and wakes the loop; unlike a locally-scoped Timer, the queued
     // callback is owned by the dispatcher so it cannot be cancelled by
     // stack unwinding.
-    std::weak_ptr<LifetimeToken> lifetime = lifetime_token_;
-    dispatcher_.post([this, close_type, lifetime]() {
-      if (!lifetime.expired()) {
-        closeSocket(close_type);
-      }
-    });
+    postIfAlive([this, close_type]() { closeSocket(close_type); });
   }
 }
 
@@ -1761,7 +1767,7 @@ void ConnectionImpl::handleWrite(bool all_data_sent) {
 }
 
 void ConnectionImpl::setReadBufferReady() {
-  dispatcher_.post([this]() {
+  postIfAlive([this]() {
     if (state_ == ConnectionState::Open && read_disable_count_ == 0) {
       processReadBuffer();
     }
