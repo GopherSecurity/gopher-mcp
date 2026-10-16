@@ -289,7 +289,9 @@ class Connection : public event::DeferredDeletable,
    * Set the write inactivity timeout for FlushWrite and FlushWriteAndDelay.
    * Successful writes restart it; expiry closes even with pending data.
    * FlushWrite closes when drained. FlushWriteAndDelay also waits for peer
-   * EOF or the timeout after draining. Zero disables the timeout and wait.
+   * EOF or the timeout after draining.
+   *
+   * The default is five seconds. Zero disables the timeout and wait.
    */
   virtual void setDelayedCloseTimeout(std::chrono::milliseconds timeout) = 0;
 
@@ -500,7 +502,8 @@ class ConnectionImplBase : public virtual Connection {
 
   // Configuration
   uint32_t buffer_limit_{0};
-  std::chrono::milliseconds delayed_close_timeout_{0};
+  // Bound stalled final replies, including those on accepted connections.
+  std::chrono::milliseconds delayed_close_timeout_{5000};
   event::TimerPtr delayed_close_timer_;
   std::chrono::milliseconds idle_read_timeout_{0};
   event::TimerPtr idle_read_timer_;

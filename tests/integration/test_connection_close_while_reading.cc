@@ -309,8 +309,8 @@ class ConnectionCloseWhileReadingTest : public test::RealIoTestBase {
     });
   }
 
-  void expectClosed() {
-    EXPECT_TRUE(waitFor([&]() { return events_.closed.load(); }));
+  void expectClosed(std::chrono::milliseconds timeout = 2s) {
+    EXPECT_TRUE(waitFor([&]() { return events_.closed.load(); }, timeout));
     executeInDispatcher([&]() {
       EXPECT_EQ(conn_->state(), ConnectionState::Closed);
       EXPECT_FALSE(conn_->ioHandle().isOpen());
@@ -469,6 +469,55 @@ TEST_F(ConnectionCloseWhileReadingTest,
 class DelayedConnectionCloseTest : public ConnectionCloseWhileReadingTest,
                                    public ::testing::WithParamInterface<bool> {
 };
+
+TEST_P(DelayedConnectionCloseTest,
+       DefaultFlushDeadlineBoundsAReplyFromReadFilters) {
+  Observed observed;
+  const std::string response =
+      "HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\nConnection: "
+      "close\r\n\r\n";
+  connect(std::make_shared<ClosingReader>(
+              observed, ConnectionCloseType::FlushWrite, response),
+          nullptr, nullptr, GetParam());
+  limitSocketBuffers();
+  executeInDispatcher([&]() {
+    // The peer stops reading with an earlier response still queued. The
+    // final 401 reply cannot drain, even though it is small on its own.
+    OwnedBuffer buffer;
+    buffer.add(std::string(1024 * 1024, 'x'));
+    conn_->write(buffer, false);
+  });
+  send("GET /mcp HTTP/1.1\r\nHost: localhost\r\n\r\n");
+  ASSERT_TRUE(waitFor([&]() { return observed.read.load(); }));
+  executeInDispatcher([&]() {
+    EXPECT_EQ(conn_->state(), ConnectionState::Closing);
+    EXPECT_GT(conn_->writeBuffer().length(), 0u);
+    EXPECT_TRUE(ConnectionImplTestPeer::delayedCloseTimerEnabled(*conn_));
+    // Freeze readiness after backpressure: kernel receive-buffer tuning can
+    // otherwise allow more writes and legitimately restart the deadline.
+    ConnectionImplTestPeer::disableFileEvents(*conn_);
+  });
+
+  // Both listener paths use this accepted-connection factory. Leave the
+  // timeout unconfigured to verify that its default bounds the stalled fd.
+  expectClosingAfter(100ms);
+  expectClosed(7s);
+  EXPECT_EQ(events_.last_close_event.load(), ConnectionEvent::LocalClose);
+}
+
+TEST_P(DelayedConnectionCloseTest, DefaultDelayedCloseWaitsForPeerEof) {
+  Observed observed;
+  connect(std::make_shared<ClosingReader>(observed), nullptr, nullptr,
+          GetParam());
+  executeInDispatcher([&]() {
+    conn_->close(ConnectionCloseType::FlushWriteAndDelay);
+    EXPECT_TRUE(ConnectionImplTestPeer::delayedCloseTimerEnabled(*conn_));
+  });
+  expectClosingAfter(40ms);
+  executeInDispatcher([&]() { peer_->close(); });
+  expectClosed();
+  EXPECT_EQ(events_.last_close_event.load(), ConnectionEvent::RemoteClose);
+}
 
 TEST_P(DelayedConnectionCloseTest, FlushWriteTimesOutWhenThePeerStopsReading) {
   Observed observed;
@@ -685,6 +734,7 @@ TEST_F(ConnectionCloseWhileReadingTest, ZeroTimeoutDisablesTheFlushDeadline) {
     conn_->write(buffer, false);
     conn_->setDelayedCloseTimeout(0ms);
     conn_->close(ConnectionCloseType::FlushWrite);
+    EXPECT_FALSE(ConnectionImplTestPeer::delayedCloseTimerEnabled(*conn_));
   });
   expectClosingAfter(40ms);
   executeInDispatcher([&]() { controlled->blocked = false; });
