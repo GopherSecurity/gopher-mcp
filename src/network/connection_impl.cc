@@ -414,7 +414,9 @@ void ConnectionImpl::close(ConnectionCloseType type,
   GOPHER_LOG_TRACE("close(): fd={} type={} details={} state={}",
                    socket_->ioHandle().fd(), static_cast<int>(type), details,
                    static_cast<int>(state_));
-  if (state_ == ConnectionState::Closed) {
+  // A pending flush may still be overridden, but teardown must not restart
+  // writes or cancelled timers through a reentrant close request.
+  if (state_ == ConnectionState::Closed || socket_close_in_progress_) {
     return;
   }
 

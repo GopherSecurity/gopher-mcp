@@ -43,6 +43,10 @@ class ConnectionImplTestPeer {
   static void disableFileEvents(ConnectionImpl& connection) {
     connection.enableFileEvents(0);
   }
+  static bool delayedCloseTimerEnabled(ConnectionImpl& connection) {
+    return connection.delayed_close_timer_ &&
+           connection.delayed_close_timer_->enabled();
+  }
 };
 
 namespace {
@@ -141,6 +145,7 @@ class ClosedEvents : public ConnectionCallbacks {
 class ControlledTransport : public RawBufferTransportSocket {
  public:
   TransportIoResult doWrite(Buffer& buffer, bool end_stream) override {
+    ++write_count;
     if (blocked)
       return TransportIoResult::stop();
     if (fail_write)
@@ -156,6 +161,7 @@ class ControlledTransport : public RawBufferTransportSocket {
 
   bool blocked{false};
   bool fail_write{false};
+  int write_count{0};
   int close_count{0};
   std::function<void()> on_close;
 };
@@ -860,6 +866,59 @@ TEST_F(ConnectionCloseWhileReadingTest, ReentrantTransportCloseRunsOnlyOnce) {
   });
   expectClosedWithResponse("");
 }
+
+class ReentrantConnectionCloseTest
+    : public ConnectionCloseWhileReadingTest,
+      public ::testing::WithParamInterface<ConnectionCloseType> {
+ protected:
+  void expectReentrantCloseIgnored(const std::string& response) {
+    Observed observed;
+    auto transport = std::make_unique<ControlledTransport>();
+    auto* controlled = transport.get();
+    connect(std::make_shared<ClosingReader>(observed), nullptr,
+            std::move(transport));
+    executeInDispatcher([&]() {
+      controlled->blocked = true;
+      if (!response.empty()) {
+        OwnedBuffer buffer;
+        buffer.add(response);
+        conn_->write(buffer, false);
+      }
+      conn_->setDelayedCloseTimeout(500ms);
+      controlled->on_close = [&]() {
+        // The transport is still writable here, but teardown has already
+        // started and cancelled timers. A nested close must not restart IO.
+        controlled->blocked = false;
+        const auto writes = controlled->write_count;
+        EXPECT_FALSE(ConnectionImplTestPeer::delayedCloseTimerEnabled(*conn_));
+        conn_->close(GetParam());
+        EXPECT_EQ(controlled->write_count, writes);
+        EXPECT_EQ(conn_->writeBuffer().length(), response.size());
+        EXPECT_FALSE(ConnectionImplTestPeer::delayedCloseTimerEnabled(*conn_));
+      };
+      conn_->close(ConnectionCloseType::NoFlush);
+      EXPECT_EQ(controlled->close_count, 1);
+      EXPECT_FALSE(ConnectionImplTestPeer::delayedCloseTimerEnabled(*conn_));
+    });
+    // NoFlush must discard the pending reply even if the transport asks to
+    // flush reentrantly while it is being closed.
+    expectClosedWithResponse("");
+  }
+};
+
+TEST_P(ReentrantConnectionCloseTest, QueuedReplyIsNotWrittenDuringTeardown) {
+  expectReentrantCloseIgnored("pending response");
+}
+
+TEST_P(ReentrantConnectionCloseTest, EmptyCloseDoesNotRestartIOOrTheTimer) {
+  expectReentrantCloseIgnored("");
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    FlushModes,
+    ReentrantConnectionCloseTest,
+    ::testing::Values(ConnectionCloseType::FlushWrite,
+                      ConnectionCloseType::FlushWriteAndDelay));
 
 TEST_F(ConnectionCloseWhileReadingTest,
        DeferredFlushCloseDoesNotOutliveConnection) {
