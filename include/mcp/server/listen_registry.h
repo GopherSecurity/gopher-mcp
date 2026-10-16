@@ -140,8 +140,13 @@ class ListenRegistry {
     ResponseStreamPtr stream;
     NotificationFilter filter;
   };
+  using SubscriptionPtr = std::shared_ptr<Subscription>;
 
-  std::map<SubscriptionKey, Subscription> subscriptions_;
+  // Sends may remove or replace entries synchronously. Snapshots keep each
+  // instance alive through its send; membership checks distinguish a reused id.
+  bool isCurrent(const SubscriptionPtr& subscription) const;
+
+  std::map<SubscriptionKey, SubscriptionPtr> subscriptions_;
 
   /**
    * Proof this registry is still here, for the cancellations it asked to

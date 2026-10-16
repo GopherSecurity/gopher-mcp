@@ -110,11 +110,11 @@ bool ListenRegistry::open(const std::string& caller,
     return false;
   }
 
-  Subscription subscription;
-  subscription.caller = caller;
-  subscription.id = id;
-  subscription.stream = stream;
-  subscription.filter = filter;
+  auto subscription = std::make_shared<Subscription>();
+  subscription->caller = caller;
+  subscription->id = id;
+  subscription->stream = stream;
+  subscription->filter = filter;
 
   // Said first, before anything else goes down this stream: it tells the
   // client which subscription the stream is, and which of the things it
@@ -134,7 +134,10 @@ bool ListenRegistry::open(const std::string& caller,
     return false;
   }
 
-  subscriptions_.emplace(key, std::move(subscription));
+  if (!subscriptions_.emplace(key, subscription).second) {
+    // Acknowledging can re-enter open() and claim the same key first.
+    return false;
+  }
 
   // A subscription ends when its client stops reading it: there is no
   // message for cancelling one, and on the revision this belongs to
@@ -142,16 +145,19 @@ bool ListenRegistry::open(const std::string& caller,
   // — a stream nobody is reading cannot be told anything, and the response
   // that says an ending was graceful would go nowhere.
   std::weak_ptr<int> alive = alive_;
-  const RequestId id_copy = id;
-  const std::string caller_copy = caller;
-  stream->onCancelled([this, alive, caller_copy, id_copy]() {
+  std::weak_ptr<Subscription> watched = subscription;
+  stream->onCancelled([this, alive, watched]() {
     if (alive.expired()) {
       return;
     }
-    if (forget(caller_copy, id_copy)) {
+    const auto subscription = watched.lock();
+    // The caller may already have reused this id, even on the same stream.
+    // Cancellation belongs to the registration that installed this observer.
+    if (subscription && isCurrent(subscription) &&
+        forget(subscription->caller, subscription->id)) {
       GOPHER_LOG_DEBUG("subscription {} of {} ended by its client",
-                       requestIdKeyToString(requestIdKey(id_copy)),
-                       caller_copy);
+                       requestIdKeyToString(requestIdKey(subscription->id)),
+                       subscription->caller);
     }
   });
 
@@ -165,9 +171,16 @@ size_t ListenRegistry::publish(const std::string& method,
                                const std::string& uri) {
   size_t delivered = 0;
 
-  for (auto& entry : subscriptions_) {
-    Subscription& subscription = entry.second;
-    if (!subscription.filter.wants(method, uri)) {
+  // No map iterator or reference may survive a transport call: cancellation
+  // can synchronously forget this subscription or another pending recipient.
+  std::vector<SubscriptionPtr> matching;
+  for (const auto& entry : subscriptions_) {
+    if (entry.second->filter.wants(method, uri)) {
+      matching.push_back(entry.second);
+    }
+  }
+  for (const auto& subscription : matching) {
+    if (!isCurrent(subscription)) {
       continue;
     }
 
@@ -200,21 +213,21 @@ size_t ListenRegistry::publish(const std::string& method,
         }
       }
     }
-    tagWithSubscription(carried, subscription.id);
+    tagWithSubscription(carried, subscription->id);
     notification.params = mcp::make_optional(carried);
     // And as the JSON it is, so nested values go out as they came in.
     json::JsonValue exact =
         params.isObject() ? params : json::JsonValue::object();
     json::JsonValue meta = json::JsonValue::object();
-    meta.set(modern::kMetaSubscriptionId, idAsJson(subscription.id));
+    meta.set(modern::kMetaSubscriptionId, idAsJson(subscription->id));
     exact.set("_meta", meta);
     notification.params_json = mcp::make_optional(exact);
 
-    auto sent = subscription.stream->sendNotification(notification);
+    auto sent = subscription->stream->sendNotification(notification);
     if (holds_alternative<Error>(sent)) {
       GOPHER_LOG_DEBUG("subscription {} did not take {}: {}",
-                       requestIdKeyToString(entry.first.id), method,
-                       get<Error>(sent).message);
+                       requestIdKeyToString(requestIdKey(subscription->id)),
+                       method, get<Error>(sent).message);
       continue;
     }
     ++delivered;
@@ -230,11 +243,16 @@ VoidResult ListenRegistry::sendRequest(const std::string& caller,
   first_for_caller.id.number = std::numeric_limits<int64_t>::min();
   optional<Error> last_error;
 
+  // A failed send may cancel its own stream before returning. Keep the
+  // original candidates alive, and never retry on a replacement registration.
+  std::vector<SubscriptionPtr> candidates;
   for (auto it = subscriptions_.lower_bound(first_for_caller);
        it != subscriptions_.end() && it->first.caller == caller; ++it) {
-    const auto& entry = *it;
-    const Subscription& subscription = entry.second;
-    if (!subscription.stream || !subscription.stream->alive()) {
+    candidates.push_back(it->second);
+  }
+  for (const auto& subscription : candidates) {
+    if (!isCurrent(subscription) || !subscription->stream ||
+        !subscription->stream->alive()) {
       continue;
     }
 
@@ -243,15 +261,15 @@ VoidResult ListenRegistry::sendRequest(const std::string& caller,
     if (tagged.params.has_value()) {
       params = tagged.params.value();
     }
-    tagWithSubscription(params, subscription.id);
+    tagWithSubscription(params, subscription->id);
     tagged.params = mcp::make_optional(params);
     if (tagged.params_json.has_value()) {
       json::JsonValue exact =
-          tagJsonWithSubscription(tagged.params_json.value(), subscription.id);
+          tagJsonWithSubscription(tagged.params_json.value(), subscription->id);
       tagged.params_json = mcp::make_optional(exact);
       tagged.params = mcp::make_optional(json::jsonToMetadata(exact));
     }
-    auto sent = subscription.stream->sendRequest(tagged);
+    auto sent = subscription->stream->sendRequest(tagged);
     if (holds_alternative<std::nullptr_t>(sent)) {
       return sent;
     }
@@ -274,7 +292,7 @@ bool ListenRegistry::close(const std::string& caller, const RequestId& id) {
 
   // Sending can synchronously cancel the stream and re-enter forget(). Keep
   // the subscription alive locally, but detach it before invoking transport.
-  Subscription subscription = std::move(it->second);
+  SubscriptionPtr subscription = std::move(it->second);
   subscriptions_.erase(it);
 
   // The response its listen request never got. A client that receives it
@@ -284,28 +302,37 @@ bool ListenRegistry::close(const std::string& caller, const RequestId& id) {
   result.set(modern::kResultTypeField,
              json::JsonValue(modern::kResultTypeComplete));
   json::JsonValue meta = json::JsonValue::object();
-  meta.set(modern::kMetaSubscriptionId, idAsJson(subscription.id));
+  meta.set(modern::kMetaSubscriptionId, idAsJson(subscription->id));
   result.set("_meta", meta);
 
-  subscription.stream->sendResponse(jsonrpc::Response::success(
-      subscription.id, jsonrpc::ResponseResult(result)));
+  subscription->stream->sendResponse(jsonrpc::Response::success(
+      subscription->id, jsonrpc::ResponseResult(result)));
 
   GOPHER_LOG_DEBUG("subscription {} of {} closed",
-                   requestIdKeyToString(requestIdKey(subscription.id)),
-                   subscription.caller);
+                   requestIdKeyToString(requestIdKey(subscription->id)),
+                   subscription->caller);
   return true;
 }
 
 void ListenRegistry::closeAll() {
-  // Collected first: closing rearranges what the walk is reading.
-  std::vector<std::pair<std::string, RequestId>> held;
+  // Closing rearranges the registry. Snapshot instances rather than keys,
+  // since a close callback may replace a subscription that is still pending.
+  std::vector<SubscriptionPtr> held;
   held.reserve(subscriptions_.size());
   for (const auto& entry : subscriptions_) {
-    held.push_back(std::make_pair(entry.second.caller, entry.second.id));
+    held.push_back(entry.second);
   }
   for (const auto& one : held) {
-    close(one.first, one.second);
+    if (isCurrent(one)) {
+      close(one->caller, one->id);
+    }
   }
+}
+
+bool ListenRegistry::isCurrent(const SubscriptionPtr& subscription) const {
+  auto it = subscriptions_.find(
+      SubscriptionKey{subscription->caller, requestIdKey(subscription->id)});
+  return it != subscriptions_.end() && it->second == subscription;
 }
 
 bool ListenRegistry::forget(const std::string& caller, const RequestId& id) {
@@ -315,7 +342,7 @@ bool ListenRegistry::forget(const std::string& caller, const RequestId& id) {
 size_t ListenRegistry::forgetDead() {
   size_t dropped = 0;
   for (auto it = subscriptions_.begin(); it != subscriptions_.end();) {
-    if (it->second.stream && it->second.stream->alive()) {
+    if (it->second->stream && it->second->stream->alive()) {
       ++it;
       continue;
     }
