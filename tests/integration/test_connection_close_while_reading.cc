@@ -189,8 +189,9 @@ class ConnectionCloseWhileReadingTest : public test::RealIoTestBase {
     ASSERT_TRUE(peer_->write(out).ok());
   }
 
-  bool waitFor(const std::function<bool()>& done) {
-    const auto deadline = std::chrono::steady_clock::now() + 2s;
+  bool waitFor(const std::function<bool()>& done,
+               std::chrono::milliseconds timeout = 2s) {
+    const auto deadline = std::chrono::steady_clock::now() + timeout;
     while (std::chrono::steady_clock::now() < deadline) {
       if (done()) {
         return true;
@@ -217,13 +218,30 @@ class ConnectionCloseWhileReadingTest : public test::RealIoTestBase {
     executeInDispatcher([&]() { checkpoint.reset(); });
   }
 
-  void expectClosedWithResponse(const std::string& expected) {
+  void limitSocketBuffers() {
+    executeInDispatcher([&]() {
+      const int size = 4096;
+      EXPECT_TRUE(
+          conn_->ioHandle()
+              .setSocketOption(SOL_SOCKET, SO_SNDBUF, &size, sizeof(size))
+              .ok());
+      EXPECT_TRUE(
+          peer_->setSocketOption(SOL_SOCKET, SO_RCVBUF, &size, sizeof(size))
+              .ok());
+    });
+  }
+
+  void expectClosed() {
     EXPECT_TRUE(waitFor([&]() { return events_.closed.load(); }));
     executeInDispatcher([&]() {
       EXPECT_EQ(conn_->state(), ConnectionState::Closed);
       EXPECT_FALSE(conn_->ioHandle().isOpen());
       EXPECT_EQ(events_.close_count.load(), 1);
     });
+  }
+
+  void expectClosedWithResponse(const std::string& expected) {
+    expectClosed();
     std::string response;
     bool eof = false;
     EXPECT_TRUE(waitFor([&]() {
@@ -374,6 +392,27 @@ class DelayedConnectionCloseTest : public ConnectionCloseWhileReadingTest,
                                    public ::testing::WithParamInterface<bool> {
 };
 
+TEST_P(DelayedConnectionCloseTest, FlushWriteTimesOutWhenThePeerStopsReading) {
+  Observed observed;
+  connect(std::make_shared<ClosingReader>(observed), nullptr, nullptr,
+          GetParam());
+  limitSocketBuffers();
+  executeInDispatcher([&]() {
+    conn_->setDelayedCloseTimeout(100ms);
+    OwnedBuffer buffer;
+    buffer.add(std::string(1024 * 1024, 'x'));
+    conn_->write(buffer, false);
+    conn_->close(ConnectionCloseType::FlushWrite);
+    // The peer never reads: both the kernel buffers and the connection's
+    // pending reply remain full until the flush timeout closes the socket.
+    EXPECT_GT(conn_->writeBuffer().length(), 0u);
+    EXPECT_EQ(conn_->state(), ConnectionState::Closing);
+  });
+
+  expectClosed();
+  EXPECT_EQ(events_.last_close_event.load(), ConnectionEvent::LocalClose);
+}
+
 TEST_P(DelayedConnectionCloseTest, EmptyBufferWaitsForTheCloseTimeout) {
   Observed observed;
   connect(std::make_shared<ClosingReader>(observed), nullptr, nullptr,
@@ -461,6 +500,154 @@ TEST_P(DelayedConnectionCloseTest, FlushWriteCanOverrideTheWait) {
 INSTANTIATE_TEST_SUITE_P(TransportAndDirectIo,
                          DelayedConnectionCloseTest,
                          ::testing::Bool());
+
+TEST_F(ConnectionCloseWhileReadingTest,
+       FlushTimeoutIsNotExtendedByRepeatedCloseOrWriteReadiness) {
+  Observed observed;
+  auto transport = std::make_unique<ControlledTransport>();
+  auto* controlled = transport.get();
+  connect(std::make_shared<ClosingReader>(observed), nullptr,
+          std::move(transport));
+  event::TimerPtr retries;
+  executeInDispatcher([&]() {
+    controlled->blocked = true;
+    OwnedBuffer buffer;
+    buffer.add("pending response");
+    conn_->write(buffer, false);
+    conn_->setDelayedCloseTimeout(100ms);
+    conn_->close(ConnectionCloseType::FlushWrite);
+    retries = dispatcher_->createTimer([&]() {
+      if (!events_.closed.load()) {
+        conn_->close(ConnectionCloseType::FlushWrite);
+        static_cast<ConnectionImpl*>(conn_.get())->onWriteReady();
+        retries->enableTimer(10ms);
+      }
+    });
+    retries->enableTimer(10ms);
+  });
+
+  const bool closed = waitFor([&]() { return events_.closed.load(); });
+  executeInDispatcher([&]() {
+    retries.reset();
+    if (!closed) {
+      conn_->close(ConnectionCloseType::NoFlush);
+    }
+  });
+  EXPECT_TRUE(closed) << "a flush without write progress never timed out";
+  expectClosedWithResponse("");
+}
+
+TEST_F(ConnectionCloseWhileReadingTest,
+       SwitchingToFlushWriteKeepsThePendingTimeout) {
+  Observed observed;
+  auto transport = std::make_unique<ControlledTransport>();
+  auto* controlled = transport.get();
+  connect(std::make_shared<ClosingReader>(observed), nullptr,
+          std::move(transport));
+  executeInDispatcher([&]() {
+    controlled->blocked = true;
+    OwnedBuffer buffer;
+    buffer.add("pending response");
+    conn_->write(buffer, false);
+    conn_->setDelayedCloseTimeout(500ms);
+    conn_->close(ConnectionCloseType::FlushWriteAndDelay);
+  });
+  expectClosingAfter(300ms);
+  executeInDispatcher([&]() { conn_->close(ConnectionCloseType::FlushWrite); });
+
+  // Switching the close mode must neither cancel nor restart the original
+  // deadline, which is now less than 300 ms away.
+  EXPECT_TRUE(waitFor([&]() { return events_.closed.load(); }, 300ms));
+  executeInDispatcher([&]() { conn_->close(ConnectionCloseType::NoFlush); });
+  expectClosedWithResponse("");
+}
+
+TEST_F(ConnectionCloseWhileReadingTest,
+       PartialFlushWriteProgressRestartsTheTimeout) {
+  Observed observed;
+  auto transport = std::make_unique<ControlledTransport>();
+  auto* controlled = transport.get();
+  connect(std::make_shared<ClosingReader>(observed), nullptr,
+          std::move(transport));
+  limitSocketBuffers();
+  executeInDispatcher([&]() {
+    controlled->blocked = true;
+    OwnedBuffer buffer;
+    buffer.add(std::string(1024 * 1024, 'x'));
+    conn_->write(buffer, false);
+    conn_->setDelayedCloseTimeout(500ms);
+    conn_->close(ConnectionCloseType::FlushWrite);
+  });
+  expectClosingAfter(250ms);
+  executeInDispatcher([&]() {
+    const auto queued = conn_->writeBuffer().length();
+    controlled->blocked = false;
+    static_cast<ConnectionImpl*>(conn_.get())->onWriteReady();
+    controlled->blocked = true;
+    EXPECT_LT(conn_->writeBuffer().length(), queued);
+    EXPECT_GT(conn_->writeBuffer().length(), 0u);
+  });
+  // Partial progress earns a fresh inactivity window even though the
+  // response is still blocked and cannot finish flushing.
+  expectClosingAfter(300ms);
+  expectClosed();
+}
+
+TEST_F(ConnectionCloseWhileReadingTest, ZeroTimeoutDisablesTheFlushDeadline) {
+  Observed observed;
+  auto transport = std::make_unique<ControlledTransport>();
+  auto* controlled = transport.get();
+  connect(std::make_shared<ClosingReader>(observed), nullptr,
+          std::move(transport));
+  const std::string response = "complete response";
+  executeInDispatcher([&]() {
+    controlled->blocked = true;
+    OwnedBuffer buffer;
+    buffer.add(response);
+    conn_->write(buffer, false);
+    conn_->setDelayedCloseTimeout(0ms);
+    conn_->close(ConnectionCloseType::FlushWrite);
+  });
+  expectClosingAfter(40ms);
+  executeInDispatcher([&]() { controlled->blocked = false; });
+  expectClosedWithResponse(response);
+}
+
+TEST_F(ConnectionCloseWhileReadingTest,
+       CompletedFlushCancelsTheTimeoutBeforeConnectionDestruction) {
+  Observed observed;
+  auto transport = std::make_unique<ControlledTransport>();
+  auto* controlled = transport.get();
+  connect(std::make_shared<ClosingReader>(observed), nullptr,
+          std::move(transport));
+  const std::string response = "complete response";
+  executeInDispatcher([&]() {
+    controlled->blocked = true;
+    OwnedBuffer buffer;
+    buffer.add(response);
+    conn_->write(buffer, false);
+    conn_->setDelayedCloseTimeout(200ms);
+    conn_->close(ConnectionCloseType::FlushWrite);
+  });
+  expectClosingAfter(20ms);
+  executeInDispatcher([&]() {
+    controlled->blocked = false;
+    static_cast<ConnectionImpl*>(conn_.get())->onWriteReady();
+  });
+  // A successful flush closes immediately, without waiting for its timeout.
+  EXPECT_TRUE(waitFor([&]() { return events_.closed.load(); }, 100ms));
+  expectClosedWithResponse(response);
+  executeInDispatcher([&]() { conn_.reset(); });
+  std::atomic<bool> checked{false};
+  event::TimerPtr checkpoint;
+  executeInDispatcher([&]() {
+    checkpoint = dispatcher_->createTimer([&]() { checked = true; });
+    checkpoint->enableTimer(250ms);
+  });
+  EXPECT_TRUE(waitFor([&]() { return checked.load(); }));
+  executeInDispatcher([&]() { checkpoint.reset(); });
+  EXPECT_EQ(events_.close_count.load(), 1);
+}
 
 TEST_F(ConnectionCloseWhileReadingTest,
        BackpressuredFlushGetsAFullGracePeriodAfterItsLastWrite) {
