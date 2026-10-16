@@ -78,8 +78,7 @@ class ConnectionImpl : public ConnectionImplBase,
     if (!socket_ || !socket_->isOpen()) {
       return ConnectionState::Closed;
     }
-    // Check if we're in delayed close
-    if (delayed_close_pending_ || state_ == ConnectionState::Closing) {
+    if (state_ == ConnectionState::Closing) {
       return ConnectionState::Closing;
     }
     return ConnectionState::Open;
@@ -149,6 +148,12 @@ class ConnectionImpl : public ConnectionImplBase,
   FilterManager& filterManager() { return filter_manager_; }
 
  private:
+  enum class DelayedCloseState {
+    None,
+    CloseAfterFlush,
+    CloseAfterFlushAndWait
+  };
+
   // Event handlers
   void onFileEvent(uint32_t events);
 
@@ -169,6 +174,7 @@ class ConnectionImpl : public ConnectionImplBase,
 
   // Write path
   void doWrite();
+  bool finishFlushIfDrained(uint64_t bytes_written);
   // write() without its guard: the write filters, then the socket.
   void writeThroughFilters(Buffer& data, bool end_stream);
   TransportIoResult doWriteToSocket();
@@ -196,7 +202,7 @@ class ConnectionImpl : public ConnectionImplBase,
   // method execution. This is critical for preventing segfaults when EOF is
   // detected in doRead().
   void closeThroughFilterManager(ConnectionEvent close_type);
-  void scheduleDelayedClose();
+  void transitionDelayedCloseState(DelayedCloseState state);
 
   // State flags
   bool read_half_closed_{false};
@@ -220,7 +226,7 @@ class ConnectionImpl : public ConnectionImplBase,
   event::TimerPtr transport_connect_timer_;
 
   // Deferred close handling
-  bool delayed_close_pending_{false};
+  DelayedCloseState delayed_close_state_{DelayedCloseState::None};
   bool deferred_delete_{false};
 
   // Current file event state

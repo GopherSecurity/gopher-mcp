@@ -47,7 +47,8 @@ using ::mcp::TransportIoResult;
 enum class ConnectionCloseType {
   FlushWrite,          // Flush pending write data before closing
   NoFlush,             // Close immediately without flushing
-  FlushWriteAndDelay,  // Flush and delay close
+  FlushWriteAndDelay,  // Flush, then wait for peer EOF or the close timeout.
+                       // Successful writes restart the timeout; zero skips it.
   Abort,               // Abort immediately
   AbortReset           // Abort with RST
 };
