@@ -432,11 +432,12 @@ void ConnectionImpl::close(ConnectionCloseType type,
 
     case ConnectionCloseType::FlushWrite:
       state_ = ConnectionState::Closing;
+      write_half_closed_ = true;
+      transitionDelayedCloseState(DelayedCloseState::CloseAfterFlush);
       if (write_buffer_.length() == 0) {
         closeSocket(ConnectionEvent::LocalClose);
       } else {
         // Will close after write buffer is drained
-        write_half_closed_ = true;
         doWrite();
       }
       break;
@@ -444,11 +445,10 @@ void ConnectionImpl::close(ConnectionCloseType type,
     case ConnectionCloseType::FlushWriteAndDelay:
       state_ = ConnectionState::Closing;
       write_half_closed_ = true;
-      if (delayed_close_timer_ == nullptr) {
-        delayed_close_timer_ =
-            dispatcher_.createTimer([this]() { onDelayedCloseTimeout(); });
-      }
-      delayed_close_timer_->enableTimer(delayed_close_timeout_);
+      transitionDelayedCloseState(
+          delayed_close_timeout_.count() > 0
+              ? DelayedCloseState::CloseAfterFlushAndWait
+              : DelayedCloseState::CloseAfterFlush);
       doWrite();
       break;
 
@@ -878,7 +878,9 @@ void ConnectionImpl::onFileEvent(uint32_t events) {
     }
 
     // Check if socket is still open after write handling
-    if (state_ == ConnectionState::Open && socket_->isOpen() &&
+    if ((state_ == ConnectionState::Open ||
+         delayed_close_state_ == DelayedCloseState::CloseAfterFlushAndWait) &&
+        socket_->isOpen() &&
         (events & static_cast<uint32_t>(event::FileReadyType::Read))) {
       // Process read event
       onReadReady();
@@ -1023,10 +1025,13 @@ void ConnectionImpl::onWriteReady() {
     if (state_ == ConnectionState::Closed || deferred_delete_) {
       return;
     }
-    // A pending flush needs writes, not new reads. Stop write-ready events
-    // once the buffer is drained to avoid a level-triggered busy loop.
+    // Read readiness during the grace period detects peer EOF; doRead()
+    // discards further input instead of handing it to application filters.
+    // Stop write readiness after draining to avoid a level-triggered busy loop.
     uint32_t events_to_enable =
-        state_ == ConnectionState::Open
+        state_ == ConnectionState::Open ||
+                delayed_close_state_ ==
+                    DelayedCloseState::CloseAfterFlushAndWait
             ? static_cast<uint32_t>(event::FileReadyType::Read)
             : 0;
     if (write_buffer_.length() > 0) {
@@ -1133,9 +1138,7 @@ void ConnectionImpl::closeSocket(ConnectionEvent close_type) {
   }
 
   // Cancel timers
-  if (delayed_close_timer_) {
-    delayed_close_timer_->disableTimer();
-  }
+  transitionDelayedCloseState(DelayedCloseState::None);
   if (transport_connect_timer_) {
     transport_connect_timer_->disableTimer();
   }
@@ -1331,7 +1334,11 @@ void ConnectionImpl::doRead() {
    * Thread safety: All operations in dispatcher thread
    */
 
-  if (read_disable_count_ > 0 || state_ != ConnectionState::Open) {
+  const bool delayed_close_read =
+      state_ == ConnectionState::Closing &&
+      delayed_close_state_ == DelayedCloseState::CloseAfterFlushAndWait;
+  if (!delayed_close_read &&
+      (read_disable_count_ > 0 || state_ != ConnectionState::Open)) {
     // Don't clear transport_wants_read_ when returning early
     GOPHER_LOG_TRACE(
         "doRead(): early return - read_disable_count={} state={} fd={}",
@@ -1386,15 +1393,19 @@ void ConnectionImpl::doRead() {
     // Update stats
     updateReadBufferStats(result.bytes_processed_, read_buffer_.length());
 
-    // Any successful read rearms the idle-read timer — kept next to the
-    // stats update so the reset happens before we hand off to user
-    // filters, which may themselves block for a while.
-    resetIdleReadTimer();
+    if (state_ == ConnectionState::Closing &&
+        delayed_close_state_ == DelayedCloseState::CloseAfterFlushAndWait) {
+      // We only read to notice peer EOF during the grace period. Discarding
+      // input prevents both another request dispatch and a readable-socket
+      // busy loop, without extending the close deadline.
+      read_buffer_.drain(read_buffer_.length());
+    } else {
+      // Rearm before filters, which may themselves block for a while.
+      resetIdleReadTimer();
+      processReadBuffer();
+    }
 
-    // Process through filter chain
-    processReadBuffer();
-
-    if (read_disable_count_ > 0) {
+    if (read_disable_count_ > 0 && !delayed_close_read) {
       // Reading was disabled during processing
       break;
     }
@@ -1508,6 +1519,7 @@ void ConnectionImpl::doWrite() {
 
   GOPHER_LOG_TRACE("doWrite(): starting, buffer_len={} transport_socket_={}",
                    write_buffer_.length(), transport_socket_ ? "yes" : "no");
+  uint64_t bytes_written = 0;
 
   // Use transport socket for initial processing if available
   // This is essential for stdio transport which manages pipe bridging
@@ -1529,10 +1541,10 @@ void ConnectionImpl::doWrite() {
       closeSocket(ConnectionEvent::LocalClose);
       return;
     }
+    bytes_written += result.bytes_processed_;
     // If transport handled all data, we're done
     if (write_buffer_.length() == 0) {
-      if (state_ == ConnectionState::Closing && write_half_closed_) {
-        closeThroughFilterManager(ConnectionEvent::LocalClose);
+      if (finishFlushIfDrained(bytes_written)) {
         return;
       }
       GOPHER_LOG_TRACE("doWrite(): transport handled all data, enabling Read");
@@ -1559,8 +1571,7 @@ void ConnectionImpl::doWrite() {
 
   // Now check if we have data to write after transport processing
   if (write_buffer_.length() == 0) {
-    if (state_ == ConnectionState::Closing && write_half_closed_) {
-      closeThroughFilterManager(ConnectionEvent::LocalClose);
+    if (finishFlushIfDrained(bytes_written)) {
       return;
     }
     GOPHER_LOG_TRACE("doWrite(): buffer empty after transport, enabling Read");
@@ -1612,6 +1623,7 @@ void ConnectionImpl::doWrite() {
       closeThroughFilterManager(ConnectionEvent::LocalClose);
       return;
     }
+    bytes_written += write_result.bytes_processed_;
 
     // Check if transport couldn't write (would block)
     if (write_result.bytes_processed_ == 0 &&
@@ -1639,6 +1651,10 @@ void ConnectionImpl::doWrite() {
     }
 
     // Continue loop to write more if buffer still has data
+  }
+
+  if (finishFlushIfDrained(bytes_written)) {
+    return;
   }
 
   // Keep both Read and Write events enabled after writing
@@ -1684,12 +1700,51 @@ void ConnectionImpl::doWrite() {
       file_event_->activate(static_cast<uint32_t>(event::FileReadyType::Read));
     }
   }
+}
 
-  if (write_buffer_.length() == 0 && write_half_closed_) {
-    // All data written and we're closing
-    if (state_ == ConnectionState::Closing) {
-      closeThroughFilterManager(ConnectionEvent::LocalClose);
+bool ConnectionImpl::finishFlushIfDrained(uint64_t bytes_written) {
+  assert(dispatcher_.isThreadSafe());
+  if (state_ != ConnectionState::Closing ||
+      delayed_close_state_ == DelayedCloseState::None) {
+    return false;
+  }
+
+  if (delayed_close_state_ == DelayedCloseState::CloseAfterFlushAndWait &&
+      bytes_written > 0) {
+    // The peer gets the full grace period after the last successful write,
+    // even when backpressure consumed part of the original timeout.
+    delayed_close_timer_->enableTimer(delayed_close_timeout_);
+  }
+  if (write_buffer_.length() != 0) {
+    return false;
+  }
+
+  if (delayed_close_state_ == DelayedCloseState::CloseAfterFlushAndWait) {
+    enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Read));
+  } else {
+    closeThroughFilterManager(ConnectionEvent::LocalClose);
+  }
+  return true;
+}
+
+void ConnectionImpl::transitionDelayedCloseState(DelayedCloseState state) {
+  if (delayed_close_state_ == state) {
+    return;
+  }
+  assert(dispatcher_.isThreadSafe());
+  assert(state == DelayedCloseState::None ||
+         state_ == ConnectionState::Closing);
+  delayed_close_state_ = state;
+
+  if (state == DelayedCloseState::CloseAfterFlushAndWait) {
+    assert(delayed_close_timeout_.count() > 0);
+    if (!delayed_close_timer_) {
+      delayed_close_timer_ =
+          dispatcher_.createTimer([this]() { onDelayedCloseTimeout(); });
     }
+    delayed_close_timer_->enableTimer(delayed_close_timeout_);
+  } else if (delayed_close_timer_) {
+    delayed_close_timer_->disableTimer();
   }
 }
 
@@ -1731,7 +1786,6 @@ void ConnectionImpl::updateWriteBufferStats(uint64_t num_written,
 }
 
 void ConnectionImpl::onDelayedCloseTimeout() {
-  delayed_close_pending_ = false;
   closeSocket(ConnectionEvent::LocalClose);
 }
 
