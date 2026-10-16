@@ -194,6 +194,7 @@ class ConnectionImpl : public ConnectionImplBase,
   void resetIdleReadTimer();
 
   // Helper methods
+  bool waitingForPeerClose() const;
   void postIfAlive(event::PostCb callback);
   void enableFileEvents(uint32_t events);
   void disableFileEvents(uint32_t events);

@@ -47,6 +47,10 @@ class ConnectionImplTestPeer {
     return connection.delayed_close_timer_ &&
            connection.delayed_close_timer_->enabled();
   }
+  static bool readEventsEnabled(ConnectionImpl& connection) {
+    return (connection.file_event_state_ &
+            static_cast<uint32_t>(event::FileReadyType::Read)) != 0;
+  }
 };
 
 namespace {
@@ -445,6 +449,90 @@ TEST_F(ConnectionCloseWhileReadingTest,
   executeInDispatcher([&]() { controlled->blocked = false; });
   expectClosedWithResponse(response);
   executeInDispatcher([&]() { EXPECT_EQ(controlled->close_count, 1); });
+}
+
+class DelayedFlushHalfCloseTest : public ConnectionCloseWhileReadingTest,
+                                  public ::testing::WithParamInterface<bool> {};
+
+TEST_P(DelayedFlushHalfCloseTest, PeerEofWaitsForTheQueuedReplyToFlush) {
+  Observed observed;
+  auto transport = std::make_unique<ControlledTransport>();
+  auto* controlled = transport.get();
+  connect(std::make_shared<ClosingReader>(observed), nullptr,
+          std::move(transport));
+  const std::string response = "complete response";
+  executeInDispatcher([&]() {
+    controlled->blocked = true;
+    OwnedBuffer buffer;
+    buffer.add(response);
+    conn_->write(buffer, false);
+    conn_->close(ConnectionCloseType::FlushWriteAndDelay);
+    ASSERT_TRUE(peer_->shutdown(SHUT_WR).ok());
+    // Cover the write-ready registration and a read callback that was already
+    // queued when the connection started flushing.
+    conn_->onWriteReady();
+    EXPECT_FALSE(ConnectionImplTestPeer::readEventsEnabled(*conn_));
+    if (GetParam()) {
+      conn_->onReadReady();
+    }
+  });
+  expectClosingAfter(40ms);
+  executeInDispatcher([&]() {
+    EXPECT_EQ(conn_->writeBuffer().toString(), response);
+    controlled->blocked = false;
+    conn_->onWriteReady();
+  });
+  expectClosedWithResponse(response);
+  EXPECT_EQ(events_.last_close_event.load(), ConnectionEvent::RemoteClose);
+}
+
+INSTANTIATE_TEST_SUITE_P(QueuedAndReadReady,
+                         DelayedFlushHalfCloseTest,
+                         ::testing::Bool());
+
+TEST_F(ConnectionCloseWhileReadingTest,
+       DelayedCloseFromReadFilterFlushesBeforeReadingPeerEof) {
+  Observed observed;
+  const std::string response =
+      "HTTP/1.0 200 OK\r\nContent-Length: 5\r\n\r\nreply";
+  auto transport = std::make_unique<ControlledTransport>();
+  auto* controlled = transport.get();
+  connect(std::make_shared<ClosingReader>(
+              observed, ConnectionCloseType::FlushWriteAndDelay, response),
+          nullptr, std::move(transport));
+  executeInDispatcher([&]() { controlled->blocked = true; });
+  send("GET / HTTP/1.0\r\n\r\n");
+  executeInDispatcher([&]() { ASSERT_TRUE(peer_->shutdown(SHUT_WR).ok()); });
+  ASSERT_TRUE(waitFor([&]() { return observed.read.load(); }));
+  expectClosingAfter(40ms);
+  executeInDispatcher([&]() {
+    EXPECT_EQ(conn_->writeBuffer().toString(), response);
+    controlled->blocked = false;
+    conn_->onWriteReady();
+  });
+  expectClosedWithResponse(response);
+  EXPECT_EQ(events_.last_close_event.load(), ConnectionEvent::RemoteClose);
+}
+
+TEST_F(ConnectionCloseWhileReadingTest,
+       DelayedCloseTimeoutStillBoundsAStalledReplyAfterPeerEof) {
+  Observed observed;
+  auto transport = std::make_unique<ControlledTransport>();
+  auto* controlled = transport.get();
+  connect(std::make_shared<ClosingReader>(observed), nullptr,
+          std::move(transport));
+  executeInDispatcher([&]() {
+    controlled->blocked = true;
+    OwnedBuffer buffer;
+    buffer.add("pending response");
+    conn_->write(buffer, false);
+    conn_->setDelayedCloseTimeout(200ms);
+    conn_->close(ConnectionCloseType::FlushWriteAndDelay);
+    ASSERT_TRUE(peer_->shutdown(SHUT_WR).ok());
+  });
+  expectClosingAfter(40ms);
+  expectClosedWithResponse("");
+  EXPECT_EQ(events_.last_close_event.load(), ConnectionEvent::LocalClose);
 }
 
 TEST_F(ConnectionCloseWhileReadingTest,
