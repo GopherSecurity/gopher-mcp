@@ -1101,7 +1101,8 @@ void ConnectionImpl::closeSocket(ConnectionEvent close_type) {
   // Closing also means a flush is pending. Only actual socket teardown is
   // re-entrant; a completed flush or its timeout must still release the socket.
   if (state_ == ConnectionState::Closed || socket_close_in_progress_) {
-    GOPHER_LOG_TRACE("closeSocket(): already closed or tearing down, returning");
+    GOPHER_LOG_TRACE(
+        "closeSocket(): already closed or tearing down, returning");
     return;
   }
 
