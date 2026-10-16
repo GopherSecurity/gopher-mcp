@@ -286,7 +286,10 @@ class Connection : public event::DeferredDeletable,
   virtual const stream_info::StreamInfo& streamInfo() const = 0;
 
   /**
-   * Set delayed close timeout
+   * Set the write inactivity timeout for FlushWrite and FlushWriteAndDelay.
+   * Successful writes restart it; expiry closes even with pending data.
+   * FlushWrite closes when drained. FlushWriteAndDelay also waits for peer
+   * EOF or the timeout after draining. Zero disables the timeout and wait.
    */
   virtual void setDelayedCloseTimeout(std::chrono::milliseconds timeout) = 0;
 

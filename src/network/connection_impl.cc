@@ -1709,10 +1709,10 @@ bool ConnectionImpl::finishFlushIfDrained(uint64_t bytes_written) {
     return false;
   }
 
-  if (delayed_close_state_ == DelayedCloseState::CloseAfterFlushAndWait &&
+  if (delayed_close_timer_ && delayed_close_timeout_.count() > 0 &&
       bytes_written > 0) {
-    // The peer gets the full grace period after the last successful write,
-    // even when backpressure consumed part of the original timeout.
+    // Both flush modes time out after write inactivity. Readiness without
+    // progress must not let a peer hold the connection open indefinitely.
     delayed_close_timer_->enableTimer(delayed_close_timeout_);
   }
   if (write_buffer_.length() != 0) {
@@ -1736,13 +1736,16 @@ void ConnectionImpl::transitionDelayedCloseState(DelayedCloseState state) {
          state_ == ConnectionState::Closing);
   delayed_close_state_ = state;
 
-  if (state == DelayedCloseState::CloseAfterFlushAndWait) {
-    assert(delayed_close_timeout_.count() > 0);
+  if (state != DelayedCloseState::None && delayed_close_timeout_.count() > 0) {
     if (!delayed_close_timer_) {
       delayed_close_timer_ =
           dispatcher_.createTimer([this]() { onDelayedCloseTimeout(); });
     }
-    delayed_close_timer_->enableTimer(delayed_close_timeout_);
+    // Changing flush modes preserves the deadline. Only successful writes
+    // restart it, and returning to None cancels it during socket teardown.
+    if (!delayed_close_timer_->enabled()) {
+      delayed_close_timer_->enableTimer(delayed_close_timeout_);
+    }
   } else if (delayed_close_timer_) {
     delayed_close_timer_->disableTimer();
   }
