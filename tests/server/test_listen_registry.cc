@@ -47,6 +47,13 @@ class StreamSpy : public ResponseStream {
       return makeVoidError(Error(jsonrpc::INTERNAL_ERROR, "gone"));
     }
     notifications.push_back(json::to_json(notification));
+    if (cancel_on_notification_) {
+      clientWentAway();
+      return makeVoidError(Error(jsonrpc::INTERNAL_ERROR, "gone"));
+    }
+    if (on_notification) {
+      on_notification();
+    }
     return makeVoidSuccess();
   }
   VoidResult sendRequest(const jsonrpc::Request& request) override {
@@ -54,15 +61,27 @@ class StreamSpy : public ResponseStream {
       return makeVoidError(Error(jsonrpc::INTERNAL_ERROR, "gone"));
     }
     if (fail_requests_) {
+      if (cancel_on_request_) {
+        clientWentAway();
+      }
+      if (on_request_failure) {
+        on_request_failure();
+      }
       return makeVoidError(Error(jsonrpc::INTERNAL_ERROR, "send failed"));
     }
     requests.push_back(json::to_json(request));
+    if (cancel_on_request_) {
+      clientWentAway();
+    }
     return makeVoidSuccess();
   }
   VoidResult sendResponse(const jsonrpc::Response& response) override {
     responses.push_back(json::to_json(response));
     if (cancel_on_response_) {
       clientWentAway();
+    }
+    if (on_response) {
+      on_response();
     }
     return makeVoidSuccess();
   }
@@ -75,6 +94,8 @@ class StreamSpy : public ResponseStream {
   void die() { alive_ = false; }
   void failRequests() { fail_requests_ = true; }
   void cancelOnResponse() { cancel_on_response_ = true; }
+  void cancelOnNotification() { cancel_on_notification_ = true; }
+  void cancelOnRequest() { cancel_on_request_ = true; }
 
   /** What a client closing this stream does. */
   void clientWentAway() {
@@ -87,6 +108,9 @@ class StreamSpy : public ResponseStream {
   }
 
   std::function<void()> cancellation;
+  std::function<void()> on_notification;
+  std::function<void()> on_request_failure;
+  std::function<void()> on_response;
 
   /** The methods delivered here, in order. */
   std::vector<std::string> methods() const {
@@ -117,6 +141,8 @@ class StreamSpy : public ResponseStream {
   bool alive_{true};
   bool fail_requests_{false};
   bool cancel_on_response_{false};
+  bool cancel_on_notification_{false};
+  bool cancel_on_request_{false};
 };
 
 NotificationFilter filterFrom(const std::string& params_json) {
@@ -152,6 +178,24 @@ TEST(ListenRegistry, ASubscriptionIsAcknowledgedBeforeAnythingElse) {
   ASSERT_TRUE(echoed.isObject()) << "the filter did not survive as an object";
   EXPECT_TRUE(echoed.contains(modern::kFilterToolsListChanged));
   EXPECT_FALSE(echoed.contains(modern::kFilterPromptsListChanged));
+}
+
+TEST(ListenRegistry, AnAcknowledgementMayReenterOpenForTheSameId) {
+  ListenRegistry registry;
+  auto first = std::make_shared<StreamSpy>();
+  auto reentrant = std::make_shared<StreamSpy>();
+  const auto filter = filterFrom(R"({})");
+  first->on_notification = [&]() {
+    EXPECT_TRUE(
+        registry.open("caller-a", make_request_id(1), reentrant, filter));
+  };
+
+  EXPECT_FALSE(registry.open("caller-a", make_request_id(1), first, filter));
+  EXPECT_EQ(registry.size(), 1u);
+  EXPECT_FALSE(first->cancellation)
+      << "a subscription that was not registered installed an observer";
+  reentrant->clientWentAway();
+  EXPECT_EQ(registry.size(), 0u);
 }
 
 TEST(ListenRegistry, NothingArrivesThatWasNotAskedFor) {
@@ -237,6 +281,83 @@ TEST(ListenRegistry, OneChangeReachesEveryMatchingSubscriptionOnce) {
   }
 }
 
+TEST(ListenRegistry, PublishingToleratesSynchronousStreamCancellation) {
+  ListenRegistry registry;
+  auto cancelling = std::make_shared<StreamSpy>();
+  auto living = std::make_shared<StreamSpy>();
+  const auto filter =
+      filterFrom(R"({"notifications":{"toolsListChanged":true}})");
+  ASSERT_TRUE(
+      registry.open("caller-a", make_request_id(1), cancelling, filter));
+  ASSERT_TRUE(registry.open("caller-a", make_request_id(2), living, filter));
+  cancelling->cancelOnNotification();
+
+  EXPECT_EQ(registry.publish(modern::kNotificationToolsListChanged,
+                             json::JsonValue::object()),
+            1u);
+  EXPECT_EQ(registry.size(), 1u);
+  ASSERT_EQ(living->notifications.size(), 2u);
+  EXPECT_EQ(living->subscriptionOf(1), 2);
+  EXPECT_EQ(registry.publish(modern::kNotificationToolsListChanged,
+                             json::JsonValue::object()),
+            1u);
+  EXPECT_EQ(cancelling->notifications.size(), 2u);
+  EXPECT_EQ(living->notifications.size(), 3u);
+}
+
+TEST(ListenRegistry, PublishingKeepsAnUnregisteredStreamAliveUntilSendReturns) {
+  ListenRegistry registry;
+  auto stream = std::make_shared<StreamSpy>();
+  std::weak_ptr<StreamSpy> watched = stream;
+  ASSERT_TRUE(registry.open(
+      "caller-a", make_request_id(1), stream,
+      filterFrom(R"({"notifications":{"toolsListChanged":true}})")));
+  stream->on_notification = [&]() {
+    EXPECT_TRUE(registry.forget("caller-a", make_request_id(1)));
+    stream.reset();
+    EXPECT_FALSE(watched.expired())
+        << "the stream was destroyed inside its own send callback";
+  };
+
+  EXPECT_EQ(registry.publish(modern::kNotificationToolsListChanged,
+                             json::JsonValue::object()),
+            1u);
+  EXPECT_EQ(registry.size(), 0u);
+  EXPECT_TRUE(watched.expired())
+      << "the delivery snapshot kept the removed stream past the send";
+}
+
+TEST(ListenRegistry, PublishingSkipsSubscriptionsReplacedDuringDelivery) {
+  ListenRegistry registry;
+  auto first = std::make_shared<StreamSpy>();
+  auto replaced = std::make_shared<StreamSpy>();
+  auto replacement = std::make_shared<StreamSpy>();
+  auto living = std::make_shared<StreamSpy>();
+  const auto filter =
+      filterFrom(R"({"notifications":{"toolsListChanged":true}})");
+  ASSERT_TRUE(registry.open("caller-a", make_request_id(1), first, filter));
+  ASSERT_TRUE(registry.open("caller-a", make_request_id(2), replaced, filter));
+  ASSERT_TRUE(registry.open("caller-a", make_request_id(3), living, filter));
+  first->on_notification = [&]() {
+    EXPECT_TRUE(registry.forget("caller-a", make_request_id(2)));
+    EXPECT_TRUE(
+        registry.open("caller-a", make_request_id(2), replacement, filter));
+  };
+
+  EXPECT_EQ(registry.publish(modern::kNotificationToolsListChanged,
+                             json::JsonValue::object()),
+            2u);
+  EXPECT_EQ(replaced->notifications.size(), 1u);
+  EXPECT_EQ(replacement->notifications.size(), 1u)
+      << "a new subscription inherited an earlier subscription's delivery";
+  EXPECT_EQ(living->notifications.size(), 2u);
+  first->on_notification = nullptr;
+  EXPECT_EQ(registry.publish(modern::kNotificationToolsListChanged,
+                             json::JsonValue::object()),
+            3u);
+  EXPECT_EQ(replacement->notifications.size(), 2u);
+}
+
 // An ending is said, not merely done: this is what tells a client the
 // subscription finished rather than the connection dropping.
 TEST(ListenRegistry, AnEndingIsSaidOnTheStreamThatIsEnding) {
@@ -302,6 +423,97 @@ TEST(ListenRegistry, CloseAllToleratesSynchronousStreamCancellation) {
   registry.closeAll();
   EXPECT_EQ(first->responses.size(), 1u);
   EXPECT_EQ(second->responses.size(), 1u);
+}
+
+TEST(ListenRegistry, OldStreamCancellationDoesNotForgetAReusedId) {
+  ListenRegistry registry;
+  auto old_stream = std::make_shared<StreamSpy>();
+  auto replacement = std::make_shared<StreamSpy>();
+  const auto filter =
+      filterFrom(R"({"notifications":{"toolsListChanged":true}})");
+  const auto id = make_request_id("reused");
+  ASSERT_TRUE(registry.open("caller-a", id, old_stream, filter));
+  ASSERT_TRUE(registry.close("caller-a", id));
+  ASSERT_TRUE(registry.open("caller-a", id, replacement, filter));
+
+  old_stream->clientWentAway();
+
+  EXPECT_EQ(registry.size(), 1u);
+  EXPECT_EQ(registry.publish(modern::kNotificationToolsListChanged,
+                             json::JsonValue::object()),
+            1u);
+  EXPECT_EQ(replacement->notifications.size(), 2u);
+  replacement->clientWentAway();
+  EXPECT_EQ(registry.size(), 0u)
+      << "the replacement's own cancellation must still remove it";
+}
+
+TEST(ListenRegistry, ClosingCanReuseAnIdBeforeTheOldStreamCancels) {
+  ListenRegistry registry;
+  auto old_stream = std::make_shared<StreamSpy>();
+  auto replacement = std::make_shared<StreamSpy>();
+  const auto id = make_request_id(1);
+  const auto filter = filterFrom(R"({})");
+  ASSERT_TRUE(registry.open("caller-a", id, old_stream, filter));
+  old_stream->on_response = [&]() {
+    EXPECT_TRUE(registry.open("caller-a", id, replacement, filter));
+    // close() still holds the old registration; a weak lifetime check alone
+    // cannot tell that it no longer owns this key.
+    old_stream->clientWentAway();
+  };
+
+  EXPECT_TRUE(registry.close("caller-a", id));
+  EXPECT_EQ(registry.size(), 1u);
+  EXPECT_TRUE(replacement->responses.empty());
+  replacement->clientWentAway();
+  EXPECT_EQ(registry.size(), 0u);
+}
+
+TEST(ListenRegistry, OldCancellationCannotForgetAReusedStreamAndId) {
+  ListenRegistry registry;
+  auto stream = std::make_shared<StreamSpy>();
+  const auto filter =
+      filterFrom(R"({"notifications":{"toolsListChanged":true}})");
+  const auto id = make_request_id(1);
+  ASSERT_TRUE(registry.open("caller-a", id, stream, filter));
+  auto old_cancellation = stream->cancellation;
+  ASSERT_TRUE(registry.forget("caller-a", id));
+  ASSERT_TRUE(registry.open("caller-a", id, stream, filter));
+
+  old_cancellation();
+
+  EXPECT_EQ(registry.size(), 1u);
+  EXPECT_EQ(registry.publish(modern::kNotificationToolsListChanged,
+                             json::JsonValue::object()),
+            1u);
+  stream->clientWentAway();
+  EXPECT_EQ(registry.size(), 0u);
+}
+
+TEST(ListenRegistry, CloseAllSkipsSubscriptionsReplacedDuringClose) {
+  ListenRegistry registry;
+  auto first = std::make_shared<StreamSpy>();
+  auto replaced = std::make_shared<StreamSpy>();
+  auto replacement = std::make_shared<StreamSpy>();
+  const auto filter = filterFrom(R"({})");
+  ASSERT_TRUE(registry.open("caller-a", make_request_id(1), first, filter));
+  ASSERT_TRUE(registry.open("caller-a", make_request_id(2), replaced, filter));
+  first->on_response = [&]() {
+    EXPECT_TRUE(registry.forget("caller-a", make_request_id(2)));
+    EXPECT_TRUE(
+        registry.open("caller-a", make_request_id(2), replacement, filter));
+  };
+
+  registry.closeAll();
+
+  EXPECT_EQ(registry.size(), 1u);
+  EXPECT_EQ(first->responses.size(), 1u);
+  EXPECT_TRUE(replaced->responses.empty());
+  EXPECT_TRUE(replacement->responses.empty());
+  first->on_response = nullptr;
+  registry.closeAll();
+  EXPECT_EQ(registry.size(), 0u);
+  EXPECT_EQ(replacement->responses.size(), 1u);
 }
 
 // A subscription's id is one its own client chose, so two clients each
@@ -431,6 +643,71 @@ TEST(ListenRegistry, SendRequestRetriesAfterLiveStreamWriteFailure) {
   ASSERT_EQ(living->requests.size(), 1u)
       << "a later live stream should be tried after a write failure";
   EXPECT_EQ(living->requestSubscriptionOf(0), 2);
+}
+
+TEST(ListenRegistry, SendRequestRetriesAfterSynchronousStreamCancellation) {
+  ListenRegistry registry;
+  auto cancelling = std::make_shared<StreamSpy>();
+  auto living = std::make_shared<StreamSpy>();
+  auto other_caller = std::make_shared<StreamSpy>();
+  const auto filter = filterFrom(R"({})");
+  ASSERT_TRUE(
+      registry.open("caller-a", make_request_id(1), cancelling, filter));
+  ASSERT_TRUE(registry.open("caller-a", make_request_id(2), living, filter));
+  ASSERT_TRUE(
+      registry.open("caller-b", make_request_id(1), other_caller, filter));
+  cancelling->failRequests();
+  cancelling->cancelOnRequest();
+
+  auto sent = registry.sendRequest("caller-a", elicitationRequest("elicit-1"));
+
+  EXPECT_TRUE(holds_alternative<std::nullptr_t>(sent));
+  EXPECT_EQ(registry.size(), 2u);
+  EXPECT_TRUE(cancelling->requests.empty());
+  ASSERT_EQ(living->requests.size(), 1u);
+  EXPECT_EQ(living->requestSubscriptionOf(0), 2);
+  EXPECT_TRUE(other_caller->requests.empty());
+}
+
+TEST(ListenRegistry, SendRequestReportsAFailedStreamThatCancelsSynchronously) {
+  ListenRegistry registry;
+  auto stream = std::make_shared<StreamSpy>();
+  ASSERT_TRUE(registry.open("caller-a", make_request_id(1), stream,
+                            filterFrom(R"({})")));
+  stream->failRequests();
+  stream->cancelOnRequest();
+
+  auto sent = registry.sendRequest("caller-a", elicitationRequest("elicit-1"));
+
+  ASSERT_TRUE(holds_alternative<Error>(sent));
+  EXPECT_EQ(get<Error>(sent).message, "send failed");
+  EXPECT_EQ(registry.size(), 0u);
+}
+
+TEST(ListenRegistry, SendRequestSkipsSubscriptionsReplacedDuringRetry) {
+  ListenRegistry registry;
+  auto failing = std::make_shared<StreamSpy>();
+  auto replaced = std::make_shared<StreamSpy>();
+  auto replacement = std::make_shared<StreamSpy>();
+  auto living = std::make_shared<StreamSpy>();
+  const auto filter = filterFrom(R"({})");
+  ASSERT_TRUE(registry.open("caller-a", make_request_id(1), failing, filter));
+  ASSERT_TRUE(registry.open("caller-a", make_request_id(2), replaced, filter));
+  ASSERT_TRUE(registry.open("caller-a", make_request_id(3), living, filter));
+  failing->failRequests();
+  failing->on_request_failure = [&]() {
+    EXPECT_TRUE(registry.forget("caller-a", make_request_id(2)));
+    EXPECT_TRUE(
+        registry.open("caller-a", make_request_id(2), replacement, filter));
+  };
+
+  auto sent = registry.sendRequest("caller-a", elicitationRequest("elicit-1"));
+
+  EXPECT_TRUE(holds_alternative<std::nullptr_t>(sent));
+  EXPECT_TRUE(replaced->requests.empty());
+  EXPECT_TRUE(replacement->requests.empty());
+  ASSERT_EQ(living->requests.size(), 1u);
+  EXPECT_EQ(living->requestSubscriptionOf(0), 3);
 }
 
 TEST(ListenRegistry, SendRequestPreservesExistingRequestMeta) {
