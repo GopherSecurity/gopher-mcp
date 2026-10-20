@@ -142,6 +142,11 @@ class McpToJsonRpcAdapter
     callbacks_.onResponse(response);
   }
 
+  void onResponseWithContext(const jsonrpc::Response& response,
+                             MessageDispatchContext& context) override {
+    callbacks_.onResponseWithContext(response, context);
+  }
+
   void onProtocolError(const Error& error) override {
     callbacks_.onError(error);
   }

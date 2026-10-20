@@ -88,6 +88,12 @@ class JsonRpcProtocolFilter : public network::Filter {
       onRequest(request);
     }
 
+    virtual void onResponseWithContext(const jsonrpc::Response& response,
+                                       MessageDispatchContext& context) {
+      (void)context;
+      onResponse(response);
+    }
+
     virtual void onNotificationWithContext(
         const jsonrpc::Notification& notification,
         MessageDispatchContext& context) {

@@ -71,6 +71,12 @@ class ProtocolCallbackBridge : public JsonRpcProtocolFilter::MessageHandler {
     callbacks_.onResponse(response);
   }
 
+  void onResponseWithContext(const jsonrpc::Response& response,
+                             MessageDispatchContext& context) override {
+    GOPHER_LOG_DEBUG("ProtocolCallbackBridge forwarding response");
+    callbacks_.onResponseWithContext(response, context);
+  }
+
   void onProtocolError(const Error& error) override {
     GOPHER_LOG_ERROR("ProtocolCallbackBridge forwarding error: {}",
                      error.message);
@@ -519,7 +525,8 @@ bool JsonRpcProtocolFilter::dispatchMessage(const json::JsonValue& json_val) {
       jsonrpc::Response response = json::from_json<jsonrpc::Response>(json_val);
       GOPHER_LOG_DEBUG("Calling handler_.onResponse");
       responses_received_++;
-      handler_.onResponse(response);
+      DispatchContextImpl context(*this);
+      handler_.onResponseWithContext(response, context);
     } else {
       // Invalid JSON-RPC message
       Error error;

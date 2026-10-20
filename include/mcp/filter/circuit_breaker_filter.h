@@ -222,6 +222,59 @@ class CircuitBreakerFilter : public network::NetworkFilterBase,
     }
   }
 
+  void onResponseWithContext(const jsonrpc::Response& response,
+                             MessageDispatchContext& context) override {
+    std::lock_guard<std::mutex> lock(mutex_);
+
+    // Find corresponding request
+    auto it = pending_requests_.find(requestIdToString(response.id));
+    if (it != pending_requests_.end()) {
+      auto& req_info = it->second;
+      auto latency = std::chrono::duration_cast<std::chrono::milliseconds>(
+                         std::chrono::steady_clock::now() - req_info.start_time)
+                         .count();
+
+      // Record result
+      bool is_error = response.error.has_value();
+      bool is_client_error = false;
+
+      GOPHER_LOG(Debug, "onResponse: id=%s has_error=%d latency=%lums",
+                 requestIdToString(response.id).c_str(), is_error,
+                 static_cast<unsigned long>(latency));
+
+      if (is_error && response.error.has_value()) {
+        int code = response.error->code;
+        // JSON-RPC error codes: -32700 to -32000 are protocol errors
+        // Application errors are typically positive
+        is_client_error =
+            (code >= -32099 && code <= -32000) || (code >= 400 && code < 500);
+      }
+
+      if (is_error && (config_.track_errors && !is_client_error)) {
+        GOPHER_LOG(
+            Info,
+            "onResponse: Recording FAILURE for id=%s method=%s error_code=%d",
+            requestIdToString(response.id).c_str(), req_info.method.c_str(),
+            response.error->code);
+        recordFailure(req_info.method);
+      } else {
+        GOPHER_LOG(
+            Debug,
+            "onResponse: Recording SUCCESS for id=%s method=%s latency=%lums",
+            requestIdToString(response.id).c_str(), req_info.method.c_str(),
+            static_cast<unsigned long>(latency));
+        recordSuccess(req_info.method, latency);
+      }
+
+      pending_requests_.erase(it);
+    }
+
+    // Forward response
+    if (next_callbacks_) {
+      next_callbacks_->onResponseWithContext(response, context);
+    }
+  }
+
   void onNotification(const jsonrpc::Notification& notification) override {
     // Notifications don't affect circuit breaker
     if (next_callbacks_) {

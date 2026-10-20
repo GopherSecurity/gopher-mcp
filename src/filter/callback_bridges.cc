@@ -186,6 +186,19 @@ void JsonRpcToProtocolBridge::onResponse(const jsonrpc::Response& response) {
   callbacks_.onResponse(response);
 }
 
+void JsonRpcToProtocolBridge::onResponseWithContext(
+    const jsonrpc::Response& response, MessageDispatchContext& context) {
+  if (response.id.has_value()) {
+    GOPHER_LOG_DEBUG("JsonRpcToProtocolBridge::onResponse called with id={}",
+                     response.id.value().toString());
+  } else {
+    GOPHER_LOG_DEBUG("JsonRpcToProtocolBridge::onResponse called");
+  }
+
+  // Forward parsed JSON-RPC response to final protocol callbacks
+  callbacks_.onResponseWithContext(response, context);
+}
+
 void JsonRpcToProtocolBridge::onProtocolError(const Error& error) {
   GOPHER_LOG_ERROR("JsonRpcToProtocolBridge::onProtocolError: {}",
                    error.message);

@@ -65,6 +65,8 @@ class RequestLoggerFilter : public network::NetworkFilterBase,
   // Context-carrying variants: log identically, then forward the
   // per-message context so a chain spliced through this filter does not
   // silently degrade the application layer to its context-free path.
+  void onResponseWithContext(const jsonrpc::Response& response,
+                             MessageDispatchContext& context) override;
   void onRequestWithContext(const jsonrpc::Request& request,
                             MessageDispatchContext& context) override;
   void onNotificationWithContext(const jsonrpc::Notification& notification,

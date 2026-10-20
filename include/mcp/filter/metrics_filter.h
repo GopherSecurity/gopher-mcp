@@ -146,6 +146,8 @@ class MetricsFilter : public JsonRpcProtocolFilter::MessageHandler,
    * per-message context so a chain spliced through this filter does not
    * silently degrade the application layer to its context-free path.
    */
+  void onResponseWithContext(const jsonrpc::Response& response,
+                             MessageDispatchContext& context) override;
   void onRequestWithContext(const jsonrpc::Request& request,
                             MessageDispatchContext& context) override;
   void onNotificationWithContext(const jsonrpc::Notification& notification,
@@ -409,6 +411,33 @@ inline void MetricsFilter::onResponse(const jsonrpc::Response& response) {
 
   if (next_callbacks_) {
     next_callbacks_->onResponse(response);
+  }
+}
+
+inline void MetricsFilter::onResponseWithContext(
+    const jsonrpc::Response& response, MessageDispatchContext& context) {
+  metrics_.responses_received++;
+  recordActivity();
+
+  {
+    std::lock_guard<std::mutex> lock(request_mutex_);
+    auto it = pending_requests_.find(requestIdToString(response.id));
+    if (it != pending_requests_.end()) {
+      auto latency = std::chrono::duration_cast<std::chrono::milliseconds>(
+                         std::chrono::steady_clock::now() - it->second)
+                         .count();
+      updateLatencyMetrics(static_cast<uint64_t>(latency));
+      pending_requests_.erase(it);
+    }
+  }
+
+  if (response.error.has_value()) {
+    metrics_.errors_received++;
+    checkErrorThreshold();
+  }
+
+  if (next_callbacks_) {
+    next_callbacks_->onResponseWithContext(response, context);
   }
 }
 

@@ -326,6 +326,17 @@ class EnhancedProtocolFilter : public network::Filter,
     mcp_callbacks_.onResponse(response);
   }
 
+  void onResponseWithContext(const jsonrpc::Response& response,
+                             MessageDispatchContext& context) override {
+    // Track metrics
+    if (metrics_collector_) {
+      metrics_collector_->onResponse(response);
+    }
+
+    // Forward to MCP layer
+    mcp_callbacks_.onResponseWithContext(response, context);
+  }
+
   void onNotification(const jsonrpc::Notification& notification) override {
     // Track metrics
     if (metrics_collector_) {

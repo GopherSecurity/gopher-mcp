@@ -207,6 +207,21 @@ void RequestLoggerFilter::onResponse(const jsonrpc::Response& response) {
   }
 }
 
+void RequestLoggerFilter::onResponseWithContext(
+    const jsonrpc::Response& response, MessageDispatchContext& context) {
+  std::ostringstream summary;
+  summary << "id=" << requestIdToString(response.id);
+  summary << " status=" << (response.error.has_value() ? "error" : "ok");
+
+  json::JsonValue payload = json::to_json(response);
+  logJsonRpcMessage("response", MessageDirection::Outgoing, summary.str(),
+                    payload);
+
+  if (next_callbacks_) {
+    next_callbacks_->onResponseWithContext(response, context);
+  }
+}
+
 void RequestLoggerFilter::onProtocolError(const Error& error) {
   // DEBUG TRACE
   std::cout << "\n🟢 [RequestLogger] onProtocolError() ENTRY" << std::endl;

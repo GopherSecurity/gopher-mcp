@@ -1854,7 +1854,8 @@ void StreamableHttpFilter::onResponse(const jsonrpc::Response& response) {
     return;
   }
   carried_ = Carried::Response;
-  mcp_callbacks_.onResponse(response);
+  DispatchContext context(*this);
+  mcp_callbacks_.onResponseWithContext(response, context);
 }
 
 void StreamableHttpFilter::onProtocolError(const Error& error) {

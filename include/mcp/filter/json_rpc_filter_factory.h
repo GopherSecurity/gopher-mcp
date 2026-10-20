@@ -32,6 +32,11 @@ class DirectJsonRpcCallbacks : public JsonRpcProtocolFilter::MessageHandler {
     mcp_callbacks_.onResponse(response);
   }
 
+  void onResponseWithContext(const jsonrpc::Response& response,
+                             MessageDispatchContext& context) override {
+    mcp_callbacks_.onResponseWithContext(response, context);
+  }
+
   void onProtocolError(const Error& error) override {
     mcp_callbacks_.onError(error);
   }

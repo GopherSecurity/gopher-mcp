@@ -1117,6 +1117,22 @@ void McpConnectionManager::onResponse(const jsonrpc::Response& response) {
   }
 }
 
+void McpConnectionManager::onResponseWithContext(
+    const jsonrpc::Response& response, MessageDispatchContext& context) {
+  std::string id_str;
+  if (holds_alternative<std::string>(response.id)) {
+    id_str = get<std::string>(response.id);
+  } else {
+    id_str = std::to_string(get<int64_t>(response.id));
+  }
+  GOPHER_LOG_DEBUG("McpConnectionManager::onResponse id={}, has_error={}",
+                   id_str, response.error.has_value());
+
+  if (protocol_callbacks_) {
+    protocol_callbacks_->onResponseWithContext(response, context);
+  }
+}
+
 void McpConnectionManager::onConnectionEvent(network::ConnectionEvent event) {
   // Connection events are raised from the connection's own callback loop,
   // which runs on the dispatcher thread. Anything else would mean a caller

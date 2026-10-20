@@ -2894,6 +2894,12 @@ void McpServer::onNotificationWithContext(
   }
 }
 
+void McpServer::onResponseWithContext(const jsonrpc::Response& response,
+                                      MessageDispatchContext& context) {
+  (void)context;
+  onResponse(response);
+}
+
 void McpServer::onResponse(const jsonrpc::Response& response) {
   // A response arriving here is the answer to something this server asked a
   // client. Hand it to whoever asked; if nobody did, say so rather than

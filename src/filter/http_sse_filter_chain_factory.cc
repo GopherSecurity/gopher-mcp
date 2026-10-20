@@ -1435,7 +1435,8 @@ class HttpSseJsonRpcProtocolFilter
   }
 
   void onResponse(const jsonrpc::Response& response) override {
-    mcp_callbacks_.onResponse(response);
+    DispatchContext context(*this);
+    mcp_callbacks_.onResponseWithContext(response, context);
   }
 
   // ===== StreamableHttpFilter::Host =====

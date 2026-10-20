@@ -1760,6 +1760,8 @@ class McpServer : public application::ApplicationBase,
                        MessageDispatchContext& context);
   void onNotificationWithContext(const jsonrpc::Notification& notification,
                                  MessageDispatchContext& context);
+  void onResponseWithContext(const jsonrpc::Response& response,
+                             MessageDispatchContext& context);
   void onConnectionEvent(network::ConnectionEvent event);
   void onError(const Error& error) override;
 
@@ -2016,6 +2018,11 @@ class McpServer : public application::ApplicationBase,
 
     void onResponse(const jsonrpc::Response& response) override {
       server_.onResponse(response);
+    }
+
+    void onResponseWithContext(const jsonrpc::Response& response,
+                               MessageDispatchContext& context) override {
+      server_.onResponseWithContext(response, context);
     }
 
     void onConnectionEvent(network::ConnectionEvent event) override {

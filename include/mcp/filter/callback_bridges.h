@@ -104,6 +104,8 @@ class JsonRpcToProtocolBridge : public JsonRpcProtocolFilter::MessageHandler {
   void onProtocolError(const Error& error) override;
   // Propagate the per-message origin built by the JSON-RPC filter so the
   // application layer can reply on the connection the message arrived on.
+  void onResponseWithContext(const jsonrpc::Response& response,
+                             MessageDispatchContext& context) override;
   void onRequestWithContext(const jsonrpc::Request& request,
                             MessageDispatchContext& context) override;
   void onNotificationWithContext(const jsonrpc::Notification& notification,

@@ -185,6 +185,12 @@ class McpProtocolCallbacks {
     onRequest(request);
   }
 
+  virtual void onResponseWithContext(const jsonrpc::Response& response,
+                                     MessageDispatchContext& context) {
+    (void)context;
+    onResponse(response);
+  }
+
   virtual void onNotificationWithContext(
       const jsonrpc::Notification& notification,
       MessageDispatchContext& context) {
@@ -450,6 +456,8 @@ class McpConnectionManager : public McpProtocolCallbacks,
   void onResponse(const jsonrpc::Response& response) override;
   // Forward the per-message origin alongside the message so the application
   // layer can key sessions and route replies without ambient state.
+  void onResponseWithContext(const jsonrpc::Response& response,
+                             MessageDispatchContext& context) override;
   void onRequestWithContext(const jsonrpc::Request& request,
                             MessageDispatchContext& context) override;
   void onNotificationWithContext(const jsonrpc::Notification& notification,

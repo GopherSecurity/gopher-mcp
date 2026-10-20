@@ -193,6 +193,15 @@ class RequestValidationFilter : public network::NetworkFilterBase,
     }
   }
 
+  void onResponseWithContext(const jsonrpc::Response& response,
+                             MessageDispatchContext& context) override {
+    // Responses typically don't need validation in server context
+    // Just forward them
+    if (next_callbacks_) {
+      next_callbacks_->onResponseWithContext(response, context);
+    }
+  }
+
   void onProtocolError(const Error& error) override {
     // Forward protocol errors
     if (next_callbacks_) {
