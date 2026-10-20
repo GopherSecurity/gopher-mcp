@@ -415,8 +415,8 @@ struct McpServerStats : public application::ApplicationStats {
  *
  * A server that asks a client something — to sample a model, to elicit
  * input — has to recognize the answer when it comes back, and the answer
- * arrives as an ordinary inbound message with nothing but a JSON-RPC id
- * connecting it to the question. Without this the answer has nowhere to go.
+ * arrives as an ordinary inbound message. The id and original caller/session
+ * identify its waiter; an answer from another client must not consume it.
  *
  * Guarded by a mutex rather than confined to a dispatcher: over HTTP the
  * answer arrives on whichever connection the client chose to send it on,
@@ -426,23 +426,29 @@ class ClientRequestCorrelator {
  public:
   using Waiter = std::function<void(const jsonrpc::Response&)>;
 
-  /** Register interest in the answer to a request already sent. */
-  void expect(const RequestId& id, Waiter waiter);
+  using Key = std::pair<RequestIdKey, ClientResponseOwner>;
+
+  /** Register interest in the answer from this request's original caller. */
+  void expect(const RequestId& id,
+              Waiter waiter,
+              const ClientResponseOwner& owner = ClientResponseOwner());
 
   /**
    * Hand a response to whoever was waiting for it.
    * @return False when nobody was; the caller should count and drop it.
    */
-  bool deliver(const jsonrpc::Response& response);
+  bool deliver(const jsonrpc::Response& response,
+               const ClientResponseOwner& sender = ClientResponseOwner());
 
   /** Give up on a request, so a waiter is not left pending forever. */
-  bool forget(const RequestId& id);
+  bool forget(const RequestId& id,
+              const ClientResponseOwner& owner = ClientResponseOwner());
 
   size_t pending() const;
 
  private:
   mutable std::mutex mutex_;
-  std::map<RequestIdKey, Waiter> waiters_;
+  std::map<Key, Waiter> waiters_;
 };
 
 /**
@@ -2122,7 +2128,8 @@ class McpServer : public application::ApplicationBase,
   // A deadline per outstanding question. Held here because a timer that
   // goes out of scope never fires, and dropped when the question is
   // settled either way. Dispatcher thread only, like the questions.
-  std::map<RequestIdKey, event::TimerPtr> client_request_deadlines_;
+  std::map<ClientRequestCorrelator::Key, event::TimerPtr>
+      client_request_deadlines_;
 
   /**
    * The endpoint's way of asking the tool registry what a tool

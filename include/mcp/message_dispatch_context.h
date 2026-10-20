@@ -6,6 +6,7 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <tuple>
 
 #include "mcp/core/result.h"
 #include "mcp/json/json_bridge.h"
@@ -16,6 +17,42 @@ namespace mcp {
 namespace network {
 class Connection;
 }
+
+/** The caller entitled to answer one server-initiated request.
+ *
+ * A durable transport session is stronger than a physical HTTP connection.
+ * Authenticated stateless HTTP has only its verified principal; unauthenticated
+ * connection-backed clients remain bound to their existing logical session.
+ */
+struct ClientResponseOwner {
+  bool bound = false;
+  std::string principal;
+  std::string transport_session_id;
+  std::string logical_session_id;
+  network::Connection* connection = nullptr;
+
+  bool matches(const ClientResponseOwner& sender) const {
+    if (!bound)
+      return true;  // Explicit context-free legacy registrations only.
+    return sender.bound && principal == sender.principal &&
+           (transport_session_id.empty() ||
+            transport_session_id == sender.transport_session_id) &&
+           (logical_session_id.empty() ||
+            logical_session_id == sender.logical_session_id) &&
+           (connection == nullptr || connection == sender.connection);
+  }
+
+  bool operator<(const ClientResponseOwner& other) const {
+    const auto fields =
+        std::tie(bound, principal, transport_session_id, logical_session_id);
+    const auto other_fields =
+        std::tie(other.bound, other.principal, other.transport_session_id,
+                 other.logical_session_id);
+    if (fields != other_fields)
+      return fields < other_fields;
+    return std::less<network::Connection*>()(connection, other.connection);
+  }
+};
 
 /**
  * A response that is still being produced after its dispatch returned.
@@ -47,8 +84,8 @@ class ResponseStream {
    * anything else mid-request, sends the question here: it belongs to the
    * request being answered, so it goes down the same stream the answer
    * will. The client's reply comes back as an ordinary inbound message on
-   * a connection of its choosing, and nothing but the JSON-RPC id
-   * connects the two — so whoever sends one has to be waiting for that id.
+   * a connection of its choosing. The JSON-RPC id is correlated together
+   * with the original caller/session, so another client cannot answer it.
    *
    * Virtual rather than pure: a transport that answers a request with
    * exactly one message has nowhere to put a question, and says so.
@@ -103,9 +140,17 @@ class ResponseStream {
    * session has moved on to other requests from other callers. Empty when
    * the transport authenticates no one.
    */
-  const std::string& requestPrincipal() const { return request_principal_; }
+  const std::string& requestPrincipal() const {
+    return request_owner_.principal;
+  }
   void setRequestPrincipal(const std::string& principal) {
-    request_principal_ = principal;
+    request_owner_.principal = principal;
+    if (!principal.empty())
+      request_owner_.bound = true;
+  }
+  const ClientResponseOwner& requestOwner() const { return request_owner_; }
+  void setRequestOwner(const ClientResponseOwner& owner) {
+    request_owner_ = owner;
   }
 
   /**
@@ -133,7 +178,7 @@ class ResponseStream {
   }
 
  private:
-  std::string request_principal_;
+  ClientResponseOwner request_owner_;
 };
 
 using ResponseStreamPtr = std::shared_ptr<ResponseStream>;

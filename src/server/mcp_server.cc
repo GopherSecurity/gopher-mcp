@@ -1501,6 +1501,24 @@ VoidResult McpServer::sendNotificationToSession(
       Error(jsonrpc::INTERNAL_ERROR, "No active connection for session"));
 }
 
+namespace {
+ClientResponseOwner clientResponseOwnerForSession(
+    const SessionContext& session) {
+  ClientResponseOwner owner;
+  owner.bound = true;
+  owner.principal = session.getPrincipal();
+  owner.transport_session_id = session.getTransportSessionId();
+  if (!owner.transport_session_id.empty()) {
+    owner.logical_session_id = session.getId();
+  } else if (owner.principal.empty()) {
+    // Unauthenticated stdio/connection clients have no portable identity.
+    owner.logical_session_id = session.getId();
+    owner.connection = session.getConnection();
+  }
+  return owner;
+}
+}  // namespace
+
 VoidResult McpServer::sendRequestToSession(
     const SessionManager::SessionPtr& session,
     const jsonrpc::Request& request) {
@@ -1628,16 +1646,19 @@ std::future<jsonrpc::Response> McpServer::sendRequest(
 
   auto promise = std::make_shared<std::promise<jsonrpc::Response>>();
   auto future = promise->get_future();
-  const RequestIdKey key = requestIdKey(request.id);
-  client_requests_.expect(request.id,
-                          [this, key, promise](const jsonrpc::Response& r) {
-                            client_request_deadlines_.erase(key);
-                            promise->set_value(r);
-                          });
+  const auto owner = clientResponseOwnerForSession(*session);
+  const ClientRequestCorrelator::Key key(requestIdKey(request.id), owner);
+  client_requests_.expect(
+      request.id,
+      [this, key, promise](const jsonrpc::Response& r) {
+        client_request_deadlines_.erase(key);
+        promise->set_value(r);
+      },
+      owner);
 
   auto sent = sendRequestToSession(session, request);
   if (holds_alternative<Error>(sent)) {
-    client_requests_.forget(request.id);
+    client_requests_.forget(request.id, owner);
     promise->set_value(
         jsonrpc::Response::make_error(request.id, get<Error>(sent)));
     return future;
@@ -1645,21 +1666,22 @@ std::future<jsonrpc::Response> McpServer::sendRequest(
   ++server_stats_.requests_to_clients;
 
   if (timeout.count() > 0) {
-    auto timer = main_dispatcher_->createTimer([this, key, request, promise]() {
-      if (!client_requests_.forget(request.id)) {
-        return;
-      }
+    auto timer =
+        main_dispatcher_->createTimer([this, key, owner, request, promise]() {
+          if (!client_requests_.forget(request.id, owner)) {
+            return;
+          }
 
-      ++server_stats_.client_requests_timed_out;
-      GOPHER_LOG_WARN("No answer from the client to {} in time",
-                      requestIdKeyToString(key));
-      promise->set_value(jsonrpc::Response::make_error(
-          request.id,
-          Error(jsonrpc::INTERNAL_ERROR, "the client did not answer in time")));
+          ++server_stats_.client_requests_timed_out;
+          GOPHER_LOG_WARN("No answer from the client to {} in time",
+                          requestIdKeyToString(key.first));
+          promise->set_value(jsonrpc::Response::make_error(
+              request.id, Error(jsonrpc::INTERNAL_ERROR,
+                                "the client did not answer in time")));
 
-      main_dispatcher_->post(
-          [this, key]() { client_request_deadlines_.erase(key); });
-    });
+          main_dispatcher_->post(
+              [this, key]() { client_request_deadlines_.erase(key); });
+        });
     timer->enableTimer(timeout);
     client_request_deadlines_[key] = std::move(timer);
   }
@@ -2145,23 +2167,26 @@ VoidResult McpServer::askClient(
               "a question nobody is waiting for is not a question"));
   }
 
-  const RequestIdKey key = requestIdKey(request.id);
+  const auto owner = stream->requestOwner();
+  const ClientRequestCorrelator::Key key(requestIdKey(request.id), owner);
 
   // Registered before the question goes out, not after: the answer may be
   // on its way back before this function returns, and an answer arriving
   // to nobody is dropped.
   client_requests_.expect(
-      request.id, [this, key, on_answer](const jsonrpc::Response& response) {
+      request.id,
+      [this, key, on_answer](const jsonrpc::Response& response) {
         // Settled, so its deadline is no longer anybody's business. Safe to
         // drop here because this runs from the inbound dispatch, never from
         // inside the timer's own callback.
         client_request_deadlines_.erase(key);
         on_answer(response);
-      });
+      },
+      owner);
 
   auto sent = stream->sendRequest(request);
   if (holds_alternative<Error>(sent)) {
-    client_requests_.forget(request.id);
+    client_requests_.forget(request.id, owner);
     return sent;
   }
   ++server_stats_.requests_to_clients;
@@ -2172,26 +2197,27 @@ VoidResult McpServer::askClient(
     return makeVoidSuccess();
   }
 
-  auto timer = main_dispatcher_->createTimer([this, key, request, on_answer]() {
-    // Whoever was waiting has to be told something, and told once. A
-    // waiter that is no longer registered was already told by the answer
-    // itself, and this has nothing left to do.
-    if (!client_requests_.forget(request.id)) {
-      return;
-    }
+  auto timer =
+      main_dispatcher_->createTimer([this, key, owner, request, on_answer]() {
+        // Whoever was waiting has to be told something, and told once. A
+        // waiter that is no longer registered was already told by the answer
+        // itself, and this has nothing left to do.
+        if (!client_requests_.forget(request.id, owner)) {
+          return;
+        }
 
-    ++server_stats_.client_requests_timed_out;
-    GOPHER_LOG_WARN("No answer from the client to {} in time",
-                    requestIdKeyToString(key));
-    on_answer(jsonrpc::Response::make_error(
-        request.id,
-        Error(jsonrpc::INTERNAL_ERROR, "the client did not answer in time")));
+        ++server_stats_.client_requests_timed_out;
+        GOPHER_LOG_WARN("No answer from the client to {} in time",
+                        requestIdKeyToString(key.first));
+        on_answer(jsonrpc::Response::make_error(
+            request.id, Error(jsonrpc::INTERNAL_ERROR,
+                              "the client did not answer in time")));
 
-    // Not erased inline: this is running from inside that timer, and a
-    // timer must outlive its own callback.
-    main_dispatcher_->post(
-        [this, key]() { client_request_deadlines_.erase(key); });
-  });
+        // Not erased inline: this is running from inside that timer, and a
+        // timer must outlive its own callback.
+        main_dispatcher_->post(
+            [this, key]() { client_request_deadlines_.erase(key); });
+      });
   timer->enableTimer(timeout);
   client_request_deadlines_[key] = std::move(timer);
   return makeVoidSuccess();
@@ -2336,34 +2362,46 @@ SessionManager::SessionPtr McpServer::getOrCreateSessionFor(
 // an unrelated connection.
 // ===== ClientRequestCorrelator =====
 
-void ClientRequestCorrelator::expect(const RequestId& id, Waiter waiter) {
-  if (!waiter) {
+void ClientRequestCorrelator::expect(const RequestId& id,
+                                     Waiter waiter,
+                                     const ClientResponseOwner& owner) {
+  if (!waiter)
     return;
-  }
   std::lock_guard<std::mutex> lock(mutex_);
-  waiters_[requestIdKey(id)] = std::move(waiter);
+  waiters_[Key(requestIdKey(id), owner)] = std::move(waiter);
 }
 
-bool ClientRequestCorrelator::deliver(const jsonrpc::Response& response) {
+bool ClientRequestCorrelator::deliver(const jsonrpc::Response& response,
+                                      const ClientResponseOwner& sender) {
   Waiter waiter;
   {
     std::lock_guard<std::mutex> lock(mutex_);
-    auto it = waiters_.find(requestIdKey(response.id));
-    if (it == waiters_.end()) {
-      return false;
+    const auto id = requestIdKey(response.id);
+    auto matched = waiters_.end();
+    for (auto it = waiters_.lower_bound(Key(id, ClientResponseOwner()));
+         it != waiters_.end() && it->first.first == id; ++it) {
+      if (!it->first.second.matches(sender))
+        continue;
+      // Prefer a bound waiter over the explicit context-free legacy API.
+      if (matched == waiters_.end() || it->first.second.bound)
+        matched = it;
+      if (it->first.second.bound)
+        break;
     }
-    // Take the waiter out before running it: it is entitled to register
-    // another request, and it must not be invoked twice for one answer.
-    waiter = std::move(it->second);
-    waiters_.erase(it);
+    if (matched == waiters_.end())
+      return false;
+    // A mismatched response leaves the rightful caller's waiter untouched.
+    waiter = std::move(matched->second);
+    waiters_.erase(matched);
   }
   waiter(response);
   return true;
 }
 
-bool ClientRequestCorrelator::forget(const RequestId& id) {
+bool ClientRequestCorrelator::forget(const RequestId& id,
+                                     const ClientResponseOwner& owner) {
   std::lock_guard<std::mutex> lock(mutex_);
-  return waiters_.erase(requestIdKey(id)) > 0;
+  return waiters_.erase(Key(requestIdKey(id), owner)) > 0;
 }
 
 size_t ClientRequestCorrelator::pending() const {
@@ -2563,10 +2601,10 @@ void McpServer::dispatchRequest(const jsonrpc::Request& request,
       // A disconnect cancels the request where the transport says it
       // does, which in 2026-07-28 is any disconnect from its stream.
       stream->onCancelled([cancellation]() { cancellation->cancel(); });
-      stream->setRequestPrincipal(context.principal());
+      stream->setRequestOwner(clientResponseOwnerForSession(*session));
       if (!trace.empty()) {
         stream = std::make_shared<TracingStream>(stream, trace);
-        stream->setRequestPrincipal(context.principal());
+        stream->setRequestOwner(clientResponseOwnerForSession(*session));
       }
     }
     session->setResponseStream(stream);
@@ -2661,7 +2699,7 @@ void McpServer::dispatchRequest(const jsonrpc::Request& request,
         cache_hints, cancellation);
     // The caller of this request, kept with its answer: the session will
     // have served others by the time a deferred answer comes.
-    answer->setRequestPrincipal(context.principal());
+    answer->setRequestOwner(clientResponseOwnerForSession(*session));
 
     try {
       async_handler(request, *session, answer);
@@ -2894,23 +2932,33 @@ void McpServer::onNotificationWithContext(
   }
 }
 
-void McpServer::onResponseWithContext(const jsonrpc::Response& response,
-                                      MessageDispatchContext& context) {
-  (void)context;
-  onResponse(response);
+void McpServer::onResponse(const jsonrpc::Response& response) {
+  LegacyDispatchContext context(*this);
+  onResponseWithContext(response, context);
 }
 
-void McpServer::onResponse(const jsonrpc::Response& response) {
-  // A response arriving here is the answer to something this server asked a
-  // client. Hand it to whoever asked; if nobody did, say so rather than
-  // letting it disappear — an unmatched answer means either a confused peer
-  // or a waiter released too early, and both are worth seeing.
-  if (client_requests_.deliver(response)) {
-    return;
-  }
+void McpServer::onResponseWithContext(const jsonrpc::Response& response,
+                                      MessageDispatchContext& context) {
+  ClientResponseOwner sender;
+  sender.bound = true;
+  sender.principal = context.principal();
+  sender.transport_session_id = context.transportSessionId();
+  sender.connection = context.originConnection();
+  SessionManager::SessionPtr session;
+  if (!sender.transport_session_id.empty())
+    session =
+        session_manager_->getSessionByTransportId(sender.transport_session_id);
+  else if (sender.connection != nullptr)
+    session = session_manager_->getSessionByConnection(sender.connection);
+  else if (legacy_session_)
+    session = session_manager_->getSession(legacy_session_->getId());
+  if (session)
+    sender.logical_session_id = session->getId();
 
+  if (client_requests_.deliver(response, sender))
+    return;
   server_stats_.responses_unmatched++;
-  GOPHER_LOG_WARN("Dropping a client response nothing was waiting for: id={}",
+  GOPHER_LOG_WARN("Dropping an unmatched client response: id={}",
                   requestIdKeyToString(requestIdKey(response.id)));
 }
 

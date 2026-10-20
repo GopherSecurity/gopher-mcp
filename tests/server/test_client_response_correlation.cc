@@ -150,6 +150,56 @@ TEST(ClientResponseCorrelationTest, ErrorAnswersReachTheWaiterToo) {
   EXPECT_TRUE(saw_error) << "a refusal is an answer and belongs to the asker";
 }
 
+TEST(ClientResponseCorrelationTest, WrongOwnerCannotConsumeTheOriginalWaiter) {
+  ClientRequestCorrelator correlator;
+  ClientResponseOwner alice;
+  alice.bound = true;
+  alice.principal = "realm|alice";
+  alice.transport_session_id = "alice-transport";
+  alice.logical_session_id = "alice-session";
+  const RequestId id(int64_t(31));
+  int delivered = 0;
+  correlator.expect(
+      id, [&](const jsonrpc::Response&) { ++delivered; }, alice);
+  auto wrong = alice;
+  wrong.principal = "realm|bob";
+  EXPECT_FALSE(correlator.deliver(answerTo(id), wrong));
+  wrong = alice;
+  wrong.transport_session_id = "other-alice-transport";
+  EXPECT_FALSE(correlator.deliver(answerTo(id), wrong));
+  wrong = alice;
+  wrong.logical_session_id = "retired-alice-session";
+  EXPECT_FALSE(correlator.deliver(answerTo(id), wrong));
+  EXPECT_FALSE(correlator.deliver(answerTo(id)));
+  EXPECT_EQ(1u, correlator.pending());
+  EXPECT_EQ(0, delivered);
+  EXPECT_TRUE(correlator.deliver(answerTo(id), alice));
+  EXPECT_EQ(1, delivered);
+  EXPECT_EQ(0u, correlator.pending());
+}
+
+TEST(ClientResponseCorrelationTest, EqualRequestIdsRemainIndependentByOwner) {
+  ClientRequestCorrelator correlator;
+  ClientResponseOwner alice, bob;
+  alice.bound = bob.bound = true;
+  alice.principal = "realm|alice";
+  bob.principal = "realm|bob";
+  const RequestId id(int64_t(41));
+  int alice_delivered = 0, bob_delivered = 0;
+  correlator.expect(
+      id, [&](const jsonrpc::Response&) { ++alice_delivered; }, alice);
+  correlator.expect(
+      id, [&](const jsonrpc::Response&) { ++bob_delivered; }, bob);
+  EXPECT_EQ(2u, correlator.pending());
+  EXPECT_TRUE(correlator.forget(id, bob));
+  EXPECT_FALSE(correlator.deliver(answerTo(id), bob));
+  EXPECT_FALSE(correlator.forget(id));
+  EXPECT_EQ(1u, correlator.pending());
+  EXPECT_TRUE(correlator.deliver(answerTo(id), alice));
+  EXPECT_EQ(1, alice_delivered);
+  EXPECT_EQ(0, bob_delivered);
+}
+
 }  // namespace
 }  // namespace server
 }  // namespace mcp

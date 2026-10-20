@@ -74,6 +74,7 @@ class AskingServer : public McpServer {
   explicit AskingServer(const McpServerConfig& config) : McpServer(config) {}
   using McpServer::clientRequests;
   using McpServer::onResponse;
+  using McpServer::onResponseWithContext;
 
   event::Dispatcher* dispatcher() { return main_dispatcher_; }
 };
@@ -244,6 +245,37 @@ TEST(AskClient, OffThreadSendRequestDoesNotUseDestroyedServer) {
   ASSERT_TRUE(response.error.has_value());
   EXPECT_NE(response.error->message.find("stopped"), std::string::npos)
       << response.error->message;
+}
+
+TEST(AskClient, RelatedStatelessRequestKeepsTheOriginalVerifiedPrincipal) {
+  class Caller : public NullMessageDispatchContext {
+   public:
+    explicit Caller(std::string who) : principal_(std::move(who)) {}
+    const std::string& principal() const override { return principal_; }
+
+   private:
+    std::string principal_;
+  };
+  AskingServer server(testConfig());
+  auto stream = std::make_shared<RecordingStream>();
+  ClientResponseOwner owner;
+  owner.bound = true;
+  owner.principal = "realm|alice";
+  stream->setRequestOwner(owner);
+  int delivered = 0;
+  ASSERT_TRUE(holds_alternative<std::nullptr_t>(server.askClient(
+      stream, sampling(51), [&](const jsonrpc::Response&) { ++delivered; },
+      0ms)));
+  const auto response = jsonrpc::Response::success(
+      make_request_id(51), jsonrpc::ResponseResult(Metadata()));
+  Caller bob("realm|bob"), alice("realm|alice");
+  server.onResponseWithContext(response, bob);
+  server.onResponse(response);
+  EXPECT_EQ(0, delivered);
+  EXPECT_EQ(1u, server.clientRequests().pending());
+  server.onResponseWithContext(response, alice);
+  EXPECT_EQ(1, delivered);
+  EXPECT_EQ(0u, server.clientRequests().pending());
 }
 
 }  // namespace
