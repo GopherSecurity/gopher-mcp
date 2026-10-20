@@ -1314,6 +1314,10 @@ class HttpSseJsonRpcProtocolFilter
       return parent_.security_.principal;
     }
 
+    const std::string& requestAuthorization() const override {
+      return parent_.security_.request_authorization;
+    }
+
    private:
     HttpSseJsonRpcProtocolFilter& parent_;
     transport::RequestExchangePtr exchange_;

@@ -33,6 +33,9 @@ struct RequestSecurity {
 
   /** Who the request is from, as resolved by the auth hook. */
   std::string principal;
+
+  /** The current request's Authorization header, kept only for dispatch. */
+  std::string request_authorization;
 };
 
 /**
@@ -135,6 +138,9 @@ struct AuthResult {
 
   int status_code{403};
   std::string reason;
+
+  /** Authentication challenge and other headers to include on rejection. */
+  std::map<std::string, std::string> response_headers;
 
   static AuthResult allow(const std::string& principal);
   static AuthResult deny(int status_code, const std::string& reason);
@@ -241,13 +247,17 @@ class HttpSecurityFilter : public HttpCodecFilter::MessageCallbacks {
   void refuse(int status_code,
               int code,
               const std::string& message,
-              bool close_connection);
+              bool close_connection,
+              const std::map<std::string, std::string>& headers = {});
+
+  bool authenticate();
 
   HttpCodecFilter::MessageCallbacks& next_;
   const HttpSecurityPolicy& policy_;
   RequestSecurity& security_;
   Host& host_;
   AuthCallback auth_;
+  std::map<std::string, std::string> request_headers_;
 
   // Set when the current request has already been answered here. Cleared
   // when the next request's headers arrive.

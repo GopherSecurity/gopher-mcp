@@ -348,9 +348,19 @@ void HttpSecurityFilter::onHeaders(
   security_ = RequestSecurity();
   security_.origin = origin;
   security_.principal = "anonymous";
+  security_.request_authorization = view.get("authorization");
+  request_headers_ = headers;
 
+  if (!authenticate()) {
+    return;
+  }
+
+  next_.onHeaders(headers, keep_alive);
+}
+
+bool HttpSecurityFilter::authenticate() {
   if (auth_) {
-    const AuthResult decision = auth_(view);
+    const AuthResult decision = auth_(RequestHeadersView(request_headers_));
     if (!decision.allowed) {
       // The origin was fine, so the answer still carries its CORS headers —
       // otherwise a browser cannot read why it was turned away, and a
@@ -359,15 +369,14 @@ void HttpSecurityFilter::onHeaders(
       GOPHER_LOG_DEBUG("request refused by auth hook: {}", decision.reason);
       refuse(decision.status_code, jsonrpc::INVALID_REQUEST,
              decision.reason.empty() ? "Unauthorized" : decision.reason,
-             /*close_connection=*/false);
-      return;
+             /*close_connection=*/false, decision.response_headers);
+      return false;
     }
     if (!decision.principal.empty()) {
       security_.principal = decision.principal;
     }
   }
-
-  next_.onHeaders(headers, keep_alive);
+  return true;
 }
 
 void HttpSecurityFilter::onBody(const std::string& data, bool end_stream) {
@@ -381,6 +390,13 @@ void HttpSecurityFilter::onMessageComplete() {
   if (refused_) {
     return;
   }
+  if (!authenticate()) {
+    // Headers and body may already have reached a buffering route or
+    // exchange. It must discard that request when completion admission
+    // rejects it, without dispatching the body or writing another answer.
+    next_.onError("HTTP request admission changed");
+    return;
+  }
   next_.onMessageComplete();
 }
 
@@ -391,10 +407,12 @@ void HttpSecurityFilter::onError(const std::string& error) {
   next_.onError(error);
 }
 
-void HttpSecurityFilter::refuse(int status_code,
-                                int code,
-                                const std::string& message,
-                                bool close_connection) {
+void HttpSecurityFilter::refuse(
+    int status_code,
+    int code,
+    const std::string& message,
+    bool close_connection,
+    const std::map<std::string, std::string>& extra_headers) {
   // Set before anything is written: the body of the request being refused
   // is still arriving, and it must not reach the layer behind this one
   // even if the write below fails.
@@ -407,6 +425,9 @@ void HttpSecurityFilter::refuse(int status_code,
   http::ResponseWriter::HeaderList headers;
   headers.emplace_back("Content-Type", "application/json");
   for (const auto& header : policy_.responseHeaders(security_)) {
+    headers.emplace_back(header.first, header.second);
+  }
+  for (const auto& header : extra_headers) {
     headers.emplace_back(header.first, header.second);
   }
 

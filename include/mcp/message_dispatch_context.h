@@ -199,6 +199,13 @@ class MessageDispatchContext {
     static const std::string none;
     return none;
   }
+
+  /** Credential sent with this message's HTTP request; empty on other
+   * transports. */
+  virtual const std::string& requestAuthorization() const {
+    static const std::string none;
+    return none;
+  }
 };
 
 /**

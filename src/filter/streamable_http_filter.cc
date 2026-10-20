@@ -421,6 +421,15 @@ const std::string& StreamableHttpFilter::DispatchContext::transportSessionId()
   return parent_.session_id_;
 }
 
+const std::string& StreamableHttpFilter::DispatchContext::principal() const {
+  return parent_.exchange_->clientContext().principal;
+}
+
+const std::string& StreamableHttpFilter::DispatchContext::requestAuthorization()
+    const {
+  return parent_.request_authorization_;
+}
+
 VoidResult StreamableHttpFilter::DispatchContext::sendResponse(
     const jsonrpc::Response& response) {
   if (!parent_.exchange_) {
@@ -568,6 +577,7 @@ void StreamableHttpFilter::onHeaders(
 
 void StreamableHttpFilter::beginRequest(
     const std::map<std::string, std::string>& headers) {
+  request_authorization_ = headerOr(headers, "authorization", "");
   exchange_ = transport::RequestExchange::create(dispatcher_, host_.makeSink(),
                                                  nullopt);
 

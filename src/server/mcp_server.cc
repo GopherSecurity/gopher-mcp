@@ -965,6 +965,7 @@ void McpServer::performListen() {
         // defaults, which are the local machine only — safe, but not what
         // an operator who configured an origin list asked for.
         http_sse_factory->setSecurityConfig(config_.streamable_http);
+        http_sse_factory->setAuthCallback(config_.http_auth_callback);
 
         // A response on this chain can stream, so a request arriving behind
         // one has to wait rather than be answered out of order.
@@ -2549,6 +2550,7 @@ void McpServer::dispatchRequest(const jsonrpc::Request& request,
     session->setRequestMeta(nullopt);
   }
   session->setPrincipal(context.principal());
+  session->setRequestAuthorization(context.requestAuthorization());
 
   // A handler registered as streaming gets somewhere to report progress on
   // its way to an answer. Attached to the session only for the length of

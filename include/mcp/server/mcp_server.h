@@ -353,6 +353,11 @@ struct McpServerConfig : public application::ApplicationBase::Config {
   // endpoints like OAuth discovery (/.well-known/oauth-protected-resource).
   // Example: registerOAuthEndpoints(router, config);
   filter::HttpRouteRegistrationCallback route_registration_callback;
+
+  // Admission on the HTTP codec's own request boundary, before routing or
+  // JSON-RPC dispatch. Rechecked when the body completes, so policy changes
+  // while a request is arriving cannot admit work under retired policy.
+  filter::AuthCallback http_auth_callback;
 };
 
 /**
@@ -591,6 +596,15 @@ class SessionContext {
   void setPrincipal(const std::string& principal) { principal_ = principal; }
   const std::string& getPrincipal() const { return principal_; }
 
+  // The credential carried by this request, never a previous request on the
+  // same session. Handlers doing asynchronous work must copy it at dispatch.
+  void setRequestAuthorization(const std::string& authorization) {
+    request_authorization_ = authorization;
+  }
+  const std::string& getRequestAuthorization() const {
+    return request_authorization_;
+  }
+
   // Subscription management
   void addSubscription(const std::string& uri) {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -626,6 +640,7 @@ class SessionContext {
   bool initialized_{false};             // notifications/initialized received
   optional<std::string> request_meta_;  // params._meta of the in-flight request
   std::string principal_;  // the in-flight request's authenticated caller
+  std::string request_authorization_;
 
   mutable std::mutex mutex_;
   std::set<std::string> subscriptions_;

@@ -328,6 +328,8 @@ class StreamableHttpFilter : public HttpCodecFilter::MessageCallbacks,
     const std::string& transportSessionId() const override;
     VoidResult sendResponse(const jsonrpc::Response& response) override;
     ResponseStreamPtr beginResponseStream() override;
+    const std::string& principal() const override;
+    const std::string& requestAuthorization() const override;
 
    private:
     StreamableHttpFilter& parent_;
@@ -533,6 +535,7 @@ class StreamableHttpFilter : public HttpCodecFilter::MessageCallbacks,
   // has been read and the two can be compared. Keys are lowercased by the
   // codec, as header names are compared without regard to case.
   std::map<std::string, std::string> mirrored_headers_;
+  std::string request_authorization_;
   // Set only for a request that created its session, which is the one
   // request whose answer decides whether that session survives.
   std::string minted_session_id_;
