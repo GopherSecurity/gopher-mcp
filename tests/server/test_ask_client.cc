@@ -73,6 +73,7 @@ class AskingServer : public McpServer {
  public:
   explicit AskingServer(const McpServerConfig& config) : McpServer(config) {}
   using McpServer::clientRequests;
+  using McpServer::onRequestWithContext;
   using McpServer::onResponse;
   using McpServer::onResponseWithContext;
 
@@ -92,6 +93,81 @@ jsonrpc::Request sampling(int64_t id) {
   request.id = make_request_id(id);
   request.method = "sampling/createMessage";
   return request;
+}
+
+class CallerContext : public NullMessageDispatchContext {
+ public:
+  const std::string& principal() const override { return who; }
+  const std::string& transportSessionId() const override { return transport; }
+  network::Connection* originConnection() const override { return connection; }
+  ResponseStreamPtr beginResponseStream() override { return stream; }
+  VoidResult sendResponse(const jsonrpc::Response&) override {
+    return makeVoidSuccess();
+  }
+
+  std::string who;
+  std::string transport;
+  network::Connection* connection = nullptr;
+  ResponseStreamPtr stream = std::make_shared<RecordingStream>();
+};
+
+TEST(AskClient, AnUnauthenticatedAnswerMustComeFromTheOriginalConnection) {
+  AskingServer server(testConfig());
+  CallerContext original, other;
+  original.connection = reinterpret_cast<network::Connection*>(0x2101);
+  other.connection = reinterpret_cast<network::Connection*>(0x2102);
+  int delivered = 0;
+  server.registerAsyncRequestHandler(
+      "test/ask", [&](const jsonrpc::Request&, SessionContext&,
+                      const ResponseStreamPtr& answer) {
+        EXPECT_TRUE(holds_alternative<std::nullptr_t>(server.askClient(
+            answer, sampling(71),
+            [&](const jsonrpc::Response&) { ++delivered; }, 0ms)));
+      });
+  auto request = sampling(1);
+  request.method = "test/ask";
+  server.onRequestWithContext(request, original);
+  ASSERT_EQ(server.clientRequests().pending(), 1u);
+  const auto response = jsonrpc::Response::success(
+      make_request_id(71), jsonrpc::ResponseResult(Metadata()));
+
+  server.onResponseWithContext(response, other);
+  EXPECT_EQ(delivered, 0);
+  EXPECT_EQ(server.clientRequests().pending(), 1u);
+  server.onResponseWithContext(response, original);
+  EXPECT_EQ(delivered, 1);
+  EXPECT_EQ(server.clientRequests().pending(), 0u);
+}
+
+TEST(AskClient, AnUnauthenticatedTransportSessionCanAnswerOnANewConnection) {
+  AskingServer server(testConfig());
+  CallerContext original, returning, other;
+  original.transport = returning.transport = "original-session";
+  other.transport = "other-session";
+  original.connection = reinterpret_cast<network::Connection*>(0x2201);
+  returning.connection = reinterpret_cast<network::Connection*>(0x2202);
+  other.connection = reinterpret_cast<network::Connection*>(0x2203);
+  int delivered = 0;
+  server.registerAsyncRequestHandler(
+      "test/ask", [&](const jsonrpc::Request&, SessionContext&,
+                      const ResponseStreamPtr& answer) {
+        EXPECT_TRUE(holds_alternative<std::nullptr_t>(server.askClient(
+            answer, sampling(72),
+            [&](const jsonrpc::Response&) { ++delivered; }, 0ms)));
+      });
+  auto request = sampling(1);
+  request.method = "test/ask";
+  server.onRequestWithContext(request, original);
+  ASSERT_EQ(server.clientRequests().pending(), 1u);
+  const auto response = jsonrpc::Response::success(
+      make_request_id(72), jsonrpc::ResponseResult(Metadata()));
+
+  server.onResponseWithContext(response, other);
+  EXPECT_EQ(delivered, 0);
+  EXPECT_EQ(server.clientRequests().pending(), 1u);
+  server.onResponseWithContext(response, returning);
+  EXPECT_EQ(delivered, 1);
+  EXPECT_EQ(server.clientRequests().pending(), 0u);
 }
 
 TEST(AskClient, TheAnswerReachesWhoeverAsked) {

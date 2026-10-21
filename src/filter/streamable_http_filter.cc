@@ -422,7 +422,9 @@ const std::string& StreamableHttpFilter::DispatchContext::transportSessionId()
 }
 
 const std::string& StreamableHttpFilter::DispatchContext::principal() const {
-  return parent_.exchange_->clientContext().principal;
+  static const std::string none;
+  return parent_.exchange_ ? parent_.exchange_->clientContext().principal
+                           : none;
 }
 
 const std::string& StreamableHttpFilter::DispatchContext::requestAuthorization()

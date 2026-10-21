@@ -347,7 +347,6 @@ void HttpSecurityFilter::onHeaders(
 
   security_ = RequestSecurity();
   security_.origin = origin;
-  security_.principal = "anonymous";
   security_.request_authorization = view.get("authorization");
   request_headers_ = headers;
 

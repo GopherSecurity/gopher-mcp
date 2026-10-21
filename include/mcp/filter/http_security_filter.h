@@ -166,7 +166,7 @@ struct HttpSecurityOptions {
   /** Empty applies the policy's default set. */
   std::vector<std::string> allowed_origins;
 
-  /** Absent serves everyone as "anonymous". */
+  /** Absent serves everyone without an authenticated principal. */
   AuthCallback auth;
 
   /**
@@ -225,7 +225,7 @@ class HttpSecurityFilter : public HttpCodecFilter::MessageCallbacks {
                      Host& host);
   ~HttpSecurityFilter() override;
 
-  /** Replaces the default, which serves everyone as "anonymous". */
+  /** Replaces the default, which serves everyone without a principal. */
   void setAuthCallback(AuthCallback callback);
 
   // ===== HttpCodecFilter::MessageCallbacks =====

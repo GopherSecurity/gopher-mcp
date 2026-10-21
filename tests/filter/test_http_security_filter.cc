@@ -194,7 +194,17 @@ TEST_F(HttpSecurityFilterTest, ARefusalDoesNotOutliveItsRequest) {
 
 // ── Auth ───────────────────────────────────────────────────────────────────
 
-TEST_F(HttpSecurityFilterTest, EveryoneIsAnonymousWithoutAnAuthHook) {
+TEST_F(HttpSecurityFilterTest, AnUnauthenticatedRequestHasNoPrincipal) {
+  feed(post(kBody));
+
+  EXPECT_EQ(next_.header_count, 1u);
+  EXPECT_TRUE(security_.principal.empty());
+}
+
+TEST_F(HttpSecurityFilterTest, AnAuthHookCanVerifyAPrincipalNamedAnonymous) {
+  filter_->setAuthCallback(
+      [](const RequestHeadersView&) { return AuthResult::allow("anonymous"); });
+
   feed(post(kBody));
 
   EXPECT_EQ(next_.header_count, 1u);
