@@ -428,8 +428,12 @@ class ClientRequestCorrelator {
 
   using Key = std::pair<RequestIdKey, ClientResponseOwner>;
 
-  /** Register interest in the answer from this request's original caller. */
-  void expect(const RequestId& id,
+  /**
+   * Register interest in the answer from this request's original caller.
+   * Returns false for an empty waiter or an already-pending owner/id, leaving
+   * the original waiter intact.
+   */
+  bool expect(const RequestId& id,
               Waiter waiter,
               const ClientResponseOwner& owner = ClientResponseOwner());
 

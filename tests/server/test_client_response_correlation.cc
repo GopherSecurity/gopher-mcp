@@ -71,6 +71,24 @@ TEST(ClientResponseCorrelationTest, TheSameAnswerIsNotDeliveredTwice) {
   EXPECT_EQ(delivered, 1);
 }
 
+TEST(ClientResponseCorrelationTest, ADuplicateCannotReplaceTheOriginalWaiter) {
+  ClientRequestCorrelator correlator;
+  ClientResponseOwner owner;
+  owner.bound = true;
+  owner.principal = "alice";
+  const RequestId id(int64_t(17));
+  int first = 0, second = 0;
+  ASSERT_TRUE(correlator.expect(
+      id, [&](const jsonrpc::Response&) { ++first; }, owner));
+  EXPECT_FALSE(correlator.expect(
+      id, [&](const jsonrpc::Response&) { ++second; }, owner));
+  EXPECT_FALSE(correlator.expect(id, nullptr, owner));
+  EXPECT_EQ(correlator.pending(), 1u);
+  ASSERT_TRUE(correlator.deliver(answerTo(id), owner));
+  EXPECT_EQ(first, 1);
+  EXPECT_EQ(second, 0);
+}
+
 TEST(ClientResponseCorrelationTest, StringAndNumericIdsAreDifferentQuestions) {
   // A peer is entitled to use either kind, and treating "5" as 5 would let
   // one answer resolve the wrong question.

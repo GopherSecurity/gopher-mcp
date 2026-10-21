@@ -227,6 +227,86 @@ TEST(AskClient, AQuestionThatCouldNotBeSentLeavesNobodyWaiting) {
       << "a question that never went out is still being waited for";
 }
 
+TEST(AskClient, ADuplicateIsRejectedBeforeSendingAnotherQuestion) {
+  AskingServer server(testConfig());
+  auto stream = std::make_shared<RecordingStream>();
+  int first = 0, second = 0;
+  ASSERT_TRUE(holds_alternative<std::nullptr_t>(server.askClient(
+      stream, sampling(73), [&](const jsonrpc::Response&) { ++first; }, 0ms)));
+  const auto duplicate = server.askClient(
+      stream, sampling(73), [&](const jsonrpc::Response&) { ++second; }, 0ms);
+  ASSERT_TRUE(holds_alternative<Error>(duplicate));
+  EXPECT_EQ(get<Error>(duplicate).code, jsonrpc::INVALID_REQUEST);
+  EXPECT_EQ(stream->asked.size(), 1u);
+  EXPECT_EQ(server.clientRequests().pending(), 1u);
+  server.onResponse(jsonrpc::Response::success(
+      make_request_id(73), jsonrpc::ResponseResult(Metadata())));
+  EXPECT_EQ(first, 1);
+  EXPECT_EQ(second, 0);
+}
+
+TEST(AskClient, ARejectedDuplicateDoesNotReplaceTheOriginalDeadline) {
+  AskingServer server(testConfig());
+  ASSERT_TRUE(server.initialize());
+  server.dispatcher()->run(event::RunType::NonBlock);
+  auto stream = std::make_shared<RecordingStream>();
+  int first = 0, second = 0;
+  ASSERT_TRUE(holds_alternative<std::nullptr_t>(server.askClient(
+      stream, sampling(74),
+      [&](const jsonrpc::Response& response) {
+        ++first;
+        EXPECT_TRUE(response.error.has_value());
+        server.dispatcher()->exit();
+      },
+      30ms)));
+  const auto duplicate = server.askClient(
+      stream, sampling(74), [&](const jsonrpc::Response&) { ++second; }, 2s);
+  ASSERT_TRUE(holds_alternative<Error>(duplicate));
+  auto watchdog =
+      server.dispatcher()->createTimer([&] { server.dispatcher()->exit(); });
+  watchdog->enableTimer(500ms);
+  server.dispatcher()->run(event::RunType::RunUntilExit);
+  EXPECT_EQ(first, 1);
+  EXPECT_EQ(second, 0);
+  EXPECT_EQ(stream->asked.size(), 1u);
+  EXPECT_EQ(server.clientRequests().pending(), 0u);
+  EXPECT_EQ(server.getServerStats().client_requests_timed_out.load(), 1u);
+}
+
+TEST(AskClient, SendRequestRejectsADuplicateWithoutConsumingTheOriginalWaiter) {
+  AskingServer server(testConfig());
+  ASSERT_TRUE(server.initialize());
+  server.dispatcher()->run(event::RunType::NonBlock);
+  CallerContext caller;
+  caller.who = "alice";
+  std::string session_id;
+  int delivered = 0;
+  server.registerAsyncRequestHandler(
+      "test/ask", [&](const jsonrpc::Request&, SessionContext& session,
+                      const ResponseStreamPtr& answer) {
+        session_id = session.getId();
+        EXPECT_TRUE(holds_alternative<std::nullptr_t>(server.askClient(
+            answer, sampling(75),
+            [&](const jsonrpc::Response&) { ++delivered; }, 0ms)));
+      });
+  auto request = sampling(1);
+  request.method = "test/ask";
+  server.onRequestWithContext(request, caller);
+  ASSERT_FALSE(session_id.empty());
+  auto duplicate = server.sendRequest(session_id, sampling(75), 1s);
+  ASSERT_EQ(duplicate.wait_for(0ms), std::future_status::ready);
+  const auto response = duplicate.get();
+  ASSERT_TRUE(response.error.has_value());
+  EXPECT_EQ(response.error->code, jsonrpc::INVALID_REQUEST);
+  EXPECT_EQ(server.clientRequests().pending(), 1u);
+  server.onResponseWithContext(
+      jsonrpc::Response::success(make_request_id(75),
+                                 jsonrpc::ResponseResult(Metadata())),
+      caller);
+  EXPECT_EQ(delivered, 1);
+  EXPECT_EQ(server.clientRequests().pending(), 0u);
+}
+
 TEST(AskClient, AQuestionNeedsSomewhereToGoAndSomebodyToHearTheAnswer) {
   AskingServer server(testConfig());
   auto stream = std::make_shared<RecordingStream>();

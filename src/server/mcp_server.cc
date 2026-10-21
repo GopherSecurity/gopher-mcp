@@ -1648,13 +1648,19 @@ std::future<jsonrpc::Response> McpServer::sendRequest(
   auto future = promise->get_future();
   const auto owner = clientResponseOwnerForSession(*session);
   const ClientRequestCorrelator::Key key(requestIdKey(request.id), owner);
-  client_requests_.expect(
-      request.id,
-      [this, key, promise](const jsonrpc::Response& r) {
-        client_request_deadlines_.erase(key);
-        promise->set_value(r);
-      },
-      owner);
+  if (!client_requests_.expect(
+          request.id,
+          [this, key, promise](const jsonrpc::Response& r) {
+            client_request_deadlines_.erase(key);
+            promise->set_value(r);
+          },
+          owner)) {
+    promise->set_value(jsonrpc::Response::make_error(
+        request.id,
+        Error(jsonrpc::INVALID_REQUEST,
+              "A request with this id is already pending for this client")));
+    return future;
+  }
 
   auto sent = sendRequestToSession(session, request);
   if (holds_alternative<Error>(sent)) {
@@ -2173,16 +2179,20 @@ VoidResult McpServer::askClient(
   // Registered before the question goes out, not after: the answer may be
   // on its way back before this function returns, and an answer arriving
   // to nobody is dropped.
-  client_requests_.expect(
-      request.id,
-      [this, key, on_answer](const jsonrpc::Response& response) {
-        // Settled, so its deadline is no longer anybody's business. Safe to
-        // drop here because this runs from the inbound dispatch, never from
-        // inside the timer's own callback.
-        client_request_deadlines_.erase(key);
-        on_answer(response);
-      },
-      owner);
+  if (!client_requests_.expect(
+          request.id,
+          [this, key, on_answer](const jsonrpc::Response& response) {
+            // Settled, so its deadline is no longer anybody's business. Safe to
+            // drop here because this runs from the inbound dispatch, never from
+            // inside the timer's own callback.
+            client_request_deadlines_.erase(key);
+            on_answer(response);
+          },
+          owner)) {
+    return makeVoidError(
+        Error(jsonrpc::INVALID_REQUEST,
+              "A request with this id is already pending for this client"));
+  }
 
   auto sent = stream->sendRequest(request);
   if (holds_alternative<Error>(sent)) {
@@ -2362,13 +2372,14 @@ SessionManager::SessionPtr McpServer::getOrCreateSessionFor(
 // an unrelated connection.
 // ===== ClientRequestCorrelator =====
 
-void ClientRequestCorrelator::expect(const RequestId& id,
+bool ClientRequestCorrelator::expect(const RequestId& id,
                                      Waiter waiter,
                                      const ClientResponseOwner& owner) {
   if (!waiter)
-    return;
+    return false;
   std::lock_guard<std::mutex> lock(mutex_);
-  waiters_[Key(requestIdKey(id), owner)] = std::move(waiter);
+  return waiters_.emplace(Key(requestIdKey(id), owner), std::move(waiter))
+      .second;
 }
 
 bool ClientRequestCorrelator::deliver(const jsonrpc::Response& response,
