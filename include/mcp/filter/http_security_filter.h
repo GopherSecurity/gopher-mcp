@@ -142,6 +142,14 @@ struct AuthResult {
   /** Authentication challenge and other headers to include on rejection. */
   std::map<std::string, std::string> response_headers;
 
+  /**
+   * Optional proof that this decision still applies when the body completes.
+   * Must cover policy changes, credential expiry, and revocation. When absent
+   * or false, the auth hook runs again before anything is routed. Never reused
+   * for another HTTP request.
+   */
+  std::function<bool()> still_current;
+
   static AuthResult allow(const std::string& principal);
   static AuthResult deny(int status_code, const std::string& reason);
 };
@@ -186,6 +194,8 @@ struct HttpSecurityOptions {
  * reaches a layer that could act on it, which is the only arrangement where
  * a rejection is worth anything: a request whose headers were refused but
  * whose body still ran would be both answered twice and acted upon once.
+ * Accepted headers and body are withheld until completion admission succeeds,
+ * so even routes that answer from onHeaders cannot run under an old decision.
  *
  * Dispatcher-thread confined, like every filter.
  */
@@ -257,7 +267,10 @@ class HttpSecurityFilter : public HttpCodecFilter::MessageCallbacks {
   RequestSecurity& security_;
   Host& host_;
   AuthCallback auth_;
+  std::function<bool()> admission_current_;
   std::map<std::string, std::string> request_headers_;
+  std::string request_body_;
+  bool keep_alive_{true};
 
   // Set when the current request has already been answered here. Cleared
   // when the next request's headers arrive.

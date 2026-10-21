@@ -50,6 +50,7 @@ class EchoingCallbacks : public McpProtocolCallbacks {
   void onRequestWithContext(const jsonrpc::Request& request,
                             MessageDispatchContext& context) override {
     requests.push_back(request);
+    principals.push_back(context.principal());
 
     jsonrpc::Response response;
     response.jsonrpc = "2.0";
@@ -69,9 +70,11 @@ class EchoingCallbacks : public McpProtocolCallbacks {
 
   void onResponse(const jsonrpc::Response&) override {}
   void onConnectionEvent(network::ConnectionEvent) override {}
-  void onError(const Error&) override {}
+  void onError(const Error& error) override { errors.push_back(error); }
 
   std::vector<jsonrpc::Request> requests;
+  std::vector<std::string> principals;
+  std::vector<Error> errors;
   std::vector<jsonrpc::Notification> notifications;
 };
 
@@ -180,6 +183,56 @@ class HttpSecurityTest : public test::RealIoTestBase {
 
 const char kInitialize[] =
     "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}";
+
+TEST_F(HttpSecurityTest, ACompletionRefusalCannotFollowAHealthResponse) {
+  int calls = 0;
+  startServer([&](HttpSseFilterChainFactory& factory) {
+    factory.setAuthCallback([&](const RequestHeadersView&) {
+      return ++calls == 1 ? AuthResult::allow("alice")
+                          : AuthResult::deny(401, "revoked");
+    });
+  });
+  sendBodiless("GET", "/health", "");
+  const auto wire = readResponse();
+  EXPECT_EQ(wire.find("HTTP/1.1 401 Unauthorized"), 0u) << wire;
+  EXPECT_EQ(wire.find("HTTP/1.1", 1), std::string::npos) << wire;
+  EXPECT_TRUE(callbacks_.errors.empty());
+  EXPECT_EQ(calls, 2);
+}
+
+TEST_F(HttpSecurityTest, ALegacyBodyCannotDispatchBeforeCompletionAdmission) {
+  int calls = 0;
+  startServer([&](HttpSseFilterChainFactory& factory) {
+    factory.setAuthCallback([&](const RequestHeadersView&) {
+      return ++calls == 1 ? AuthResult::allow("alice")
+                          : AuthResult::deny(401, "revoked");
+    });
+  });
+  send(
+      "POST /rpc HTTP/1.1\r\nHost: localhost\r\n"
+      "Content-Type: application/json\r\nContent-Length: " +
+      std::to_string(std::string(kInitialize).size()) + "\r\n\r\n" +
+      kInitialize);
+  const auto wire = readResponse();
+  EXPECT_TRUE(callbacks_.requests.empty());
+  EXPECT_EQ(wire.find("HTTP/1.1 401 Unauthorized"), 0u) << wire;
+  EXPECT_EQ(wire.find("HTTP/1.1", 1), std::string::npos) << wire;
+  EXPECT_TRUE(callbacks_.errors.empty());
+}
+
+TEST_F(HttpSecurityTest, DispatchUsesThePrincipalFromFinalAdmission) {
+  int calls = 0;
+  startServer([&](HttpSseFilterChainFactory& factory) {
+    factory.setAuthCallback([&](const RequestHeadersView&) {
+      return AuthResult::allow(++calls == 1 ? "P1" : "P2");
+    });
+  });
+  sendPost(kInitialize, "");
+  const auto wire = readResponse();
+  EXPECT_EQ(wire.find("HTTP/1.1 200 OK"), 0u) << wire;
+  ASSERT_EQ(callbacks_.principals.size(), 1u);
+  EXPECT_EQ(callbacks_.principals[0], "P2");
+}
 
 // ── The endpoint ───────────────────────────────────────────────────────────
 

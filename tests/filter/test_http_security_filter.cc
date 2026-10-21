@@ -278,6 +278,112 @@ TEST_F(HttpSecurityFilterTest, TheHookIsNotAskedAboutARefusedOrigin) {
       << "who a request is from does not matter once it may not be here";
 }
 
+TEST_F(HttpSecurityFilterTest, NoRouteSeesHeadersBeforeFinalAdmission) {
+  int calls = 0;
+  filter_->setAuthCallback([&](const RequestHeadersView&) {
+    ++calls;
+    return AuthResult::allow("alice");
+  });
+  const auto request = post(kBody);
+  feed(request.substr(0, request.size() - 1));
+  EXPECT_EQ(calls, 1);
+  EXPECT_EQ(next_.header_count, 0u);
+  EXPECT_TRUE(next_.body.empty());
+
+  feed(request.substr(request.size() - 1));
+  EXPECT_EQ(calls, 2);
+  EXPECT_EQ(next_.header_count, 1u);
+  EXPECT_EQ(next_.body, kBody);
+  EXPECT_EQ(next_.complete_count, 1u);
+}
+
+TEST_F(HttpSecurityFilterTest,
+       ACompletionRefusalNeverDispatchesOrReportsAnError) {
+  int calls = 0;
+  filter_->setAuthCallback([&](const RequestHeadersView&) {
+    return ++calls == 1 ? AuthResult::allow("alice")
+                        : AuthResult::deny(401, "revoked");
+  });
+  feed(post(kBody));
+
+  EXPECT_EQ(calls, 2);
+  EXPECT_EQ(next_.header_count, 0u);
+  EXPECT_TRUE(next_.body.empty());
+  EXPECT_EQ(next_.complete_count, 0u);
+  EXPECT_EQ(next_.error_count, 0u);
+  EXPECT_EQ(host_.wire.find("HTTP/1.1 401 Unauthorized"), 0u);
+  EXPECT_EQ(host_.wire.find("HTTP/1.1", 1), std::string::npos);
+}
+
+TEST_F(HttpSecurityFilterTest, ReauthenticationMayRemoveTheOriginalPrincipal) {
+  int calls = 0;
+  filter_->setAuthCallback([&](const RequestHeadersView&) {
+    return AuthResult::allow(++calls == 1 ? "alice" : "");
+  });
+  feed(post(kBody));
+  EXPECT_TRUE(security_.principal.empty());
+  EXPECT_EQ(next_.complete_count, 1u);
+}
+
+TEST_F(HttpSecurityFilterTest, ACurrentDecisionIsReusedOnlyWithinItsRequest) {
+  int calls = 0;
+  filter_->setAuthCallback([&](const RequestHeadersView&) {
+    ++calls;
+    auto result = AuthResult::allow("alice");
+    result.still_current = [] { return true; };
+    return result;
+  });
+  feed(post(kBody));
+  EXPECT_EQ(calls, 1);
+  feed(post(kBody));
+  EXPECT_EQ(calls, 2);
+  EXPECT_EQ(next_.complete_count, 2u);
+}
+
+TEST_F(HttpSecurityFilterTest, AStaleDecisionMustBeReauthenticated) {
+  int calls = 0;
+  filter_->setAuthCallback([&](const RequestHeadersView&) {
+    if (++calls == 2) {
+      return AuthResult::deny(403, "policy changed");
+    }
+    auto result = AuthResult::allow("alice");
+    result.still_current = [] { return false; };
+    return result;
+  });
+  feed(post(kBody));
+  EXPECT_EQ(calls, 2);
+  EXPECT_EQ(next_.header_count, 0u);
+  EXPECT_EQ(host_.wire.find("HTTP/1.1 403 Forbidden"), 0u);
+}
+
+TEST_F(HttpSecurityFilterTest, ReplacingTheHookInvalidatesTheEarlierDecision) {
+  filter_->setAuthCallback([](const RequestHeadersView&) {
+    auto result = AuthResult::allow("alice");
+    result.still_current = [] { return true; };
+    return result;
+  });
+  const auto request = post(kBody);
+  feed(request.substr(0, request.size() - 1));
+  filter_->setAuthCallback([](const RequestHeadersView&) {
+    return AuthResult::deny(401, "auth changed");
+  });
+  feed(request.substr(request.size() - 1));
+  EXPECT_EQ(next_.header_count, 0u);
+  EXPECT_EQ(host_.wire.find("HTTP/1.1 401 Unauthorized"), 0u);
+}
+
+TEST_F(HttpSecurityFilterTest, StreamingBodiesCannotExceedTheCodecBufferBound) {
+  filter_->onHeaders({{":method", "POST"}, {":path", "/mcp"}}, true);
+  const std::string chunk(1024 * 1024, 'x');
+  for (int i = 0; i < 17; ++i) {
+    filter_->onBody(chunk, false);
+  }
+  filter_->onMessageComplete();
+  EXPECT_EQ(next_.header_count, 0u);
+  EXPECT_EQ(host_.wire.find("HTTP/1.1 413"), 0u);
+  EXPECT_TRUE(host_.closed);
+}
+
 // ── Everything else passes through ─────────────────────────────────────────
 
 TEST_F(HttpSecurityFilterTest, HeadersReachTheNextLayerUnchanged) {

@@ -22,6 +22,9 @@ namespace filter {
 
 namespace {
 
+// Match the HTTP codec's buffered-body bound, including streaming codec users.
+constexpr size_t kMaxBufferedRequestBody = 16 * 1024 * 1024;
+
 std::string lowered(const std::string& text) {
   std::string out;
   out.reserve(text.size());
@@ -324,11 +327,16 @@ HttpSecurityFilter::~HttpSecurityFilter() = default;
 
 void HttpSecurityFilter::setAuthCallback(AuthCallback callback) {
   auth_ = std::move(callback);
+  admission_current_ = nullptr;
 }
 
 void HttpSecurityFilter::onHeaders(
     const std::map<std::string, std::string>& headers, bool keep_alive) {
   refused_ = false;
+  request_headers_.clear();
+  request_body_.clear();
+  admission_current_ = nullptr;
+  keep_alive_ = keep_alive;
 
   const RequestHeadersView view(headers);
   const std::string origin = view.get("origin");
@@ -354,10 +362,13 @@ void HttpSecurityFilter::onHeaders(
     return;
   }
 
-  next_.onHeaders(headers, keep_alive);
+  // A route may answer immediately from its headers. Do not expose them
+  // until the completed request has passed its final admission check.
 }
 
 bool HttpSecurityFilter::authenticate() {
+  security_.principal.clear();
+  admission_current_ = nullptr;
   if (auth_) {
     const AuthResult decision = auth_(RequestHeadersView(request_headers_));
     if (!decision.allowed) {
@@ -371,9 +382,8 @@ bool HttpSecurityFilter::authenticate() {
              /*close_connection=*/false, decision.response_headers);
       return false;
     }
-    if (!decision.principal.empty()) {
-      security_.principal = decision.principal;
-    }
+    security_.principal = decision.principal;
+    admission_current_ = decision.still_current;
   }
   return true;
 }
@@ -382,27 +392,38 @@ void HttpSecurityFilter::onBody(const std::string& data, bool end_stream) {
   if (refused_) {
     return;
   }
-  next_.onBody(data, end_stream);
+  if (data.size() > kMaxBufferedRequestBody - request_body_.size()) {
+    security_.allowed = false;
+    refuse(413, jsonrpc::INVALID_REQUEST, "HTTP request body too large",
+           /*close_connection=*/true);
+    request_body_.clear();
+    return;
+  }
+  request_body_.append(data);
 }
 
 void HttpSecurityFilter::onMessageComplete() {
   if (refused_) {
     return;
   }
-  if (!authenticate()) {
-    // Headers and body may already have reached a buffering route or
-    // exchange. It must discard that request when completion admission
-    // rejects it, without dispatching the body or writing another answer.
-    next_.onError("HTTP request admission changed");
+  if ((!admission_current_ || !admission_current_()) && !authenticate()) {
+    request_body_.clear();
     return;
   }
+  next_.onHeaders(request_headers_, keep_alive_);
+  if (!request_body_.empty()) {
+    next_.onBody(request_body_, /*end_stream=*/true);
+  }
   next_.onMessageComplete();
+  request_body_.clear();
 }
 
 void HttpSecurityFilter::onError(const std::string& error) {
   // A request that failed to parse will never complete, so whatever was
   // decided about it no longer applies to what arrives next.
   refused_ = false;
+  request_body_.clear();
+  admission_current_ = nullptr;
   next_.onError(error);
 }
 
