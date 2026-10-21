@@ -20,6 +20,7 @@
 #include <chrono>
 #include <future>
 #include <memory>
+#include <stdexcept>
 #include <thread>
 #include <vector>
 
@@ -73,6 +74,7 @@ class AskingServer : public McpServer {
  public:
   explicit AskingServer(const McpServerConfig& config) : McpServer(config) {}
   using McpServer::clientRequests;
+  using McpServer::onNotificationWithContext;
   using McpServer::onRequestWithContext;
   using McpServer::onResponse;
   using McpServer::onResponseWithContext;
@@ -98,6 +100,9 @@ jsonrpc::Request sampling(int64_t id) {
 class CallerContext : public NullMessageDispatchContext {
  public:
   const std::string& principal() const override { return who; }
+  const std::string& requestAuthorization() const override {
+    return authorization;
+  }
   const std::string& transportSessionId() const override { return transport; }
   network::Connection* originConnection() const override { return connection; }
   ResponseStreamPtr beginResponseStream() override { return stream; }
@@ -106,6 +111,7 @@ class CallerContext : public NullMessageDispatchContext {
   }
 
   std::string who;
+  std::string authorization;
   std::string transport;
   network::Connection* connection = nullptr;
   ResponseStreamPtr stream = std::make_shared<RecordingStream>();
@@ -168,6 +174,96 @@ TEST(AskClient, AnUnauthenticatedTransportSessionCanAnswerOnANewConnection) {
   server.onResponseWithContext(response, returning);
   EXPECT_EQ(delivered, 1);
   EXPECT_EQ(server.clientRequests().pending(), 0u);
+}
+
+TEST(AskClient, RequestAndNotificationCredentialsAreScopedToTheirDispatch) {
+  AskingServer server(testConfig());
+  CallerContext caller;
+  caller.who = "alice";
+  caller.authorization = "Bearer request-token";
+  SessionContext* saved = nullptr;
+  std::string seen_request, seen_notification, notification_principal;
+  server.registerRequestHandler(
+      "test/auth",
+      [&](const jsonrpc::Request& request, SessionContext& session) {
+        saved = &session;
+        seen_request = session.getRequestAuthorization();
+        return jsonrpc::Response::success(request.id,
+                                          jsonrpc::ResponseResult(Metadata()));
+      });
+  server.registerNotificationHandler(
+      "test/notify",
+      [&](const jsonrpc::Notification&, SessionContext& session) {
+        seen_notification = session.getRequestAuthorization();
+        notification_principal = session.getPrincipal();
+      });
+  auto request = sampling(1);
+  request.method = "test/auth";
+  server.onRequestWithContext(request, caller);
+  ASSERT_NE(saved, nullptr);
+  EXPECT_EQ(seen_request, "Bearer request-token");
+  EXPECT_TRUE(saved->getRequestAuthorization().empty());
+
+  caller.who = "bob";
+  caller.authorization = "Bearer notification-token";
+  jsonrpc::Notification notification;
+  notification.jsonrpc = "2.0";
+  notification.method = "test/notify";
+  server.onNotificationWithContext(notification, caller);
+  EXPECT_EQ(seen_notification, "Bearer notification-token");
+  EXPECT_EQ(notification_principal, "bob");
+  EXPECT_TRUE(saved->getRequestAuthorization().empty());
+  caller.authorization.clear();
+  server.onNotificationWithContext(notification, caller);
+  EXPECT_TRUE(seen_notification.empty());
+}
+
+TEST(AskClient, AsyncHandlersCopyCredentialsBeforeDispatchReturns) {
+  AskingServer server(testConfig());
+  CallerContext caller;
+  caller.authorization = "Bearer async-token";
+  SessionContext* saved = nullptr;
+  std::string copied;
+  server.registerAsyncRequestHandler(
+      "test/auth", [&](const jsonrpc::Request&, SessionContext& session,
+                       const ResponseStreamPtr&) {
+        saved = &session;
+        copied = session.getRequestAuthorization();
+      });
+  auto request = sampling(1);
+  request.method = "test/auth";
+  server.onRequestWithContext(request, caller);
+  ASSERT_NE(saved, nullptr);
+  EXPECT_EQ(copied, "Bearer async-token");
+  EXPECT_TRUE(saved->getRequestAuthorization().empty());
+}
+
+TEST(AskClient, HandlerFailuresAndAsyncRefusalsClearCredentials) {
+  AskingServer server(testConfig());
+  CallerContext caller;
+  caller.authorization = "Bearer failed-token";
+  SessionContext* saved = nullptr;
+  server.registerRequestHandler(
+      "test/fail",
+      [&](const jsonrpc::Request&,
+          SessionContext& session) -> jsonrpc::Response {
+        saved = &session;
+        throw std::runtime_error("test failure");
+      });
+  auto request = sampling(1);
+  request.method = "test/fail";
+  server.onRequestWithContext(request, caller);
+  ASSERT_NE(saved, nullptr);
+  EXPECT_TRUE(saved->getRequestAuthorization().empty());
+  server.registerAsyncRequestHandler(
+      "test/async",
+      [](const jsonrpc::Request&, SessionContext&, const ResponseStreamPtr&) {
+        FAIL() << "no reply stream";
+      });
+  caller.stream = nullptr;
+  request.method = "test/async";
+  server.onRequestWithContext(request, caller);
+  EXPECT_TRUE(saved->getRequestAuthorization().empty());
 }
 
 TEST(AskClient, TheAnswerReachesWhoeverAsked) {

@@ -330,12 +330,17 @@ void HttpSecurityFilter::setAuthCallback(AuthCallback callback) {
   admission_current_ = nullptr;
 }
 
-void HttpSecurityFilter::onHeaders(
-    const std::map<std::string, std::string>& headers, bool keep_alive) {
-  refused_ = false;
+void HttpSecurityFilter::clearRequestState() {
+  security_.request_authorization.clear();
   request_headers_.clear();
   request_body_.clear();
   admission_current_ = nullptr;
+}
+
+void HttpSecurityFilter::onHeaders(
+    const std::map<std::string, std::string>& headers, bool keep_alive) {
+  refused_ = false;
+  clearRequestState();
   keep_alive_ = keep_alive;
 
   const RequestHeadersView view(headers);
@@ -406,8 +411,11 @@ void HttpSecurityFilter::onMessageComplete() {
   if (refused_) {
     return;
   }
+  struct Cleanup {
+    HttpSecurityFilter& filter;
+    ~Cleanup() { filter.clearRequestState(); }
+  } cleanup{*this};
   if ((!admission_current_ || !admission_current_()) && !authenticate()) {
-    request_body_.clear();
     return;
   }
   next_.onHeaders(request_headers_, keep_alive_);
@@ -415,15 +423,13 @@ void HttpSecurityFilter::onMessageComplete() {
     next_.onBody(request_body_, /*end_stream=*/true);
   }
   next_.onMessageComplete();
-  request_body_.clear();
 }
 
 void HttpSecurityFilter::onError(const std::string& error) {
   // A request that failed to parse will never complete, so whatever was
   // decided about it no longer applies to what arrives next.
   refused_ = false;
-  request_body_.clear();
-  admission_current_ = nullptr;
+  clearRequestState();
   next_.onError(error);
 }
 
@@ -437,6 +443,7 @@ void HttpSecurityFilter::refuse(
   // is still arriving, and it must not reach the layer behind this one
   // even if the write below fails.
   refused_ = true;
+  clearRequestState();
 
   http::ResponseWriter::Options options;
   options.http_1_1 = host_.requestIsHttp11();

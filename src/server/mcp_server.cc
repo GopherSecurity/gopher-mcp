@@ -1502,6 +1502,23 @@ VoidResult McpServer::sendNotificationToSession(
 }
 
 namespace {
+class RequestAuthorizationScope {
+ public:
+  RequestAuthorizationScope(SessionContext& session,
+                            const std::string& authorization)
+      : session_(session) {
+    session_.setRequestAuthorization(authorization);
+  }
+  ~RequestAuthorizationScope() { session_.setRequestAuthorization({}); }
+
+  RequestAuthorizationScope(const RequestAuthorizationScope&) = delete;
+  RequestAuthorizationScope& operator=(const RequestAuthorizationScope&) =
+      delete;
+
+ private:
+  SessionContext& session_;
+};
+
 ClientResponseOwner clientResponseOwnerForSession(
     const SessionContext& session) {
   ClientResponseOwner owner;
@@ -2543,6 +2560,8 @@ void McpServer::dispatchRequest(const jsonrpc::Request& request,
   }
 
   session->updateActivity();
+  RequestAuthorizationScope authorization(*session,
+                                          context.requestAuthorization());
 
   // The trace this request belongs to, as its _meta says: current while
   // it is handled, so what the handler sends carries it on, and handed to
@@ -2599,7 +2618,6 @@ void McpServer::dispatchRequest(const jsonrpc::Request& request,
     session->setRequestMeta(nullopt);
   }
   session->setPrincipal(context.principal());
-  session->setRequestAuthorization(context.requestAuthorization());
 
   // A handler registered as streaming gets somewhere to report progress on
   // its way to an answer. Attached to the session only for the length of
@@ -2890,6 +2908,9 @@ void McpServer::onNotificationWithContext(
   }
 
   session->updateActivity();
+  RequestAuthorizationScope authorization(*session,
+                                          context.requestAuthorization());
+  session->setPrincipal(context.principal());
 
   // Marked before any handler runs, so a handler for this notification
   // sees the handshake as over, which is what the notification says.

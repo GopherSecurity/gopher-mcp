@@ -11,8 +11,10 @@
  * socket: the interesting behaviour is the decision and what it writes.
  */
 
+#include <functional>
 #include <map>
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -52,7 +54,12 @@ class RecordingNext : public HttpCodecFilter::MessageCallbacks {
     last_headers = headers;
   }
   void onBody(const std::string& data, bool) override { body += data; }
-  void onMessageComplete() override { ++complete_count; }
+  void onMessageComplete() override {
+    ++complete_count;
+    if (on_complete) {
+      on_complete();
+    }
+  }
   void onError(const std::string&) override { ++error_count; }
 
   size_t header_count{0};
@@ -60,6 +67,7 @@ class RecordingNext : public HttpCodecFilter::MessageCallbacks {
   size_t error_count{0};
   std::string body;
   std::map<std::string, std::string> last_headers;
+  std::function<void()> on_complete;
 };
 
 class HttpSecurityFilterTest : public ::testing::Test {
@@ -382,6 +390,47 @@ TEST_F(HttpSecurityFilterTest, StreamingBodiesCannotExceedTheCodecBufferBound) {
   EXPECT_EQ(next_.header_count, 0u);
   EXPECT_EQ(host_.wire.find("HTTP/1.1 413"), 0u);
   EXPECT_TRUE(host_.closed);
+}
+
+TEST_F(HttpSecurityFilterTest, AuthorizationAndAdmissionProofEndWithDispatch) {
+  std::weak_ptr<int> proof;
+  filter_->setAuthCallback([&](const RequestHeadersView&) {
+    auto lifetime = std::make_shared<int>(0);
+    proof = lifetime;
+    auto result = AuthResult::allow("alice");
+    result.still_current = [lifetime] { return true; };
+    return result;
+  });
+  std::string seen;
+  next_.on_complete = [&] { seen = security_.request_authorization; };
+  feed(post(kBody, "Authorization: Bearer test-token\r\n"));
+  EXPECT_EQ(seen, "Bearer test-token");
+  EXPECT_TRUE(security_.request_authorization.empty());
+  EXPECT_TRUE(proof.expired());
+}
+
+TEST_F(HttpSecurityFilterTest, ARefusalDropsItsAuthorizationImmediately) {
+  filter_->setAuthCallback([](const RequestHeadersView&) {
+    return AuthResult::deny(401, "denied");
+  });
+  feed(post(kBody, "Authorization: Bearer refused-token\r\n"));
+  EXPECT_TRUE(security_.request_authorization.empty());
+  EXPECT_EQ(next_.header_count, 0u);
+}
+
+TEST_F(HttpSecurityFilterTest, AParseErrorDropsThePendingAuthorization) {
+  filter_->onHeaders({{"authorization", "Bearer pending-token"}}, true);
+  EXPECT_FALSE(security_.request_authorization.empty());
+  filter_->onError("bad body");
+  EXPECT_TRUE(security_.request_authorization.empty());
+  EXPECT_EQ(next_.error_count, 1u);
+}
+
+TEST_F(HttpSecurityFilterTest, AThrowingDownstreamCannotKeepTheAuthorization) {
+  next_.on_complete = [] { throw std::runtime_error("handler failed"); };
+  filter_->onHeaders({{"authorization", "Bearer test-token"}}, true);
+  EXPECT_THROW(filter_->onMessageComplete(), std::runtime_error);
+  EXPECT_TRUE(security_.request_authorization.empty());
 }
 
 // ── Everything else passes through ─────────────────────────────────────────

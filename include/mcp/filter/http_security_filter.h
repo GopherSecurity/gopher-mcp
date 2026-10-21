@@ -261,6 +261,7 @@ class HttpSecurityFilter : public HttpCodecFilter::MessageCallbacks {
               const std::map<std::string, std::string>& headers = {});
 
   bool authenticate();
+  void clearRequestState();
 
   HttpCodecFilter::MessageCallbacks& next_;
   const HttpSecurityPolicy& policy_;

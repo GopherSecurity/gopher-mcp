@@ -111,6 +111,7 @@ class RecordingCallbacks : public McpProtocolCallbacks {
   void onRequestWithContext(const jsonrpc::Request& request,
                             MessageDispatchContext& context) override {
     requests.push_back(request);
+    authorization_at_request = context.requestAuthorization();
     session_at_request = context.transportSessionId();
     if (filter != nullptr && filter->currentExchange()) {
       client_at_request = filter->currentExchange()->clientContext();
@@ -158,7 +159,8 @@ class RecordingCallbacks : public McpProtocolCallbacks {
 
   void onNotificationWithContext(const jsonrpc::Notification& notification,
                                  MessageDispatchContext& context) override {
-    (void)context;
+    authorization_at_notification = context.requestAuthorization();
+    principal_at_notification = context.principal();
     notifications.push_back(notification);
   }
 
@@ -198,6 +200,9 @@ class RecordingCallbacks : public McpProtocolCallbacks {
   std::vector<jsonrpc::Notification> notifications;
   std::vector<jsonrpc::Response> responses;
   std::string session_at_request{"<never dispatched>"};
+  std::string authorization_at_request;
+  std::string authorization_at_notification;
+  std::string principal_at_notification;
 };
 
 /** Stands in for the filter that serves everything this one does not. */
@@ -387,6 +392,23 @@ TEST_F(StreamableHttpFilterTest, ARequestIsAnsweredWithTheHandlersResponse) {
   EXPECT_EQ(wire_.find("HTTP/1.1"), std::string::npos) << wire_;
   EXPECT_EQ(wire_.find('{'), 0u) << wire_;
   EXPECT_NE(wire_.find("\"id\":1"), std::string::npos) << wire_;
+}
+
+TEST_F(StreamableHttpFilterTest,
+       ACompletedOrAbandonedRequestKeepsNoCredential) {
+  feed(post("/mcp", kRequestBody, "Authorization: Bearer completed-token\r\n"));
+  EXPECT_EQ(callbacks_.authorization_at_request, "Bearer completed-token");
+  ASSERT_EQ(filter_->currentExchange(), nullptr);
+  jsonrpc::Notification notification;
+  notification.method = "notifications/initialized";
+  filter_->onNotification(notification);
+  EXPECT_TRUE(callbacks_.authorization_at_notification.empty());
+  EXPECT_TRUE(callbacks_.principal_at_notification.empty());
+
+  feed(post("/mcp", "{", "Authorization: Bearer abandoned-token\r\n"));
+  ASSERT_EQ(filter_->currentExchange(), nullptr);
+  filter_->onNotification(notification);
+  EXPECT_TRUE(callbacks_.authorization_at_notification.empty());
 }
 
 TEST_F(StreamableHttpFilterTest, AHandlerThatSaysNothingWritesNothing) {

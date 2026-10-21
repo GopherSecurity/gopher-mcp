@@ -1741,6 +1741,7 @@ void StreamableHttpFilter::respondWithError(int status_code,
 }
 
 void StreamableHttpFilter::abandonRequest() {
+  request_authorization_.clear();
   if (parked_) {
     // Whatever is coming back for this request has nothing to answer any
     // more, so stop holding the connection's input on its behalf.

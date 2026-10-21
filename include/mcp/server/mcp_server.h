@@ -606,8 +606,9 @@ class SessionContext {
   void setPrincipal(const std::string& principal) { principal_ = principal; }
   const std::string& getPrincipal() const { return principal_; }
 
-  // The credential carried by this request, never a previous request on the
-  // same session. Handlers doing asynchronous work must copy it at dispatch.
+  // The credential carried by this request or notification, cleared when its
+  // dispatch returns. Handlers doing asynchronous work must copy it at
+  // dispatch.
   void setRequestAuthorization(const std::string& authorization) {
     request_authorization_ = authorization;
   }
