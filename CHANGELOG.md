@@ -14,6 +14,66 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 
+## [0.1.19] - 2026-10-29
+
+### Added
+
+- Structured tool output with `outputSchema` and `structuredContent`, adapted
+  to the caller's protocol revision with text fallback for older clients (#293).
+- Configurable pagination for tools, prompts, resources and resource templates,
+  using signed cursors bound to the issuing list and server; client support for
+  `resources/templates/list` (#307, #308).
+- Form and URL elicitation, including typed fields, single-choice and
+  multi-select schemas (#291, #318).
+- Client and server completion APIs for prompt and resource-template arguments
+  through `completion/complete` (#320).
+- Tasks extension for long-running tools, with caller-owned tasks, polling,
+  input requests, cancellation, expiry and task subscriptions (#327).
+- Cancellable client requests, enforced request timeouts, progress callbacks
+  and server-side cancellation signals for deferred work (#321).
+- Configurable `ttlMs` and `cacheScope` hints on cacheable results, plus server
+  identity in result metadata for 2026-07-28 callers (#290, #316).
+- Titles, icons, tool behaviour hints, annotations and nested `_meta` across
+  protocol types, with client and server display metadata (#295, #305, #319).
+- Extension capability negotiation and W3C trace context propagation, with
+  request span hooks on the client and server (#314, #323).
+- Tool, prompt and resource list-change notifications, including registration
+  and removal updates when the capability is enabled (#322).
+- Official 2026-07-28 schema conformance fixtures and bidirectional Python SDK
+  interoperability suites integrated into `make test-interop` (#294, #312, #329).
+
+### Changed
+
+- Clients now offer 2025-11-25 during initialization, reject unsupported or newer
+  handshake responses, and discover 2026-07-28 even with an explicitly selected
+  Streamable HTTP transport (#296, #313).
+- Advertise registered features and configured capabilities consistently in
+  `initialize` and `server/discover`; unadvertised methods return method-not-found
+  errors (#288, #314).
+- Align source license headers and SDK package declarations with Apache-2.0.
+
+### Fixed
+
+- Preserve nested JSON, exact tool and prompt arguments, request state and rich
+  error data throughout client/server encoding and decoding (#283, #297).
+- Correct initialization state, typed prompt listings, resource-link and
+  embedded-resource wire shapes, and empty ping responses (#284, #285, #287,
+  #299, #315).
+- Return protocol errors for unknown tools and resources, and preserve JSON-RPC
+  errors carried by HTTP error responses (#289, #297, #304).
+- Fix SSE chunk framing, session headers and reconnect retry timing; prevent
+  replies to server requests from blocking behind streaming responses (#286,
+  #298, #311).
+- Protect configured request state with caller-bound, expiring signatures and
+  isolate in-flight requests by session and typed request ID (#309).
+- Retry tool calls once after a header mismatch by refreshing all tool pages;
+  keep completed or cancelled requests from being retried or sent (#321, #325).
+- Scope listen streams to callers, preserve subscription tags and request
+  metadata, and make stream routing and sends safe during cancellation.
+- Keep sessions alive while streams are active and clean up retained streams
+  on disconnect; fix reentrant connection teardown, callback lifetimes and
+  bounded flush-close timeouts (#301, #302).
+
 ## [0.1.18] - 2026-09-02
 
 ### Added

@@ -134,7 +134,7 @@ jobs:
           path: build-output/windows-${{ matrix.arch }}/*
           retention-days: 7
 
-  # macOS builds (x64 and ARM64)
+  # macOS builds use native runners so dependencies match the target architecture.
   build-macos:
     name: Build macOS ${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}
@@ -143,9 +143,11 @@ jobs:
       matrix:
         include:
           - arch: x64
-            runner: macos-14  # Apple Silicon runner (cross-compile for x64)
+            runner: macos-15-intel
+            machine: x86_64
           - arch: arm64
-            runner: macos-14  # Apple Silicon runner (M1)
+            runner: macos-15
+            machine: arm64
 
     steps:
       - name: Checkout code
@@ -153,23 +155,17 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Install x86_64 dependencies (for cross-compilation)
-        if: matrix.arch == 'x64'
+      - name: Verify runner architecture
+        env:
+          EXPECTED_ARCH: ${{ matrix.machine }}
         run: |
-          echo "Installing x86_64 Homebrew and dependencies for cross-compilation..."
-          # Install x86_64 Homebrew if not present
-          if [ ! -f /usr/local/bin/brew ]; then
-            echo "Installing x86_64 Homebrew..."
-            arch -x86_64 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" </dev/null
+          if [ "$(uname -m)" != "$EXPECTED_ARCH" ]; then
+            echo "::error::Expected a native $EXPECTED_ARCH runner, got $(uname -m)"
+            exit 1
           fi
-          # Install x86_64 dependencies
-          echo "Installing x86_64 OpenSSL, libevent, and nghttp2..."
-          arch -x86_64 /usr/local/bin/brew install openssl@3 libevent libnghttp2 || true
-          # Verify installation
-          echo "x86_64 library locations:"
-          arch -x86_64 /usr/local/bin/brew --prefix openssl@3 || echo "/usr/local/opt/openssl@3"
-          arch -x86_64 /usr/local/bin/brew --prefix libevent || echo "/usr/local/opt/libevent"
-          arch -x86_64 /usr/local/bin/brew --prefix libnghttp2 || echo "/usr/local/opt/libnghttp2"
+
+      - name: Install dependencies
+        run: brew install openssl@3 libevent libnghttp2 pkgconf
 
       - name: Make build script executable
         run: chmod +x docker-mcp/build-mac-${{ matrix.arch }}.sh
@@ -180,6 +176,8 @@ jobs:
           ./docker-mcp/build-mac-${{ matrix.arch }}.sh
 
       - name: Verify build output
+        env:
+          EXPECTED_ARCH: ${{ matrix.machine }}
         run: |
           echo "Checking build output..."
           ls -la build-output/mac-${{ matrix.arch }}/
@@ -190,6 +188,9 @@ jobs:
             echo "Error: Library not found!"
             exit 1
           fi
+          for library in build-output/mac-${{ matrix.arch }}/*.dylib; do
+            lipo "$library" -verify_arch "$EXPECTED_ARCH"
+          done
           # Check for headers
           if [ -d "build-output/mac-${{ matrix.arch }}/include/mcp" ]; then
             echo "✓ Headers found"
@@ -341,9 +342,10 @@ jobs:
           echo "Release tag: ${TAG}"
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ steps.tag.outputs.tag }}
+          target_commitish: ${{ github.sha }}
           name: libgopher-mcp ${{ steps.tag.outputs.tag }}
           body_path: RELEASE_NOTES.md
           draft: false
