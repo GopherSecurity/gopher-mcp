@@ -10,7 +10,8 @@ on:
 jobs:
   clang-format:
     name: Clang Format
-    runs-on: ubuntu-latest
+    # Keep the clang-format-14 package available for the project's format rules.
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       pull-requests: write
