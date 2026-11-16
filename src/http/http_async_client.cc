@@ -28,9 +28,8 @@ namespace http {
 
 namespace {
 
-// Minimal URL parser — the input contract says "absolute URL with an
-// IPv4 literal host", which is all the current callers produce. We
-// stay strict and return false on anything we don't recognize so
+// Minimal URL parser for absolute HTTP(S) URLs with an IPv4 literal or DNS
+// hostname. We stay strict and return false on anything we don't recognize so
 // callers get a clean error instead of a mystery connection attempt.
 struct ParsedUrl {
   bool tls{false};
@@ -160,9 +159,18 @@ class HttpAsyncClient::RequestContext
     auto& dispatcher = parent_.dispatcher_;
     auto& socket_interface = parent_.socket_interface_;
 
-    // Build remote address from the IPv4 literal in the URL.
+    // Resolve only the socket address. Keep url_.host unchanged for the HTTP
+    // Host header and for TLS factories configured with the URL hostname as
+    // SNI.
+    const std::string resolved_host =
+        network::Address::resolveHostnameToIpv4(url_.host);
+    if (resolved_host.empty()) {
+      GOPHER_LOG_WARN("HTTP start: failed to resolve hostname {}", url_.host);
+      return false;
+    }
     auto remote_address =
-        std::make_shared<network::Address::Ipv4Instance>(url_.host, url_.port);
+        std::make_shared<network::Address::Ipv4Instance>(resolved_host,
+                                                        url_.port);
 
     // Create a non-blocking TCP socket via the MCP socket interface.
     auto fd_result = socket_interface.socket(network::SocketType::Stream,
