@@ -217,6 +217,40 @@ TEST_F(HttpAsyncClientTest, PostRoundTripDeliversResponseBody) {
   EXPECT_EQ(r.headers["content-type"], "application/json");
 }
 
+TEST_F(HttpAsyncClientTest, HostnameResolvesAndRemainsInHostHeader) {
+  uint16_t port = createRealListener();
+  createClient();
+
+  ResponseSink sink;
+  HttpRequest req;
+  req.method = "GET";
+  req.url = "http://localhost:" + std::to_string(port) + "/health";
+
+  executeInDispatcher([this, &req, &sink]() {
+    ASSERT_TRUE(client_->send(
+        req, [&sink](HttpResponse r) { sink.setResponse(std::move(r)); },
+        [&sink](const std::string& e) { sink.setError(e); }));
+  });
+
+  auto accepted = acceptOne();
+  ASSERT_TRUE(accepted) << "server never saw the hostname-based request";
+
+  const std::string request_wire = readRequest(*accepted);
+  EXPECT_NE(request_wire.find("GET /health HTTP/1.1"), std::string::npos);
+  EXPECT_NE(request_wire.find("Host: localhost:" + std::to_string(port)),
+            std::string::npos);
+
+  const std::string reply =
+      "HTTP/1.1 204 No Content\r\n"
+      "Content-Length: 0\r\n"
+      "Connection: close\r\n\r\n";
+  writeResponse(*accepted, reply);
+
+  ASSERT_TRUE(sink.wait());
+  ASSERT_TRUE(sink.hasResponse()) << "error instead: " << sink.error();
+  EXPECT_EQ(sink.response().status_code, 204);
+}
+
 TEST_F(HttpAsyncClientTest, RejectsMalformedUrl) {
   createClient();
   bool cb_fired = false;
