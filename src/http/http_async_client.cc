@@ -168,9 +168,8 @@ class HttpAsyncClient::RequestContext
       GOPHER_LOG_WARN("HTTP start: failed to resolve hostname {}", url_.host);
       return false;
     }
-    auto remote_address =
-        std::make_shared<network::Address::Ipv4Instance>(resolved_host,
-                                                        url_.port);
+    auto remote_address = std::make_shared<network::Address::Ipv4Instance>(
+        resolved_host, url_.port);
 
     // Create a non-blocking TCP socket via the MCP socket interface.
     auto fd_result = socket_interface.socket(network::SocketType::Stream,
