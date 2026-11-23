@@ -2326,6 +2326,16 @@ target_link_libraries(test_streamable_http_sessions
 )
 add_test(NAME StreamableHttpSessionsTest COMMAND test_streamable_http_sessions)
 
+add_executable(test_http_session_response_isolation integration/test_http_session_response_isolation.cc)
+target_link_libraries(test_http_session_response_isolation
+    gopher-mcp
+    gopher-mcp-event
+    gtest
+    gtest_main
+    Threads::Threads
+)
+add_test(NAME HttpSessionResponseIsolationTest COMMAND test_http_session_response_isolation)
+
 add_executable(test_modern_era_headers integration/test_modern_era_headers.cc)
 target_link_libraries(test_modern_era_headers
     gopher-mcp

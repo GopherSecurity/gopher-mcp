@@ -248,6 +248,7 @@ class HttpSseJsonRpcProtocolFilter
     // is not written by hand below: the codec frames protocol responses,
     // the route table frames everything it serves itself.
     if (is_server_) {
+      http_filter_->setRequestStartCallback([this]() { onRequestStart(); });
       http_filter_->setResponseHeaderProvider(corsSource(/*preflight=*/false));
       routing_filter_->setResponseHeaderProvider(
           corsSource(/*preflight=*/false));
@@ -682,13 +683,10 @@ class HttpSseJsonRpcProtocolFilter
     GOPHER_LOG_DEBUG(
         "HttpSseJsonRpcProtocolFilter::onWrite - calling http_filter");
     // HTTP filter adds headers/framing for normal HTTP responses
-    status = http_filter_->onWrite(data, end_stream);
-    if (status != network::FilterStatus::StopIteration && is_server_ &&
-        streamable_http_session_id_from_request_ &&
-        !streamable_http_session_id_.empty() && data.length() > 0) {
-      addStreamableHttpSessionHeader(data);
-    }
-    return status;
+    // Session headers belong to the exchange that framed the response.
+    // An already-framed route or rejection must never inherit protocol
+    // state from whatever request this connection processed most recently.
+    return http_filter_->onWrite(data, end_stream);
   }
 
   void initializeReadFilterCallbacks(
@@ -721,6 +719,18 @@ class HttpSseJsonRpcProtocolFilter
   }
 
   // ===== HttpCodecFilter::MessageCallbacks =====
+
+  void onRequestStart() {
+    assert(dispatcher_.isThreadSafe());
+    if (server_mode_ && !server_mode_->isSseStream()) {
+      // This notification reaches us before routing and security can send
+      // a local reply, including requests whose headers never reach us.
+      server_mode_->resetForNextRequest();
+      clearPerRequestSessionIds();
+      request_protocol_version_ = protocol::kLegacyAssumedVersion;
+      client_accepts_sse_ = false;
+    }
+  }
 
   /**
    * Called by HttpCodecFilter when HTTP headers are parsed
@@ -762,12 +772,6 @@ class HttpSseJsonRpcProtocolFilter
       size_t qpos = path.find('?');
       if (qpos != std::string::npos) {
         path = path.substr(0, qpos);
-      }
-
-      if (server_mode_ && !server_mode_->isSseStream() &&
-          server_mode_->currentMode() != ServerConnMode::Undetermined) {
-        server_mode_->resetForNextRequest();
-        clearPerRequestSessionIds();
       }
 
       auto accept_it = headers.find("accept");
@@ -1346,6 +1350,13 @@ class HttpSseJsonRpcProtocolFilter
     // or none at all.
     exchange->setResponseOptions(http_filter_->currentRequestIsHttp11(),
                                  /*keep_alive=*/true);
+    exchange->setFramedHeaders(corsHeaderList());
+    exchange->clientContext().principal = security_.principal;
+    if (streamable_http_session_id_from_request_ &&
+        !streamable_http_session_id_.empty()) {
+      exchange->setResponseHeader("Mcp-Session-Id",
+                                  streamable_http_session_id_);
+    }
     exchange->clientContext().protocol_version = request_protocol_version_;
 
     // params._meta arrives already serialized, because nested JSON is
@@ -1419,8 +1430,13 @@ class HttpSseJsonRpcProtocolFilter
         !(server_mode_ && server_mode_->isCallbackProxy())) {
       // Build minimal HTTP 202 response
       http::ResponseWriter writer;
+      auto headers = corsHeaderList();
+      if (streamable_http_session_id_from_request_ &&
+          !streamable_http_session_id_.empty()) {
+        headers.emplace_back("Mcp-Session-Id", streamable_http_session_id_);
+      }
       writer.startUnary(static_cast<int>(http::HttpStatusCode::Accepted),
-                        corsHeaderList());
+                        headers);
 
       OwnedBuffer response_buffer;
       writer.drainTo(response_buffer);
@@ -1924,29 +1940,6 @@ class HttpSseJsonRpcProtocolFilter
     if (route_registration_callback_) {
       route_registration_callback_(routing_filter_.get());
     }
-  }
-
-  void addStreamableHttpSessionHeader(Buffer& data) {
-    const size_t len = data.length();
-    std::string http_response(static_cast<const char*>(data.linearize(len)),
-                              len);
-    if (http_response.compare(0, 5, "HTTP/") != 0 ||
-        http_response.find("\r\nMcp-Session-Id:") != std::string::npos ||
-        http_response.find("\r\nmcp-session-id:") != std::string::npos) {
-      return;
-    }
-
-    const std::string marker = "\r\n\r\n";
-    const auto header_end = http_response.find(marker);
-    if (header_end == std::string::npos) {
-      return;
-    }
-
-    const std::string header =
-        "\r\nMcp-Session-Id: " + streamable_http_session_id_;
-    http_response.insert(header_end, header);
-    data.drain(len);
-    data.add(http_response.c_str(), http_response.length());
   }
 
   /**

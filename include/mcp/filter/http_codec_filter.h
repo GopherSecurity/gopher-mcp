@@ -286,6 +286,15 @@ class HttpCodecFilter : public network::Filter {
   }
 
   /**
+   * Reset protocol bookkeeping before a new server request can be routed
+   * or refused. Called on the dispatcher at the parser's message boundary,
+   * even when routing or security will not forward the request's headers.
+   */
+  void setRequestStartCallback(std::function<void()> callback) {
+    request_start_ = std::move(callback);
+  }
+
+  /**
    * Stop parsing and dispatching further requests on this connection.
    *
    * HTTP/1.1 requires responses in request order, so while a response is
@@ -469,6 +478,7 @@ class HttpCodecFilter : public network::Filter {
 
   // Extra headers for responses this codec frames itself.
   std::function<std::map<std::string, std::string>()> response_headers_;
+  std::function<void()> request_start_;
 };
 
 }  // namespace filter
