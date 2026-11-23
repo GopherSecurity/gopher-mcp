@@ -326,6 +326,7 @@ class StreamableHttpFilter : public HttpCodecFilter::MessageCallbacks,
 
     network::Connection* originConnection() const override;
     const std::string& transportSessionId() const override;
+    const std::string& principal() const override;
     VoidResult sendResponse(const jsonrpc::Response& response) override;
     ResponseStreamPtr beginResponseStream() override;
 
@@ -345,6 +346,9 @@ class StreamableHttpFilter : public HttpCodecFilter::MessageCallbacks,
    * never hears about and can never present again.
    */
   void mintSessionFor(const jsonrpc::Request& request);
+
+  /** Bind a validated session to this exchange before it starts answering. */
+  void setSessionResponseHeader();
 
   /**
    * Settle a session against the answer its initialize earned: keep it and

@@ -665,6 +665,9 @@ http::ParserCallbackResult HttpCodecFilter::ParserCallbacks::onMessageBegin() {
   parent_.current_stream_->reset();
   current_header_field_.clear();
   current_header_value_.clear();
+  if (parent_.is_server_ && parent_.request_start_) {
+    parent_.request_start_();
+  }
   return http::ParserCallbackResult::Success;
 }
 

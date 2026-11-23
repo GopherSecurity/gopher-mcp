@@ -1376,9 +1376,9 @@ TEST_F(StreamableHttpFilterTest, AnEchoedSessionIdReachesTheHandler) {
             "Mcp-Session-Id: " + id + "\r\n"));
 
   EXPECT_EQ(callbacks_.session_at_request, id);
-  // Only the answer that created the session announces it; repeating it on
-  // every response would say nothing the client does not already know.
-  EXPECT_TRUE(sessionIdOnTheWire().empty()) << wire_;
+  // The exchange now frames its own session header; the connection encoder
+  // must not decide it later from another request's metadata.
+  EXPECT_EQ(sessionIdOnTheWire(), id) << wire_;
 }
 
 TEST_F(StreamableHttpFilterTest, ASessionInUseIsKeptAlive) {
@@ -1776,7 +1776,7 @@ TEST_F(StreamableHttpFilterTest, AClientWithASessionIsNotGivenAnother) {
   wire_.clear();
   feed(post("/mcp", kRequestBody, "Mcp-Session-Id: " + id + "\r\n"));
 
-  EXPECT_TRUE(sessionIdOnTheWire().empty()) << wire_;
+  EXPECT_EQ(sessionIdOnTheWire(), id) << wire_;
   EXPECT_EQ(sessions_->size(), 1u);
   EXPECT_EQ(callbacks_.session_at_request, id);
 }

@@ -341,6 +341,7 @@ VoidResult StreamableHttpFilter::ResponseStreamImpl::sendRefusal(
 
   exchange_->setPhase(transport::RequestExchange::Phase::RespondingError);
   exchange_->setStatus(http_status);
+  exchange_->removeResponseHeader(kSessionHeader);
 
   json::JsonValue body = json::JsonValue::object();
   body.set("jsonrpc", json::JsonValue("2.0"));
@@ -419,6 +420,10 @@ network::Connection* StreamableHttpFilter::DispatchContext::originConnection()
 const std::string& StreamableHttpFilter::DispatchContext::transportSessionId()
     const {
   return parent_.session_id_;
+}
+
+const std::string& StreamableHttpFilter::DispatchContext::principal() const {
+  return parent_.exchange_->clientContext().principal;
 }
 
 VoidResult StreamableHttpFilter::DispatchContext::sendResponse(
@@ -1381,6 +1386,7 @@ void StreamableHttpFilter::openEventStream(const Judgement& judged) {
   // session rather than to the connection, and a client that comes back is
   // owed whatever it missed.
   exchange_->setRetainOnDisconnect(true);
+  setSessionResponseHeader();
   // Named before it says anything, since the name is what every event on
   // it is numbered under and a client comes back holding one of those.
   const std::string stream_id = nameThisStream(exchange_);
@@ -1622,6 +1628,7 @@ void StreamableHttpFilter::dispatchBody() {
       // Nothing to answer with, but HTTP still needs an answer.
       exchange->setPhase(transport::RequestExchange::Phase::Responding202);
       exchange->setStatus(static_cast<int>(http::HttpStatusCode::Accepted));
+      setSessionResponseHeader();
       exchange->respondUnary("", "");
       break;
     case Carried::Nothing:
@@ -1632,6 +1639,15 @@ void StreamableHttpFilter::dispatchBody() {
   }
 
   abandonRequest();
+}
+
+void StreamableHttpFilter::setSessionResponseHeader() {
+  if (exchange_ && !session_id_.empty() &&
+      exchange_->clientContext().era == transport::ProtocolEra::Classic) {
+    // The connection can parse another request before this one answers.
+    // Only the exchange may decide which session its response names.
+    exchange_->setResponseHeader(kSessionHeader, session_id_);
+  }
 }
 
 void StreamableHttpFilter::mintSessionFor(const jsonrpc::Request& request) {
@@ -1713,6 +1729,7 @@ void StreamableHttpFilter::respondWithError(int status_code,
   }
   exchange_->setPhase(transport::RequestExchange::Phase::RespondingError);
   exchange_->setStatus(status_code);
+  exchange_->removeResponseHeader(kSessionHeader);
   exchange_->respondUnary("application/json", idLessError(code, message));
 }
 
@@ -1725,6 +1742,7 @@ void StreamableHttpFilter::respondWithError(int status_code,
   }
   exchange_->setPhase(transport::RequestExchange::Phase::RespondingError);
   exchange_->setStatus(status_code);
+  exchange_->removeResponseHeader(kSessionHeader);
   exchange_->respondUnary("application/json", idLessError(code, message, data));
 }
 
@@ -1800,6 +1818,9 @@ void StreamableHttpFilter::onRequest(const jsonrpc::Request& request) {
     return;
   }
 
+  if (request.method != protocol::modern::kMethodServerDiscover) {
+    setSessionResponseHeader();
+  }
   DispatchContext context(*this);
 
   if (streaming == StreamingMode::Required &&
